@@ -1,0 +1,47 @@
+{
+  "name": "bank-statements-app",
+  "version": "1.0.0",
+  "description": "Local dashboard for managing bank statements and viewing financial summaries",
+  "main": "server/index.ts",
+  "type": "module",
+  "scripts": {
+    "start": "lsof -ti:3000 | xargs kill -9 2>/dev/null; tsx server/index.ts",
+    "dev": "lsof -ti:3000 -ti:5173 | xargs kill -9 2>/dev/null; concurrently \"npm run server\" \"sleep 3 && npm run vite\" --names \"backend,frontend\" --prefix-colors \"blue,green\"",
+    "server": "lsof -ti:3000 | xargs kill -9 2>/dev/null; tsx watch server/index.ts",
+    "vite": "lsof -ti:5173 | xargs kill -9 2>/dev/null; vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "keywords": [
+    "bank-statements",
+    "finance",
+    "dashboard"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "better-sqlite3": "^12.6.2",
+    "chart.js": "^4.5.1",
+    "csv-parse": "^5.5.6",
+    "express": "^4.21.0",
+    "multer": "^1.4.5-lts.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/archiver": "^7.0.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/chart.js": "^2.9.41",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^25.0.10",
+    "concurrently": "^9.2.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vitest": "^4.0.18"
+  }
+}

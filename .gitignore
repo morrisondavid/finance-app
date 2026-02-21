@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Database (rebuilt from CSVs on startup)
+data/
+
+# Build output
+dist/
+
+# Environment
+.env
+.env.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Uploaded bank statements (personal financial data)
+statements/
+
+# Multer temp uploads
+uploads/

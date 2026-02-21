@@ -1,0 +1,680 @@
+/**
+ * Statements module - handles file listing, filtering, and download
+ */
+
+import type { AllStatements, FileInfo } from '../types';
+import { state, setState } from './state';
+import {
+  fetchStatements,
+  fetchStatementYears,
+  checkQuarterFiles,
+  downloadForAccountant,
+  downloadSelectedFiles
+} from '../utils/api';
+import { formatAccountName, formatMonthYear } from '../utils/formatting';
+
+// VAT Quarter definitions (Stagger 2)
+const VAT_QUARTERS = {
+  Q1: { name: 'Q1 (Nov-Jan)', months: [11, 12, 1], crossYear: true },
+  Q2: { name: 'Q2 (Feb-Apr)', months: [2, 3, 4], crossYear: false },
+  Q3: { name: 'Q3 (May-Jul)', months: [5, 6, 7], crossYear: false },
+  Q4: { name: 'Q4 (Aug-Oct)', months: [8, 9, 10], crossYear: false }
+};
+
+let hasAppliedFilter = false;
+
+/**
+ * Load statements with filters
+ */
+export async function loadStatements(
+  search = '',
+  year = '',
+  month = '',
+  quarter = ''
+): Promise<void> {
+  try {
+    // Check if any filter is applied
+    hasAppliedFilter = !!(search || year || month || quarter);
+    
+    // If no filter, just show the prompt - don't fetch all files
+    if (!hasAppliedFilter) {
+      renderStatementsPrompt();
+      updateFileCount(null);
+      updateDownloadButton();
+      return;
+    }
+    
+    const data = await fetchStatements({ search, year, month, quarter });
+    setState('statementsData', data);
+    
+    renderStatements(data);
+    updateFileCount(data);
+    updateDownloadButton();
+  } catch (error) {
+    console.error('Error loading statements:', error);
+  }
+}
+
+/**
+ * Load available years for filter
+ */
+async function loadAvailableYears(): Promise<void> {
+  try {
+    const years = await fetchStatementYears();
+    populateYearFilter(years);
+  } catch (error) {
+    console.error('Error loading years:', error);
+  }
+}
+
+/**
+ * Render prompt when no filters applied
+ */
+function renderStatementsPrompt(): void {
+  const container = document.getElementById('statements-list');
+  if (!container) return;
+  
+  container.innerHTML = `
+    <div class="empty-state">
+      <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 6h18"/>
+        <path d="M7 12h10"/>
+        <path d="M10 18h4"/>
+      </svg>
+      <p>Select a year or VAT quarter to view statements</p>
+      <p class="empty-state-hint">Use the filters above to find your bank statements</p>
+    </div>
+  `;
+}
+
+/**
+ * Render statements with checkboxes and missing file warnings
+ */
+function renderStatements(data: AllStatements): void {
+  const container = document.getElementById('statements-list');
+  const selectionControls = document.querySelector<HTMLElement>('.selection-controls');
+  
+  if (!container) return;
+  
+  const accounts = Object.entries(data) as [string, import('../types').AccountStatements][];
+  const hasAnyFiles = accounts.some(([, files]) => 
+    files.pdf.length > 0 || files.csv.length > 0
+  );
+  
+  if (!hasAnyFiles) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+        </svg>
+        <p>No statements found for the selected filters</p>
+      </div>
+    `;
+    if (selectionControls) selectionControls.style.display = 'none';
+    return;
+  }
+  
+  // Show selection controls when files are displayed
+  if (selectionControls) selectionControls.style.display = 'flex';
+  
+  // Get expected months if quarter is selected
+  const quarterFilter = document.getElementById('quarter-filter') as HTMLSelectElement;
+  const expectedMonths = quarterFilter?.value ? getExpectedMonthsForQuarter(quarterFilter.value) : null;
+  
+  const html = accounts.map(([account, files]) => {
+    const pdfFiles = files.pdf
+      .map((f: import('../types').FileInfo) => ({ ...f, type: 'pdf' as const }))
+      .sort((a, b) => b.displayDate.localeCompare(a.displayDate));
+    
+    const csvFiles = files.csv
+      .map((f: import('../types').FileInfo) => ({ ...f, type: 'csv' as const }))
+      .sort((a, b) => b.displayDate.localeCompare(a.displayDate));
+    
+    // Check for missing files if viewing a quarter
+    const missingPdfs: string[] = [];
+    const missingCsvs: string[] = [];
+    if (expectedMonths) {
+      expectedMonths.forEach((monthKey: string) => {
+        const hasPdf = pdfFiles.some((f) => f.displayDate === monthKey);
+        const hasCsv = csvFiles.some((f) => f.displayDate === monthKey);
+        if (!hasPdf) missingPdfs.push(monthKey);
+        if (!hasCsv) missingCsvs.push(monthKey);
+      });
+    }
+    
+    return `
+      <div class="account-section">
+        <h3>${formatAccountName(account)}</h3>
+        
+        <div class="file-type-section">
+          <h4 class="file-type-header">
+            <span class="file-type-icon pdf">PDF</span>
+            PDF Statements (${pdfFiles.length})
+          </h4>
+          <div class="file-list">
+            ${pdfFiles.length > 0 ? pdfFiles.map(file => renderFileItem(account, file)).join('') : '<div class="missing-file-notice">No PDF statements</div>'}
+          </div>
+          ${missingPdfs.length > 0 ? `
+            <div class="missing-file-notice">
+              Missing PDFs: ${missingPdfs.map(m => formatMonthYear(m)).join(', ')}
+            </div>
+          ` : ''}
+        </div>
+        
+        <div class="file-type-section">
+          <h4 class="file-type-header">
+            <span class="file-type-icon csv">CSV</span>
+            CSV Data Files (${csvFiles.length})
+          </h4>
+          <div class="file-list">
+            ${csvFiles.length > 0 ? csvFiles.map(file => renderFileItem(account, file)).join('') : '<div class="missing-file-notice">No CSV files</div>'}
+          </div>
+          ${missingCsvs.length > 0 ? `
+            <div class="missing-file-notice">
+              Missing CSVs: ${missingCsvs.map(m => formatMonthYear(m)).join(', ')}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  container.innerHTML = html;
+}
+
+/**
+ * Get expected months for a quarter
+ */
+function getExpectedMonthsForQuarter(quarter: string): string[] | null {
+  const match = quarter.match(/^(Q[1-4])-(\d{4})$/);
+  if (!match) return null;
+  
+  const qNum = match[1] as keyof typeof VAT_QUARTERS;
+  const year = parseInt(match[2]);
+  
+  switch (qNum) {
+    case 'Q1': // Nov-Jan
+      return [
+        `${year - 1}-11`,
+        `${year - 1}-12`,
+        `${year}-01`
+      ];
+    case 'Q2': // Feb-Apr
+      return [
+        `${year}-02`,
+        `${year}-03`,
+        `${year}-04`
+      ];
+    case 'Q3': // May-Jul
+      return [
+        `${year}-05`,
+        `${year}-06`,
+        `${year}-07`
+      ];
+    case 'Q4': // Aug-Oct
+      return [
+        `${year}-08`,
+        `${year}-09`,
+        `${year}-10`
+      ];
+    default:
+      return null;
+  }
+}
+
+/**
+ * Render a single file item with checkbox
+ */
+function renderFileItem(account: string, file: FileInfo & { type: 'pdf' | 'csv' }): string {
+  const fileKey = `${account}:${file.type}:${file.filename}`;
+  const isChecked = state.selectedFiles.has(fileKey);
+  
+  return `
+    <div class="file-item">
+      <input type="checkbox" 
+             class="file-checkbox" 
+             data-account="${account}" 
+             data-type="${file.type}" 
+             data-filename="${file.filename}"
+             ${isChecked ? 'checked' : ''}
+             onchange="window.toggleFileSelection('${account}', '${file.type}', '${file.filename}')">
+      <div class="file-info">
+        <div>
+          <div class="file-name">${file.filename}</div>
+          <div class="file-date">${file.displayDate}</div>
+        </div>
+      </div>
+      <button class="download-btn" onclick="window.downloadFile('${account}', '${file.type}', '${file.filename}')">
+        Download
+      </button>
+    </div>
+  `;
+}
+
+/**
+ * Toggle file selection (called from onclick handler)
+ */
+export function toggleFileSelection(account: string, type: string, filename: string): void {
+  const fileKey = `${account}:${type}:${filename}`;
+  if (state.selectedFiles.has(fileKey)) {
+    state.selectedFiles.delete(fileKey);
+  } else {
+    state.selectedFiles.add(fileKey);
+  }
+  updateSelectionControls();
+}
+
+/**
+ * Update selection control UI
+ */
+function updateSelectionControls(): void {
+  const downloadSelectedBtn = document.getElementById('download-selected-btn') as HTMLButtonElement;
+  const selectionCount = document.getElementById('selection-count');
+  const selectionCountBadge = document.getElementById('selection-count-badge');
+  
+  if (downloadSelectedBtn) {
+    downloadSelectedBtn.disabled = state.selectedFiles.size === 0;
+  }
+  
+  if (selectionCount) {
+    selectionCount.textContent = state.selectedFiles.size > 0 
+      ? `${state.selectedFiles.size} file${state.selectedFiles.size !== 1 ? 's' : ''} selected` 
+      : 'No files selected';
+  }
+  
+  if (selectionCountBadge) {
+    selectionCountBadge.textContent = state.selectedFiles.size > 0 ? `(${state.selectedFiles.size})` : '';
+  }
+}
+
+/**
+ * Populate year filter dropdown
+ */
+function populateYearFilter(years: string[]): void {
+  const yearFilter = document.getElementById('year-filter') as HTMLSelectElement;
+  if (!yearFilter) return;
+  
+  // Preserve current selection before rebuilding
+  const currentValue = yearFilter.value;
+  
+  const sortedYears = Array.isArray(years) ? years : [];
+  
+  // Rebuild with "Select Year" as first option
+  yearFilter.innerHTML = '<option value="">Select Year</option>' +
+    sortedYears.map(y => `<option value="${y}">${y}</option>`).join('');
+  
+  // Restore previous selection if it still exists in the options
+  if (currentValue && sortedYears.includes(currentValue)) {
+    yearFilter.value = currentValue;
+  } else {
+    yearFilter.value = '';
+  }
+  
+  // Update quarter filter based on year selection
+  updateQuarterOptions();
+}
+
+/**
+ * Update quarter options based on selected year
+ */
+function updateQuarterOptions(): void {
+  const yearFilter = document.getElementById('year-filter') as HTMLSelectElement;
+  const quarterFilter = document.getElementById('quarter-filter') as HTMLSelectElement;
+  if (!yearFilter || !quarterFilter) return;
+  
+  const selectedYear = yearFilter.value;
+  const currentQuarter = quarterFilter.value;
+  
+  if (!selectedYear) {
+    // No year selected - show empty quarter filter
+    quarterFilter.innerHTML = '<option value="">Select year first</option>';
+    (quarterFilter as HTMLSelectElement).disabled = true;
+    return;
+  }
+  
+  (quarterFilter as HTMLSelectElement).disabled = false;
+  const year = parseInt(selectedYear);
+  const prevYear = year - 1;
+  
+  // Generate quarters for the selected year (Stagger 2)
+  quarterFilter.innerHTML = `
+    <option value="">VAT Quarter</option>
+    <option value="Q1-${year}">Q1 Nov-Jan ${prevYear}/${year.toString().slice(-2)}</option>
+    <option value="Q2-${year}">Q2 Feb-Apr ${year}</option>
+    <option value="Q3-${year}">Q3 May-Jul ${year}</option>
+    <option value="Q4-${year}">Q4 Aug-Oct ${year}</option>
+  `;
+  
+  // Restore selection if it matches the year
+  if (currentQuarter && currentQuarter.endsWith(`-${year}`)) {
+    quarterFilter.value = currentQuarter;
+  } else {
+    quarterFilter.value = '';
+  }
+}
+
+/**
+ * Update file count display
+ */
+function updateFileCount(data: AllStatements | null): void {
+  const fileCountEl = document.getElementById('file-count');
+  if (!fileCountEl) return;
+  
+  if (!data) {
+    fileCountEl.textContent = '';
+    return;
+  }
+  
+  let totalFiles = 0;
+  
+  (Object.values(data) as import('../types').AccountStatements[]).forEach((files) => {
+    totalFiles += files.pdf.length + files.csv.length;
+  });
+  
+  if (totalFiles > 0) {
+    fileCountEl.textContent = `${totalFiles} file${totalFiles !== 1 ? 's' : ''} found`;
+  } else {
+    fileCountEl.textContent = 'No files found';
+  }
+}
+
+/**
+ * Update download all button visibility
+ */
+function updateDownloadButton(): void {
+  const downloadBtn = document.getElementById('download-all-btn');
+  const quarterFilter = document.getElementById('quarter-filter') as HTMLSelectElement;
+  const yearFilter = document.getElementById('year-filter') as HTMLSelectElement;
+  const monthFilter = document.getElementById('month-filter') as HTMLSelectElement;
+  
+  if (!downloadBtn) return;
+  
+  // Show download button only when filters are applied
+  const hasFilter = quarterFilter?.value || yearFilter?.value || monthFilter?.value;
+  downloadBtn.style.display = hasFilter ? 'inline-block' : 'none';
+}
+
+/**
+ * Download a single file (called from onclick handler)
+ */
+export function downloadFile(account: string, type: string, filename: string): void {
+  window.location.href = `/api/statements/download/${account}/${type}/${encodeURIComponent(filename)}`;
+}
+
+/**
+ * Update accountant button state based on quarter selection
+ */
+function updateAccountantButton(): void {
+  const quarterFilter = document.getElementById('quarter-filter') as HTMLSelectElement;
+  const yearFilter = document.getElementById('year-filter') as HTMLSelectElement;
+  const downloadAccountantBtn = document.getElementById('download-accountant-btn') as HTMLButtonElement;
+  const accountantStatus = document.getElementById('accountant-status');
+  const missingFilesWarning = document.getElementById('missing-files-warning') as HTMLElement;
+  
+  if (!downloadAccountantBtn || !accountantStatus) return;
+  
+  const quarterSelected = quarterFilter?.value !== '';
+  (downloadAccountantBtn as HTMLButtonElement).disabled = !quarterSelected;
+  
+  if (quarterSelected) {
+    // Parse quarter value like "Q1-2025" to get friendly name
+    const match = quarterFilter.value.match(/^(Q[1-4])-(\d{4})$/);
+    if (match) {
+      const quarterNames: Record<string, string> = {
+        Q1: 'Nov-Jan',
+        Q2: 'Feb-Apr',
+        Q3: 'May-Jul',
+        Q4: 'Aug-Oct'
+      };
+      const qNum = match[1];
+      const year = parseInt(match[2]);
+      const prevYear = year - 1;
+      const quarterName = quarterNames[qNum];
+      
+      if (qNum === 'Q1') {
+        accountantStatus.textContent = `Ready to export ${qNum} (${quarterName} ${prevYear}/${year.toString().slice(-2)}) for all business accounts`;
+      } else {
+        accountantStatus.textContent = `Ready to export ${qNum} (${quarterName} ${year}) for all business accounts`;
+      }
+    }
+  } else if (yearFilter?.value) {
+    accountantStatus.textContent = 'Select a VAT quarter to download';
+  } else {
+    accountantStatus.textContent = 'Select a year and VAT quarter above';
+  }
+  
+  // Hide missing files warning when selection changes
+  if (missingFilesWarning) {
+    missingFilesWarning.style.display = 'none';
+  }
+}
+
+/**
+ * Initialize statements page with all event listeners
+ */
+export function initStatements(): void {
+  const searchBtn = document.getElementById('search-btn');
+  const searchInput = document.getElementById('search-input') as HTMLInputElement;
+  const yearFilter = document.getElementById('year-filter') as HTMLSelectElement;
+  const monthFilter = document.getElementById('month-filter') as HTMLSelectElement;
+  const quarterFilter = document.getElementById('quarter-filter') as HTMLSelectElement;
+  const downloadAllBtn = document.getElementById('download-all-btn');
+  const downloadAccountantBtn = document.getElementById('download-accountant-btn');
+  const missingFilesWarning = document.getElementById('missing-files-warning');
+  const selectAllBtn = document.getElementById('select-all-btn');
+  const clearSelectionBtn = document.getElementById('clear-selection-btn');
+  const downloadSelectedBtn = document.getElementById('download-selected-btn');
+  
+  if (!searchBtn || !searchInput || !yearFilter || !monthFilter || !quarterFilter) {
+    console.error('[Statements] Required elements not found');
+    return;
+  }
+  
+  // Initialize quarter filter as disabled (needs year first)
+  if (quarterFilter) {
+    (quarterFilter as HTMLSelectElement).disabled = true;
+    quarterFilter.innerHTML = '<option value="">Select year first</option>';
+  }
+  
+  const doSearch = (): void => {
+    loadStatements(
+      searchInput.value,
+      yearFilter.value,
+      monthFilter.value,
+      quarterFilter.value
+    );
+  };
+  
+  // When quarter is selected, disable month and year filters (quarter takes precedence)
+  const updateFilterState = (): void => {
+    const quarterSelected = quarterFilter?.value !== '';
+    
+    // Disable and clear both month and year when quarter is selected
+    if (monthFilter) (monthFilter as HTMLSelectElement).disabled = quarterSelected;
+    if (yearFilter) (yearFilter as HTMLSelectElement).disabled = quarterSelected;
+    
+    if (quarterSelected) {
+      monthFilter.value = '';
+      yearFilter.value = '';
+    }
+    
+    updateAccountantButton();
+  };
+  
+  // Search event listeners
+  searchBtn.addEventListener('click', doSearch);
+  searchInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') doSearch();
+  });
+  
+  yearFilter.addEventListener('change', () => {
+    // Clear quarter when year changes (year takes precedence when user actively changes it)
+    quarterFilter.value = '';
+    updateQuarterOptions();
+    if (monthFilter) (monthFilter as HTMLSelectElement).disabled = false;
+    updateAccountantButton();
+    doSearch();
+  });
+  
+  monthFilter.addEventListener('change', () => {
+    quarterFilter.value = '';
+    updateAccountantButton();
+    doSearch();
+  });
+  
+  quarterFilter.addEventListener('change', () => {
+    updateFilterState();
+    doSearch();
+  });
+  
+  // Download all button handler
+  if (downloadAllBtn) {
+    downloadAllBtn.addEventListener('click', async () => {
+      const params = new URLSearchParams();
+      if (searchInput.value) params.set('search', searchInput.value);
+      if (quarterFilter.value) params.set('quarter', quarterFilter.value);
+      if (yearFilter.value) params.set('year', yearFilter.value);
+      if (monthFilter.value) params.set('month', monthFilter.value);
+      
+      (downloadAllBtn as HTMLButtonElement).disabled = true;
+      downloadAllBtn.textContent = 'Preparing...';
+      
+      try {
+        window.location.href = `/api/statements/download-all?${params}`;
+      } finally {
+        setTimeout(() => {
+          (downloadAllBtn as HTMLButtonElement).disabled = false;
+          downloadAllBtn.textContent = 'Download All';
+        }, 2000);
+      }
+    });
+  }
+  
+  // Download for Accountant button handler
+  if (downloadAccountantBtn && quarterFilter) {
+    downloadAccountantBtn.addEventListener('click', async () => {
+      if (!quarterFilter?.value) return;
+      
+      (downloadAccountantBtn as HTMLButtonElement).disabled = true;
+      downloadAccountantBtn.textContent = 'Preparing ZIP...';
+      downloadAccountantBtn.classList.add('loading');
+      
+      try {
+        // Check for missing files
+        const checkData = await checkQuarterFiles(quarterFilter.value);
+        
+        // Show missing files warning if any
+        if (missingFilesWarning) {
+          if (checkData.missingFiles && checkData.missingFiles.length > 0) {
+            missingFilesWarning.innerHTML = `
+              <strong>Some files may be missing:</strong>
+              <ul>
+                ${checkData.missingFiles.map(m => `<li>${m}</li>`).join('')}
+              </ul>
+            `;
+            missingFilesWarning.style.display = 'block';
+          } else {
+            missingFilesWarning.style.display = 'none';
+          }
+        }
+        
+        // Proceed with download
+        downloadForAccountant(quarterFilter.value);
+      } catch (error) {
+        console.error('Error preparing accountant package:', error);
+        const accountantStatus = document.getElementById('accountant-status');
+        if (accountantStatus) {
+          accountantStatus.textContent = 'Error preparing package. Please try again.';
+        }
+      } finally {
+        setTimeout(() => {
+          (downloadAccountantBtn as HTMLButtonElement).disabled = false;
+          downloadAccountantBtn.textContent = 'Download for Accountant';
+          downloadAccountantBtn.classList.remove('loading');
+          updateAccountantButton();
+        }, 2000);
+      }
+    });
+  }
+  
+  // Selection control handlers
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener('click', () => {
+      document.querySelectorAll<HTMLInputElement>('.file-checkbox').forEach(checkbox => {
+        checkbox.checked = true;
+        const account = checkbox.dataset.account;
+        const type = checkbox.dataset.type;
+        const filename = checkbox.dataset.filename;
+        if (account && type && filename) {
+          const fileKey = `${account}:${type}:${filename}`;
+          state.selectedFiles.add(fileKey);
+        }
+      });
+      updateSelectionControls();
+    });
+  }
+  
+  if (clearSelectionBtn) {
+    clearSelectionBtn.addEventListener('click', () => {
+      state.selectedFiles.clear();
+      document.querySelectorAll<HTMLInputElement>('.file-checkbox').forEach(checkbox => {
+        checkbox.checked = false;
+      });
+      updateSelectionControls();
+    });
+  }
+  
+  if (downloadSelectedBtn) {
+    downloadSelectedBtn.addEventListener('click', async () => {
+      if (state.selectedFiles.size === 0) return;
+      
+      if (downloadSelectedBtn) (downloadSelectedBtn as HTMLButtonElement).disabled = true;
+      downloadSelectedBtn.textContent = 'Preparing ZIP...';
+      
+      try {
+        // Convert selectedFiles Set to array of objects
+        const files = Array.from(state.selectedFiles).map(key => {
+          const [account, type, filename] = key.split(':');
+          return { account, type, filename };
+        });
+        
+        // Get blob and trigger download
+        const blob = await downloadSelectedFiles(files);
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'selected-statements.zip';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } catch (error) {
+        console.error('Error downloading selected files:', error);
+        alert('Error downloading files. Please try again.');
+      } finally {
+        setTimeout(() => {
+          if (downloadSelectedBtn) {
+            (downloadSelectedBtn as HTMLButtonElement).disabled = state.selectedFiles.size === 0;
+            downloadSelectedBtn.textContent = 'Download Selected';
+          }
+        }, 1000);
+      }
+    });
+  }
+  
+  // Load available years and show initial prompt
+  loadAvailableYears();
+  renderStatementsPrompt();
+}
+
+// Expose functions to window for onclick handlers
+declare global {
+  interface Window {
+    toggleFileSelection: typeof toggleFileSelection;
+    downloadFile: typeof downloadFile;
+  }
+}
+
+window.toggleFileSelection = toggleFileSelection;
+window.downloadFile = downloadFile;

@@ -1,0 +1,6 @@
+Cardholder Name,Account Number,Transaction Date,Merchant Name,Amount,Currency,Original Amount,Original Currency,Conversion Rate,Posted Date,Transaction Time,Authorisation Code,Transaction ID,Merchant Category,Transaction Type,MCC Description,Merchant Town/City,Merchant County/State,Merchant Post code/Zipcode,MCC,Statement Cycle
+COMPANY LTD,****6719,12/12/2024,PURCHASE FINANCE CHARGE,84.95,GBP,84.95,GBP,0.0,12/12/2024,,,,Miscellaneous,PURCHASE,,,,,,
+COMPANY LTD,****6719,12/12/2024,CASH BACK REBATE,-10.0,GBP,-10.0,GBP,0.0,12/12/2024,,,,Miscellaneous,PURCHASE,,,,,,
+COMPANY LTD,****6719,09/12/2024,DIRECT DEBIT PAYMENT THANK YOU,-86.13,GBP,-86.13,GBP,0.0,09/12/2024,,,,Miscellaneous,PAYMENT,,,,,,
+D MORRISON,****5539,07/12/2024,HMRC ETMP,1020.0,GBP,1020.0,GBP,1.0,09/12/2024,211352,025919,MPBZRI7M9,Statutory Bodies,PURCHASE,Tax Payments - Government Agencies,GLASGOW,,G2 8NJ,9311,
+COMPANY LTD,****6719,12/11/2024,CASH BACK REBATE,-13.0,GBP,-13.0,GBP,0.0,12/11/2024,,,,Miscellaneous,PURCHASE,,,,,,

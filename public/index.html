@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bank Statements Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <h1>Bank Statements Dashboard</h1>
+      <p class="subtitle">Manage statements and view financial summaries</p>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="dashboard">Dashboard</button>
+      <button class="tab" data-tab="statements">Statements</button>
+      <button class="tab" data-tab="upload">Upload</button>
+    </nav>
+
+    <!-- Dashboard Tab -->
+    <section id="dashboard" class="tab-content active">
+      <!-- Account Selector -->
+      <div class="account-selector">
+        <button class="account-btn active" data-account="barclays-current">Barclays Current</button>
+        <button class="account-btn" data-account="barclays-savings">Barclays Savings</button>
+        <button class="account-btn" data-account="capital-on-tap">Capital on Tap</button>
+        <button class="account-btn" data-account="barclaycard">Barclaycard</button>
+        <button class="account-btn" data-account="natwest">NatWest</button>
+      </div>
+
+      <div class="dashboard-controls">
+        <label for="fy-filter">Financial Year:</label>
+        <select id="fy-filter">
+          <option value="">All Time</option>
+        </select>
+      </div>
+
+      <div class="summary-cards">
+        <div class="card clickable" id="income-card">
+          <div class="card-label">Income</div>
+          <div class="card-value income" id="total-income">£0.00</div>
+        </div>
+        <div class="card clickable" id="outgoings-card">
+          <div class="card-label">Outgoings</div>
+          <div class="card-value expense" id="total-expenses">£0.00</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Net Position</div>
+          <div class="card-value" id="net-position">£0.00</div>
+        </div>
+      </div>
+
+      <!-- Account Balance Panel -->
+      <div class="balance-panel">
+        <div class="balance-header">
+          <h3>Account Balance</h3>
+          <button id="edit-balance-btn" class="btn-small">Set Opening Balance</button>
+        </div>
+        <div class="balance-grid">
+          <div class="balance-item">
+            <span class="balance-label">Opening Balance</span>
+            <span class="balance-value" id="opening-balance">£0.00</span>
+            <span class="balance-date" id="opening-balance-date"></span>
+          </div>
+          <div class="balance-item">
+            <span class="balance-label">+ Transaction Total</span>
+            <span class="balance-value" id="transaction-total">£0.00</span>
+            <span class="balance-date" id="transaction-date-range"></span>
+          </div>
+          <div class="balance-item balance-current">
+            <span class="balance-label">= Current Balance</span>
+            <span class="balance-value" id="current-balance">£0.00</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tax Liabilities Panel -->
+      <div class="liabilities-panel" id="liabilities-panel">
+        <div class="liabilities-header">
+          <h3>Estimated Tax Liabilities</h3>
+          <span class="liabilities-period" id="liabilities-period">All Time</span>
+        </div>
+        
+        <div class="liabilities-grid">
+          <!-- VAT Liability -->
+          <div class="liability-card clickable" id="vat-liability-card">
+            <div class="liability-icon vat-icon">VAT</div>
+            <div class="liability-details">
+              <span class="liability-label">VAT Liability</span>
+              <span class="liability-value" id="vat-estimated">£0.00</span>
+              <span class="liability-note">20% on income (VAT-inclusive)</span>
+            </div>
+          </div>
+          
+          <!-- VAT Outstanding (Current Quarter) -->
+          <div class="liability-card clickable" id="vat-outstanding-card">
+            <div class="liability-icon vat-icon" style="background: linear-gradient(135deg, #e67e22, #d35400);">VAT</div>
+            <div class="liability-details">
+              <span class="liability-label">VAT Owed <span id="vat-quarter-label">(Quarter)</span></span>
+              <span class="liability-value" id="vat-outstanding">£0.00</span>
+              <span class="liability-note" id="vat-period">Period: -</span>
+              <span class="liability-note">Paid (last 4 qtrs): <span id="vat-paid">£0.00</span></span>
+              <span class="vat-due-badge" id="vat-due-date">Due: -</span>
+            </div>
+          </div>
+          
+          <!-- Corporation Tax -->
+          <div class="liability-card">
+            <div class="liability-icon corp-icon">CT</div>
+            <div class="liability-details">
+              <span class="liability-label">Corporation Tax</span>
+              <span class="liability-value" id="corp-tax">£0.00</span>
+              <span class="liability-note" id="corp-tax-note">on £0 taxable profit</span>
+            </div>
+          </div>
+          
+          <!-- David's Personal Tax -->
+          <div class="liability-card">
+            <div class="liability-icon personal-icon">DM</div>
+            <div class="liability-details">
+              <span class="liability-label">David's Tax</span>
+              <span class="liability-value" id="david-tax">£0.00</span>
+              <span class="liability-note" id="david-tax-note">on £0 salary + dividends</span>
+            </div>
+          </div>
+          
+          <!-- Heena's Personal Tax -->
+          <div class="liability-card">
+            <div class="liability-icon personal-icon" style="background: linear-gradient(135deg, #9b59b6, #8e44ad);">HM</div>
+            <div class="liability-details">
+              <span class="liability-label">Heena's Tax</span>
+              <span class="liability-value" id="heena-tax">£0.00</span>
+              <span class="liability-note" id="heena-tax-note">on £0 dividends</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- David's Payments Breakdown -->
+        <div class="personal-breakdown" id="david-breakdown">
+          <h4>David's Payments Breakdown</h4>
+          <div class="breakdown-grid">
+            <div class="breakdown-item">
+              <span class="breakdown-label">Salary Paid</span>
+              <span class="breakdown-value" id="david-salary-paid">£0.00</span>
+            </div>
+            <div class="breakdown-item">
+              <span class="breakdown-label">Dividends Paid</span>
+              <span class="breakdown-value" id="david-dividends-paid">£0.00</span>
+            </div>
+            <div class="breakdown-item">
+              <span class="breakdown-label">Dividend Tax</span>
+              <span class="breakdown-value" id="david-dividend-tax">£0.00</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Heena's Payments Breakdown -->
+        <div class="personal-breakdown" id="heena-breakdown">
+          <h4>Heena's Payments Breakdown</h4>
+          <div class="breakdown-grid">
+            <div class="breakdown-item">
+              <span class="breakdown-label">Salary Paid</span>
+              <span class="breakdown-value" id="heena-salary-paid">£0.00</span>
+            </div>
+            <div class="breakdown-item">
+              <span class="breakdown-label">Dividends Paid</span>
+              <span class="breakdown-value" id="heena-dividends-paid">£0.00</span>
+            </div>
+            <div class="breakdown-item">
+              <span class="breakdown-label">Dividend Tax</span>
+              <span class="breakdown-value" id="heena-dividend-tax">£0.00</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Opening Balance Modal -->
+      <div id="balance-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+          <h3>Set Opening Balance</h3>
+          <p class="modal-description">Enter the account balance from your bank statement. This should be the balance at the start of your earliest transaction.</p>
+          <div class="modal-form">
+            <label for="opening-balance-input">Opening Balance (£):</label>
+            <input type="number" id="opening-balance-input" step="0.01" placeholder="0.00">
+            <label for="opening-balance-date-input">Balance Date (optional):</label>
+            <input type="date" id="opening-balance-date-input">
+          </div>
+          <div class="modal-actions">
+            <button id="cancel-balance-btn" class="btn btn-secondary">Cancel</button>
+            <button id="save-balance-btn" class="btn">Save</button>
+          </div>
+        </div>
+      </div>
+      
+      <div id="transfer-info" class="transfer-info" style="display: none;">
+        <span class="transfer-label">Transfers excluded:</span>
+        <span id="transfer-amount">£0.00</span>
+        <span class="transfer-count">(<span id="transfer-count">0</span> transactions)</span>
+      </div>
+
+      <!-- Transactions Modal (for chart click) -->
+      <div id="transactions-modal" class="modal" style="display: none;">
+        <div class="modal-content modal-large">
+          <div class="modal-header">
+            <h3 id="transactions-modal-title">Transactions</h3>
+            <button id="close-transactions-modal" class="modal-close">&times;</button>
+          </div>
+          <div class="modal-summary">
+            <span id="transactions-modal-count">0 transactions</span>
+            <span id="transactions-modal-total" class="modal-total">£0.00</span>
+          </div>
+          <div id="transactions-modal-list" class="transactions-list"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Monthly Breakdown</h2>
+        <p class="chart-hint">Click on a bar to view transactions</p>
+        <div class="chart-container">
+          <canvas id="monthly-chart"></canvas>
+        </div>
+        <div id="monthly-table" class="data-table"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Transactions</h2>
+        <div id="recent-transactions" class="transactions-list"></div>
+      </div>
+    </section>
+
+    <!-- Statements Tab -->
+    <section id="statements" class="tab-content">
+      <div class="search-bar">
+        <input type="text" id="search-input" placeholder="Search statements...">
+        <select id="year-filter">
+          <option value="">All Years</option>
+        </select>
+        <select id="month-filter">
+          <option value="">All Months</option>
+          <option value="1">January</option>
+          <option value="2">February</option>
+          <option value="3">March</option>
+          <option value="4">April</option>
+          <option value="5">May</option>
+          <option value="6">June</option>
+          <option value="7">July</option>
+          <option value="8">August</option>
+          <option value="9">September</option>
+          <option value="10">October</option>
+          <option value="11">November</option>
+          <option value="12">December</option>
+        </select>
+        <select id="quarter-filter">
+          <option value="">VAT Quarter</option>
+          <!-- Quarters populated dynamically based on selected year -->
+        </select>
+        <button id="search-btn" class="btn">Search</button>
+        <button id="download-all-btn" class="btn btn-secondary" style="display: none;">Download All</button>
+        <span id="file-count" class="file-count"></span>
+      </div>
+      
+      <!-- Accountant Export Section -->
+      <div class="accountant-export-bar">
+        <div class="accountant-export-info">
+          <span class="accountant-label">Accountant Package</span>
+          <span id="accountant-status" class="accountant-status">Select a year and VAT quarter above</span>
+        </div>
+        <button id="download-accountant-btn" class="btn btn-primary btn-accountant" disabled>
+          Download for Accountant
+        </button>
+      </div>
+      
+      <!-- Selection Controls -->
+      <div class="selection-controls" style="display: none;">
+        <div class="selection-info">
+          <button id="select-all-btn" class="btn btn-small">Select All</button>
+          <button id="clear-selection-btn" class="btn btn-small btn-secondary">Clear Selection</button>
+          <span id="selection-count" class="selection-count"></span>
+        </div>
+        <button id="download-selected-btn" class="btn btn-secondary" disabled>
+          Download Selected <span id="selection-count-badge"></span>
+        </button>
+      </div>
+      
+      <div id="missing-files-warning" class="missing-files-warning" style="display: none;"></div>
+
+      <div id="statements-list" class="statements-container"></div>
+    </section>
+
+    <!-- Upload Tab -->
+    <section id="upload" class="tab-content">
+      <div class="upload-section">
+        <h2>Upload Statements</h2>
+        <div class="upload-form">
+          <label for="upload-account">Account:</label>
+          <select id="upload-account">
+            <option value="barclays-current">Barclays Current</option>
+            <option value="barclays-savings">Barclays Savings</option>
+            <option value="capital-on-tap">Capital on Tap</option>
+            <option value="barclaycard">Barclaycard</option>
+            <option value="natwest">NatWest</option>
+          </select>
+          
+          <label for="upload-type">File Type:</label>
+          <select id="upload-type">
+            <option value="pdf">PDF Statement</option>
+            <option value="csv">CSV Data</option>
+          </select>
+        </div>
+
+        <div id="dropzone-statements" class="dropzone">
+          <div class="dropzone-content">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <p>Drag & drop files here or click to browse</p>
+            <input type="file" id="file-input-statements" multiple accept=".pdf,.csv">
+          </div>
+        </div>
+        <div id="upload-status-statements" class="upload-status"></div>
+      </div>
+
+      <div class="upload-section">
+        <h2>Upload Invoices</h2>
+        <div id="dropzone-invoices" class="dropzone">
+          <div class="dropzone-content">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10 9 9 9 8 9"/>
+            </svg>
+            <p>Drag & drop invoice PDFs here or click to browse</p>
+            <input type="file" id="file-input-invoices" multiple accept=".pdf">
+          </div>
+        </div>
+        <div id="upload-status-invoices" class="upload-status"></div>
+      </div>
+    </section>
+
+    <!-- Duplicate Files Confirmation Modal (outside tab sections so always visible) -->
+    <div id="duplicate-modal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <h3>Duplicate Files Detected</h3>
+        <p class="modal-description">The following files already exist in your originals:</p>
+        <ul id="duplicate-file-list" style="margin: 12px 0; padding-left: 20px; color: var(--color-text-muted); font-size: 0.9rem;"></ul>
+        <div class="modal-actions">
+          <button id="cancel-duplicate-btn" class="btn btn-secondary">Cancel</button>
+          <button id="overwrite-duplicate-btn" class="btn">Overwrite</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
