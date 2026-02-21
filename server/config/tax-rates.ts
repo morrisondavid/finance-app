@@ -125,10 +125,23 @@ export function getVatQuarterForDate(date: Date = new Date()): VatQuarterRange {
 }
 
 /**
- * Get the current VAT quarter range
+ * Get the outstanding VAT quarter -- the one whose filing deadline is next.
+ * If the previous quarter's due date hasn't passed, return it (it still needs filing).
+ * Otherwise return the current quarter.
  */
 export function getCurrentVatQuarter(): VatQuarterRange {
-  return getVatQuarterForDate(new Date());
+  const now = new Date();
+  const currentQuarter = getVatQuarterForDate(now);
+  
+  const previousQuarterDate = new Date(currentQuarter.startDate);
+  previousQuarterDate.setDate(previousQuarterDate.getDate() - 1);
+  const previousQuarter = getVatQuarterForDate(previousQuarterDate);
+  
+  if (now <= new Date(previousQuarter.dueDate)) {
+    return previousQuarter;
+  }
+  
+  return currentQuarter;
 }
 
 /**

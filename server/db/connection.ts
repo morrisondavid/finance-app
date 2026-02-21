@@ -136,6 +136,10 @@ export function initSchema(): void {
     INSERT OR IGNORE INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
     VALUES ('capital-on-tap', 30000, '2023-01-01', CURRENT_TIMESTAMP)
   `).run();
+  db.prepare(`
+    INSERT OR IGNORE INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
+    VALUES ('barclays-current', 475.05, '2023-12-29', CURRENT_TIMESTAMP)
+  `).run();
   
   console.log('[Database] Schema initialized');
 }
