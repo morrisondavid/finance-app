@@ -1,10 +1,10 @@
 import { getDb } from '../connection.js';
 
 /**
- * Company Accounting Period: March 1 to end of February
+ * Company Accounting Period: May 1 to end of April
  * 
- * Accounting year "2024/25" means: March 1, 2024 to February 28, 2025
- * Leap years (e.g., 2023/24) end on February 29
+ * Accounting year "2024/25" means: May 1, 2024 to April 30, 2025
+ * Corporation tax is due 9 months + 1 day after year-end (1 February)
  */
 export interface FinancialYearRange {
   startDate: string; // YYYY-MM-DD
@@ -34,13 +34,9 @@ export function getFinancialYearRange(fy: string): FinancialYearRange {
   const startYear = parseInt(match[1], 10);
   const endYear = startYear + 1;
   
-  // Handle leap year for February end date
-  const isLeapYear = (year: number) => (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-  const febLastDay = isLeapYear(endYear) ? 29 : 28;
-  
   return {
-    startDate: `${startYear}-03-01`,
-    endDate: `${endYear}-02-${febLastDay}`,
+    startDate: `${startYear}-05-01`,
+    endDate: `${endYear}-04-30`,
     label: `${startYear}/${String(endYear).slice(-2)}`
   };
 }
@@ -100,12 +96,12 @@ export function getAvailableFinancialYears(): string[] {
   const maxDate = new Date(result.maxDate);
   
   // Determine the financial years that span the data
-  // Company accounting year starts March 1, so if date is before March, it's in the previous accounting year
+  // Company accounting year starts May 1, so if date is before May, it's in the previous accounting year
   const getFinancialYear = (date: Date): number => {
     const month = date.getMonth(); // 0-11
     const year = date.getFullYear();
-    // If before March (months 0-1), it's the previous year's accounting period
-    return month < 2 ? year - 1 : year;
+    // If before May (months 0-3), it's the previous year's accounting period
+    return month < 4 ? year - 1 : year;
   };
   
   const startFY = getFinancialYear(minDate);

@@ -163,6 +163,7 @@ export interface AccountSummary {
   income: number;
   expenses: number;
   transactionCount: number;
+  newestTransaction: string | null;
 }
 
 /**

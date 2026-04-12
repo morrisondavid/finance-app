@@ -85,7 +85,8 @@ export const MonthlySummarySchema = z.object({
 export const AccountSummarySchema = z.object({
   income: z.number(),
   expenses: z.number(),
-  transactionCount: z.number()
+  transactionCount: z.number(),
+  newestTransaction: z.string().nullable()
 });
 
 export const AccountBalanceSchema = z.object({
@@ -113,6 +114,14 @@ export const TaxLiabilitiesSchema = z.object({
     endDate: z.string(),
     dueDate: z.string()
   }).optional(),
+  vatInProgressQuarter: z.object({
+    label: z.string(),
+    quarter: z.number(),
+    startDate: z.string(),
+    endDate: z.string(),
+    dueDate: z.string()
+  }).nullable().optional(),
+  vatInProgressEstimate: z.number().optional(),
   corporationTax: z.number(),
   corporationTaxRate: z.number(),
   taxableProfit: z.number(),
@@ -120,7 +129,8 @@ export const TaxLiabilitiesSchema = z.object({
   davidPayments: z.object({
     total: z.number(),
     salary: z.number(),
-    dividends: z.number()
+    dividends: z.number(),
+    annualSalary: z.number()
   }).optional(),
   davidTaxBreakdown: z.object({
     dividendTax: z.number()
@@ -129,7 +139,8 @@ export const TaxLiabilitiesSchema = z.object({
   heenaPayments: z.object({
     total: z.number(),
     salary: z.number(),
-    dividends: z.number()
+    dividends: z.number(),
+    annualSalary: z.number()
   }).optional(),
   heenaTaxBreakdown: z.object({
     dividendTax: z.number()

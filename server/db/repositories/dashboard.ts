@@ -86,7 +86,7 @@ export function getAccountSummary(filters: DashboardFilters = {}): Record<string
   
   // Initialize all accounts with zeros
   for (const account of ACCOUNTS) {
-    result[account] = { income: 0, expenses: 0, transactionCount: 0 };
+    result[account] = { income: 0, expenses: 0, transactionCount: 0, newestTransaction: null };
   }
   
   // Get raw data for each account and apply account-specific logic
@@ -97,15 +97,17 @@ export function getAccountSummary(filters: DashboardFilters = {}): Record<string
       SELECT 
         SUM(CASE WHEN ${getIncomeCondition(includeTransfers)} THEN amount ELSE 0 END) as income,
         SUM(CASE WHEN ${getExpenseCondition(includeTransfers)} THEN ABS(amount) ELSE 0 END) as expenses,
-        COUNT(*) as count
+        COUNT(*) as count,
+        MAX(date) as newest
       FROM transactions
       WHERE account = ?${clause}
-    `).get(account, ...params) as { income: number | null; expenses: number | null; count: number };
+    `).get(account, ...params) as { income: number | null; expenses: number | null; count: number; newest: string | null };
     
     result[account] = {
       income: Math.round((row.income || 0) * 100) / 100,
       expenses: Math.round((row.expenses || 0) * 100) / 100,
-      transactionCount: row.count
+      transactionCount: row.count,
+      newestTransaction: row.newest
     };
   }
   

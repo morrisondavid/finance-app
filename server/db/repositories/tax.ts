@@ -7,24 +7,29 @@ import {
   INCOME_TAX,
   DIVIDEND_TAX,
   getCurrentVatQuarter,
+  getVatQuarterForDate,
   type VatQuarterRange
 } from '../../config/tax-rates.js';
 import { DIRECTORS, HMRC_PATTERNS } from '../../config/payees.js';
 import { getBusinessPaymentAccounts } from '../../types.js';
 
 export interface TaxLiabilities {
-  // VAT (current quarter)
+  // VAT (outstanding quarter - due next)
   vatQuarter: VatQuarterRange;
-  vatOwedThisQuarter: number;  // Output VAT for current VAT quarter
+  vatOwedThisQuarter: number;
   vatRate: number;
   
+  // VAT (in-progress quarter - the one we're currently inside)
+  vatInProgressQuarter: VatQuarterRange | null;
+  vatInProgressEstimate: number;
+  
   // VAT (historical - rolling 12 months / 4 quarters)
-  vatPaidLast4Quarters: number;  // Total paid to HMRC in last 12 months
+  vatPaidLast4Quarters: number;
   
   // Legacy fields (for backward compatibility)
-  vatOnIncome: number;         // Output VAT for the FY (legacy)
-  vatPaid: number;             // Alias for vatPaidLast4Quarters
-  vatOutstanding: number;      // vatOwedThisQuarter (legacy name)
+  vatOnIncome: number;
+  vatPaid: number;
+  vatOutstanding: number;
   
   
   // Corporation Tax
@@ -37,6 +42,7 @@ export interface TaxLiabilities {
     salary: number;
     dividends: number;
     total: number;
+    annualSalary: number;
   };
   davidTaxEstimate: number;
   davidTaxBreakdown: {
@@ -48,6 +54,7 @@ export interface TaxLiabilities {
     salary: number;
     dividends: number;
     total: number;
+    annualSalary: number;
   };
   heenaTaxEstimate: number;
   heenaTaxBreakdown: {
@@ -65,7 +72,7 @@ function getDirectorPayments(
   salaryMax: number,
   clause: string,
   params: string[]
-): { salary: number; dividends: number; total: number } {
+): { salary: number; dividends: number; total: number; annualSalary: number } {
   const salaryResult = db.prepare(`
     SELECT COALESCE(SUM(ABS(amount)), 0) as total 
     FROM transactions 
@@ -90,7 +97,8 @@ function getDirectorPayments(
   return {
     salary,
     dividends,
-    total: salary + dividends
+    total: salary + dividends,
+    annualSalary: salaryMin * 12
   };
 }
 
@@ -147,6 +155,22 @@ export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilitie
   const vatQuarterIncome = vatQuarterIncomeResult.total;
   const vatOwedThisQuarter = Math.round((vatQuarterIncome * VAT.FRACTION) * 100) / 100;
   
+  // In-progress quarter: the quarter we're currently inside (may differ from outstanding)
+  const calendarQuarter = getVatQuarterForDate(new Date());
+  let vatInProgressQuarter: VatQuarterRange | null = null;
+  let vatInProgressEstimate = 0;
+  
+  if (calendarQuarter.startDate !== vatQuarter.startDate) {
+    vatInProgressQuarter = calendarQuarter;
+    const inProgressIncomeResult = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total 
+      FROM transactions 
+      WHERE type = 'income'
+      AND date >= ? AND date <= ?
+    `).get(calendarQuarter.startDate, calendarQuarter.endDate) as { total: number };
+    vatInProgressEstimate = Math.round((inProgressIncomeResult.total * VAT.FRACTION) * 100) / 100;
+  }
+  
   // Legacy: VAT on income for the FY (still needed for some displays)
   const vatOnIncome = Math.round((income * VAT.FRACTION) * 100) / 100;
   
@@ -189,11 +213,11 @@ export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilitie
   
   const davidPayments = david 
     ? getDirectorPayments(db, david.namePattern, david.salaryMin, david.salaryMax, clause, params)
-    : { salary: 0, dividends: 0, total: 0 };
+    : { salary: 0, dividends: 0, total: 0, annualSalary: 0 };
     
   const heenaPayments = heena
     ? getDirectorPayments(db, heena.namePattern, heena.salaryMin, heena.salaryMax, clause, params)
-    : { salary: 0, dividends: 0, total: 0 };
+    : { salary: 0, dividends: 0, total: 0, annualSalary: 0 };
   
   // Corporation Tax calculation
   // Taxable profit = Income (net of VAT) only - expenses NOT deducted (conservative estimate)
@@ -209,10 +233,14 @@ export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilitie
   const heenaDividendTax = calculateDirectorDividendTax(heenaPayments.salary, heenaPayments.dividends);
   
   return {
-    // VAT (current quarter)
+    // VAT (outstanding quarter - due next)
     vatQuarter,
     vatOwedThisQuarter,
     vatRate: VAT.RATE,
+    
+    // VAT (in-progress quarter)
+    vatInProgressQuarter,
+    vatInProgressEstimate,
     
     // VAT (historical - rolling 12 months)
     vatPaidLast4Quarters,

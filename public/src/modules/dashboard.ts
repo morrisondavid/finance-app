@@ -121,11 +121,20 @@ function updateAccountIndicators(accountData: Record<string, import('../types').
     
     const data = accountData[account];
     
-    // Add indicator if account has data
     if (data && data.transactionCount > 0) {
       btn.classList.add('has-data');
     } else {
       btn.classList.remove('has-data');
+    }
+
+    const latestEl = btn.querySelector('.account-btn-latest');
+    if (latestEl) {
+      if (data?.newestTransaction) {
+        const date = new Date(data.newestTransaction);
+        latestEl.textContent = `Latest: ${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+      } else {
+        latestEl.textContent = 'No transactions';
+      }
     }
   });
 }
@@ -192,6 +201,9 @@ function renderLiabilities(tax: DashboardSummary['taxLiabilities'], financialYea
   // Only show tax liabilities for accounts configured to show them
   if (!accountConfig.showTaxLiabilities) {
     liabilitiesPanel.style.display = 'none';
+    document.getElementById('fy-banner')?.classList.remove('visible');
+    document.getElementById('fy-key-dates')?.classList.remove('visible');
+    document.getElementById('vat-timeline')?.classList.remove('visible');
     return;
   }
   liabilitiesPanel.style.display = 'block';
@@ -201,6 +213,60 @@ function renderLiabilities(tax: DashboardSummary['taxLiabilities'], financialYea
   // Update period label
   const periodEl = document.getElementById('liabilities-period');
   if (periodEl) periodEl.textContent = financialYear || 'All Time';
+  
+  // Update FY banner and key dates
+  const fyBannerEl = document.getElementById('fy-banner');
+  const fyKeyDatesEl = document.getElementById('fy-key-dates');
+  
+  if (fyBannerEl) {
+    if (financialYear) {
+      const match = financialYear.match(/^(\d{4})[/-](\d{2})$/);
+      if (match) {
+        const startYear = parseInt(match[1], 10);
+        const endYear = startYear + 1;
+        const formatDate = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+        
+        const yearStart = new Date(startYear, 4, 1);
+        const yearEnd = new Date(endYear, 3, 30);
+        const filingDeadline = new Date(endYear, 9, 31);
+        const paymentDeadline = new Date(endYear + 1, 1, 1);
+        
+        fyBannerEl.innerHTML = `<strong>Financial Year ${financialYear}</strong> &mdash; ${formatDate(yearStart)} to ${formatDate(yearEnd)}`;
+        fyBannerEl.classList.add('visible');
+        
+        if (fyKeyDatesEl && accountConfig.showTaxLiabilities) {
+          const startEl = document.getElementById('fy-start-date');
+          const endEl = document.getElementById('fy-end-date');
+          const filingEl = document.getElementById('fy-filing-date');
+          const paymentEl = document.getElementById('fy-payment-date');
+          
+          if (startEl) startEl.textContent = formatDate(yearStart);
+          if (endEl) endEl.textContent = formatDate(yearEnd);
+          if (filingEl) filingEl.textContent = formatDate(filingDeadline);
+          if (paymentEl) paymentEl.textContent = formatDate(paymentDeadline);
+          
+          fyKeyDatesEl.classList.add('visible');
+        }
+      }
+    } else {
+      fyBannerEl.classList.remove('visible');
+      if (fyKeyDatesEl) fyKeyDatesEl.classList.remove('visible');
+    }
+  }
+  
+  if (fyKeyDatesEl && !accountConfig.showTaxLiabilities) {
+    fyKeyDatesEl.classList.remove('visible');
+  }
+  
+  const vatTimelineEl = document.getElementById('vat-timeline');
+  if (vatTimelineEl) {
+    if (accountConfig.showTaxLiabilities && financialYear) {
+      renderVatTimeline(financialYear, tax);
+      vatTimelineEl.classList.add('visible');
+    } else {
+      vatTimelineEl.classList.remove('visible');
+    }
+  }
   
   // VAT - Current Quarter
   const vatOutstandingEl = document.getElementById('vat-outstanding');
@@ -241,10 +307,32 @@ function renderLiabilities(tax: DashboardSummary['taxLiabilities'], financialYea
   // Corporation Tax
   const corpTaxEl = document.getElementById('corp-tax');
   const corpTaxNoteEl = document.getElementById('corp-tax-note');
+  const corpTaxPeriodEl = document.getElementById('corp-tax-period');
+  const corpTaxDueEl = document.getElementById('corp-tax-due');
   
   if (corpTaxEl) corpTaxEl.textContent = formatCurrency(tax.corporationTax);
   if (corpTaxNoteEl) {
     corpTaxNoteEl.textContent = `${tax.corporationTaxRate.toFixed(1)}% on ${formatCurrency(tax.taxableProfit)} profit`;
+  }
+  
+  if (corpTaxPeriodEl || corpTaxDueEl) {
+    if (financialYear) {
+      const match = financialYear.match(/^(\d{4})[/-](\d{2})$/);
+      if (match) {
+        const startYear = parseInt(match[1], 10);
+        const endYear = startYear + 1;
+        const periodLabel = `May ${startYear} - Apr ${endYear}`;
+        if (corpTaxPeriodEl) corpTaxPeriodEl.textContent = `(${periodLabel})`;
+        
+        const dueDate = new Date(endYear, 0, 1); // 9 months + 1 day after Apr 30 = 1 Feb next year
+        dueDate.setMonth(dueDate.getMonth() + 1);
+        const formattedDue = dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+        if (corpTaxDueEl) corpTaxDueEl.textContent = `Due: ${formattedDue}`;
+      }
+    } else {
+      if (corpTaxPeriodEl) corpTaxPeriodEl.textContent = '';
+      if (corpTaxDueEl) corpTaxDueEl.textContent = '';
+    }
   }
   
   // David's Personal Tax
@@ -259,9 +347,19 @@ function renderLiabilities(tax: DashboardSummary['taxLiabilities'], financialYea
   const davidDividendTaxEl = document.getElementById('david-dividend-tax');
   const davidBreakdownEl = document.getElementById('david-breakdown');
   
+  const davidTotalPaidEl = document.getElementById('david-total-paid');
+  const davidAnnualSalaryEl = document.getElementById('david-annual-salary');
+  
   if (davidTaxEl) davidTaxEl.textContent = formatCurrency(tax.davidTaxEstimate || 0);
   if (davidTaxNoteEl) davidTaxNoteEl.textContent = `on ${formatCurrency(davidTotal)} payments`;
+  if (davidTotalPaidEl) davidTotalPaidEl.textContent = formatCurrency(davidTotal);
+  const davidMonthlySalary = (tax.davidPayments?.annualSalary || 0) / 12;
   if (davidSalaryPaidEl) davidSalaryPaidEl.textContent = formatCurrency(davidSalary);
+  const davidMonthlySalaryNoteEl = document.getElementById('david-monthly-salary-note');
+  if (davidMonthlySalaryNoteEl) davidMonthlySalaryNoteEl.textContent = `(${formatCurrency(davidMonthlySalary)}/month)`;
+  if (davidAnnualSalaryEl) davidAnnualSalaryEl.textContent = formatCurrency(tax.davidPayments?.annualSalary || 0);
+  const davidMonthlySalaryEl = document.getElementById('david-monthly-salary');
+  if (davidMonthlySalaryEl) davidMonthlySalaryEl.textContent = `(${formatCurrency(davidMonthlySalary)}/month)`;
   if (davidDividendsPaidEl) davidDividendsPaidEl.textContent = formatCurrency(davidDividends);
   if (davidDividendTaxEl) davidDividendTaxEl.textContent = formatCurrency(tax.davidTaxBreakdown?.dividendTax || 0);
   if (davidBreakdownEl) davidBreakdownEl.style.display = 'block';
@@ -278,12 +376,133 @@ function renderLiabilities(tax: DashboardSummary['taxLiabilities'], financialYea
   const heenaDividendTaxEl = document.getElementById('heena-dividend-tax');
   const heenaBreakdownEl = document.getElementById('heena-breakdown');
   
+  const heenaTotalPaidEl = document.getElementById('heena-total-paid');
+  const heenaAnnualSalaryEl = document.getElementById('heena-annual-salary');
+  
   if (heenaTaxEl) heenaTaxEl.textContent = formatCurrency(tax.heenaTaxEstimate || 0);
   if (heenaTaxNoteEl) heenaTaxNoteEl.textContent = `on ${formatCurrency(heenaTotal)} payments`;
+  if (heenaTotalPaidEl) heenaTotalPaidEl.textContent = formatCurrency(heenaTotal);
+  const heenaMonthlySalary = (tax.heenaPayments?.annualSalary || 0) / 12;
   if (heenaSalaryPaidEl) heenaSalaryPaidEl.textContent = formatCurrency(heenaSalary);
+  const heenaMonthlySalaryNoteEl = document.getElementById('heena-monthly-salary-note');
+  if (heenaMonthlySalaryNoteEl) heenaMonthlySalaryNoteEl.textContent = `(${formatCurrency(heenaMonthlySalary)}/month)`;
+  if (heenaAnnualSalaryEl) heenaAnnualSalaryEl.textContent = formatCurrency(tax.heenaPayments?.annualSalary || 0);
+  const heenaMonthlySalaryEl = document.getElementById('heena-monthly-salary');
+  if (heenaMonthlySalaryEl) heenaMonthlySalaryEl.textContent = `(${formatCurrency(heenaMonthlySalary)}/month)`;
   if (heenaDividendsPaidEl) heenaDividendsPaidEl.textContent = formatCurrency(heenaDividends);
   if (heenaDividendTaxEl) heenaDividendTaxEl.textContent = formatCurrency(tax.heenaTaxBreakdown?.dividendTax || 0);
   if (heenaBreakdownEl) heenaBreakdownEl.style.display = 'block';
+}
+
+/**
+ * Render VAT timeline showing all 4 quarters with payment status
+ */
+async function renderVatTimeline(financialYear: string, tax: DashboardSummary['taxLiabilities']): Promise<void> {
+  const gridEl = document.getElementById('vat-timeline-grid');
+  if (!gridEl) return;
+  
+  const match = financialYear.match(/^(\d{4})[/-](\d{2})$/);
+  if (!match) return;
+  
+  const startYear = parseInt(match[1], 10);
+  const endYear = startYear + 1;
+  const formatDate = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const now = new Date();
+  
+  // Build the 4 VAT quarters that fall within this financial year (May-Apr)
+  // FY starts May, so quarters in order: Q3 May-Jul, Q4 Aug-Oct, Q1 Nov-Jan, Q2 Feb-Apr
+  const quarters = [
+    {
+      label: 'Q3: May-Jul',
+      start: new Date(startYear, 4, 1),
+      end: new Date(startYear, 6, 31),
+      due: new Date(startYear, 8, 7),
+    },
+    {
+      label: 'Q4: Aug-Oct',
+      start: new Date(startYear, 7, 1),
+      end: new Date(startYear, 9, 31),
+      due: new Date(startYear, 11, 7),
+    },
+    {
+      label: 'Q1: Nov-Jan',
+      start: new Date(startYear, 10, 1),
+      end: new Date(endYear, 0, 31),
+      due: new Date(endYear, 2, 7),
+    },
+    {
+      label: 'Q2: Feb-Apr',
+      start: new Date(endYear, 1, 1),
+      end: new Date(endYear, 3, 30),
+      due: new Date(endYear, 5, 7),
+    },
+  ];
+  
+  // Fetch VAT payments to match against quarters
+  let payments: Array<{ date: string; amount: number }> = [];
+  try {
+    const data = await fetchVATPayments();
+    payments = data.payments;
+  } catch { /* proceed without payment data */ }
+  
+  // The "outstanding" quarter from tax data (due next, e.g. Q1 Nov-Jan due Mar 7)
+  const outstandingQuarterLabel = tax?.vatQuarter?.label || '';
+  const outstandingQuarterAmount = tax?.vatOwedThisQuarter || tax?.vatOutstanding || 0;
+  
+  // In-progress quarter estimate from backend
+  const inProgressLabel = tax?.vatInProgressQuarter?.label || '';
+  const inProgressEstimate = tax?.vatInProgressEstimate || 0;
+  
+  gridEl.innerHTML = quarters.map(q => {
+    const periodStr = `${formatDate(q.start)} – ${formatDate(q.end)}`;
+    const dueStr = `Due: ${formatDate(q.due)}`;
+    const isPast = now > q.due;
+    const isInProgress = inProgressLabel && q.label.includes(inProgressLabel.split(' ')[0]);
+    
+    // Find payment matching this quarter's due window
+    const dueMonth = q.due.getMonth();
+    const dueYear = q.due.getFullYear();
+    const matchingPayment = payments.find(p => {
+      const pDate = new Date(p.date);
+      return pDate.getMonth() === dueMonth && pDate.getFullYear() === dueYear;
+    });
+    
+    // Check if this is the outstanding quarter (due next but period ended)
+    const isOutstanding = outstandingQuarterLabel && q.label.includes(outstandingQuarterLabel.split(' ')[0]);
+    
+    let statusClass = 'future';
+    let amount = '—';
+    let statusText = '';
+    
+    if (matchingPayment) {
+      statusClass = 'paid';
+      amount = formatCurrency(Math.abs(matchingPayment.amount));
+      const paidDate = new Date(matchingPayment.date);
+      statusText = `Paid ${formatDate(paidDate)}`;
+    } else if (isOutstanding && !isInProgress) {
+      statusClass = 'upcoming';
+      amount = outstandingQuarterAmount > 0 ? `~${formatCurrency(outstandingQuarterAmount)}` : '—';
+      statusText = 'Due — not yet paid';
+    } else if (isInProgress) {
+      statusClass = 'upcoming';
+      amount = inProgressEstimate > 0 ? `~${formatCurrency(inProgressEstimate)}` : '—';
+      statusText = 'In progress';
+    } else if (isPast) {
+      statusClass = 'paid';
+      amount = '—';
+      statusText = 'No payment found';
+    }
+    
+    return `
+      <div class="vat-quarter-item ${statusClass}">
+        <span class="vat-quarter-label">${q.label}</span>
+        <span class="vat-quarter-period">${periodStr}</span>
+        <span class="vat-quarter-amount">${amount}</span>
+        <span class="vat-quarter-due">${dueStr}</span>
+        <span class="vat-quarter-status">${statusText}</span>
+      </div>
+    `;
+  }).join('');
 }
 
 /**

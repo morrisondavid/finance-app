@@ -23,11 +23,26 @@
     <section id="dashboard" class="tab-content active">
       <!-- Account Selector -->
       <div class="account-selector">
-        <button class="account-btn active" data-account="barclays-current">Barclays Current</button>
-        <button class="account-btn" data-account="barclays-savings">Barclays Savings</button>
-        <button class="account-btn" data-account="capital-on-tap">Capital on Tap</button>
-        <button class="account-btn" data-account="barclaycard">Barclaycard</button>
-        <button class="account-btn" data-account="natwest">NatWest</button>
+        <button class="account-btn active" data-account="barclays-current">
+          <span class="account-btn-label">Barclays Current</span>
+          <span class="account-btn-latest"></span>
+        </button>
+        <button class="account-btn" data-account="barclays-savings">
+          <span class="account-btn-label">Barclays Savings</span>
+          <span class="account-btn-latest"></span>
+        </button>
+        <button class="account-btn" data-account="capital-on-tap">
+          <span class="account-btn-label">Capital on Tap</span>
+          <span class="account-btn-latest"></span>
+        </button>
+        <button class="account-btn" data-account="barclaycard">
+          <span class="account-btn-label">Barclaycard</span>
+          <span class="account-btn-latest"></span>
+        </button>
+        <button class="account-btn" data-account="natwest">
+          <span class="account-btn-label">NatWest</span>
+          <span class="account-btn-latest"></span>
+        </button>
       </div>
 
       <div class="dashboard-controls">
@@ -35,6 +50,45 @@
         <select id="fy-filter">
           <option value="">All Time</option>
         </select>
+        <span class="fy-date-range" id="fy-banner"></span>
+      </div>
+
+      <div class="fy-key-dates" id="fy-key-dates">
+        <div class="fy-key-dates-grid">
+          <div class="fy-date-item">
+            <span class="fy-date-icon">📅</span>
+            <div class="fy-date-detail">
+              <span class="fy-date-label">Year Start</span>
+              <span class="fy-date-value" id="fy-start-date"></span>
+            </div>
+          </div>
+          <div class="fy-date-item">
+            <span class="fy-date-icon">📅</span>
+            <div class="fy-date-detail">
+              <span class="fy-date-label">Year End</span>
+              <span class="fy-date-value" id="fy-end-date"></span>
+            </div>
+          </div>
+          <div class="fy-date-item">
+            <span class="fy-date-icon">🏛️</span>
+            <div class="fy-date-detail">
+              <span class="fy-date-label">File Accounts (Companies House)</span>
+              <span class="fy-date-value" id="fy-filing-date"></span>
+            </div>
+          </div>
+          <div class="fy-date-item">
+            <span class="fy-date-icon">💷</span>
+            <div class="fy-date-detail">
+              <span class="fy-date-label">Pay Corporation Tax (HMRC)</span>
+              <span class="fy-date-value" id="fy-payment-date"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="vat-timeline" id="vat-timeline">
+        <div class="vat-timeline-header">VAT Payments Schedule</div>
+        <div class="vat-timeline-grid" id="vat-timeline-grid"></div>
       </div>
 
       <div class="summary-cards">
@@ -98,10 +152,11 @@
           <div class="liability-card clickable" id="vat-outstanding-card">
             <div class="liability-icon vat-icon" style="background: linear-gradient(135deg, #e67e22, #d35400);">VAT</div>
             <div class="liability-details">
-              <span class="liability-label">VAT Owed <span id="vat-quarter-label">(Quarter)</span></span>
+              <span class="liability-label">Next VAT Payment <span id="vat-quarter-label">(Quarter)</span></span>
               <span class="liability-value" id="vat-outstanding">£0.00</span>
               <span class="liability-note" id="vat-period">Period: -</span>
               <span class="liability-note">Paid (last 4 qtrs): <span id="vat-paid">£0.00</span></span>
+              <div class="due-date-spacer"></div>
               <span class="vat-due-badge" id="vat-due-date">Due: -</span>
             </div>
           </div>
@@ -110,9 +165,11 @@
           <div class="liability-card">
             <div class="liability-icon corp-icon">CT</div>
             <div class="liability-details">
-              <span class="liability-label">Corporation Tax</span>
+              <span class="liability-label">Corporation Tax <span id="corp-tax-period"></span></span>
               <span class="liability-value" id="corp-tax">£0.00</span>
               <span class="liability-note" id="corp-tax-note">on £0 taxable profit</span>
+              <div class="due-date-spacer"></div>
+              <span class="due-date-badge" id="corp-tax-due"></span>
             </div>
           </div>
           
@@ -141,9 +198,19 @@
         <div class="personal-breakdown" id="david-breakdown">
           <h4>David's Payments Breakdown</h4>
           <div class="breakdown-grid">
+            <div class="breakdown-item breakdown-item-highlight">
+              <span class="breakdown-label">Total Paid</span>
+              <span class="breakdown-value" id="david-total-paid">£0.00</span>
+            </div>
             <div class="breakdown-item">
-              <span class="breakdown-label">Salary Paid</span>
+              <span class="breakdown-label">Salary Paid So Far</span>
               <span class="breakdown-value" id="david-salary-paid">£0.00</span>
+              <span class="breakdown-note" id="david-monthly-salary-note"></span>
+            </div>
+            <div class="breakdown-item">
+              <span class="breakdown-label">Annual Salary</span>
+              <span class="breakdown-value" id="david-annual-salary">£0.00</span>
+              <span class="breakdown-note" id="david-monthly-salary"></span>
             </div>
             <div class="breakdown-item">
               <span class="breakdown-label">Dividends Paid</span>
@@ -160,9 +227,19 @@
         <div class="personal-breakdown" id="heena-breakdown">
           <h4>Heena's Payments Breakdown</h4>
           <div class="breakdown-grid">
+            <div class="breakdown-item breakdown-item-highlight">
+              <span class="breakdown-label">Total Paid</span>
+              <span class="breakdown-value" id="heena-total-paid">£0.00</span>
+            </div>
             <div class="breakdown-item">
-              <span class="breakdown-label">Salary Paid</span>
+              <span class="breakdown-label">Salary Paid So Far</span>
               <span class="breakdown-value" id="heena-salary-paid">£0.00</span>
+              <span class="breakdown-note" id="heena-monthly-salary-note"></span>
+            </div>
+            <div class="breakdown-item">
+              <span class="breakdown-label">Annual Salary</span>
+              <span class="breakdown-value" id="heena-annual-salary">£0.00</span>
+              <span class="breakdown-note" id="heena-monthly-salary"></span>
             </div>
             <div class="breakdown-item">
               <span class="breakdown-label">Dividends Paid</span>

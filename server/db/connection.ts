@@ -63,19 +63,17 @@ export function formatDateLocal(date: Date): string {
  * - Lowercase
  * - Trim leading/trailing whitespace
  * - Collapse multiple spaces/tabs to single space
- * - Take first 50 chars
  */
 export function normalizeDescription(desc: string): string {
   return desc
     .toLowerCase()
     .trim()
-    .replace(/[\t\s]+/g, ' ')  // Collapse tabs and multiple spaces to single space
-    .substring(0, 50);
+    .replace(/[\t\s]+/g, ' ');
 }
 
 /**
  * Generate a unique hash for a transaction to detect duplicates
- * Uses: account + date + amount + normalized description (first 50 chars) + occurrence
+ * Uses: account + date + amount + full normalized description + occurrence
  */
 export function generateTransactionHash(t: Transaction): string {
   const dateStr = formatDateLocal(t.date);
@@ -139,6 +137,14 @@ export function initSchema(): void {
   db.prepare(`
     INSERT OR IGNORE INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
     VALUES ('barclays-current', 475.05, '2023-12-29', CURRENT_TIMESTAMP)
+  `).run();
+  db.prepare(`
+    INSERT INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
+    VALUES ('natwest', 3256.79, '2021-01-03', CURRENT_TIMESTAMP)
+    ON CONFLICT(account) DO UPDATE SET
+      opening_balance = excluded.opening_balance,
+      opening_balance_date = excluded.opening_balance_date,
+      updated_at = CURRENT_TIMESTAMP
   `).run();
   
   console.log('[Database] Schema initialized');
