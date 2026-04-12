@@ -4,6 +4,7 @@ import barclaysParser from './barclays.js';
 import natwestParser from './natwest.js';
 import capitalOnTapParser from './capital-on-tap.js';
 import barclaycardParser from './barclaycard.js';
+import monzoParser from './monzo.js';
 import type { BankParser, ParserMap, Transaction, CSVRow } from '../types.js';
 
 /**
@@ -14,7 +15,8 @@ export const PARSERS: ParserMap = {
   'barclays-savings': barclaysParser,
   'natwest': natwestParser,
   'capital-on-tap': capitalOnTapParser,
-  'barclaycard': barclaycardParser
+  'barclaycard': barclaycardParser,
+  'monzo-joint': monzoParser
 };
 
 /**

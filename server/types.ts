@@ -275,7 +275,8 @@ export const ACCOUNTS = [
   'barclays-savings',
   'capital-on-tap',
   'barclaycard',
-  'natwest'
+  'natwest',
+  'monzo-joint'
 ] as const;
 
 export type AccountName = typeof ACCOUNTS[number];
@@ -354,6 +355,15 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     ownership: 'personal',
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,  // Legacy/secondary account
+    showTaxLiabilities: false,
+  },
+  'monzo-joint': {
+    name: 'monzo-joint',
+    label: 'Monzo Joint',
+    type: 'current',
+    ownership: 'personal',
+    canMakeOutgoingPayments: true,
+    excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
   },
 };
