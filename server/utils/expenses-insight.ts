@@ -1,32 +1,45 @@
 /**
  * Morrison-style monthly insight: passive vs salary, net personal, joint need, bills/QoL split, debt terms.
  * Pure functions — uses recurring line items only.
+ *
+ * `isSalaryIncome` and `debtTermForMerchant` match on **normalised merchant display names**
+ * (see `normalizeMerchant` / `merchant-registry.ts`). Renaming a display name there can break
+ * these heuristics — keep patterns in sync or add regression tests when registry strings change.
  */
 
 import type { ExpensesInsight, ExpensesLineItem, ExpensesSection } from '../../shared/api-contracts.js';
+import { CATEGORY_NAMES } from './merchant-registry.js';
+import type { CategoryName } from './merchant-registry.js';
+import { SPECIAL_CATEGORY } from './category-constants.js';
+import { round2 } from './math.js';
 
-const BILLS_CATEGORIES = new Set([
+/**
+ * Fixed / obligation categories (non–quality-of-life) for personal recurring spend.
+ * QoL is the complement within CATEGORY_NAMES so new categories default to QoL unless explicitly
+ * added here (avoids silent misclassification into “bills” via subtraction).
+ * Exported for tests: partition of CATEGORY_NAMES into bills/obligations vs QoL.
+ */
+export const NON_QOL_CATEGORIES = new Set<CategoryName>([
   'Housing',
   'Utilities',
   'Insurance',
   'Tax',
   'Property',
+  SPECIAL_CATEGORY.debtRepayment,
+  'Business',
+  SPECIAL_CATEGORY.transfers,
+  SPECIAL_CATEGORY.income,
 ]);
 
-const QOL_CATEGORIES = new Set([
-  'Groceries',
-  'Eating Out',
-  'Transport',
-  'Entertainment',
-  'Shopping',
-  'Travel',
-  'Health & Personal',
-  'Childcare & Education',
-  'Other',
-]);
+export const QOL_CATEGORIES = new Set(
+  CATEGORY_NAMES.filter((c) => !NON_QOL_CATEGORIES.has(c)),
+);
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
+function isQoLCategory(category: string): boolean {
+  for (const c of QOL_CATEGORIES) {
+    if (c === category) return true;
+  }
+  return false;
 }
 
 /** Recurring income that looks like employment pay (not dividends, rent, etc.). */
@@ -77,7 +90,6 @@ export function buildExpensesInsight(
   totalMonthlyIncome: number,
   personalMonthlyFixed: number,
   businessMonthlyFixed: number,
-  debtMonthlyFixed: number,
 ): ExpensesInsight {
   let totalSalary = 0;
   for (const i of incomeMonthlyItems) {
@@ -102,7 +114,7 @@ export function buildExpensesInsight(
 
   for (const sec of monthlyOutgoings) {
     for (const item of sec.items) {
-      if (item.category === 'Debt Repayment') {
+      if (item.category === SPECIAL_CATEGORY.debtRepayment) {
         const term = debtTermForMerchant(item.merchant);
         if (term === 'short') {
           debtShortTerm += item.amount;
@@ -110,7 +122,7 @@ export function buildExpensesInsight(
           debtMediumTerm += item.amount;
         }
       }
-      if (item.ownership === 'personal' && QOL_CATEGORIES.has(item.category)) {
+      if (item.ownership === 'personal' && isQoLCategory(item.category)) {
         qualityOfLifeExpenses += item.amount;
       }
     }

@@ -1,9 +1,8 @@
 import { getDb } from '../connection.js';
-import { buildDashboardFilters, buildFYWhereClause, type DashboardFilters } from '../utils/financial-year.js';
+import { buildDashboardFilters, type DashboardFilters } from '../utils/financial-year.js';
 import { 
   VAT, 
   calculateCorporationTax, 
-  calculateDividendTax,
   INCOME_TAX,
   DIVIDEND_TAX,
   getCurrentVatQuarter,

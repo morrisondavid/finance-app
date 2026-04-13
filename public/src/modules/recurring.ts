@@ -97,6 +97,8 @@ export async function loadRecurring(): Promise<void> {
       renderSection('Annual', data.annual);
   } catch (error) {
     console.error('[Recurring] Error loading recurring expenses:', error);
-    panel.style.display = 'none';
+    if (container) {
+      container.innerHTML = '<p class="error">Failed to load recurring expenses.</p>';
+    }
   }
 }

@@ -52,6 +52,10 @@ export async function loadStatements(
     updateDownloadButton();
   } catch (error) {
     console.error('Error loading statements:', error);
+    const container = document.getElementById('statements-table');
+    if (container) {
+      container.innerHTML = '<p class="error">Failed to load statements. Please try refreshing.</p>';
+    }
   }
 }
 

@@ -208,8 +208,8 @@ export const CategoriesResponseSchema = z.object({
 });
 
 // GET /api/budget/overview — household expenses sheet (monthly + separate annual)
-export const ExpensesVarianceMonthSchema = z.object({
-  month: z.string(),
+export const ExpensesVariancePointSchema = z.object({
+  period: z.string(),
   expected: z.number(),
   actual: z.number(),
 });
@@ -223,7 +223,7 @@ export const ExpensesLineItemSchema = z.object({
   ownership: AccountOwnershipSchema,
   isVariable: z.boolean(),
   billingDay: z.string().nullable(),
-  variance: z.array(ExpensesVarianceMonthSchema),
+  variance: z.array(ExpensesVariancePointSchema),
 });
 
 export const ExpensesSectionSchema = z.object({
@@ -397,7 +397,7 @@ export type TaxLiabilities = z.infer<typeof TaxLiabilitiesSchema>;
 export type UploadedFile = z.infer<typeof UploadedFileSchema>;
 export type CategoryBreakdown = z.infer<typeof CategoryBreakdownSchema>;
 export type CategoriesResponse = z.infer<typeof CategoriesResponseSchema>;
-export type ExpensesVarianceMonth = z.infer<typeof ExpensesVarianceMonthSchema>;
+export type ExpensesVariancePoint = z.infer<typeof ExpensesVariancePointSchema>;
 export type ExpensesLineItem = z.infer<typeof ExpensesLineItemSchema>;
 export type ExpensesSection = z.infer<typeof ExpensesSectionSchema>;
 export type ExpensesIncomeSplit = z.infer<typeof ExpensesIncomeSplitSchema>;

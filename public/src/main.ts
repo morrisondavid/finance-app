@@ -26,9 +26,13 @@ async function loadAccountConfig(): Promise<void> {
     });
     
     setState('accountConfig', configMap);
-    console.log('[Config] Loaded account configurations:', Object.keys(configMap));
   } catch (error) {
     console.error('Error loading account config:', error);
+    const banner = document.getElementById('config-error-banner');
+    if (banner) {
+      banner.textContent = 'Failed to load account configuration. Some features may not work correctly.';
+      banner.style.display = 'block';
+    }
   }
 }
 
@@ -60,9 +64,6 @@ function initializeTabNavigation(): void {
  * Initialize all modules and start the application
  */
 async function initializeApp(): Promise<void> {
-  console.log('[App] Initializing Bank Statements Dashboard...');
-  
-  // Load configuration first
   await loadAccountConfig();
   
   // Initialize tab navigation
@@ -81,7 +82,6 @@ async function initializeApp(): Promise<void> {
     }
   });
   
-  console.log('[App] Initialization complete');
 }
 
 // Start the app when DOM is ready

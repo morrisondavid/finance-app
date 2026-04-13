@@ -1,0 +1,270 @@
+/**
+ * Dashboard chart rendering — monthly bar chart, category doughnut, and monthly table.
+ */
+
+import { Chart } from 'chart.js/auto';
+import type { MonthlySummary } from '../types';
+import { state, setState } from './state';
+import { fetchCategories } from '../utils/api';
+import { formatCurrency } from '../utils/formatting';
+import { showTransactionsModal, showCategoryTransactionsModal } from './dashboard-modals';
+
+let currentMonthlyData: MonthlySummary[] = [];
+let categoryChart: Chart | null = null;
+let currentVisibleCategories: string[] = [];
+
+export function renderMonthlyChart(monthlyData: MonthlySummary[]): void {
+  const ctx = document.getElementById('monthly-chart') as HTMLCanvasElement;
+  if (!ctx) return;
+
+  currentMonthlyData = monthlyData;
+
+  if (state.monthlyChart) {
+    state.monthlyChart.destroy();
+  }
+
+  const labels = monthlyData.map(m => {
+    const [year, month] = m.month.split('-');
+    return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-GB', {
+      month: 'short',
+      year: '2-digit'
+    });
+  });
+
+  const chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Income',
+          data: monthlyData.map(m => m.income),
+          backgroundColor: 'rgba(16, 185, 129, 0.8)',
+          borderRadius: 4
+        },
+        {
+          label: 'Outgoings',
+          data: monthlyData.map(m => m.expenses),
+          backgroundColor: 'rgba(239, 68, 68, 0.8)',
+          borderRadius: 4
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      onClick: (_event, elements) => {
+        if (elements && elements.length > 0) {
+          const element = elements[0];
+          const datasetIndex = element.datasetIndex;
+          const index = element.index;
+          const monthData = currentMonthlyData[index];
+          const type = datasetIndex === 0 ? 'income' : 'expense';
+          showTransactionsModal(monthData.month, type);
+        }
+      },
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            label: (context: unknown) => {
+              const tip = context as { raw: number; dataset: { label?: string } };
+              return `${tip.dataset.label}: £${tip.raw.toLocaleString()}`;
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            callback: (value: unknown) => '£' + (value as number).toLocaleString()
+          }
+        }
+      },
+      onHover: (event: unknown, elements: unknown) => {
+        const evt = event as { native?: { target?: HTMLElement } };
+        const elems = elements as unknown[];
+        const target = evt.native?.target;
+        if (target) {
+          target.style.cursor = (elems && elems.length > 0) ? 'pointer' : 'default';
+        }
+      }
+    }
+  });
+
+  setState('monthlyChart', chart);
+}
+
+export async function renderCategoryChart(): Promise<void> {
+  const ctx = document.getElementById('category-chart') as HTMLCanvasElement;
+  const legendEl = document.getElementById('category-legend');
+  if (!ctx) return;
+
+  if (categoryChart) {
+    categoryChart.destroy();
+    categoryChart = null;
+  }
+
+  try {
+    const data = await fetchCategories({
+      account: state.selectedAccount,
+      financialYear: state.selectedFinancialYear || undefined,
+    });
+
+    if (!data.categories.length || data.totalExpenses === 0) {
+      if (legendEl) legendEl.innerHTML = '<p class="empty-state">No expense data available.</p>';
+      return;
+    }
+
+    const threshold = 2;
+    const visible: typeof data.categories = [];
+    let otherTotal = 0;
+    let otherCount = 0;
+
+    for (const cat of data.categories) {
+      if (cat.percentage < threshold) {
+        otherTotal += cat.total;
+        otherCount += cat.count;
+      } else {
+        visible.push(cat);
+      }
+    }
+
+    if (otherTotal > 0) {
+      const existingOther = visible.find(c => c.name === 'Other');
+      if (existingOther) {
+        existingOther.total += otherTotal;
+        existingOther.count += otherCount;
+        existingOther.percentage = Math.round((existingOther.total / data.totalExpenses) * 1000) / 10;
+      } else {
+        visible.push({
+          name: 'Other',
+          total: Math.round(otherTotal * 100) / 100,
+          count: otherCount,
+          percentage: Math.round((otherTotal / data.totalExpenses) * 1000) / 10,
+          colour: '#6B7280',
+        });
+      }
+    }
+
+    currentVisibleCategories = visible.map(c => c.name);
+
+    categoryChart = new Chart(ctx, {
+      type: 'doughnut' as const,
+      data: {
+        labels: visible.map(c => c.name),
+        datasets: [{
+          data: visible.map(c => c.total),
+          backgroundColor: visible.map(c => c.colour),
+          borderWidth: 2,
+          borderColor: '#ffffff',
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '60%',
+        onClick(_event, elements) {
+          if (elements.length > 0) {
+            const idx = elements[0].index;
+            const categoryName = currentVisibleCategories[idx];
+            if (categoryName) {
+              showCategoryTransactionsModal(categoryName);
+            }
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (context: unknown) => {
+                const tip = context as { label: string; raw: number };
+                const cat = visible.find(c => c.name === tip.label);
+                return `${tip.label}: ${formatCurrency(tip.raw)} (${cat?.percentage ?? 0}%)`;
+              },
+            },
+          },
+        },
+      } as import('chart.js').ChartOptions<'doughnut'>,
+      plugins: [{
+        id: 'centerText',
+        afterDraw(chart: Chart) {
+          const { ctx: drawCtx, chartArea } = chart;
+          if (!drawCtx || !chartArea) return;
+
+          const centerX = (chartArea.left + chartArea.right) / 2;
+          const centerY = (chartArea.top + chartArea.bottom) / 2;
+
+          drawCtx.save();
+          drawCtx.textAlign = 'center';
+          drawCtx.textBaseline = 'middle';
+
+          drawCtx.font = '600 12px -apple-system, BlinkMacSystemFont, sans-serif';
+          drawCtx.fillStyle = '#64748b';
+          drawCtx.fillText('Total Spend', centerX, centerY - 12);
+
+          drawCtx.font = '700 18px -apple-system, BlinkMacSystemFont, sans-serif';
+          drawCtx.fillStyle = '#1e293b';
+          drawCtx.fillText(formatCurrency(data.totalExpenses), centerX, centerY + 10);
+
+          drawCtx.restore();
+        },
+      }],
+    });
+
+    if (legendEl) {
+      legendEl.innerHTML = visible
+        .map(c => `
+          <div class="category-legend-item">
+            <span class="category-swatch" style="background:${c.colour}"></span>
+            <span class="category-name">${c.name}</span>
+            <span class="category-amount">${formatCurrency(c.total)}</span>
+            <span class="category-pct">${c.percentage}%</span>
+          </div>
+        `)
+        .join('');
+    }
+  } catch (error) {
+    console.error('[Dashboard] Error loading categories:', error);
+    if (legendEl) legendEl.innerHTML = '<p class="empty-state">Failed to load category data.</p>';
+  }
+}
+
+export function renderMonthlyTable(monthlyData: MonthlySummary[]): void {
+  const container = document.getElementById('monthly-table');
+  if (!container) return;
+
+  if (monthlyData.length === 0) {
+    container.innerHTML = '<p class="empty-state">No transaction data available. Add CSV statements to see summaries.</p>';
+    return;
+  }
+
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Month</th>
+          <th>Income</th>
+          <th>Outgoings</th>
+          <th>Net</th>
+          <th>VAT</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${monthlyData.map(m => {
+          const [y, mo] = m.month.split('-');
+          const label = new Date(parseInt(y), parseInt(mo) - 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+          return `
+          <tr>
+            <td>${label}</td>
+            <td class="income">${formatCurrency(m.income)}</td>
+            <td class="expense">${formatCurrency(m.expenses)}</td>
+            <td class="${m.net >= 0 ? 'income' : 'expense'}">${formatCurrency(m.net)}</td>
+            <td>${formatCurrency(m.vat)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}

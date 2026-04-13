@@ -10,6 +10,7 @@ import type { MonthlySummary, AccountSummary, DashboardTotals } from '../../type
 import { ACCOUNTS } from '../../types.js';
 import { getTransactions } from './transactions.js';
 import { detectPassThrough } from '../../utils/pass-through-detector.js';
+import { VAT } from '../../config/tax-rates.js';
 
 /**
  * Get dashboard totals
@@ -40,7 +41,8 @@ export function getDashboardTotals(filters: DashboardFilters = {}): DashboardTot
   const income = Math.round(incomeResult.total * 100) / 100;
   const expenses = Math.round(expenseResult.total * 100) / 100;
   const net = Math.round((income - expenses) * 100) / 100;
-  const vatLiability = Math.round((expenses * 0.2 / 1.2) * 100) / 100;
+  // VAT in gross (VAT-inclusive) expenses: standard-rate fraction from tax config
+  const vatLiability = Math.round((expenses * VAT.FRACTION) * 100) / 100;
   const transfersIn = Math.round(transfersInResult.total * 100) / 100;
   const transfersOut = Math.round(transfersOutResult.total * 100) / 100;
 
@@ -82,7 +84,7 @@ export function getMonthlySummary(filters: DashboardFilters = {}): MonthlySummar
     income: Math.round(row.income * 100) / 100,
     expenses: Math.round(row.expenses * 100) / 100,
     net: Math.round((row.income - row.expenses) * 100) / 100,
-    vat: Math.round((row.expenses * 0.2 / 1.2) * 100) / 100
+    vat: Math.round((row.expenses * VAT.FRACTION) * 100) / 100
   }));
 }
 

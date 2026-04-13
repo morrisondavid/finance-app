@@ -1,23 +1,35 @@
-/**
- * Transaction type
- */
+// ─── Wire types: re-exported from the single source of truth ─────────────────
+// All JSON-serializable types that cross the HTTP boundary are defined as
+// Zod schemas in shared/api-contracts.ts.  TypeScript types are derived via
+// z.infer<> there.  We re-export them here for convenience so that server code
+// can keep importing from '../types.js' without churn.
+
+export type {
+  MonthlySummary,
+  AccountSummary,
+  DashboardTotals,
+  AccountBalance,
+  TaxLiabilities,
+  DashboardSummaryResponse as DashboardSummary,
+  UploadedFile,
+  TransactionsResponse,
+} from '../shared/api-contracts.js';
+
+// ─── Internal types (never serialised over HTTP) ─────────────────────────────
+
 export type TransactionType = 'income' | 'expense' | 'transfer';
 
-/**
- * Normalized transaction from CSV parsing
- */
+/** Server-side transaction with native Date (not JSON-safe). */
 export interface Transaction {
   date: Date;
   description: string;
   amount: number;
   account: string;
   type: TransactionType;
-  occurrence?: number; // For distinguishing split payments (1, 2, 3...)
+  occurrence?: number;
 }
 
-/**
- * Transaction with date as string (for JSON responses)
- */
+/** JSON-safe transaction (date as string). */
 export interface TransactionJSON {
   date: string;
   description: string;
@@ -29,116 +41,60 @@ export interface TransactionJSON {
   linkedTransactionId?: number;
 }
 
-/**
- * Extracted date info from filename
- */
 export interface ExtractedDate {
   year: string;
   month: string;
 }
 
-/**
- * File info for statement listings
- */
 export interface FileInfo {
   filename: string;
   size: number;
-  modified: Date;
+  modified: string;
   extractedDate: ExtractedDate | null;
   displayDate: string;
 }
 
-/**
- * File info with type (pdf/csv)
- */
 export interface FileInfoWithType extends FileInfo {
   type: 'pdf' | 'csv';
 }
 
-/**
- * Statements grouped by type for an account
- */
 export interface AccountStatements {
   pdf: FileInfo[];
   csv: FileInfo[];
 }
 
-/**
- * All statements grouped by account
- */
 export interface AllStatements {
   [account: string]: AccountStatements;
 }
 
-/**
- * CSV row from bank export
- */
 export interface CSVRow {
   [key: string]: string;
 }
 
-/**
- * Result of header validation
- */
 export interface ValidationResult {
   valid: boolean;
   errors?: string[];
 }
 
-/**
- * Bank-specific CSV parser configuration
- * 
- * ALL methods are REQUIRED so TypeScript catches missing implementations.
- * If you add a new parser and forget a method, tsc will fail.
- */
 export interface BankParser {
-  /** CSV column configuration - 'auto' to detect from header */
   columns: 'auto' | string[];
-  
-  /** The column name that contains the transaction date (case-insensitive lookup) */
   dateColumn: string;
-  
-  /** The column name that contains the transaction amount (case-insensitive lookup) */
   amountColumn: string;
-  
-  /** The column name that contains the transaction description (case-insensitive lookup) */
   descriptionColumn: string;
-  
-  /** Column headers for output CSVs (used when writing partitioned files) */
   headers: readonly string[];
-  
-  /** MINIMUM required headers for validation (case-insensitive matching) */
   requiredHeaders: readonly string[];
-  
-  /** Optional csv-parse options */
   parseOptions?: Record<string, unknown>;
-  
-  /** Preprocess raw CSV content before parsing */
   preprocess(content: string): string;
-  
-  /** Parse a date string from the CSV into a Date object */
   parseDate(dateStr: string): Date | null;
-  
-  /** Extract date from filename for normalization (returns YYYY-MM-DD or null) */
   extractFilenameDate(filename: string): string | null;
-  
-  /** Validate CSV headers - returns { valid, errors? } */
   validateHeaders(headers: string[]): ValidationResult;
-  
-  /** Transform a CSV row to a normalized Transaction */
   transform(row: CSVRow, account: string): Transaction | null;
 }
 
-/**
- * Map of account names to their parsers
- */
 export interface ParserMap {
   [account: string]: BankParser;
 }
 
-/**
- * Result of filename normalization
- */
 export interface NormalizeResult {
   original: string;
   normalized: string;
@@ -146,125 +102,9 @@ export interface NormalizeResult {
   newPath?: string;
 }
 
-/**
- * Monthly financial summary
- */
-export interface MonthlySummary {
-  month: string;
-  income: number;
-  expenses: number;
-  net: number;
-  vat: number;
-}
-
-/**
- * Account-level financial summary
- */
-export interface AccountSummary {
-  income: number;
-  expenses: number;
-  transactionCount: number;
-  newestTransaction: string | null;
-}
-
-/**
- * Dashboard totals
- */
-export interface DashboardTotals {
-  income: number;
-  expenses: number;
-  net: number;
-  vatLiability: number;
-  transfersIn: number;
-  transfersOut: number;
-  passThroughIncome: number;
-}
-
-/**
- * Account balance summary
- */
-export interface AccountBalance {
-  openingBalance: number;
-  openingBalanceDate?: string;
-  transactionTotal: number;
-  currentBalance: number;
-  transactionCount: number;
-  oldestTransaction?: string;
-  newestTransaction?: string;
-}
-
-/**
- * Tax liabilities summary
- */
-export interface TaxLiabilities {
-  vatOwedThisQuarter?: number;
-  vatOutstanding?: number;
-  vatOnIncome?: number;
-  vatPaidLast4Quarters?: number;
-  vatPaid?: number;
-  vatQuarter?: {
-    label: string;
-    startDate: string;
-    endDate: string;
-    dueDate: string;
-  };
-  corporationTax: number;
-  corporationTaxRate: number;
-  taxableProfit: number;
-  davidTaxEstimate?: number;
-  davidPayments?: {
-    total: number;
-    salary: number;
-    dividends: number;
-  };
-  davidTaxBreakdown?: {
-    dividendTax: number;
-  };
-  heenaTaxEstimate?: number;
-  heenaPayments?: {
-    total: number;
-    salary: number;
-    dividends: number;
-  };
-  heenaTaxBreakdown?: {
-    dividendTax: number;
-  };
-}
-
-/**
- * Full dashboard summary response
- */
-export interface DashboardSummary {
-  totals: DashboardTotals;
-  monthly: MonthlySummary[];
-  byAccount: { [account: string]: AccountSummary };
-  transactionCount: number;
-  transferCount: number;
-  fileCount: number;
-  currentAccountBalance?: AccountBalance;
-  taxLiabilities?: TaxLiabilities;
-  selectedFinancialYear: string | null;
-  financialYears: string[];
-  selectedAccount?: string;
-}
-
-/**
- * Uploaded file info
- */
-export interface UploadedFile {
-  originalFilename?: string;
-  filename: string;
-  size: number;
-  path: string;
-  renamed?: boolean;
-}
-
-/**
- * Upload response
- */
 export interface UploadResponse {
   message: string;
-  files: UploadedFile[];
+  files: import('../shared/api-contracts.js').UploadedFile[];
   account?: string;
   type?: string;
 }

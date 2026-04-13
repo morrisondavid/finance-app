@@ -8,11 +8,9 @@
 
 import type { RecurringExpense, RecurringFrequency } from '../../shared/api-contracts.js';
 import { CATEGORY_COLOURS } from './categorizer.js';
+import type { CategoryName } from './categorizer.js';
 import { getMerchantLogoUrl } from './merchant-logos.js';
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
+import { round2 } from './math.js';
 
 function median(values: number[]): number {
   if (values.length === 0) return 0;
@@ -30,6 +28,7 @@ function stddev(values: number[]): number {
   return Math.sqrt(variance);
 }
 
+/** Day-of-month circular stats use a fixed 30-day period (approximation; months are not equal length). */
 function circularDayStddev(days: number[]): number {
   if (days.length < 2) return 0;
   const period = 30;
@@ -85,7 +84,7 @@ export interface TransactionDetail {
 
 export interface RecurringCandidate {
   merchant: string;
-  category: string;
+  category: CategoryName;
   sourceAccount: string;
   ownership: 'personal' | 'business';
   monthlyMax: number;

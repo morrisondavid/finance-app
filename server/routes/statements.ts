@@ -99,11 +99,11 @@ function getFileInfo(filePath: string, filename: string): FileInfo {
   return {
     filename,
     size: stats.size,
-    modified: stats.mtime,
+    modified: stats.mtime.toISOString(),
     extractedDate: dateInfo,
-    displayDate: dateInfo 
-      ? `${dateInfo.year}-${dateInfo.month}` 
-      : new Date(stats.mtime).toISOString().substring(0, 7)
+    displayDate: dateInfo
+      ? `${dateInfo.year}-${dateInfo.month}`
+      : stats.mtime.toISOString().substring(0, 7)
   };
 }
 

@@ -2,6 +2,11 @@
  * Formatting utilities for the Bank Statements Dashboard
  */
 
+/** Round to 2 decimal places (banker-safe). */
+export function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 /**
  * Format a number as GBP currency
  */

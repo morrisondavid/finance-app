@@ -1,11 +1,8 @@
-import type { Transaction, TransactionType } from '../../types.js';
+import type { Transaction, TransactionType, AccountName } from '../../types.js';
 import { isCreditCard } from '../../types.js';
 import { getDb, formatDateLocal, generateTransactionHash } from '../connection.js';
 import { getFinancialYearRange, buildDashboardFilters, type DashboardFilters } from '../utils/financial-year.js';
 import { 
-  TRANSFER_PATTERNS, 
-  BOUNCE_PATTERNS, 
-  TRANSFER_SQL_PATTERNS,
   TRANSFER_DATE_TOLERANCE_DAYS,
   isTransferDescription,
   isBounceDescription

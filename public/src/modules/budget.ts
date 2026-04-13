@@ -4,7 +4,7 @@
 
 import type { ExpensesInsight, ExpensesLineItem, ExpensesSection, ExpensesSheetResponse } from '../../../shared/api-contracts.js';
 import { fetchBudgetOverview } from '../utils/api';
-import { formatCurrency } from '../utils/formatting';
+import { formatCurrency, round2 } from '../utils/formatting';
 
 export function initBudget(): void {
   const varianceModal = document.getElementById('expenses-variance-modal');
@@ -48,6 +48,10 @@ export async function loadBudget(): Promise<void> {
     renderAnnualIncome(data);
   } catch (error) {
     console.error('[Budget] Error loading expenses sheet:', error);
+    const container = document.getElementById('expenses-monthly-sections');
+    if (container) {
+      container.innerHTML = '<p class="error">Failed to load budget data. Please try refreshing.</p>';
+    }
   }
 }
 
@@ -254,11 +258,11 @@ function attachVarianceHandlers(container: HTMLElement): void {
         const parsed = JSON.parse(decodeURIComponent(raw)) as {
           merchant: string;
           typical: number;
-          variance: Array<{ month: string; expected: number; actual: number }>;
+          variance: Array<{ period: string; expected: number; actual: number }>;
         };
         showVarianceModal(parsed.merchant, parsed.typical, parsed.variance);
-      } catch {
-        /* ignore */
+      } catch (error) {
+        console.error('[Budget] Failed to parse variance data:', error);
       }
     });
   });
@@ -267,7 +271,7 @@ function attachVarianceHandlers(container: HTMLElement): void {
 function showVarianceModal(
   merchant: string,
   typical: number,
-  variance: Array<{ month: string; expected: number; actual: number }>,
+  variance: Array<{ period: string; expected: number; actual: number }>,
 ): void {
   const modal = document.getElementById('expenses-variance-modal');
   const titleEl = document.getElementById('expenses-variance-modal-title');
@@ -280,7 +284,7 @@ function showVarianceModal(
     const diffStr = diff >= 0 ? `+${formatCurrency(diff)}` : formatCurrency(diff);
     return `
       <tr>
-        <td>${escapeHtml(v.month)}</td>
+        <td>${escapeHtml(v.period)}</td>
         <td>${formatCurrency(v.expected)}</td>
         <td>${formatCurrency(v.actual)}</td>
         <td>${diffStr}</td>
@@ -298,10 +302,6 @@ function showVarianceModal(
     </table>
   `;
   modal.style.display = 'flex';
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
 }
 
 function setText(id: string, text: string): void {

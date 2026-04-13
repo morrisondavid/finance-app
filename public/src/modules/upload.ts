@@ -103,9 +103,9 @@ function showDuplicateModal(duplicates: string[]): Promise<boolean> {
     modal.style.display = 'flex';
 
     function cleanup() {
-      modal.style.display = 'none';
-      overwriteBtn.removeEventListener('click', onOverwrite);
-      cancelBtn.removeEventListener('click', onCancel);
+      modal!.style.display = 'none';
+      overwriteBtn!.removeEventListener('click', onOverwrite);
+      cancelBtn!.removeEventListener('click', onCancel);
     }
 
     function onOverwrite() { cleanup(); resolve(true); }

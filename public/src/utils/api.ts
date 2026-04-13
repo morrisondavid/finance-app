@@ -48,7 +48,6 @@ export async function fetchDashboard(params?: {
   if (params?.account) query.set('account', params.account);
   
   const url = `/api/dashboard/summary?${query}`;
-  console.log('[API] Fetching dashboard:', url);
   const response = await fetch(url);
   return validateResponse(response, DashboardSummaryResponseSchema);
 }

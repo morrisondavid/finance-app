@@ -23,6 +23,8 @@ import {
   getTaxLiabilities
 } from '../db/index.js';
 import { categorizeTransaction, CATEGORY_COLOURS } from '../utils/categorizer.js';
+import type { CategoryName } from '../utils/categorizer.js';
+import { SPECIAL_CATEGORY } from '../utils/category-constants.js';
 
 const router = express.Router();
 
@@ -154,11 +156,11 @@ router.get('/categories', (req: Request<object, CategoriesResponse, object, Cate
       financialYear: financialYear || undefined,
     });
 
-    const totals = new Map<string, { total: number; count: number }>();
+    const totals = new Map<CategoryName, { total: number; count: number }>();
 
     for (const t of transactions) {
       const category = categorizeTransaction(t.description);
-      if (category === 'Transfers') continue;
+      if (category === SPECIAL_CATEGORY.transfers) continue;
       const entry = totals.get(category) ?? { total: 0, count: 0 };
       entry.total += Math.abs(t.amount);
       entry.count += 1;
@@ -199,7 +201,7 @@ router.get('/transactions', (req: Request<object, TransactionsResponse, object, 
   try {
     const { account, year, month, type, category, includeTransfers, financialYear } = req.query;
     
-    const selectedAccount = account || 'barclays-current';
+    const selectedAccount = validateAccount(account);
     
     const filters: {
       account: string;

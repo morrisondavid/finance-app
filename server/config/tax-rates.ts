@@ -284,8 +284,7 @@ export function calculateDividendTax(
   }
   
   const taxableDividends = dividends - DIVIDEND_TAX.ALLOWANCE;
-  const totalIncome = otherIncome + dividends;
-  
+
   // Determine which band the dividends fall into
   const remainingBasicBand = Math.max(0, INCOME_TAX.BASIC_RATE_LIMIT - otherIncome);
   
