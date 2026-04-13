@@ -374,20 +374,24 @@ describe('buildExpensesInsight', () => {
       expect(insight.totalPassiveIncome).toBeCloseTo(2159.92, 2);
     });
 
-    it('Net Expenses (salary included) = Total − Passive = £6,121.27', () => {
-      expect(insight.netExpensesSalaryIncluded).toBeCloseTo(6121.27, 2);
+    it('Net Expenses (salary included) = Total − Passive = £6,121.27 shortfall', () => {
+      expect(insight.netExpensesSalaryIncludedShortfall).toBeCloseTo(6121.27, 2);
+      expect(insight.netExpensesSalaryIncludedSurplus).toBe(0);
     });
 
-    it('Net Expenses (salary excluded) = Net(sal incl) − Salary = £4,605.27', () => {
-      expect(insight.netExpensesSalaryExcluded).toBeCloseTo(4605.27, 2);
+    it('Net Expenses (salary excluded) = Net(sal incl) − Salary = £4,605.27 shortfall', () => {
+      expect(insight.netExpensesSalaryExcludedShortfall).toBeCloseTo(4605.27, 2);
+      expect(insight.netExpensesSalaryExcludedSurplus).toBe(0);
     });
 
-    it('Net Personal Expenses (salary excluded) = Net(sal excl) − Business = £1,854.27', () => {
-      expect(insight.netPersonalExpensesSalaryExcluded).toBeCloseTo(1854.27, 2);
+    it('Net Personal (salary excluded) = Net(sal excl) − Business = £1,854.27 shortfall', () => {
+      expect(insight.netPersonalExpensesSalaryExcludedShortfall).toBeCloseTo(1854.27, 2);
+      expect(insight.netPersonalExpensesSalaryExcludedSurplus).toBe(0);
     });
 
-    it('Money needed in joint account = Net Personal (salary excluded) = £1,854.27', () => {
+    it('Money needed = personal shortfall; surplus 0', () => {
       expect(insight.moneyNeededJointAccount).toBeCloseTo(1854.27, 2);
+      expect(insight.jointAccountMonthlySurplus).toBe(0);
     });
 
     it('Business Expenses = £2,751.00', () => {
@@ -477,24 +481,64 @@ describe('buildExpensesInsight', () => {
       expect(ins.totalPassiveIncome).toBeCloseTo(1200, 2);
     });
 
-    it('net(sal incl) = totalOut − passive = 3800', () => {
-      expect(ins.netExpensesSalaryIncluded).toBeCloseTo(3800, 2);
+    it('net(sal incl) = totalOut − passive = 3800 shortfall', () => {
+      expect(ins.netExpensesSalaryIncludedShortfall).toBeCloseTo(3800, 2);
+      expect(ins.netExpensesSalaryIncludedSurplus).toBe(0);
     });
 
-    it('net(sal excl) = net(sal incl) − salary = 3000', () => {
-      expect(ins.netExpensesSalaryExcluded).toBeCloseTo(3000, 2);
+    it('net(sal excl) = net(sal incl) − salary = 3000 shortfall', () => {
+      expect(ins.netExpensesSalaryExcludedShortfall).toBeCloseTo(3000, 2);
+      expect(ins.netExpensesSalaryExcludedSurplus).toBe(0);
     });
 
-    it('net personal(sal excl) = net(sal excl) − business = 1500', () => {
-      expect(ins.netPersonalExpensesSalaryExcluded).toBeCloseTo(1500, 2);
+    it('net personal(sal excl) = net(sal excl) − business = 1500 shortfall', () => {
+      expect(ins.netPersonalExpensesSalaryExcludedShortfall).toBeCloseTo(1500, 2);
+      expect(ins.netPersonalExpensesSalaryExcludedSurplus).toBe(0);
     });
 
-    it('joint need = net personal(sal excl)', () => {
-      expect(ins.moneyNeededJointAccount).toBe(ins.netPersonalExpensesSalaryExcluded);
+    it('joint need = personal shortfall; surplus mirrors personal', () => {
+      expect(ins.moneyNeededJointAccount).toBe(ins.netPersonalExpensesSalaryExcludedShortfall);
+      expect(ins.jointAccountMonthlySurplus).toBe(ins.netPersonalExpensesSalaryExcludedSurplus);
     });
 
     it('business(sal excl) = max(0, business − salary) = 700', () => {
       expect(ins.businessExpensesSalaryExcluded).toBeCloseTo(700, 2);
+    });
+  });
+
+  // ========================================================================
+  // Surplus path: amounts never negative — shortfall/surplus split
+  // ========================================================================
+  describe('surplus when income covers fixed costs (matches real-world joint surplus)', () => {
+    const totalOut = 5438.97;
+    const totalIn = 7058; // 3258 salary + 3800 passive
+    const personalFixed = 4947.48;
+    const businessFixed = 491.49;
+    const incomeItems: ExpensesLineItem[] = [
+      item('PAYE Salary', 3258, 'Income', 'business'),
+      item('Rent Received', 3800, 'Income', 'personal'),
+    ];
+
+    const ins = buildExpensesInsight([], incomeItems, totalOut, totalIn, personalFixed, businessFixed);
+
+    it('after passive: shortfall £1,638.97 (costs exceed passive alone)', () => {
+      expect(ins.netExpensesSalaryIncludedShortfall).toBeCloseTo(1638.97, 2);
+      expect(ins.netExpensesSalaryIncludedSurplus).toBe(0);
+    });
+
+    it('after salary: surplus £1,619.03 (salary covers gap vs passive)', () => {
+      expect(ins.netExpensesSalaryExcludedShortfall).toBe(0);
+      expect(ins.netExpensesSalaryExcludedSurplus).toBeCloseTo(1619.03, 2);
+    });
+
+    it('after business carve-out: personal surplus £2,110.52', () => {
+      expect(ins.netPersonalExpensesSalaryExcludedShortfall).toBe(0);
+      expect(ins.netPersonalExpensesSalaryExcludedSurplus).toBeCloseTo(2110.52, 2);
+    });
+
+    it('money needed is £0; joint surplus equals personal surplus', () => {
+      expect(ins.moneyNeededJointAccount).toBe(0);
+      expect(ins.jointAccountMonthlySurplus).toBeCloseTo(2110.52, 2);
     });
   });
 
@@ -691,16 +735,19 @@ describe('buildExpensesInsight', () => {
       expect(ins.totalPassiveIncome).toBe(0);
     });
 
-    it('net(sal incl) = totalOut', () => {
-      expect(ins.netExpensesSalaryIncluded).toBeCloseTo(2000, 2);
+    it('net(sal incl) = totalOut shortfall', () => {
+      expect(ins.netExpensesSalaryIncludedShortfall).toBeCloseTo(2000, 2);
+      expect(ins.netExpensesSalaryIncludedSurplus).toBe(0);
     });
 
-    it('net(sal excl) = totalOut', () => {
-      expect(ins.netExpensesSalaryExcluded).toBeCloseTo(2000, 2);
+    it('net(sal excl) = totalOut shortfall', () => {
+      expect(ins.netExpensesSalaryExcludedShortfall).toBeCloseTo(2000, 2);
+      expect(ins.netExpensesSalaryExcludedSurplus).toBe(0);
     });
 
-    it('net personal(sal excl) = totalOut', () => {
-      expect(ins.netPersonalExpensesSalaryExcluded).toBeCloseTo(2000, 2);
+    it('net personal(sal excl) = totalOut shortfall', () => {
+      expect(ins.netPersonalExpensesSalaryExcludedShortfall).toBeCloseTo(2000, 2);
+      expect(ins.netPersonalExpensesSalaryExcludedSurplus).toBe(0);
     });
   });
 
@@ -728,12 +775,14 @@ describe('buildExpensesInsight', () => {
       expect(ins.totalPassiveIncome).toBeCloseTo(2500, 2);
     });
 
-    it('net(sal incl) = 3000 − 2500 = 500', () => {
-      expect(ins.netExpensesSalaryIncluded).toBeCloseTo(500, 2);
+    it('net(sal incl) = 3000 − 2500 = 500 shortfall', () => {
+      expect(ins.netExpensesSalaryIncludedShortfall).toBeCloseTo(500, 2);
+      expect(ins.netExpensesSalaryIncludedSurplus).toBe(0);
     });
 
-    it('net(sal excl) = 500 − 0 = 500', () => {
-      expect(ins.netExpensesSalaryExcluded).toBeCloseTo(500, 2);
+    it('net(sal excl) = 500 − 0 = 500 shortfall', () => {
+      expect(ins.netExpensesSalaryExcludedShortfall).toBeCloseTo(500, 2);
+      expect(ins.netExpensesSalaryExcludedSurplus).toBe(0);
     });
   });
 

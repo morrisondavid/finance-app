@@ -75,7 +75,7 @@ function renderMonthlyInsight(data: ExpensesSheetResponse): void {
   }
   if (footnote) {
     footnote.textContent =
-      'Recurring fixed costs only (rolling window). Passive income is recurring monthly income minus lines classified as salary. The key figure for “income dried up” is Money needed in joint account — same as Net Personal Expenses (salary excluded).';
+      'Recurring fixed costs only (rolling window). Passive income is recurring monthly income minus lines classified as salary. Net rows show shortfall (gap to cover) or surplus (headroom) — never negative pounds. Money needed is extra cash the joint account must provide when salary and passive income do not cover personal fixed costs; Monthly surplus appears when they do.';
   }
 }
 
@@ -83,14 +83,22 @@ function divAmount(v: number | null): string {
   return v === null ? '—' : formatCurrency(v);
 }
 
+/** Non-negative amounts only: shortfall (gap) or surplus (headroom), never negative pounds. */
+function shortfallSurplusCell(shortfall: number, surplus: number): string {
+  const f = formatCurrency;
+  if (shortfall > 0) return `${f(shortfall)} shortfall`;
+  if (surplus > 0) return `${f(surplus)} surplus`;
+  return `${f(0)}`;
+}
+
 function buildPrimaryInsightMarkup(ins: ExpensesInsight): string {
   const f = formatCurrency;
   return `
 <tbody>
   <tr class="expenses-insight-row-bold"><td>Total Expenses</td><td class="expenses-col-amount">${f(ins.totalFixedMonthlyExpenses)}</td></tr>
-  <tr class="expenses-insight-row-bold"><td>Net Expenses (salary included)</td><td class="expenses-col-amount">${f(ins.netExpensesSalaryIncluded)}</td></tr>
-  <tr class="expenses-insight-row-bold"><td>Net Expenses (salary excluded)</td><td class="expenses-col-amount">${f(ins.netExpensesSalaryExcluded)}</td></tr>
-  <tr class="expenses-insight-row-bold"><td>Net Personal Expenses (salary excluded)</td><td class="expenses-col-amount">${f(ins.netPersonalExpensesSalaryExcluded)}</td></tr>
+  <tr class="expenses-insight-row-bold"><td>Net Expenses (salary included)</td><td class="expenses-col-amount">${shortfallSurplusCell(ins.netExpensesSalaryIncludedShortfall, ins.netExpensesSalaryIncludedSurplus)}</td></tr>
+  <tr class="expenses-insight-row-bold"><td>Net Expenses (salary excluded)</td><td class="expenses-col-amount">${shortfallSurplusCell(ins.netExpensesSalaryExcludedShortfall, ins.netExpensesSalaryExcludedSurplus)}</td></tr>
+  <tr class="expenses-insight-row-bold"><td>Net Personal Expenses (salary excluded)</td><td class="expenses-col-amount">${shortfallSurplusCell(ins.netPersonalExpensesSalaryExcludedShortfall, ins.netPersonalExpensesSalaryExcludedSurplus)}</td></tr>
   <tr class="expenses-insight-row-sub"><td>— Business Expenses</td><td class="expenses-col-amount">${f(ins.businessExpenses)}</td></tr>
   <tr class="expenses-insight-row-sub"><td>— Business Expenses (salary excluded)</td><td class="expenses-col-amount">${f(ins.businessExpensesSalaryExcluded)}</td></tr>
   <tr class="expenses-insight-row-sub"><td>— Total Salary</td><td class="expenses-col-amount">${f(ins.totalSalary)}</td></tr>
@@ -99,7 +107,7 @@ function buildPrimaryInsightMarkup(ins: ExpensesInsight): string {
   <tr class="expenses-insight-row-sub"><td>— Bills</td><td class="expenses-col-amount">${f(ins.billsExpenses)}</td></tr>
   <tr class="expenses-insight-row-sub"><td>— Total Passive Income</td><td class="expenses-col-amount">${f(ins.totalPassiveIncome)}</td></tr>
   <tr class="expenses-insight-spacer" aria-hidden="true"><td colspan="2"></td></tr>
-  <tr class="expenses-insight-row-key"><td>Money needed in joint account</td><td class="expenses-col-amount">${f(ins.moneyNeededJointAccount)}</td></tr>
+  <tr class="expenses-insight-row-key"><td>Money needed in joint account</td><td class="expenses-col-amount">${ins.moneyNeededJointAccount > 0 ? f(ins.moneyNeededJointAccount) : f(0)}</td></tr>
   <tr class="expenses-insight-spacer" aria-hidden="true"><td colspan="2"></td></tr>
   <tr class="expenses-insight-section-head"><td colspan="2">Dividend Split</td></tr>
   <tr><td>Heena</td><td class="expenses-col-amount">${divAmount(ins.dividendHeena)}</td></tr>

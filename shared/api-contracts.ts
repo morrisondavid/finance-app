@@ -241,11 +241,17 @@ export const ExpensesIncomeSplitSchema = z.object({
 /** Morrison spreadsheet–aligned monthly insight (recurring fixed costs only). */
 export const ExpensesInsightSchema = z.object({
   totalFixedMonthlyExpenses: z.number(),
-  netExpensesSalaryIncluded: z.number(),
-  netExpensesSalaryExcluded: z.number(),
-  netPersonalExpensesSalaryExcluded: z.number(),
-  /** Same as net personal (salary excluded) — cash needed in joint if passive + salary stopped */
+  /** Net after passive: shortfall (need) vs surplus (income exceeds costs) — both ≥ 0 */
+  netExpensesSalaryIncludedShortfall: z.number(),
+  netExpensesSalaryIncludedSurplus: z.number(),
+  netExpensesSalaryExcludedShortfall: z.number(),
+  netExpensesSalaryExcludedSurplus: z.number(),
+  netPersonalExpensesSalaryExcludedShortfall: z.number(),
+  netPersonalExpensesSalaryExcludedSurplus: z.number(),
+  /** Cash still needed from joint when salary + passive don’t cover personal fixed costs */
   moneyNeededJointAccount: z.number(),
+  /** Headroom when salary + passive exceed personal fixed costs (same as personal surplus) */
+  jointAccountMonthlySurplus: z.number(),
   businessExpenses: z.number(),
   businessExpensesSalaryExcluded: z.number(),
   totalSalary: z.number(),

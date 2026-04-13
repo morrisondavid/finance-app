@@ -68,6 +68,13 @@ export function debtTermForMerchant(merchant: string): 'short' | 'medium' {
   return 'short';
 }
 
+/** Split signed net into two non-negative amounts: shortfall (need) vs surplus (headroom). */
+function shortfallSurplus(signedNet: number): { shortfall: number; surplus: number } {
+  const x = round2(signedNet);
+  if (x >= 0) return { shortfall: x, surplus: 0 };
+  return { shortfall: 0, surplus: round2(-x) };
+}
+
 function dividendSplitFromIncome(items: ExpensesLineItem[]): { heena: number | null; david: number | null } {
   let heena = 0;
   let david = 0;
@@ -101,10 +108,13 @@ export function buildExpensesInsight(
 
   const totalPassiveIncome = round2(totalMonthlyIncome - totalSalary);
 
-  const netExpensesSalaryIncluded = round2(totalMonthlyOutgoings - totalPassiveIncome);
-  const netExpensesSalaryExcluded = round2(netExpensesSalaryIncluded - totalSalary);
-  const netPersonalExpensesSalaryExcluded = round2(netExpensesSalaryExcluded - businessMonthlyFixed);
-  const moneyNeededJointAccount = netPersonalExpensesSalaryExcluded;
+  const rawNetIncluded = round2(totalMonthlyOutgoings - totalPassiveIncome);
+  const rawNetExcluded = round2(rawNetIncluded - totalSalary);
+  const rawNetPersonalExcluded = round2(rawNetExcluded - businessMonthlyFixed);
+
+  const afterPassive = shortfallSurplus(rawNetIncluded);
+  const afterSalary = shortfallSurplus(rawNetExcluded);
+  const afterPersonal = shortfallSurplus(rawNetPersonalExcluded);
 
   const businessExpensesSalaryExcluded = round2(Math.max(0, businessMonthlyFixed - totalSalary));
 
@@ -138,10 +148,14 @@ export function buildExpensesInsight(
 
   return {
     totalFixedMonthlyExpenses: totalMonthlyOutgoings,
-    netExpensesSalaryIncluded,
-    netExpensesSalaryExcluded,
-    netPersonalExpensesSalaryExcluded,
-    moneyNeededJointAccount,
+    netExpensesSalaryIncludedShortfall: afterPassive.shortfall,
+    netExpensesSalaryIncludedSurplus: afterPassive.surplus,
+    netExpensesSalaryExcludedShortfall: afterSalary.shortfall,
+    netExpensesSalaryExcludedSurplus: afterSalary.surplus,
+    netPersonalExpensesSalaryExcludedShortfall: afterPersonal.shortfall,
+    netPersonalExpensesSalaryExcludedSurplus: afterPersonal.surplus,
+    moneyNeededJointAccount: afterPersonal.shortfall,
+    jointAccountMonthlySurplus: afterPersonal.surplus,
     businessExpenses: businessMonthlyFixed,
     businessExpensesSalaryExcluded,
     totalSalary,
