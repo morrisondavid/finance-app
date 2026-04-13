@@ -5,6 +5,7 @@ import statementsRouter from './routes/statements.js';
 import dashboardRouter from './routes/dashboard.js';
 import uploadRouter from './routes/upload.js';
 import taxRouter from './routes/tax.js';
+import budgetRouter from './routes/budget.js';
 import { normalizeAllFiles } from './utils/filename-normalizer.js';
 import { initDatabase } from './db/index.js';
 
@@ -25,6 +26,7 @@ app.use('/api/statements', statementsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/tax', taxRouter);
+app.use('/api/budget', budgetRouter);
 
 // Serve index.html for all other routes (SPA support)
 app.get('*', (_req: Request, res: Response) => {

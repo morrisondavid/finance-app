@@ -8,6 +8,8 @@ import {
 } from '../utils/query-builders.js';
 import type { MonthlySummary, AccountSummary, DashboardTotals } from '../../types.js';
 import { ACCOUNTS } from '../../types.js';
+import { getTransactions } from './transactions.js';
+import { detectPassThrough } from '../../utils/pass-through-detector.js';
 
 /**
  * Get dashboard totals
@@ -41,8 +43,17 @@ export function getDashboardTotals(filters: DashboardFilters = {}): DashboardTot
   const vatLiability = Math.round((expenses * 0.2 / 1.2) * 100) / 100;
   const transfersIn = Math.round(transfersInResult.total * 100) / 100;
   const transfersOut = Math.round(transfersOutResult.total * 100) / 100;
+
+  // Detect pass-through income for the selected account (or all accounts)
+  const txns = getTransactions({
+    account: filters.account,
+    financialYear: filters.financialYear,
+    includeTransfers: true,
+  });
+  const { totalExcluded } = detectPassThrough(txns);
+  const passThroughIncome = Math.round(totalExcluded * 100) / 100;
   
-  return { income, expenses, net, vatLiability, transfersIn, transfersOut };
+  return { income, expenses, net, vatLiability, transfersIn, transfersOut, passThroughIncome };
 }
 
 /**

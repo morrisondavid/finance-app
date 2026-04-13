@@ -21,6 +21,7 @@ export const TransactionSchema = z.object({
   amount: z.number(),
   account: z.string(),
   type: TransactionTypeSchema,
+  category: z.string().optional(),
   occurrence: z.number().optional(),
   linkedTransactionId: z.number().optional()
 });
@@ -72,7 +73,8 @@ export const DashboardTotalsSchema = z.object({
   net: z.number(),
   vatLiability: z.number(),
   transfersIn: z.number(),
-  transfersOut: z.number()
+  transfersOut: z.number(),
+  passThroughIncome: z.number(),
 });
 
 export const MonthlySummarySchema = z.object({
@@ -191,6 +193,128 @@ export const VATPaymentsResponseSchema = z.object({
   payments: z.array(TransactionSchema)
 });
 
+// GET /api/dashboard/categories
+export const CategoryBreakdownSchema = z.object({
+  name: z.string(),
+  total: z.number(),
+  count: z.number(),
+  percentage: z.number(),
+  colour: z.string(),
+});
+
+export const CategoriesResponseSchema = z.object({
+  categories: z.array(CategoryBreakdownSchema),
+  totalExpenses: z.number(),
+});
+
+// GET /api/budget/overview — household expenses sheet (monthly + separate annual)
+export const ExpensesVarianceMonthSchema = z.object({
+  month: z.string(),
+  expected: z.number(),
+  actual: z.number(),
+});
+
+export const ExpensesLineItemSchema = z.object({
+  merchant: z.string(),
+  category: z.string(),
+  amount: z.number(),
+  frequency: z.enum(['monthly', 'annual']),
+  sourceAccount: z.string(),
+  ownership: AccountOwnershipSchema,
+  isVariable: z.boolean(),
+  billingDay: z.string().nullable(),
+  variance: z.array(ExpensesVarianceMonthSchema),
+});
+
+export const ExpensesSectionSchema = z.object({
+  name: z.string(),
+  colour: z.string(),
+  subtotal: z.number(),
+  items: z.array(ExpensesLineItemSchema),
+});
+
+export const ExpensesIncomeSplitSchema = z.object({
+  items: z.array(ExpensesLineItemSchema),
+  total: z.number(),
+});
+
+/** Morrison spreadsheet–aligned monthly insight (recurring fixed costs only). */
+export const ExpensesInsightSchema = z.object({
+  totalFixedMonthlyExpenses: z.number(),
+  netExpensesSalaryIncluded: z.number(),
+  netExpensesSalaryExcluded: z.number(),
+  netPersonalExpensesSalaryExcluded: z.number(),
+  /** Same as net personal (salary excluded) — cash needed in joint if passive + salary stopped */
+  moneyNeededJointAccount: z.number(),
+  businessExpenses: z.number(),
+  businessExpensesSalaryExcluded: z.number(),
+  totalSalary: z.number(),
+  /** Personal fixed recurring excluding debt (matches “Personal Expenses” hyphen row) */
+  personalExpenses: z.number(),
+  qualityOfLifeExpenses: z.number(),
+  billsExpenses: z.number(),
+  totalPassiveIncome: z.number(),
+  debtShortTerm: z.number(),
+  debtMediumTerm: z.number(),
+  debtTotal: z.number(),
+  /** Optional split when dividend lines are labelled; null if not detected */
+  dividendHeena: z.number().nullable(),
+  dividendDavid: z.number().nullable(),
+});
+
+export const ExpensesSheetResponseSchema = z.object({
+  monthlyOutgoings: z.array(ExpensesSectionSchema),
+  annualOutgoings: z.array(ExpensesSectionSchema),
+  incomeMonthly: ExpensesIncomeSplitSchema,
+  incomeAnnual: ExpensesIncomeSplitSchema,
+  insight: ExpensesInsightSchema,
+  summary: z.object({
+    totalMonthlyOutgoings: z.number(),
+    totalAnnualOutgoings: z.number(),
+    totalMonthlyIncome: z.number(),
+    totalAnnualIncome: z.number(),
+    /** Monthly fixed income minus monthly fixed outgoings (positive = surplus) */
+    netMonthlyFixed: z.number(),
+    /** max(0, fixed outgoings − recurring income) — amount to cover from salary/other each month */
+    needToEarnMonthly: z.number(),
+    /** max(0, recurring income − fixed outgoings) */
+    monthlySurplus: z.number(),
+    personalMonthlyFixed: z.number(),
+    businessMonthlyFixed: z.number(),
+    /** Sum of recurring monthly items in Debt Repayment category */
+    debtMonthlyFixed: z.number(),
+    /** Annual recurring income minus annual recurring outgoings */
+    netAnnualFixed: z.number(),
+    /** Human-readable window, e.g. "Last 24 months" */
+    periodDescription: z.string(),
+    monthsCovered: z.number(),
+  }),
+});
+
+// GET /api/budget/recurring
+export const RecurringFrequencySchema = z.enum(['monthly', 'annual']);
+
+export const RecurringExpenseSchema = z.object({
+  merchant: z.string(),
+  category: z.string(),
+  colour: z.string(),
+  amount: z.number(),
+  frequency: RecurringFrequencySchema,
+  monthsActive: z.number(),
+  annualTotal: z.number(),
+  logoUrl: z.string().nullable(),
+  sourceAccount: z.string(),
+  billingDay: z.string().nullable(),
+});
+
+export const RecurringExpensesResponseSchema = z.object({
+  monthly: z.array(RecurringExpenseSchema),
+  annual: z.array(RecurringExpenseSchema),
+  account: z.string(),
+  financialYear: z.string(),
+  monthsCovered: z.number(),
+});
+
 // GET /api/statements
 export const StatementsResponseSchema = AllStatementsSchema;
 
@@ -271,6 +395,17 @@ export type AccountSummary = z.infer<typeof AccountSummarySchema>;
 export type AccountBalance = z.infer<typeof AccountBalanceSchema>;
 export type TaxLiabilities = z.infer<typeof TaxLiabilitiesSchema>;
 export type UploadedFile = z.infer<typeof UploadedFileSchema>;
+export type CategoryBreakdown = z.infer<typeof CategoryBreakdownSchema>;
+export type CategoriesResponse = z.infer<typeof CategoriesResponseSchema>;
+export type ExpensesVarianceMonth = z.infer<typeof ExpensesVarianceMonthSchema>;
+export type ExpensesLineItem = z.infer<typeof ExpensesLineItemSchema>;
+export type ExpensesSection = z.infer<typeof ExpensesSectionSchema>;
+export type ExpensesIncomeSplit = z.infer<typeof ExpensesIncomeSplitSchema>;
+export type ExpensesInsight = z.infer<typeof ExpensesInsightSchema>;
+export type ExpensesSheetResponse = z.infer<typeof ExpensesSheetResponseSchema>;
+export type RecurringFrequency = z.infer<typeof RecurringFrequencySchema>;
+export type RecurringExpense = z.infer<typeof RecurringExpenseSchema>;
+export type RecurringExpensesResponse = z.infer<typeof RecurringExpensesResponseSchema>;
 
 // API Response Types
 export type DashboardSummaryResponse = z.infer<typeof DashboardSummaryResponseSchema>;

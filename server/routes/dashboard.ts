@@ -5,7 +5,8 @@ import type {
   DashboardSummaryResponse,
   AccountConfigsResponse,
   TransactionsResponse,
-  AccountBalanceResponse
+  AccountBalanceResponse,
+  CategoriesResponse
 } from '../../shared/api-contracts.js';
 import {
   getDashboardTotals,
@@ -21,6 +22,7 @@ import {
   setOpeningBalance,
   getTaxLiabilities
 } from '../db/index.js';
+import { categorizeTransaction, CATEGORY_COLOURS } from '../utils/categorizer.js';
 
 const router = express.Router();
 
@@ -135,11 +137,59 @@ router.get('/accounts', (_req: Request, res: Response<AccountConfigsResponse | {
   }
 });
 
+interface CategoriesQuery {
+  account?: string;
+  financialYear?: string;
+}
+
+// GET /api/dashboard/categories - Get spending breakdown by category
+router.get('/categories', (req: Request<object, CategoriesResponse, object, CategoriesQuery>, res: Response<CategoriesResponse | { error: string }>) => {
+  try {
+    const { account, financialYear } = req.query;
+    const selectedAccount = validateAccount(account);
+
+    const transactions = getTransactions({
+      account: selectedAccount,
+      type: 'expense',
+      financialYear: financialYear || undefined,
+    });
+
+    const totals = new Map<string, { total: number; count: number }>();
+
+    for (const t of transactions) {
+      const category = categorizeTransaction(t.description);
+      if (category === 'Transfers') continue;
+      const entry = totals.get(category) ?? { total: 0, count: 0 };
+      entry.total += Math.abs(t.amount);
+      entry.count += 1;
+      totals.set(category, entry);
+    }
+
+    const totalExpenses = Array.from(totals.values()).reduce((sum, e) => sum + e.total, 0);
+
+    const categories = Array.from(totals.entries())
+      .map(([name, { total, count }]) => ({
+        name,
+        total: Math.round(total * 100) / 100,
+        count,
+        percentage: totalExpenses > 0 ? Math.round((total / totalExpenses) * 1000) / 10 : 0,
+        colour: CATEGORY_COLOURS[name] ?? '#6B7280',
+      }))
+      .sort((a, b) => b.total - a.total);
+
+    res.json({ categories, totalExpenses: Math.round(totalExpenses * 100) / 100 });
+  } catch (error) {
+    console.error('Error generating category breakdown:', error);
+    res.status(500).json({ error: 'Failed to generate category breakdown' });
+  }
+});
+
 interface TransactionsQuery {
   account?: string;
   year?: string;
   month?: string;
   type?: string;
+  category?: string;
   includeTransfers?: string;
   financialYear?: string;
 }
@@ -147,9 +197,8 @@ interface TransactionsQuery {
 // GET /api/dashboard/transactions - Get transactions for a specific account
 router.get('/transactions', (req: Request<object, TransactionsResponse, object, TransactionsQuery>, res: Response<TransactionsResponse | { error: string }>) => {
   try {
-    const { account, year, month, type, includeTransfers, financialYear } = req.query;
+    const { account, year, month, type, category, includeTransfers, financialYear } = req.query;
     
-    // Account is required - default to barclays-current if not specified
     const selectedAccount = account || 'barclays-current';
     
     const filters: {
@@ -175,15 +224,19 @@ router.get('/transactions', (req: Request<object, TransactionsResponse, object, 
     
     const transactions = getTransactions(filters);
     
-    // Convert to the expected format
-    const result: TransactionJSON[] = transactions.map(t => ({
+    let result: TransactionJSON[] = transactions.map(t => ({
       date: t.date,
       description: t.description,
       amount: t.amount,
       account: t.account,
       type: t.type,
+      category: categorizeTransaction(t.description),
       linkedTransactionId: t.linked_transaction_id ?? undefined
     }));
+
+    if (category) {
+      result = result.filter(t => t.category === category);
+    }
     
     res.json(result);
   } catch (error) {

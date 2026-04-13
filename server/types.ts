@@ -24,6 +24,7 @@ export interface TransactionJSON {
   amount: number;
   account: string;
   type: TransactionType;
+  category?: string;
   occurrence?: number;
   linkedTransactionId?: number;
 }
@@ -176,6 +177,7 @@ export interface DashboardTotals {
   vatLiability: number;
   transfersIn: number;
   transfersOut: number;
+  passThroughIncome: number;
 }
 
 /**

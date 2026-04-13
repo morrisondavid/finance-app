@@ -5,11 +5,18 @@
 import { Chart } from 'chart.js/auto';
 import type { DashboardSummary, MonthlySummary } from '../types';
 import { state, setState, getAccountConfig } from './state';
-import { fetchDashboard, fetchTransactions, fetchVATPayments } from '../utils/api';
+import { fetchDashboard, fetchTransactions, fetchVATPayments, fetchCategories } from '../utils/api';
 import { formatCurrency } from '../utils/formatting';
+import { loadRecurring } from './recurring.js';
 
 // Store monthly data for chart click handling
 let currentMonthlyData: MonthlySummary[] = [];
+
+// Store category chart instance so it can be destroyed on re-render
+let categoryChart: Chart | null = null;
+
+// Store visible category names for chart click handling
+let currentVisibleCategories: string[] = [];
 
 /**
  * Load dashboard data
@@ -39,9 +46,11 @@ export async function loadDashboard(): Promise<void> {
     renderSummaryCards(data);
     renderMonthlyChart(data.monthly);
     renderMonthlyTable(data.monthly);
+    renderCategoryChart();
     
     // Load transactions for the selected account
     loadRecentTransactions();
+    loadRecurring();
   } catch (error) {
     console.error('[Dashboard] Error loading dashboard:', error);
   }
@@ -150,8 +159,12 @@ function renderSummaryCards(data: DashboardSummary): void {
   
   console.log('[Dashboard] Elements found:', { totalIncomeEl: !!totalIncomeEl, totalExpensesEl: !!totalExpensesEl, netEl: !!netEl });
   
+  const passThrough = data.totals.passThroughIncome ?? 0;
+  const adjustedIncome = data.totals.income - passThrough;
+  const adjustedNet = data.totals.net - passThrough;
+
   if (totalIncomeEl) {
-    totalIncomeEl.textContent = formatCurrency(data.totals.income);
+    totalIncomeEl.textContent = formatCurrency(adjustedIncome);
     console.log('[Dashboard] Updated income to:', totalIncomeEl.textContent);
   }
   if (totalExpensesEl) {
@@ -160,8 +173,8 @@ function renderSummaryCards(data: DashboardSummary): void {
   }
   
   if (netEl) {
-    netEl.textContent = formatCurrency(data.totals.net);
-    netEl.className = 'card-value ' + (data.totals.net >= 0 ? 'income' : 'expense');
+    netEl.textContent = formatCurrency(adjustedNet);
+    netEl.className = 'card-value ' + (adjustedNet >= 0 ? 'income' : 'expense');
   }
   
   // Show transfer info if there are transfers
@@ -692,10 +705,12 @@ async function showTransactionsModal(month: string, type: 'income' | 'expense'):
   modal.style.display = 'flex';
   
   try {
-    // Fetch transactions for this month and type
+    // month is "YYYY-MM" — split into year + month for the API
+    const [yearStr, monthStr] = month.split('-');
     const data = await fetchTransactions({
       account: state.selectedAccount,
-      month,
+      year: yearStr,
+      month: monthStr,
       type
     });
     
@@ -727,6 +742,57 @@ async function showTransactionsModal(month: string, type: 'income' | 'expense'):
     }
   } catch (error) {
     console.error('Error loading transactions:', error);
+    listEl.innerHTML = '<p class="error">Error loading transactions.</p>';
+  }
+}
+
+async function showCategoryTransactionsModal(categoryName: string): Promise<void> {
+  const modal = document.getElementById('transactions-modal');
+  const titleEl = document.getElementById('transactions-modal-title');
+  const countEl = document.getElementById('transactions-modal-count');
+  const totalEl = document.getElementById('transactions-modal-total');
+  const listEl = document.getElementById('transactions-modal-list');
+
+  if (!modal || !titleEl || !countEl || !totalEl || !listEl) return;
+
+  titleEl.textContent = categoryName;
+  titleEl.className = 'expense';
+
+  listEl.innerHTML = '<div class="loading">Loading transactions...</div>';
+  modal.style.display = 'flex';
+
+  try {
+    const data = await fetchTransactions({
+      account: state.selectedAccount,
+      type: 'expense',
+      category: categoryName,
+      ...(state.selectedFinancialYear ? { financialYear: state.selectedFinancialYear } : {}),
+    });
+
+    const sorted = [...data].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+    const total = sorted.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+
+    countEl.textContent = `${sorted.length} transaction${sorted.length !== 1 ? 's' : ''}`;
+    totalEl.textContent = formatCurrency(total);
+    totalEl.className = 'modal-total expense';
+
+    if (sorted.length === 0) {
+      listEl.innerHTML = '<p class="empty-state">No transactions found.</p>';
+    } else {
+      listEl.innerHTML = sorted.map(t => `
+        <div class="transaction-item">
+          <div class="transaction-info">
+            <div class="transaction-desc">${t.description || 'No description'}</div>
+            <div class="transaction-meta">${t.date}</div>
+          </div>
+          <div class="transaction-amount expense">
+            ${formatCurrency(t.amount)}
+          </div>
+        </div>
+      `).join('');
+    }
+  } catch (error) {
+    console.error('Error loading category transactions:', error);
     listEl.innerHTML = '<p class="error">Error loading transactions.</p>';
   }
 }
@@ -1075,6 +1141,146 @@ function renderMonthlyChart(monthlyData: MonthlySummary[]): void {
 }
 
 /**
+ * Render spending category doughnut chart
+ */
+async function renderCategoryChart(): Promise<void> {
+  const ctx = document.getElementById('category-chart') as HTMLCanvasElement;
+  const legendEl = document.getElementById('category-legend');
+  if (!ctx) return;
+
+  if (categoryChart) {
+    categoryChart.destroy();
+    categoryChart = null;
+  }
+
+  try {
+    const data = await fetchCategories({
+      account: state.selectedAccount,
+      financialYear: state.selectedFinancialYear || undefined,
+    });
+
+    if (!data.categories.length || data.totalExpenses === 0) {
+      if (legendEl) legendEl.innerHTML = '<p class="empty-state">No expense data available.</p>';
+      return;
+    }
+
+    // Merge tiny categories (< 2%) into "Other"
+    const threshold = 2;
+    const visible: typeof data.categories = [];
+    let otherTotal = 0;
+    let otherCount = 0;
+
+    for (const cat of data.categories) {
+      if (cat.percentage < threshold) {
+        otherTotal += cat.total;
+        otherCount += cat.count;
+      } else {
+        visible.push(cat);
+      }
+    }
+
+    if (otherTotal > 0) {
+      const existingOther = visible.find(c => c.name === 'Other');
+      if (existingOther) {
+        existingOther.total += otherTotal;
+        existingOther.count += otherCount;
+        existingOther.percentage = Math.round((existingOther.total / data.totalExpenses) * 1000) / 10;
+      } else {
+        visible.push({
+          name: 'Other',
+          total: Math.round(otherTotal * 100) / 100,
+          count: otherCount,
+          percentage: Math.round((otherTotal / data.totalExpenses) * 1000) / 10,
+          colour: '#6B7280',
+        });
+      }
+    }
+
+    currentVisibleCategories = visible.map(c => c.name);
+
+    categoryChart = new Chart(ctx, {
+      type: 'doughnut' as const,
+      data: {
+        labels: visible.map(c => c.name),
+        datasets: [{
+          data: visible.map(c => c.total),
+          backgroundColor: visible.map(c => c.colour),
+          borderWidth: 2,
+          borderColor: '#ffffff',
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '60%',
+        onClick(_event, elements) {
+          if (elements.length > 0) {
+            const idx = elements[0].index;
+            const categoryName = currentVisibleCategories[idx];
+            if (categoryName) {
+              showCategoryTransactionsModal(categoryName);
+            }
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (context: unknown) => {
+                const tip = context as { label: string; raw: number };
+                const cat = visible.find(c => c.name === tip.label);
+                return `${tip.label}: ${formatCurrency(tip.raw)} (${cat?.percentage ?? 0}%)`;
+              },
+            },
+          },
+        },
+      } as import('chart.js').ChartOptions<'doughnut'>,
+      plugins: [{
+        id: 'centerText',
+        afterDraw(chart: Chart) {
+          const { ctx: drawCtx, chartArea } = chart;
+          if (!drawCtx || !chartArea) return;
+
+          const centerX = (chartArea.left + chartArea.right) / 2;
+          const centerY = (chartArea.top + chartArea.bottom) / 2;
+
+          drawCtx.save();
+          drawCtx.textAlign = 'center';
+          drawCtx.textBaseline = 'middle';
+
+          drawCtx.font = '600 12px -apple-system, BlinkMacSystemFont, sans-serif';
+          drawCtx.fillStyle = '#64748b';
+          drawCtx.fillText('Total Spend', centerX, centerY - 12);
+
+          drawCtx.font = '700 18px -apple-system, BlinkMacSystemFont, sans-serif';
+          drawCtx.fillStyle = '#1e293b';
+          drawCtx.fillText(formatCurrency(data.totalExpenses), centerX, centerY + 10);
+
+          drawCtx.restore();
+        },
+      }],
+    });
+
+    // Render legend table
+    if (legendEl) {
+      legendEl.innerHTML = visible
+        .map(c => `
+          <div class="category-legend-item">
+            <span class="category-swatch" style="background:${c.colour}"></span>
+            <span class="category-name">${c.name}</span>
+            <span class="category-amount">${formatCurrency(c.total)}</span>
+            <span class="category-pct">${c.percentage}%</span>
+          </div>
+        `)
+        .join('');
+    }
+  } catch (error) {
+    console.error('[Dashboard] Error loading categories:', error);
+    if (legendEl) legendEl.innerHTML = '<p class="empty-state">Failed to load category data.</p>';
+  }
+}
+
+/**
  * Render monthly table
  */
 function renderMonthlyTable(monthlyData: MonthlySummary[]): void {
@@ -1098,15 +1304,18 @@ function renderMonthlyTable(monthlyData: MonthlySummary[]): void {
         </tr>
       </thead>
       <tbody>
-        ${monthlyData.map(m => `
+        ${monthlyData.map(m => {
+          const [y, mo] = m.month.split('-');
+          const label = new Date(parseInt(y), parseInt(mo) - 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+          return `
           <tr>
-            <td>${m.month}</td>
+            <td>${label}</td>
             <td class="income">${formatCurrency(m.income)}</td>
             <td class="expense">${formatCurrency(m.expenses)}</td>
             <td class="${m.net >= 0 ? 'income' : 'expense'}">${formatCurrency(m.net)}</td>
             <td>${formatCurrency(m.vat)}</td>
-          </tr>
-        `).join('')}
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>
   `;

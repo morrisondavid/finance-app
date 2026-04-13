@@ -12,6 +12,9 @@ import {
   StatementsResponseSchema,
   StatementYearsResponseSchema,
   CheckQuarterResponseSchema,
+  CategoriesResponseSchema,
+  ExpensesSheetResponseSchema,
+  RecurringExpensesResponseSchema,
   type DashboardSummaryResponse,
   type AccountConfigsResponse,
   type TransactionsResponse,
@@ -19,7 +22,10 @@ import {
   type VATPaymentsResponse,
   type StatementsResponse,
   type StatementYearsResponse,
-  type CheckQuarterResponse
+  type CheckQuarterResponse,
+  type CategoriesResponse,
+  type ExpensesSheetResponse,
+  type RecurringExpensesResponse,
 } from '../../../shared/api-contracts.js';
 
 /**
@@ -63,9 +69,12 @@ export async function fetchAccountBalance(account: string): Promise<AccountBalan
  * Fetch transactions with filters
  */
 export async function fetchTransactions(params: {
+  year?: string;
   month?: string;
   account?: string;
   type?: string;
+  category?: string;
+  financialYear?: string;
   quarter?: string;
   search?: string;
 }): Promise<TransactionsResponse> {
@@ -124,6 +133,44 @@ export async function fetchStatementYears(): Promise<StatementYearsResponse> {
 export async function checkQuarterFiles(quarter: string): Promise<CheckQuarterResponse> {
   const response = await fetch(`/api/statements/check-quarter?quarter=${quarter}`);
   return validateResponse(response, CheckQuarterResponseSchema);
+}
+
+/**
+ * Fetch spending category breakdown for an account
+ */
+export async function fetchCategories(params: {
+  account: string;
+  financialYear?: string;
+}): Promise<CategoriesResponse> {
+  const query = new URLSearchParams();
+  query.set('account', params.account);
+  if (params.financialYear) query.set('financialYear', params.financialYear);
+
+  const response = await fetch(`/api/dashboard/categories?${query}`);
+  return validateResponse(response, CategoriesResponseSchema);
+}
+
+/**
+ * Fetch budget overview (household-level, all accounts combined)
+ */
+export async function fetchBudgetOverview(): Promise<ExpensesSheetResponse> {
+  const response = await fetch('/api/budget/overview');
+  return validateResponse(response, ExpensesSheetResponseSchema);
+}
+
+/**
+ * Fetch recurring expenses for a single account
+ */
+export async function fetchRecurringExpenses(params: {
+  account: string;
+  financialYear?: string;
+}): Promise<RecurringExpensesResponse> {
+  const query = new URLSearchParams();
+  query.set('account', params.account);
+  if (params.financialYear) query.set('financialYear', params.financialYear);
+
+  const response = await fetch(`/api/budget/recurring?${query}`);
+  return validateResponse(response, RecurringExpensesResponseSchema);
 }
 
 /**
