@@ -162,6 +162,37 @@ export const UploadedFileSchema = z.object({
 // API Response Schemas
 // ============================================
 
+export const BudgetComparisonSchema = z.object({
+  category: z.string(),
+  budgetAmount: z.number(),
+  spent: z.number(),
+  remaining: z.number(),
+  overBy: z.number(),
+});
+
+export const BudgetRowSchema = z.object({
+  id: z.number(),
+  account: AccountNameSchema,
+  category: z.string(),
+  financialYear: z.string(),
+  amount: z.number(),
+});
+
+export const BudgetsListResponseSchema = z.object({
+  budgets: z.array(BudgetRowSchema),
+});
+
+export const BudgetUpsertBodySchema = z.object({
+  account: AccountNameSchema,
+  category: z.string(),
+  financialYear: z.string(),
+  amount: z.number(),
+});
+
+export const BudgetCategoryNamesResponseSchema = z.object({
+  categories: z.array(z.string()),
+});
+
 // GET /api/dashboard/summary
 export const DashboardSummaryResponseSchema = z.object({
   totals: DashboardTotalsSchema,
@@ -175,7 +206,8 @@ export const DashboardSummaryResponseSchema = z.object({
   fileCount: z.number(),
   financialYears: z.array(z.string()),
   selectedFinancialYear: z.string().nullable(),
-  selectedAccount: AccountNameSchema.optional()
+  selectedAccount: AccountNameSchema.optional(),
+  budgetComparisons: z.array(BudgetComparisonSchema).default([]),
 });
 
 // GET /api/dashboard/accounts
@@ -438,6 +470,11 @@ export type TaxLiabilities = z.infer<typeof TaxLiabilitiesSchema>;
 export type UploadedFile = z.infer<typeof UploadedFileSchema>;
 export type CategoryBreakdown = z.infer<typeof CategoryBreakdownSchema>;
 export type CategoriesResponse = z.infer<typeof CategoriesResponseSchema>;
+export type BudgetComparison = z.infer<typeof BudgetComparisonSchema>;
+export type BudgetRow = z.infer<typeof BudgetRowSchema>;
+export type BudgetsListResponse = z.infer<typeof BudgetsListResponseSchema>;
+export type BudgetUpsertBody = z.infer<typeof BudgetUpsertBodySchema>;
+export type BudgetCategoryNamesResponse = z.infer<typeof BudgetCategoryNamesResponseSchema>;
 export type ExpensesVariancePoint = z.infer<typeof ExpensesVariancePointSchema>;
 export type ExpensesLineItem = z.infer<typeof ExpensesLineItemSchema>;
 export type ExpensesSection = z.infer<typeof ExpensesSectionSchema>;

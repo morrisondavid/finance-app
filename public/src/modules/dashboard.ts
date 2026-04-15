@@ -13,6 +13,7 @@ import { AccountNameSchema } from '../../../shared/api-contracts.js';
 import { renderMonthlyChart, renderCategoryChart, renderMonthlyTable } from './dashboard-charts';
 import { initTransactionsModal, initBalanceModal, initSummaryCardHandlers, initVatPaymentsHandler } from './dashboard-modals';
 import { renderLiabilities } from './dashboard-vat';
+import { renderBudgetDashboardPanel } from './dashboard-budgets';
 
 // ─── Data loading ─────────────────────────────────────────────────────────────
 
@@ -38,6 +39,7 @@ export async function loadDashboard(): Promise<void> {
     renderCategoryChart();
     loadRecentTransactions();
     loadRecurring();
+    renderBudgetDashboardPanel(data);
   } catch (error) {
     console.error('[Dashboard] Error loading dashboard:', error);
     const container = document.getElementById('monthly-table');
@@ -49,8 +51,10 @@ export async function loadDashboard(): Promise<void> {
 
 // ─── Financial year filter ────────────────────────────────────────────────────
 
+const FY_FILTER_SELECTORS = '#fy-filter, #ad-hoc-fy-filter, #budget-fy-filter';
+
 function populateFinancialYearFilter(financialYears: string[]): void {
-  const selects = document.querySelectorAll<HTMLSelectElement>('#fy-filter, #ad-hoc-fy-filter');
+  const selects = document.querySelectorAll<HTMLSelectElement>(FY_FILTER_SELECTORS);
   if (selects.length === 0 || !financialYears || financialYears.length === 0) return;
 
   const currentValue = selects[0].value;
@@ -78,11 +82,11 @@ function populateFinancialYearFilter(financialYears: string[]): void {
 }
 
 function initFinancialYearFilter(): void {
-  document.querySelectorAll<HTMLSelectElement>('#fy-filter, #ad-hoc-fy-filter').forEach(sel => {
+  document.querySelectorAll<HTMLSelectElement>(FY_FILTER_SELECTORS).forEach(sel => {
     sel.addEventListener('change', () => {
       const val = sel.value;
       setState('selectedFinancialYear', val);
-      document.querySelectorAll<HTMLSelectElement>('#fy-filter, #ad-hoc-fy-filter').forEach(s => {
+      document.querySelectorAll<HTMLSelectElement>(FY_FILTER_SELECTORS).forEach(s => {
         if (s !== sel) s.value = val;
       });
       void loadDashboard();
@@ -90,6 +94,11 @@ function initFinancialYearFilter(): void {
       const adHocSection = document.getElementById('ad-hoc-expenses');
       if (adHocSection?.classList.contains('active')) {
         void loadAdHocExpenses();
+      }
+
+      const budgetSection = document.getElementById('budget');
+      if (budgetSection?.classList.contains('active')) {
+        void import('./budget-sheet.js').then(m => m.loadBudgetSheet());
       }
     });
   });
@@ -120,6 +129,11 @@ function initAccountSelector(): void {
       const adHocSection = document.getElementById('ad-hoc-expenses');
       if (adHocSection?.classList.contains('active')) {
         void loadAdHocExpenses();
+      }
+
+      const budgetSection = document.getElementById('budget');
+      if (budgetSection?.classList.contains('active')) {
+        void import('./budget-sheet.js').then(m => m.loadBudgetSheet());
       }
     });
   });

@@ -10,6 +10,8 @@ const __dirname = path.dirname(__filename);
 
 export const DB_PATH = path.join(__dirname, '../../data/transactions.db');
 export const STATEMENTS_DIR = path.join(__dirname, '../../statements');
+/** Canonical category budgets CSV lives here (see budgets-csv.ts). */
+export const BUDGETS_DIR = path.join(__dirname, '../../budgets');
 
 let db: Database.Database;
 
@@ -127,6 +129,19 @@ export function initSchema(): void {
       opening_balance_date TEXT,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS category_budgets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account TEXT NOT NULL,
+      category TEXT NOT NULL,
+      financial_year TEXT NOT NULL,
+      amount REAL NOT NULL CHECK(amount >= 0),
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(account, category, financial_year)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_category_budgets_account_fy
+      ON category_budgets(account, financial_year);
   `);
   
   // Insert default opening balances if they don't exist

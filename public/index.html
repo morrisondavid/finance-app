@@ -17,6 +17,7 @@
       <button class="tab active" data-tab="dashboard">Dashboard</button>
       <button class="tab" data-tab="ad-hoc-expenses">Ad Hoc Expenses</button>
       <button class="tab" data-tab="fixed-expenses">Fixed Expenses</button>
+      <button class="tab" data-tab="budget">Budget</button>
       <button class="tab" data-tab="statements">Statements</button>
       <button class="tab" data-tab="upload">Upload</button>
     </nav>
@@ -322,6 +323,12 @@
         <div class="recurring-sections" id="recurring-sections"></div>
       </div>
 
+      <div class="panel budget-dashboard-panel" id="budget-dashboard-panel">
+        <h2>Budgets</h2>
+        <p class="budget-dashboard-note" id="budget-dashboard-note" hidden></p>
+        <div id="budget-dashboard-body" class="budget-dashboard-body"></div>
+      </div>
+
       <div class="panel">
         <h2>Transactions</h2>
         <div id="recent-transactions" class="transactions-list"></div>
@@ -434,6 +441,52 @@
         <div id="fixed-expenses-variance-modal-body" class="modal-body"></div>
       </div>
     </div>
+
+    <section id="budget" class="tab-content">
+      <div class="account-selector budget-tab-account-selector" aria-label="Account">
+        <button type="button" class="account-btn active" data-account="barclays-current">
+          <span class="account-btn-label">Barclays Current</span>
+          <span class="account-btn-latest"></span>
+        </button>
+        <button type="button" class="account-btn" data-account="barclays-savings">
+          <span class="account-btn-label">Barclays Savings</span>
+          <span class="account-btn-latest"></span>
+        </button>
+        <button type="button" class="account-btn" data-account="capital-on-tap">
+          <span class="account-btn-label">Capital on Tap</span>
+          <span class="account-btn-latest"></span>
+        </button>
+        <button type="button" class="account-btn" data-account="barclaycard">
+          <span class="account-btn-label">Barclaycard</span>
+          <span class="account-btn-latest"></span>
+        </button>
+        <button type="button" class="account-btn" data-account="natwest">
+          <span class="account-btn-label">NatWest</span>
+          <span class="account-btn-latest"></span>
+        </button>
+        <button type="button" class="account-btn" data-account="monzo-joint">
+          <span class="account-btn-label">Monzo Joint</span>
+          <span class="account-btn-latest"></span>
+        </button>
+      </div>
+      <div class="dashboard-controls budget-tab-controls">
+        <label for="budget-fy-filter">Financial Year:</label>
+        <select id="budget-fy-filter">
+          <option value="">All Time</option>
+        </select>
+      </div>
+      <div class="budget-tab-toolbar">
+        <label class="ad-hoc-expenses-field">Category
+          <select id="budget-category-select"></select>
+        </label>
+        <label class="ad-hoc-expenses-field">Budget (£)
+          <input type="number" id="budget-amount-input" min="0" step="0.01" placeholder="0.00" />
+        </label>
+        <button type="button" class="ad-hoc-expenses-refresh" id="budget-add-btn">Add budget</button>
+      </div>
+      <p class="ad-hoc-expenses-meta" id="budget-tab-meta"></p>
+      <div id="budget-table-wrap" class="ad-hoc-expenses-table-wrap"></div>
+    </section>
 
     <!-- Statements Tab -->
     <section id="statements" class="tab-content">

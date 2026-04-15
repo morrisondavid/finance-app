@@ -16,6 +16,10 @@ import {
   ExpensesSheetResponseSchema,
   AdHocExpensesResponseSchema,
   RecurringExpensesResponseSchema,
+  BudgetsListResponseSchema,
+  BudgetUpsertBodySchema,
+  BudgetRowSchema,
+  BudgetCategoryNamesResponseSchema,
   type DashboardSummaryResponse,
   type AccountConfigsResponse,
   type TransactionsResponse,
@@ -28,6 +32,10 @@ import {
   type ExpensesSheetResponse,
   type AdHocExpensesResponse,
   type RecurringExpensesResponse,
+  type BudgetsListResponse,
+  type BudgetUpsertBody,
+  type BudgetRow,
+  type BudgetCategoryNamesResponse,
 } from '../../../shared/api-contracts.js';
 
 /**
@@ -251,4 +259,39 @@ export async function uploadFiles(
     xhr.open('POST', url);
     xhr.send(formData);
   });
+}
+
+export async function fetchBudgetCategoryNames(): Promise<BudgetCategoryNamesResponse> {
+  const response = await fetch('/api/budgets/category-names');
+  return validateResponse(response, BudgetCategoryNamesResponseSchema);
+}
+
+export async function fetchBudgetsList(params: {
+  account: string;
+  financialYear?: string;
+}): Promise<BudgetsListResponse> {
+  const query = new URLSearchParams();
+  query.set('account', params.account);
+  if (params.financialYear) query.set('financialYear', params.financialYear);
+  const response = await fetch(`/api/budgets?${query}`);
+  return validateResponse(response, BudgetsListResponseSchema);
+}
+
+export async function createBudget(body: BudgetUpsertBody): Promise<BudgetRow> {
+  const parsed = BudgetUpsertBodySchema.parse(body);
+  const response = await fetch('/api/budgets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(parsed),
+  });
+  return validateResponse(response, BudgetRowSchema);
+}
+
+export async function deleteBudget(id: number): Promise<void> {
+  const response = await fetch(`/api/budgets/${id}`, { method: 'DELETE' });
+  if (response.status === 204) return;
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Delete failed (${response.status})`);
+  }
 }

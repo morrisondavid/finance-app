@@ -24,8 +24,8 @@ import {
 } from '../db/index.js';
 import { CATEGORY_COLOURS } from '../utils/categorizer.js';
 import { transactionCategoryWithPayroll } from '../config/payroll.js';
-import type { CategoryName } from '../utils/categorizer.js';
-import { SPECIAL_CATEGORY } from '../utils/category-constants.js';
+import { getCategoryExpenseBreakdown } from '../utils/category-expense-totals.js';
+import { getBudgetVsActual } from '../db/repositories/budgets.js';
 
 const router = express.Router();
 
@@ -62,6 +62,12 @@ router.get('/summary', (req: Request<object, DashboardSummaryResponse, object, S
       account: selectedAccount,
       financialYear: selectedFY
     };
+
+    const fyNormalized = selectedFY ? selectedFY.replace('-', '/') : undefined;
+    const budgetComparisons =
+      fyNormalized !== undefined
+        ? getBudgetVsActual(selectedAccount, fyNormalized)
+        : [];
     
     const summary = {
       totals: getDashboardTotals(filters),
@@ -75,7 +81,8 @@ router.get('/summary', (req: Request<object, DashboardSummaryResponse, object, S
       fileCount: getFileCount(),
       financialYears,
       selectedFinancialYear: selectedFY || null,
-      selectedAccount
+      selectedAccount,
+      budgetComparisons,
     };
     
     res.json(summary as DashboardSummaryResponse);
@@ -151,22 +158,10 @@ router.get('/categories', (req: Request<object, CategoriesResponse, object, Cate
     const { account, financialYear } = req.query;
     const selectedAccount = validateAccount(account);
 
-    const transactions = getTransactions({
-      account: selectedAccount,
-      type: 'expense',
-      financialYear: financialYear || undefined,
-    });
-
-    const totals = new Map<CategoryName, { total: number; count: number }>();
-
-    for (const t of transactions) {
-      const category = transactionCategoryWithPayroll(t.description, t.amount, t.account, t.type);
-      if (category === SPECIAL_CATEGORY.transfers) continue;
-      const entry = totals.get(category) ?? { total: 0, count: 0 };
-      entry.total += Math.abs(t.amount);
-      entry.count += 1;
-      totals.set(category, entry);
-    }
+    const totals = getCategoryExpenseBreakdown(
+      selectedAccount,
+      financialYear || undefined,
+    );
 
     const totalExpenses = Array.from(totals.values()).reduce((sum, e) => sum + e.total, 0);
 

@@ -16,6 +16,7 @@
 import { initConnection, closeConnection, initSchema } from './connection.js';
 import { populateFromCSVs } from './repositories/files.js';
 import { detectTransfers } from './repositories/transactions.js';
+import { loadBudgetsFromFileIntoDb } from './repositories/budgets.js';
 
 // Re-export from connection
 export { 
@@ -24,7 +25,8 @@ export {
   normalizeDescription, 
   generateTransactionHash,
   DB_PATH,
-  STATEMENTS_DIR
+  STATEMENTS_DIR,
+  BUDGETS_DIR
 } from './connection.js';
 
 // Re-export from financial year utils
@@ -100,6 +102,8 @@ export async function initDatabase(): Promise<void> {
   
   // Detect and mark transfers
   const transferPairs = detectTransfers();
+
+  loadBudgetsFromFileIntoDb();
   
   console.log(`[Database] Ready: ${result.files} files, ${result.transactions} transactions (${result.duplicates} duplicates removed, ${transferPairs} transfer pairs detected)`);
 }
