@@ -424,7 +424,7 @@
               <span class="fixed-expenses-insight-pod-icon fixed-expenses-insight-pod-icon--needed" aria-hidden="true">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
               </span>
-              <div class="fixed-expenses-insight-pod-label">Monthly income needed after external income</div>
+              <div class="fixed-expenses-insight-pod-label">Monthly income needed after external income (after tax)</div>
               <div class="fixed-expenses-insight-pod-value" id="fixed-expenses-monthly-pod-needed">£0</div>
             </div>
           </div>
@@ -439,31 +439,40 @@
       </div>
 
       <div id="fixed-expenses-panel-annual" class="fixed-expenses-panel" role="tabpanel" hidden>
-        <div class="fixed-expenses-pods-grid fixed-expenses-annual-summary-pods">
-          <div class="fixed-expenses-mini-pod">
-            <div class="fixed-expenses-mini-label">Fixed annual outgoings</div>
-            <div class="fixed-expenses-mini-value" id="fixed-expenses-annual-pod-out">£0</div>
+        <div class="fixed-expenses-pods-grid fixed-expenses-monthly-summary-pods" aria-label="Yearly fixed summary">
+          <div class="fixed-expenses-insight-pod fixed-expenses-insight-pod--spend">
+            <span class="fixed-expenses-insight-pod-icon fixed-expenses-insight-pod-icon--spend" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+            </span>
+            <div class="fixed-expenses-insight-pod-label">Total yearly fixed spend</div>
+            <div class="fixed-expenses-insight-pod-value" id="fixed-expenses-annual-pod-spend">£0</div>
           </div>
-          <div class="fixed-expenses-mini-pod">
-            <div class="fixed-expenses-mini-label">Fixed annual income</div>
-            <div class="fixed-expenses-mini-value" id="fixed-expenses-annual-pod-in">£0</div>
+          <div class="fixed-expenses-insight-pod fixed-expenses-insight-pod--passive">
+            <span class="fixed-expenses-insight-pod-icon fixed-expenses-insight-pod-icon--passive" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </span>
+            <div class="fixed-expenses-insight-pod-label">Yearly passive income</div>
+            <div class="fixed-expenses-insight-pod-value" id="fixed-expenses-annual-pod-passive">£0</div>
           </div>
-          <div class="fixed-expenses-mini-pod fixed-expenses-mini-pod-net">
-            <div class="fixed-expenses-mini-label">Net (annual)</div>
-            <div class="fixed-expenses-mini-value" id="fixed-expenses-annual-pod-net">£0</div>
+          <div class="fixed-expenses-insight-pod fixed-expenses-insight-pod--needed">
+            <span class="fixed-expenses-insight-pod-icon fixed-expenses-insight-pod-icon--needed" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            </span>
+            <div class="fixed-expenses-insight-pod-label">Yearly income needed after passive (after tax)</div>
+            <div class="fixed-expenses-insight-pod-value" id="fixed-expenses-annual-pod-needed">£0</div>
           </div>
-        </div>
-
-        <div class="fixed-expenses-annual-wrap" id="fixed-expenses-annual-wrap">
-          <h2 class="fixed-expenses-page-heading">Fixed annual outgoings</h2>
-          <p class="fixed-expenses-annual-total">Total: <strong id="fixed-expenses-annual-subtotal">£0</strong></p>
-          <div id="fixed-expenses-annual-outgoings" class="fixed-expenses-tables-wrap"></div>
         </div>
 
         <div class="fixed-expenses-annual-wrap" id="fixed-expenses-income-annual-wrap">
           <h2 class="fixed-expenses-page-heading">Fixed annual income</h2>
           <p class="fixed-expenses-annual-total">Total: <strong id="fixed-expenses-annual-income-subtotal">£0</strong></p>
           <div id="fixed-expenses-income-annual-table" class="fixed-expenses-tables-wrap"></div>
+        </div>
+
+        <div class="fixed-expenses-annual-wrap" id="fixed-expenses-annual-wrap">
+          <h2 class="fixed-expenses-page-heading">Fixed annual outgoings</h2>
+          <p class="fixed-expenses-annual-total">Total: <strong id="fixed-expenses-annual-subtotal">£0</strong></p>
+          <div id="fixed-expenses-annual-outgoings" class="fixed-expenses-tables-wrap"></div>
         </div>
       </div>
     </section>

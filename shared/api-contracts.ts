@@ -278,6 +278,8 @@ export const ExpensesVariancePointSchema = z.object({
 });
 
 export const ExpensesLineItemSchema = z.object({
+  /** Stable id for simulation excludes: `expense|monthly|…` / `income|annual|…` + recurringKey. */
+  lineKey: z.string(),
   merchant: z.string(),
   category: z.string(),
   amount: z.number(),
@@ -304,7 +306,7 @@ export const ExpensesIncomeSplitSchema = z.object({
 /** Morrison spreadsheet–aligned monthly insight (recurring fixed costs only). */
 export const ExpensesInsightSchema = z.object({
   totalFixedMonthlyExpenses: z.number(),
-  /** max(0, total fixed − passive); single headline figure for income still needed after rent/dividends etc. */
+  /** max(0, total fixed − passive); income still needed after rent/dividends etc. Fixed Expenses UI appends "(after tax)". */
   monthlyIncomeNeededAfterPassive: z.number(),
   /** Net after passive: shortfall (need) vs surplus (income exceeds costs) — both ≥ 0 */
   netExpensesSalaryIncludedShortfall: z.number(),
@@ -364,10 +366,26 @@ export const ExpensesSheetResponseSchema = z.object({
     debtMonthlyFixed: z.number(),
     /** Annual recurring income minus annual recurring outgoings */
     netAnnualFixed: z.number(),
+    /** 12 × monthly fixed recurring outgoings + sum of annual recurring outgoings (per-year amounts). */
+    totalYearlyFixedOutgoings: z.number(),
+    /** 12 × monthly passive recurring + annual recurring income lines counted as passive (non-salary). */
+    totalYearlyPassiveIncome: z.number(),
+    /** max(0, totalYearlyFixedOutgoings − totalYearlyPassiveIncome). Fixed Expenses UI appends "(after tax)". */
+    yearlyIncomeNeededAfterPassive: z.number(),
     /** Human-readable window, e.g. "Last 24 months" */
     periodDescription: z.string(),
     monthsCovered: z.number(),
   }),
+  /** Line keys excluded from totals (simulation); empty when none. */
+  excludedLineKeys: z.array(z.string()).optional(),
+});
+
+export const SimulationExclusionsResponseSchema = z.object({
+  lineKeys: z.array(z.string()),
+});
+
+export const SimulationExclusionsPutBodySchema = z.object({
+  lineKeys: z.array(z.string()),
 });
 
 // GET /api/expenses/ad-hoc?account=&financialYear=&min=&limit=  (financialYear empty = all time)
@@ -535,6 +553,7 @@ export type ExpensesSection = z.infer<typeof ExpensesSectionSchema>;
 export type ExpensesIncomeSplit = z.infer<typeof ExpensesIncomeSplitSchema>;
 export type ExpensesInsight = z.infer<typeof ExpensesInsightSchema>;
 export type ExpensesSheetResponse = z.infer<typeof ExpensesSheetResponseSchema>;
+export type SimulationExclusionsResponse = z.infer<typeof SimulationExclusionsResponseSchema>;
 export type AdHocExpenseItem = z.infer<typeof AdHocExpenseItemSchema>;
 export type AdHocExpensesResponse = z.infer<typeof AdHocExpensesResponseSchema>;
 export type AdHocMerchantSeriesPoint = z.infer<typeof AdHocMerchantSeriesPointSchema>;

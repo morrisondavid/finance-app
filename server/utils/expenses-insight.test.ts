@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildExpensesInsight,
+  computeYearlyFixedInsightFigures,
   isSalaryIncome,
   debtTermForMerchant,
   NON_QOL_CATEGORIES,
@@ -12,6 +13,7 @@ import type { ExpensesLineItem, ExpensesSection } from '../../shared/api-contrac
 // ---------------------------------------------------------------------------
 // Helper — build a minimal ExpensesLineItem
 // ---------------------------------------------------------------------------
+let testLineKeySeq = 0;
 function item(
   merchant: string,
   amount: number,
@@ -19,7 +21,9 @@ function item(
   ownership: 'personal' | 'business',
   sourceAccount = 'barclays-current',
 ): ExpensesLineItem {
+  testLineKeySeq += 1;
   return {
+    lineKey: `expense|monthly|fixture|${testLineKeySeq}|${merchant}|${category}|${sourceAccount}|0`,
     merchant,
     category,
     amount,
@@ -865,6 +869,46 @@ describe('buildExpensesInsight', () => {
       expect(ins.personalExpenses).toBe(1400);
       const sum = ins.billsExpenses + ins.qualityOfLifeExpenses;
       expect(Math.abs(sum - ins.personalExpenses)).toBeLessThan(0.02);
+    });
+  });
+
+  describe('computeYearlyFixedInsightFigures', () => {
+    function annualItem(merchant: string, amount: number): ExpensesLineItem {
+      testLineKeySeq += 1;
+      return {
+        lineKey: `income|annual|fixture|${testLineKeySeq}|${merchant}|Income|natwest|0`,
+        merchant,
+        category: 'Income',
+        amount,
+        frequency: 'annual',
+        sourceAccount: 'natwest',
+        ownership: 'personal',
+        isVariable: false,
+        billingDay: null,
+        variance: [],
+      };
+    }
+
+    it('combines 12× monthly fixed + annual outgoings, annualizes passive, excludes salary from annual passive', () => {
+      const ins = buildExpensesInsight([], [], 100, 40, 100, 0);
+      expect(ins.totalPassiveIncome).toBeCloseTo(40, 2);
+
+      const y = computeYearlyFixedInsightFigures(ins, 500, [
+        annualItem('Dividend payment', 600),
+        annualItem('Director salary', 12000),
+      ]);
+
+      expect(y.totalYearlyFixedOutgoings).toBe(1700);
+      expect(y.totalYearlyPassiveIncome).toBe(1080);
+      expect(y.yearlyIncomeNeededAfterPassive).toBe(620);
+    });
+
+    it('returns zero yearly need when passive covers yearly outgoings', () => {
+      const ins = buildExpensesInsight([], [], 100, 200, 100, 0);
+      const y = computeYearlyFixedInsightFigures(ins, 0, []);
+      expect(y.totalYearlyFixedOutgoings).toBe(1200);
+      expect(y.totalYearlyPassiveIncome).toBe(2400);
+      expect(y.yearlyIncomeNeededAfterPassive).toBe(0);
     });
   });
 });

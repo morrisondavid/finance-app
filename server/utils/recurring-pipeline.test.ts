@@ -395,7 +395,7 @@ describe('buildRecurringPipeline', () => {
       includeIncome: true,
     });
     const acc = [...result.incomeAccumulators.values()].find(
-      a => a.merchant === '53 Heath Park Road',
+      a => a.merchant === '56 Thorney House',
     );
     expect(acc).toBeDefined();
     expect(acc!.category).toBe('Property');
@@ -423,7 +423,7 @@ describe('buildRecurringPipeline', () => {
       includeIncome: true,
     });
     expect(result.monthlyIncomeRecurring.length).toBeGreaterThan(0);
-    const rent = result.monthlyIncomeRecurring.find(e => e.merchant === '53 Heath Park Road');
+    const rent = result.monthlyIncomeRecurring.find(e => e.merchant === '56 Thorney House');
     expect(rent).toBeDefined();
     expect(rent!.category).toBe('Property');
   });
@@ -573,7 +573,7 @@ describe('buildRecurringPipeline', () => {
       a => a.category === 'Property',
     );
     expect(prospect).toHaveLength(1);
-    expect(prospect[0].merchant).toBe('53 Heath Park Road');
+    expect(prospect[0].merchant).toBe('56 Thorney House');
   });
 
   it('two different Property merchants produce two separate accumulators', () => {
@@ -596,7 +596,59 @@ describe('buildRecurringPipeline', () => {
     );
     expect(props).toHaveLength(2);
     const names = props.map(p => p.merchant).sort();
-    expect(names).toEqual(['53 Heath Park Road', '78 Hunters Square']);
+    expect(names).toEqual(['56 Thorney House', '78 Hunters Square']);
+  });
+
+  // =========================================================================
+  // Config-driven fixed bill overrides (EE mobile)
+  // =========================================================================
+
+  it('EE LIMITED varying amounts merge into one accumulator (fixed bill override)', () => {
+    const amounts = [158.68, 122.19, 172.99, 105.97, 92.95, 105.95, 135.94, 85.95, 83.95, 88.95, 76.0, 118.68];
+    const txns: RawTransaction[] = amounts.map((amt, i) => {
+      const totalMonth = 2026 * 12 + 3 - i;
+      const year = Math.floor(totalMonth / 12);
+      const month = (totalMonth % 12) + 1;
+      return makeTxn({
+        date: `${year}-${String(month).padStart(2, '0')}-23`,
+        description: 'EE LIMITED Q0447 DD',
+        amount: -amt,
+        account: 'barclays-current',
+      });
+    });
+    const result = buildRecurringPipeline({
+      scopedTransactions: txns,
+      allTimeTransactions: txns,
+      includeIncome: false,
+    });
+    const eeAccumulators = [...result.expenseAccumulators.values()].filter(
+      a => a.merchant === 'EE',
+    );
+    expect(eeAccumulators).toHaveLength(1);
+    expect(eeAccumulators[0].monthlyTotals.size).toBe(12);
+  });
+
+  it('EE recurring expense amount is overridden to configured £180', () => {
+    const amounts = [158.68, 122.19, 172.99, 105.97, 92.95, 105.95, 135.94, 85.95, 83.95, 88.95, 76.0, 118.68];
+    const txns: RawTransaction[] = amounts.map((amt, i) => {
+      const totalMonth = 2026 * 12 + 3 - i;
+      const year = Math.floor(totalMonth / 12);
+      const month = (totalMonth % 12) + 1;
+      return makeTxn({
+        date: `${year}-${String(month).padStart(2, '0')}-23`,
+        description: 'EE LIMITED Q0447 DD',
+        amount: -amt,
+        account: 'barclays-current',
+      });
+    });
+    const result = buildRecurringPipeline({
+      scopedTransactions: txns,
+      allTimeTransactions: txns,
+      includeIncome: false,
+    });
+    const ee = result.monthlyExpenseRecurring.find(e => e.merchant === 'EE');
+    expect(ee).toBeDefined();
+    expect(ee!.amount).toBe(180);
   });
 
   it('non-Property expense amounts still stay separate (no regression)', () => {

@@ -18,6 +18,7 @@ import type { RecurringExpense } from '../../shared/api-contracts.js';
 import { round2, monthKeyFromIsoDate } from './math.js';
 import { SPECIAL_CATEGORY } from './category-constants.js';
 import { matchRentalProperty, RENTAL_PROPERTIES } from './rental-properties.js';
+import { matchFixedBillOverride, FIXED_BILL_OVERRIDES } from './fixed-bill-overrides.js';
 import { resolveExpenseCategoryWithPayroll, type PayrollEntry } from '../config/payroll.js';
 
 export interface RawTransaction {
@@ -121,6 +122,10 @@ function rowForAccumulation(txn: RawTransaction, side: 'expense' | 'income'): Ac
       displayMerchant = prop.name;
       keyAmount = 0;
     }
+  }
+
+  if (side === 'expense' && matchFixedBillOverride(merchant, account)) {
+    keyAmount = 0;
   }
 
   return { category, displayMerchant, keyAmount };
@@ -260,6 +265,13 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
       const prop = RENTAL_PROPERTIES.find(p => p.name === e.merchant);
       if (prop) e.amount = round2(prop.grossRent);
     }
+  }
+
+  for (const e of monthlyExpenseRecurring) {
+    const override = FIXED_BILL_OVERRIDES.find(
+      o => o.merchant === e.merchant && o.account === e.sourceAccount,
+    );
+    if (override) e.amount = round2(override.monthlyAmount);
   }
 
   return {

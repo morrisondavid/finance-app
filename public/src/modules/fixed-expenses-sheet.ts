@@ -3,7 +3,8 @@
  */
 
 import type { ExpensesInsight, ExpensesLineItem, ExpensesSection, ExpensesSheetResponse } from '../../../shared/api-contracts.js';
-import { fetchExpensesSheetOverview } from '../utils/api';
+import { applySimulationExclusions } from '../../../shared/expenses-sheet-build.js';
+import { fetchExpensesSheetOverview, putSimulationExclusions } from '../utils/api';
 import { escapeHtml } from '../utils/dom';
 import { formatCurrency, round2 } from '../utils/formatting';
 
@@ -12,6 +13,12 @@ interface VariancePayload {
   typical: number;
   variance: Array<{ period: string; expected: number; actual: number }>;
 }
+
+/** Last successful overview payload; toggles re-run `applySimulationExclusions` against this snapshot. */
+let fixedExpensesSnapshot: ExpensesSheetResponse | null = null;
+/** Current simulation excludes (updated on every checkbox change; snapshot.excludedLineKeys is not updated until reload). */
+let sessionExcludedLineKeys: Set<string> = new Set();
+let persistSimulationTimer: ReturnType<typeof setTimeout> | null = null;
 
 function parseVariancePayload(raw: string): VariancePayload | null {
   let decoded: string;
@@ -45,6 +52,28 @@ function parseVariancePayload(raw: string): VariancePayload | null {
   return { merchant, typical, variance: points };
 }
 
+function renderAllFromSheet(data: ExpensesSheetResponse): void {
+  renderMonthlyInsight(data);
+  renderAnnualSummaryPods(data);
+  const excluded = new Set(data.excludedLineKeys ?? []);
+  renderMonthlyOutgoings(data.monthlyOutgoings, excluded);
+  renderIncomeTable('fixed-expenses-income-monthly-table', data.incomeMonthly.items, '/mo', excluded);
+  renderAnnualOutgoings(data.annualOutgoings, excluded);
+  renderAnnualIncome(data, excluded);
+}
+
+function schedulePersistSimulationExclusions(lineKeysSorted: string[]): void {
+  if (persistSimulationTimer !== null) {
+    clearTimeout(persistSimulationTimer);
+  }
+  persistSimulationTimer = setTimeout(() => {
+    persistSimulationTimer = null;
+    void putSimulationExclusions(lineKeysSorted).catch((err: unknown) => {
+      console.error('[Fixed expenses sheet] Failed to persist simulation exclusions:', err);
+    });
+  }, 350);
+}
+
 export function initFixedExpensesSheet(): void {
   const varianceModal = document.getElementById('fixed-expenses-variance-modal');
   const varianceClose = document.getElementById('fixed-expenses-variance-modal-close');
@@ -72,20 +101,40 @@ export function initFixedExpensesSheet(): void {
       if (annualPanel) annualPanel.hidden = tab !== 'annual';
     });
   });
+
+  const root = document.getElementById('fixed-expenses');
+  if (root) {
+    root.addEventListener('change', (e) => {
+      const t = e.target;
+      if (!(t instanceof HTMLInputElement)) return;
+      if (!t.classList.contains('fixed-expenses-exclude-cb')) return;
+      if (!fixedExpensesSnapshot) return;
+      const lineKey = t.getAttribute('data-line-key');
+      if (!lineKey) return;
+
+      if (t.checked) {
+        sessionExcludedLineKeys.add(lineKey);
+      } else {
+        sessionExcludedLineKeys.delete(lineKey);
+      }
+      const sorted = Array.from(sessionExcludedLineKeys).sort();
+      const display = applySimulationExclusions(fixedExpensesSnapshot, sessionExcludedLineKeys);
+      renderAllFromSheet(display);
+      schedulePersistSimulationExclusions(sorted);
+    });
+  }
 }
 
 export async function loadFixedExpensesSheet(): Promise<void> {
   try {
     const data = await fetchExpensesSheetOverview();
-
-    renderMonthlyInsight(data);
-    renderAnnualSummaryPods(data);
-    renderMonthlyOutgoings(data.monthlyOutgoings);
-    renderIncomeTable('fixed-expenses-income-monthly-table', data.incomeMonthly.items, '/mo');
-    renderAnnualOutgoings(data.annualOutgoings);
-    renderAnnualIncome(data);
+    fixedExpensesSnapshot = data;
+    sessionExcludedLineKeys = new Set(data.excludedLineKeys ?? []);
+    renderAllFromSheet(data);
   } catch (error) {
     console.error('[Fixed expenses sheet] Error loading data:', error);
+    fixedExpensesSnapshot = null;
+    sessionExcludedLineKeys = new Set();
     const container = document.getElementById('fixed-expenses-monthly-outgoings');
     if (container) {
       container.innerHTML = '<p class="error">Failed to load fixed expenses data. Please try refreshing.</p>';
@@ -118,13 +167,12 @@ function buildPrimaryInsightMarkup(ins: ExpensesInsight): string {
 
 function renderAnnualSummaryPods(data: ExpensesSheetResponse): void {
   const { summary } = data;
-  setText('fixed-expenses-annual-pod-out', formatCurrency(summary.totalAnnualOutgoings));
-  setText('fixed-expenses-annual-pod-in', formatCurrency(summary.totalAnnualIncome));
-  const net = summary.netAnnualFixed;
-  setText('fixed-expenses-annual-pod-net', (net >= 0 ? '+' : '') + formatCurrency(net));
+  setText('fixed-expenses-annual-pod-spend', formatCurrency(summary.totalYearlyFixedOutgoings));
+  setText('fixed-expenses-annual-pod-passive', formatCurrency(summary.totalYearlyPassiveIncome));
+  setText('fixed-expenses-annual-pod-needed', formatCurrency(summary.yearlyIncomeNeededAfterPassive));
 }
 
-function renderMonthlyOutgoings(sections: ExpensesSection[]): void {
+function renderMonthlyOutgoings(sections: ExpensesSection[], excluded: ReadonlySet<string>): void {
   const container = document.getElementById('fixed-expenses-monthly-outgoings');
   if (!container) return;
 
@@ -133,11 +181,11 @@ function renderMonthlyOutgoings(sections: ExpensesSection[]): void {
     return;
   }
 
-  container.innerHTML = renderFlatTable(sections, '/mo');
+  container.innerHTML = renderFlatTable(sections, '/mo', excluded);
   attachVarianceHandlers(container);
 }
 
-function renderAnnualOutgoings(sections: ExpensesSection[]): void {
+function renderAnnualOutgoings(sections: ExpensesSection[], excluded: ReadonlySet<string>): void {
   const container = document.getElementById('fixed-expenses-annual-outgoings');
   if (!container) return;
 
@@ -149,11 +197,11 @@ function renderAnnualOutgoings(sections: ExpensesSection[]): void {
     return;
   }
 
-  container.innerHTML = renderFlatTable(sections, '/yr');
+  container.innerHTML = renderFlatTable(sections, '/yr', excluded);
   attachVarianceHandlers(container);
 }
 
-function renderAnnualIncome(data: ExpensesSheetResponse): void {
+function renderAnnualIncome(data: ExpensesSheetResponse, excluded: ReadonlySet<string>): void {
   const container = document.getElementById('fixed-expenses-income-annual-table');
   if (!container) return;
 
@@ -165,10 +213,15 @@ function renderAnnualIncome(data: ExpensesSheetResponse): void {
     return;
   }
 
-  renderIncomeTable('fixed-expenses-income-annual-table', items, '/yr');
+  renderIncomeTable('fixed-expenses-income-annual-table', items, '/yr', excluded);
 }
 
-function renderIncomeTable(containerId: string, items: ExpensesLineItem[], suffix: string): void {
+function renderIncomeTable(
+  containerId: string,
+  items: ExpensesLineItem[],
+  suffix: string,
+  excluded: ReadonlySet<string>,
+): void {
   const container = document.getElementById(containerId);
   if (!container) return;
 
@@ -177,7 +230,7 @@ function renderIncomeTable(containerId: string, items: ExpensesLineItem[], suffi
     return;
   }
 
-  const rows = items.map(item => renderRow(item, suffix)).join('');
+  const rows = items.map(item => renderIncomeRow(item, suffix, excluded)).join('');
   container.innerHTML = `
     <table class="fixed-expenses-table">
       <thead>
@@ -185,6 +238,7 @@ function renderIncomeTable(containerId: string, items: ExpensesLineItem[], suffi
           <th>Item</th>
           <th>Account</th>
           <th class="fixed-expenses-col-amount">Amount</th>
+          <th class="fixed-expenses-col-exclude">Exclude</th>
           <th></th>
         </tr>
       </thead>
@@ -194,16 +248,17 @@ function renderIncomeTable(containerId: string, items: ExpensesLineItem[], suffi
   attachVarianceHandlers(container);
 }
 
-function renderFlatTable(sections: ExpensesSection[], suffix: string): string {
+function renderFlatTable(sections: ExpensesSection[], suffix: string, excluded: ReadonlySet<string>): string {
   const rows: string[] = [];
   for (const section of sections) {
     for (const item of section.items) {
-      rows.push(renderRow(item, suffix, section.colour));
+      rows.push(renderRow(item, suffix, section.colour, excluded));
     }
     rows.push(`
       <tr class="fixed-expenses-subtotal-row">
         <td colspan="3"><span class="fixed-expenses-section-dot" style="background:${section.colour}"></span> ${escapeHtml(section.name)} subtotal</td>
         <td class="fixed-expenses-col-amount">${formatCurrency(section.subtotal)}${suffix}</td>
+        <td class="fixed-expenses-col-exclude"></td>
         <td></td>
       </tr>
     `);
@@ -217,6 +272,7 @@ function renderFlatTable(sections: ExpensesSection[], suffix: string): string {
           <th>Item</th>
           <th>Account</th>
           <th class="fixed-expenses-col-amount">Amount</th>
+          <th class="fixed-expenses-col-exclude">Exclude</th>
           <th></th>
         </tr>
       </thead>
@@ -225,7 +281,42 @@ function renderFlatTable(sections: ExpensesSection[], suffix: string): string {
   `;
 }
 
-function renderRow(item: ExpensesLineItem, amountSuffix = '', categoryColour?: string): string {
+function renderIncomeRow(item: ExpensesLineItem, amountSuffix: string, excluded: ReadonlySet<string>): string {
+  const freq = item.frequency === 'annual' ? '/yr' : '/mo';
+  const suffix = amountSuffix || freq;
+  const variancePayload = encodeURIComponent(JSON.stringify({
+    merchant: item.merchant,
+    variance: item.variance,
+    typical: item.amount,
+  }));
+  const infoBtn = item.variance.length > 0
+    ? `<button type="button" class="fixed-expenses-info-btn" data-variance="${variancePayload}" title="Show periods where amount differed">i</button>`
+    : '';
+  const billing = item.billingDay
+    ? `<span class="fixed-expenses-billing">${escapeHtml(item.billingDay)}</span>`
+    : '';
+  const excludedChecked = excluded.has(item.lineKey) ? ' checked' : '';
+  const excludeCell = `<td class="fixed-expenses-col-exclude"><label class="fixed-expenses-exclude-label"><input type="checkbox" class="fixed-expenses-exclude-cb" data-line-key="${escapeHtml(item.lineKey)}" aria-label="Exclude from simulation totals"${excludedChecked} /></label></td>`;
+  return `
+    <tr class="fixed-expenses-row">
+      <td>
+        <div class="fixed-expenses-item-name">${escapeHtml(item.merchant)}</div>
+        ${billing}
+      </td>
+      <td><span class="fixed-expenses-account-pill">${escapeHtml(item.sourceAccount)}</span></td>
+      <td class="fixed-expenses-col-amount">${formatCurrency(item.amount)}${suffix}</td>
+      ${excludeCell}
+      <td class="fixed-expenses-col-info">${infoBtn}</td>
+    </tr>
+  `;
+}
+
+function renderRow(
+  item: ExpensesLineItem,
+  amountSuffix = '',
+  categoryColour?: string,
+  excluded?: ReadonlySet<string>,
+): string {
   const freq = item.frequency === 'annual' ? '/yr' : '/mo';
   const suffix = amountSuffix || freq;
   const variancePayload = encodeURIComponent(JSON.stringify({
@@ -245,6 +336,10 @@ function renderRow(item: ExpensesLineItem, amountSuffix = '', categoryColour?: s
     ? `<td><span class="fixed-expenses-section-dot" style="background:${categoryColour}"></span> ${escapeHtml(item.category)}</td>`
     : '';
 
+  const ex = excluded ?? new Set<string>();
+  const excludedChecked = ex.has(item.lineKey) ? ' checked' : '';
+  const excludeCell = `<td class="fixed-expenses-col-exclude"><label class="fixed-expenses-exclude-label"><input type="checkbox" class="fixed-expenses-exclude-cb" data-line-key="${escapeHtml(item.lineKey)}" aria-label="Exclude from simulation totals"${excludedChecked} /></label></td>`;
+
   return `
     <tr class="fixed-expenses-row">
       ${categoryCell}
@@ -254,6 +349,7 @@ function renderRow(item: ExpensesLineItem, amountSuffix = '', categoryColour?: s
       </td>
       <td><span class="fixed-expenses-account-pill">${escapeHtml(item.sourceAccount)}</span></td>
       <td class="fixed-expenses-col-amount">${formatCurrency(item.amount)}${suffix}</td>
+      ${excludeCell}
       <td class="fixed-expenses-col-info">${infoBtn}</td>
     </tr>
   `;
@@ -300,12 +396,19 @@ function showVarianceModal(
 
   bodyEl.innerHTML = `
     <p class="fixed-expenses-variance-intro">Typical amount shown in the sheet: <strong>${formatCurrency(typical)}</strong>. Below are periods where the actual amount differed.</p>
-    <table class="fixed-expenses-variance-table">
-      <thead>
-        <tr><th>Period</th><th>Expected</th><th>Actual</th><th>Difference</th></tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
+    <div class="fixed-expenses-variance-table-scroll" role="region" aria-label="Variance by period">
+      <table class="fixed-expenses-variance-table">
+        <thead>
+          <tr>
+            <th scope="col">Period</th>
+            <th scope="col">Expected</th>
+            <th scope="col">Actual</th>
+            <th scope="col">Difference</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
   `;
   modal.style.display = 'flex';
 }

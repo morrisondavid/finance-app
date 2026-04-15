@@ -100,6 +100,20 @@ describe('categorizer', () => {
     });
   });
 
+  describe('EE mobile (Utilities vs Via Mobile transfer)', () => {
+    it('EE bill lines stay Utilities when Via Mobile appears on the same description', () => {
+      expect(categorizeTransaction('EE LIMITED VIA MOBILE')).toBe('Utilities');
+      expect(categorizeTransaction('DIRECT DEBIT EE LTD VIA MOBILE APP')).toBe('Utilities');
+    });
+
+    it('BT joint mobile billing and other EE payee strings are Utilities', () => {
+      expect(categorizeTransaction('BT GROUP PLC EE MOBILE')).toBe('Utilities');
+      expect(categorizeTransaction('DIRECT DEBIT PAYMENT TO EE')).toBe('Utilities');
+      expect(categorizeTransaction('EVERYTHING EVERYWHERE DD')).toBe('Utilities');
+      expect(categorizeTransaction('T-MOBILE EE')).toBe('Utilities');
+    });
+  });
+
   describe('Autonize (own company — Transfers)', () => {
     it('Autonize is classified as Transfers (internal)', () => {
       expect(categorizeTransaction('AUTONIZE')).toBe('Transfers');

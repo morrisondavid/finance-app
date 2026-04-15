@@ -14,6 +14,7 @@ import {
   CheckQuarterResponseSchema,
   CategoriesResponseSchema,
   ExpensesSheetResponseSchema,
+  SimulationExclusionsResponseSchema,
   AdHocExpensesResponseSchema,
   AdHocMerchantSeriesResponseSchema,
   RecurringExpensesResponseSchema,
@@ -31,6 +32,7 @@ import {
   type CheckQuarterResponse,
   type CategoriesResponse,
   type ExpensesSheetResponse,
+  type SimulationExclusionsResponse,
   type AdHocExpensesResponse,
   type AdHocMerchantSeriesResponse,
   type RecurringExpensesResponse,
@@ -169,6 +171,16 @@ export async function fetchCategories(params: {
 export async function fetchExpensesSheetOverview(): Promise<ExpensesSheetResponse> {
   const response = await fetch('/api/expenses/overview');
   return validateResponse(response, ExpensesSheetResponseSchema);
+}
+
+/** Replace persisted Fixed Expenses simulation excludes (`PUT /api/expenses/simulation-exclusions`). */
+export async function putSimulationExclusions(lineKeys: readonly string[]): Promise<SimulationExclusionsResponse> {
+  const response = await fetch('/api/expenses/simulation-exclusions', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lineKeys: [...lineKeys] } satisfies { lineKeys: string[] }),
+  });
+  return validateResponse(response, SimulationExclusionsResponseSchema);
 }
 
 /**

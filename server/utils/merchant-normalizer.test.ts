@@ -11,6 +11,8 @@ describe('normalizeMerchant', () => {
       ['BARCLAYS PARTNER FINANCE DD', 'Barclays Partner Finance'],
       ['HALIFAX                DIRECT DEBIT', 'Halifax Mortgage'],
       ['VIRGIN MEDIA PYMTS     REF: 12345', 'Virgin Media'],
+      ['EE LIMITED VIA MOBILE', 'EE'],
+      ['BT GROUP PLC EE MOBILE', 'EE'],
       ['DELIVEROO', 'Deliveroo'],
       ['UBER EATS', 'Uber Eats'],
       ['5120 15APR26 UBER *EATS NATWEST GBR', 'Uber Eats'],

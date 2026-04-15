@@ -9,9 +9,9 @@ describe('matchRentalProperty', () => {
   });
 
   it('matches Prospect Holdings on monzo-joint', () => {
-    const result = matchRentalProperty('Prospect Holdings', 'monzo-joint', 979.20);
+    const result = matchRentalProperty('Prospect Holdings', 'monzo-joint', 979.2);
     expect(result).not.toBeNull();
-    expect(result!.name).toBe('53 Heath Park Road');
+    expect(result!.name).toBe('56 Thorney House');
   });
 
   it('matches even when amount is lower due to agent deductions', () => {

@@ -19,6 +19,7 @@ import {
   initSchema,
   migrateCategoryBudgetsIfNeeded,
   migrateCategoryBudgetsBudgetPeriodIfNeeded,
+  migrateFixedExpenseSimulationExclusionsIfNeeded,
 } from './connection.js';
 import { populateFromCSVs } from './repositories/files.js';
 import { detectTransfers } from './repositories/transactions.js';
@@ -105,6 +106,7 @@ export async function initDatabase(): Promise<void> {
 
   migrateCategoryBudgetsIfNeeded();
   migrateCategoryBudgetsBudgetPeriodIfNeeded();
+  migrateFixedExpenseSimulationExclusionsIfNeeded();
 
   // Populate from CSV files
   const result = await populateFromCSVs();

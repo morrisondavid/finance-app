@@ -13,31 +13,9 @@
  * **Transfers**. Remaining **Transfers** rows stay early so other inter-account movements match first.
  */
 
-export const CATEGORY_NAMES = [
-  'Housing',
-  'Utilities',
-  'Groceries',
-  'Eating Out',
-  'Transport',
-  'Shopping',
-  'Entertainment',
-  'Childcare & Education',
-  'Health & Personal',
-  'Insurance',
-  'Debt Repayment',
-  'Tax',
-  'Business',
-  'Payroll',
-  'Dividends',
-  'Property',
-  'Transfers',
-  'Accommodation',
-  'Travel',
-  'Income',
-  'Other',
-] as const;
+import { CATEGORY_NAMES, type CategoryName } from '../../shared/category-names.js';
 
-export type CategoryName = (typeof CATEGORY_NAMES)[number];
+export { CATEGORY_NAMES, type CategoryName };
 
 export interface MerchantEntry {
   pattern: RegExp;
@@ -72,6 +50,15 @@ export const MERCHANT_REGISTRY: readonly MerchantEntry[] = [
   { pattern: /TRANSFERWISE/i, category: 'Transfers', displayName: 'Wise (TransferWise)' },
   { pattern: /OPTIONAL FT/i, category: 'Transfers', displayName: 'Internal Transfer' },
   { pattern: /\bDRAW\s*DOWN\b/i, category: 'Transfers', displayName: 'Credit line drawdown' },
+  // EE (mobile / phone airtime): outgoing bills only — category Utilities; recurring pipeline counts them
+  // as expenses (negative outflows), never on the income/recurring-rent path. Placed before generic
+  // "VIA MOBILE" so DD copy like "EE LIMITED … VIA MOBILE" is not misclassified as Transfers.
+  {
+    pattern:
+      /EE\s+(?:LIMITED|LTD)\b|EE\.CO\.UK|EE\s+ONLINE|EVERYTHING\s+EVERYWHERE|PAYMENT\s+TO\s+EE\b|T-?MOBILE\s*(?:\*|\s)*EE\b|\bBT\s+(?:GROUP|PLC|MOBILE|CONSUMER)\b.{0,48}\bEE\b|\bEE\b.{0,48}\bBT\s+(?:GROUP|PLC)\b/i,
+    category: 'Utilities',
+    displayName: 'EE',
+  },
   { pattern: /VIA MOBILE/i, category: 'Transfers', displayName: 'Mobile Transfer' },
   { pattern: /ROYAL BANK \d{2}/i, category: 'Transfers', displayName: 'Royal Bank Transfer' },
   { pattern: /BMACH \d{2}/i, category: 'Transfers', displayName: 'BMACH Transfer' },
@@ -152,7 +139,6 @@ export const MERCHANT_REGISTRY: readonly MerchantEntry[] = [
   { pattern: /WATER PLUS/i, category: 'Utilities', displayName: 'Water Plus' },
   { pattern: /TONIK ENERGY/i, category: 'Utilities', displayName: 'Tonik Energy' },
   { pattern: /VIRGIN MEDIA/i, category: 'Utilities', displayName: 'Virgin Media' },
-  { pattern: /EE LIMITED/i, category: 'Utilities', displayName: 'EE' },
   { pattern: /TV LICEN/i, category: 'Utilities', displayName: 'TV Licence' },
   { pattern: /1PMOBILE/i, category: 'Utilities', displayName: '1pMobile' },
   { pattern: /RING BASIC PLAN/i, category: 'Utilities', displayName: 'Ring Security' },

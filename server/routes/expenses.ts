@@ -1,11 +1,13 @@
 import express, { Request, Response } from 'express';
-import type {
-  AdHocExpensesResponse,
-  AdHocMerchantSeriesResponse,
-  ExpensesLineItem,
-  ExpensesSection,
-  ExpensesSheetResponse,
-  RecurringExpensesResponse,
+import {
+  SimulationExclusionsPutBodySchema,
+  type AdHocExpensesResponse,
+  type AdHocMerchantSeriesResponse,
+  type ExpensesLineItem,
+  type ExpensesSection,
+  type ExpensesSheetResponse,
+  type RecurringExpense,
+  type RecurringExpensesResponse,
 } from '../../shared/api-contracts.js';
 import { ACCOUNTS, ACCOUNT_CONFIG, isValidAccountName } from '../types.js';
 import type { AccountName } from '../types.js';
@@ -15,9 +17,12 @@ import {
   getFinancialYearRange,
 } from '../db/index.js';
 import { categoryColour, CATEGORY_NAMES } from '../utils/categorizer.js';
-import { buildExpensesInsight } from '../utils/expenses-insight.js';
 import { round2, ROLLING_MONTHS, VARIANCE_EPS } from '../utils/math.js';
-import { SPECIAL_CATEGORY } from '../utils/category-constants.js';
+import { buildExpensesSheetResponse, applySimulationExclusions } from '../../shared/expenses-sheet-build.js';
+import {
+  getFixedExpenseSimulationExclusions,
+  replaceFixedExpenseSimulationExclusions,
+} from '../db/repositories/fixed-expense-simulation-exclusions.js';
 import {
   recurringKey,
   accKey,
@@ -90,13 +95,23 @@ function getAnnualVariance(
   return out;
 }
 
+function makeLineKey(
+  direction: 'expense' | 'income',
+  frequency: 'monthly' | 'annual',
+  e: RecurringExpense,
+): string {
+  return `${direction}|${frequency}|${recurringKey(e)}`;
+}
+
 function toLineItem(
-  e: { merchant: string; category: string; amount: number; sourceAccount: string; billingDay?: string | null },
+  e: RecurringExpense,
   frequency: 'monthly' | 'annual',
   ownership: 'personal' | 'business',
   variance: Array<{ period: string; expected: number; actual: number }>,
+  direction: 'expense' | 'income',
 ): ExpensesLineItem {
   return {
+    lineKey: makeLineKey(direction, frequency, e),
     merchant: e.merchant,
     category: e.category,
     amount: e.amount,
@@ -122,7 +137,7 @@ router.get('/overview', (_req: Request<object, ExpensesSheetResponse, object, Ov
       const variance = acc ? computeMonthlyVariance(acc.monthlyTotals, e.amount) : [];
       const ownership = acc?.ownership ?? ACCOUNT_CONFIG[e.sourceAccount as AccountName]?.ownership ?? 'personal';
       const list = monthlyItemsByCategory.get(e.category) ?? [];
-      list.push(toLineItem(e, 'monthly', ownership, variance));
+      list.push(toLineItem(e, 'monthly', ownership, variance, 'expense'));
       monthlyItemsByCategory.set(e.category, list);
     }
 
@@ -146,7 +161,7 @@ router.get('/overview', (_req: Request<object, ExpensesSheetResponse, object, Ov
       const variance = acc ? getAnnualVariance(acc.transactions, e.amount) : [];
       const ownership = ACCOUNT_CONFIG[e.sourceAccount as AccountName]?.ownership ?? 'personal';
       const list = annualByCategory.get(e.category) ?? [];
-      list.push(toLineItem(e, 'annual', ownership, variance));
+      list.push(toLineItem(e, 'annual', ownership, variance, 'expense'));
       annualByCategory.set(e.category, list);
     }
     const annualOutgoings: ExpensesSection[] = [];
@@ -168,84 +183,57 @@ router.get('/overview', (_req: Request<object, ExpensesSheetResponse, object, Ov
       const acc = pipeline.incomeAccumulators.get(recurringKey(e));
       const variance = acc ? computeMonthlyVariance(acc.monthlyTotals, e.amount) : [];
       const ownership = ACCOUNT_CONFIG[e.sourceAccount as AccountName]?.ownership ?? 'personal';
-      incomeMonthlyItems.push(toLineItem(e, 'monthly', ownership, variance));
+      incomeMonthlyItems.push(toLineItem(e, 'monthly', ownership, variance, 'income'));
     }
     const incomeAnnualItems: ExpensesLineItem[] = [];
     for (const e of pipeline.annualIncomeRecurring) {
       const acc = pipeline.incomeAccumulators.get(recurringKey(e));
       const variance = acc ? getAnnualVariance(acc.transactions, e.amount) : [];
       const ownership = ACCOUNT_CONFIG[e.sourceAccount as AccountName]?.ownership ?? 'personal';
-      incomeAnnualItems.push(toLineItem(e, 'annual', ownership, variance));
+      incomeAnnualItems.push(toLineItem(e, 'annual', ownership, variance, 'income'));
     }
     incomeMonthlyItems.sort((a, b) => b.amount - a.amount);
     incomeAnnualItems.sort((a, b) => b.amount - a.amount);
 
-    // Pipeline already excludes transfers (internal moves) via the merchant registry
-    const totalMonthlyOutgoings = round2(monthlyOutgoings.reduce((s, sec) => s + sec.subtotal, 0));
-    const totalAnnualOutgoings = round2(annualOutgoings.reduce((s, sec) => s + sec.subtotal, 0));
-    const totalMonthlyIncome = round2(incomeMonthlyItems.reduce((s, i) => s + i.amount, 0));
-    const totalAnnualIncome = round2(incomeAnnualItems.reduce((s, i) => s + i.amount, 0));
-
-    let personalMonthlyFixed = 0;
-    let businessMonthlyFixed = 0;
-    let debtMonthlyFixed = 0;
-    for (const sec of monthlyOutgoings) {
-      for (const item of sec.items) {
-        if (item.ownership === 'business') {
-          businessMonthlyFixed += item.amount;
-        } else {
-          personalMonthlyFixed += item.amount;
-        }
-        if (item.category === SPECIAL_CATEGORY.debtRepayment) {
-          debtMonthlyFixed += item.amount;
-        }
-      }
-    }
-    personalMonthlyFixed = round2(personalMonthlyFixed);
-    businessMonthlyFixed = round2(businessMonthlyFixed);
-    debtMonthlyFixed = round2(debtMonthlyFixed);
-
-    const netMonthlyFixed = round2(totalMonthlyIncome - totalMonthlyOutgoings);
-    const needToEarnMonthly = round2(Math.max(0, totalMonthlyOutgoings - totalMonthlyIncome));
-    const monthlySurplus = round2(Math.max(0, totalMonthlyIncome - totalMonthlyOutgoings));
-    const netAnnualFixed = round2(totalAnnualIncome - totalAnnualOutgoings);
-
-    const insight = buildExpensesInsight(
-      monthlyOutgoings,
-      incomeMonthlyItems,
-      totalMonthlyOutgoings,
-      totalMonthlyIncome,
-      personalMonthlyFixed,
-      businessMonthlyFixed,
-    );
-
-    const response: ExpensesSheetResponse = {
+    const baseline = buildExpensesSheetResponse({
       monthlyOutgoings,
       annualOutgoings,
-      incomeMonthly: { items: incomeMonthlyItems, total: totalMonthlyIncome },
-      incomeAnnual: { items: incomeAnnualItems, total: totalAnnualIncome },
-      insight,
-      summary: {
-        totalMonthlyOutgoings,
-        totalAnnualOutgoings,
-        totalMonthlyIncome,
-        totalAnnualIncome,
-        netMonthlyFixed,
-        needToEarnMonthly,
-        monthlySurplus,
-        personalMonthlyFixed,
-        businessMonthlyFixed,
-        debtMonthlyFixed,
-        netAnnualFixed,
-        periodDescription: `Last ${ROLLING_MONTHS} months`,
-        monthsCovered: pipeline.monthsCovered,
-      },
-    };
+      incomeMonthlyItems,
+      incomeAnnualItems,
+      monthsCovered: pipeline.monthsCovered,
+      periodDescription: `Last ${ROLLING_MONTHS} months`,
+    });
+    const persisted = new Set(getFixedExpenseSimulationExclusions());
+    const response = applySimulationExclusions(baseline, persisted);
 
     res.json(response);
   } catch (error) {
     console.error('Error generating expenses sheet overview:', error);
     res.status(500).json({ error: 'Failed to generate expenses sheet overview' });
+  }
+});
+
+router.get('/simulation-exclusions', (_req, res) => {
+  try {
+    res.json({ lineKeys: getFixedExpenseSimulationExclusions() });
+  } catch (error) {
+    console.error('Error reading simulation exclusions:', error);
+    res.status(500).json({ error: 'Failed to read simulation exclusions' });
+  }
+});
+
+router.put('/simulation-exclusions', (req, res) => {
+  try {
+    const parsed = SimulationExclusionsPutBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid body: expected { lineKeys: string[] }' });
+      return;
+    }
+    replaceFixedExpenseSimulationExclusions(parsed.data.lineKeys);
+    res.json({ lineKeys: getFixedExpenseSimulationExclusions() });
+  } catch (error) {
+    console.error('Error saving simulation exclusions:', error);
+    res.status(500).json({ error: 'Failed to save simulation exclusions' });
   }
 });
 

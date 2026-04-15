@@ -230,3 +230,13 @@ export function migrateCategoryBudgetsBudgetPeriodIfNeeded(): void {
   db.exec(`ALTER TABLE category_budgets ADD COLUMN budget_period TEXT NOT NULL DEFAULT 'monthly'`);
   console.log('[Database] Added category_budgets.budget_period');
 }
+
+/** Fixed Expenses tab: persisted simulation excludes (line_key from overview payload). */
+export function migrateFixedExpenseSimulationExclusionsIfNeeded(): void {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS fixed_expense_simulation_exclusions (
+      line_key TEXT PRIMARY KEY NOT NULL
+    );
+  `);
+}

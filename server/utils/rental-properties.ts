@@ -6,8 +6,8 @@ export interface RentalProperty {
 }
 
 export const RENTAL_PROPERTIES: RentalProperty[] = [
-  { name: '78 Hunters Square',  merchant: 'Stoneshaw Estates', grossRent: 1292.72, account: 'monzo-joint' },
-  { name: '53 Heath Park Road', merchant: 'Prospect Holdings', grossRent: 979.20,  account: 'monzo-joint' },
+  { name: '78 Hunters Square', merchant: 'Stoneshaw Estates', grossRent: 1292.72, account: 'monzo-joint' },
+  { name: '56 Thorney House', merchant: 'Prospect Holdings', grossRent: 979.2, account: 'monzo-joint' },
 ];
 
 export function matchRentalProperty(
