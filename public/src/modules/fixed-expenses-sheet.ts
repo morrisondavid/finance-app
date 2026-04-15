@@ -95,13 +95,13 @@ export async function loadFixedExpensesSheet(): Promise<void> {
 
 function renderMonthlyInsight(data: ExpensesSheetResponse): void {
   const ins = data.insight;
+  setText('fixed-expenses-monthly-pod-spend', formatCurrency(ins.totalFixedMonthlyExpenses));
+  setText('fixed-expenses-monthly-pod-passive', formatCurrency(ins.totalPassiveIncome));
+  setText('fixed-expenses-monthly-pod-needed', formatCurrency(ins.monthlyIncomeNeededAfterPassive));
+
   const primary = document.getElementById('fixed-expenses-insight-primary-table');
-  const debt = document.getElementById('fixed-expenses-insight-debt-table');
   if (primary) {
     primary.innerHTML = buildPrimaryInsightMarkup(ins);
-  }
-  if (debt) {
-    debt.innerHTML = buildDebtInsightMarkup(ins);
   }
 }
 
@@ -109,24 +109,10 @@ function buildPrimaryInsightMarkup(ins: ExpensesInsight): string {
   const f = formatCurrency;
   return `
 <tbody>
-  <tr class="fixed-expenses-insight-row-bold"><td>Fixed monthly spend</td><td class="fixed-expenses-col-amount">${f(ins.totalFixedMonthlyExpenses)}</td></tr>
-  <tr class="fixed-expenses-insight-row-key"><td>Monthly income needed after external income</td><td class="fixed-expenses-col-amount">${f(ins.monthlyIncomeNeededAfterPassive)}</td></tr>
   <tr class="fixed-expenses-insight-row-sub"><td>— Business Expenses</td><td class="fixed-expenses-col-amount">${f(ins.businessExpenses)}</td></tr>
   <tr class="fixed-expenses-insight-row-sub"><td>— Personal fixed (NatWest)</td><td class="fixed-expenses-col-amount">${f(ins.natwestPersonalFixed)}</td></tr>
   <tr class="fixed-expenses-insight-row-sub"><td>— Debt</td><td class="fixed-expenses-col-amount">${f(ins.debtTotal)}</td></tr>
   <tr class="fixed-expenses-insight-row-sub"><td>— Bills</td><td class="fixed-expenses-col-amount">${f(ins.billsExpenses)}</td></tr>
-  <tr class="fixed-expenses-insight-row-sub"><td>— External Income</td><td class="fixed-expenses-col-amount">${f(ins.totalPassiveIncome)}</td></tr>
-</tbody>`;
-}
-
-function buildDebtInsightMarkup(ins: ExpensesInsight): string {
-  const f = formatCurrency;
-  return `
-<tbody>
-  <tr class="fixed-expenses-insight-section-head"><td colspan="2">Debt</td></tr>
-  <tr><td>Short Term Debt</td><td class="fixed-expenses-col-amount">${f(ins.debtShortTerm)}</td></tr>
-  <tr><td>Medium Term Debt</td><td class="fixed-expenses-col-amount">${f(ins.debtMediumTerm)}</td></tr>
-  <tr class="fixed-expenses-insight-row-bold"><td>Total</td><td class="fixed-expenses-col-amount">${f(ins.debtTotal)}</td></tr>
 </tbody>`;
 }
 

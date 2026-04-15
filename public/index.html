@@ -405,9 +405,30 @@
 
       <div id="fixed-expenses-panel-monthly" class="fixed-expenses-panel" role="tabpanel">
         <div class="fixed-expenses-insight-wrap" id="fixed-expenses-insight-wrap">
+          <div class="fixed-expenses-pods-grid fixed-expenses-monthly-summary-pods" aria-label="Monthly fixed summary">
+            <div class="fixed-expenses-insight-pod fixed-expenses-insight-pod--spend">
+              <span class="fixed-expenses-insight-pod-icon fixed-expenses-insight-pod-icon--spend" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+              </span>
+              <div class="fixed-expenses-insight-pod-label">Fixed monthly spend</div>
+              <div class="fixed-expenses-insight-pod-value" id="fixed-expenses-monthly-pod-spend">£0</div>
+            </div>
+            <div class="fixed-expenses-insight-pod fixed-expenses-insight-pod--passive">
+              <span class="fixed-expenses-insight-pod-icon fixed-expenses-insight-pod-icon--passive" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              </span>
+              <div class="fixed-expenses-insight-pod-label">Passive income</div>
+              <div class="fixed-expenses-insight-pod-value" id="fixed-expenses-monthly-pod-passive">£0</div>
+            </div>
+            <div class="fixed-expenses-insight-pod fixed-expenses-insight-pod--needed">
+              <span class="fixed-expenses-insight-pod-icon fixed-expenses-insight-pod-icon--needed" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+              </span>
+              <div class="fixed-expenses-insight-pod-label">Monthly income needed after external income</div>
+              <div class="fixed-expenses-insight-pod-value" id="fixed-expenses-monthly-pod-needed">£0</div>
+            </div>
+          </div>
           <table class="fixed-expenses-insight-table" id="fixed-expenses-insight-primary-table"></table>
-          <div class="fixed-expenses-insight-gap" aria-hidden="true"></div>
-          <table class="fixed-expenses-insight-table fixed-expenses-debt-table" id="fixed-expenses-insight-debt-table"></table>
         </div>
 
         <h2 class="fixed-expenses-page-heading">Fixed monthly outgoings</h2>

@@ -1899,12 +1899,12 @@ body {
 }
 
 .fixed-expenses-insight-wrap {
+  width: 100%;
   margin-bottom: 28px;
 }
 
 .fixed-expenses-insight-table {
   width: 100%;
-  max-width: 36rem;
   border-collapse: collapse;
   font-size: 0.95rem;
   background: var(--color-surface);
@@ -1963,6 +1963,97 @@ body {
 
 .fixed-expenses-insight-gap {
   height: 14px;
+}
+
+/* Monthly insight summary pods: full row width, generous gaps between pods */
+.fixed-expenses-pods-grid.fixed-expenses-monthly-summary-pods {
+  width: 100%;
+  max-width: none;
+  gap: 1.35rem;
+  margin-bottom: 22px;
+  align-items: stretch;
+}
+
+.fixed-expenses-pods-grid.fixed-expenses-monthly-summary-pods > .fixed-expenses-insight-pod {
+  height: 100%;
+  min-width: 0;
+}
+
+.fixed-expenses-insight-pod {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  background: var(--color-surface);
+  min-height: 9.5rem;
+}
+
+.fixed-expenses-insight-pod-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.35;
+  min-height: calc(2 * 1.35em);
+  color: var(--color-text-muted);
+}
+
+.fixed-expenses-insight-pod-value {
+  margin-top: auto;
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  color: var(--color-text);
+}
+
+.fixed-expenses-insight-pod--spend {
+  background: rgba(220, 38, 38, 0.07);
+}
+
+.fixed-expenses-insight-pod--spend .fixed-expenses-insight-pod-value {
+  color: var(--color-expense, #dc2626);
+  font-size: 1.4rem;
+}
+
+/* Stroke icons: same size / weight as first pod (Lucide-style 24 viewBox, 22px). */
+.fixed-expenses-insight-pod-icon {
+  display: block;
+  flex-shrink: 0;
+  line-height: 0;
+  margin-bottom: 2px;
+}
+
+.fixed-expenses-insight-pod-icon svg {
+  display: block;
+}
+
+.fixed-expenses-insight-pod-icon--spend {
+  color: var(--color-expense, #dc2626);
+}
+
+.fixed-expenses-insight-pod-icon--passive {
+  color: #16a34a;
+}
+
+.fixed-expenses-insight-pod-icon--needed {
+  color: #6366f1;
+}
+
+.fixed-expenses-insight-pod--passive {
+  background: rgba(22, 163, 74, 0.08);
+}
+
+.fixed-expenses-insight-pod--passive .fixed-expenses-insight-pod-value {
+  color: #15803d;
+}
+
+.fixed-expenses-insight-pod--needed {
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.fixed-expenses-insight-pod--needed .fixed-expenses-insight-pod-value {
+  color: #4338ca;
 }
 
 .fixed-expenses-pods-grid {
