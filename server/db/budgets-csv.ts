@@ -1,6 +1,9 @@
 /**
  * Canonical budgets CSV on disk (source of truth). DB is populated on startup;
  * mutating APIs rewrite this file.
+ *
+ * `amount` is the permanent monthly budget cap per account + category (all financial years).
+ * Legacy CSV rows may include `financial_year`; that column is ignored when loading.
  */
 
 import fs from 'fs';
@@ -13,13 +16,12 @@ import { CATEGORY_NAMES, type CategoryName } from '../utils/categorizer.js';
 export const BUDGETS_CSV_FILENAME = 'category-budgets.csv';
 
 export interface BudgetCsvRow {
-  financialYear: string;
   account: AccountName;
   category: CategoryName;
   amount: number;
 }
 
-const HEADERS = ['financial_year', 'account', 'category', 'amount'] as const;
+const HEADERS = ['account', 'category', 'amount'] as const;
 
 function ensureBudgetsDir(budgetsDir: string): void {
   if (!fs.existsSync(budgetsDir)) {
@@ -33,6 +35,7 @@ export function getBudgetCsvPath(budgetsDir: string): string {
 
 /**
  * Read and parse budgets CSV. Missing file returns [].
+ * Supports legacy headers (financial_year, account, category, amount); last row wins per account+category.
  */
 export function readBudgetsFromCsvFile(csvPath: string): BudgetCsvRow[] {
   if (!fs.existsSync(csvPath)) {
@@ -49,25 +52,26 @@ export function readBudgetsFromCsvFile(csvPath: string): BudgetCsvRow[] {
     relax_column_count: true,
   }) as Record<string, string>[];
 
-  const out: BudgetCsvRow[] = [];
+  const merged = new Map<string, BudgetCsvRow>();
+
   for (const row of records) {
-    const fy = row.financial_year ?? row['financial year'];
     const account = row.account;
     const category = row.category;
     const amountRaw = row.amount;
-    if (!fy || !account || !category || amountRaw === undefined || amountRaw === '') continue;
+    if (!account || !category || amountRaw === undefined || amountRaw === '') continue;
     if (!isValidAccountName(account)) continue;
     if (!CATEGORY_NAMES.includes(category as CategoryName)) continue;
     const amount = Number(amountRaw);
     if (!Number.isFinite(amount) || amount < 0) continue;
-    out.push({
-      financialYear: fy,
+    const key = `${account}\t${category}`;
+    merged.set(key, {
       account: account as AccountName,
       category: category as CategoryName,
       amount,
     });
   }
-  return out;
+
+  return Array.from(merged.values());
 }
 
 function escapeCsvField(value: string): string {
@@ -85,8 +89,8 @@ export function writeBudgetsToCsvFile(csvPath: string, rows: BudgetCsvRow[]): vo
   ensureBudgetsDir(dir);
 
   const sorted = [...rows].sort((a, b) => {
-    const ak = `${a.account}\t${a.financialYear}\t${a.category}`;
-    const bk = `${b.account}\t${b.financialYear}\t${b.category}`;
+    const ak = `${a.account}\t${a.category}`;
+    const bk = `${b.account}\t${b.category}`;
     return ak.localeCompare(bk);
   });
 
@@ -94,7 +98,6 @@ export function writeBudgetsToCsvFile(csvPath: string, rows: BudgetCsvRow[]): vo
   for (const r of sorted) {
     lines.push(
       [
-        escapeCsvField(r.financialYear),
         escapeCsvField(r.account),
         escapeCsvField(r.category),
         String(Math.round(r.amount * 100) / 100),

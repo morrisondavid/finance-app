@@ -130,18 +130,18 @@ export function initSchema(): void {
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- category_budgets.amount = permanent monthly cap per account + category (all FYs)
     CREATE TABLE IF NOT EXISTS category_budgets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       account TEXT NOT NULL,
       category TEXT NOT NULL,
-      financial_year TEXT NOT NULL,
       amount REAL NOT NULL CHECK(amount >= 0),
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(account, category, financial_year)
+      UNIQUE(account, category)
     );
 
-    CREATE INDEX IF NOT EXISTS idx_category_budgets_account_fy
-      ON category_budgets(account, financial_year);
+    CREATE INDEX IF NOT EXISTS idx_category_budgets_account
+      ON category_budgets(account);
   `);
   
   // Insert default opening balances if they don't exist
@@ -163,4 +163,42 @@ export function initSchema(): void {
   `).run();
   
   console.log('[Database] Schema initialized');
+}
+
+/**
+ * One-time shape change: drop financial_year; one row per (account, category).
+ * Keeps the row with the largest id per pair (most recently added).
+ */
+export function migrateCategoryBudgetsIfNeeded(): void {
+  const db = getDb();
+  const cols = db.prepare(`PRAGMA table_info('category_budgets')`).all() as Array<{ name: string }>;
+  if (cols.length === 0) return;
+  const hasFy = cols.some(c => c.name === 'financial_year');
+  if (!hasFy) return;
+
+  db.exec(`
+    CREATE TABLE category_budgets__new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account TEXT NOT NULL,
+      category TEXT NOT NULL,
+      amount REAL NOT NULL CHECK(amount >= 0),
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(account, category)
+    );
+
+    INSERT INTO category_budgets__new (account, category, amount, updated_at)
+    SELECT b.account, b.category, b.amount, b.updated_at
+    FROM category_budgets b
+    INNER JOIN (
+      SELECT account, category, MAX(id) AS max_id
+      FROM category_budgets
+      GROUP BY account, category
+    ) w ON b.account = w.account AND b.category = w.category AND b.id = w.max_id;
+
+    DROP TABLE category_budgets;
+    ALTER TABLE category_budgets__new RENAME TO category_budgets;
+
+    CREATE INDEX IF NOT EXISTS idx_category_budgets_account ON category_budgets(account);
+  `);
+  console.log('[Database] Migrated category_budgets to permanent (account, category) rows');
 }

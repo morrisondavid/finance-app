@@ -151,6 +151,45 @@ export async function showTransactionsModal(month: string, type: 'income' | 'exp
   }
 }
 
+/** Expenses in one calendar month for a budget category (selected account). */
+export async function showBudgetMonthTransactionsModal(
+  categoryName: string,
+  monthKey: string,
+  monthLabel: string,
+): Promise<void> {
+  const els = getModalElements();
+  if (!els) return;
+  const { modal, titleEl, countEl, totalEl, listEl } = els;
+
+  const parts = monthKey.split('-');
+  if (parts.length !== 2) return;
+  const [yearStr, monthStr] = parts;
+
+  titleEl.textContent = `${categoryName} — ${monthLabel}`;
+  titleEl.className = 'expense';
+  listEl.innerHTML = '<div class="loading">Loading transactions...</div>';
+  modal.style.display = 'flex';
+
+  try {
+    const data = await fetchTransactions({
+      account: state.selectedAccount,
+      type: 'expense',
+      category: categoryName,
+      year: yearStr,
+      month: monthStr,
+    });
+    const sorted = [...data].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const formatted = sorted.map(t => ({
+      ...t,
+      date: new Date(t.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+    }));
+    renderTransactionList(formatted, 'expense', listEl, countEl, totalEl, 'No expense transactions in this month for this category.');
+  } catch (error) {
+    console.error('Error loading budget month transactions:', error);
+    listEl.innerHTML = '<p class="error">Error loading transactions.</p>';
+  }
+}
+
 export async function showCategoryTransactionsModal(categoryName: string): Promise<void> {
   const els = getModalElements();
   if (!els) return;
@@ -219,6 +258,36 @@ async function showAllTransactionsModal(type: 'income' | 'expense'): Promise<voi
 export function initVatPaymentsHandler(): void {
   document.getElementById('vat-outstanding-card')?.addEventListener('click', () => showVatPaymentsModal());
   document.getElementById('vat-liability-card')?.addEventListener('click', () => showVatLiabilityModal());
+}
+
+function openBudgetMonthRowFromTable(tr: HTMLTableRowElement): void {
+  const category = tr.dataset.budgetCategory;
+  const monthKey = tr.dataset.budgetMonthKey;
+  const monthLabel = tr.dataset.budgetMonthLabel;
+  if (!category || !monthKey || !monthLabel) return;
+  void showBudgetMonthTransactionsModal(category, monthKey, monthLabel);
+}
+
+/** One-time delegated clicks on budget month rows (re-render safe). */
+export function initBudgetDashboardPanelInteractions(): void {
+  const panel = document.getElementById('budget-dashboard-panel');
+  if (!panel || panel.dataset.budgetDrillBound === '1') return;
+  panel.dataset.budgetDrillBound = '1';
+
+  panel.addEventListener('click', e => {
+    const tr = (e.target as HTMLElement | null)?.closest?.('tr[data-budget-month]');
+    if (!(tr instanceof HTMLTableRowElement) || !panel.contains(tr)) return;
+    openBudgetMonthRowFromTable(tr);
+  });
+
+  panel.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const t = e.target as HTMLElement | null;
+    const tr = t?.closest?.('tr[data-budget-month]');
+    if (!(tr instanceof HTMLTableRowElement) || !panel.contains(tr)) return;
+    e.preventDefault();
+    openBudgetMonthRowFromTable(tr);
+  });
 }
 
 async function showVatPaymentsModal(): Promise<void> {

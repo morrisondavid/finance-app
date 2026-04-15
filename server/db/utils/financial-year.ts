@@ -43,6 +43,76 @@ export function getFinancialYearRange(fy: string): FinancialYearRange {
 }
 
 /**
+ * Ordered calendar month keys (YYYY-MM) from FY start through FY end inclusive (12 months: May–April).
+ */
+export function listMonthKeysInFinancialYear(fy: string): string[] {
+  const range = getFinancialYearRange(fy);
+  const keys: string[] = [];
+  const startParts = range.startDate.split('-').map(Number);
+  let y = startParts[0];
+  let m = startParts[1];
+  for (let i = 0; i < 12; i++) {
+    keys.push(`${y}-${String(m).padStart(2, '0')}`);
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return keys;
+}
+
+/** Local calendar date YYYY-MM-DD (matches getFinancialYear-style month logic). */
+export function formatCalendarDateLocal(d: Date): string {
+  const y = d.getFullYear();
+  const mo = d.getMonth() + 1;
+  const day = d.getDate();
+  return `${y}-${String(mo).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/** Local calendar month key YYYY-MM. */
+export function calendarMonthKeyFromDate(d: Date): string {
+  const y = d.getFullYear();
+  const mo = d.getMonth() + 1;
+  return `${y}-${String(mo).padStart(2, '0')}`;
+}
+
+/**
+ * Month keys (YYYY-MM) to show for budget vs actual for the selected FY as of `asOf`:
+ * - FY fully ended before `asOf`: all 12 FY months.
+ * - FY contains `asOf`: from FY start through min(current calendar month, FY’s last month).
+ * - FY not yet started on `asOf`: empty.
+ */
+export function listFyMonthKeysThroughDate(fy: string, asOf: Date): string[] {
+  const all = listMonthKeysInFinancialYear(fy);
+  const range = getFinancialYearRange(fy);
+  const asYmd = formatCalendarDateLocal(asOf);
+  if (asYmd > range.endDate) {
+    return all;
+  }
+  if (asYmd < range.startDate) {
+    return [];
+  }
+  const endKey = range.endDate.slice(0, 7);
+  const nowKey = calendarMonthKeyFromDate(asOf);
+  const cap = nowKey < endKey ? nowKey : endKey;
+  return all.filter(k => k <= cap);
+}
+
+/**
+ * Display label for a YYYY-MM key inside a financial year (e.g. "May 2025").
+ */
+export function formatFinancialYearMonthLabel(monthKey: string): string {
+  const parts = monthKey.split('-');
+  if (parts.length !== 2) return monthKey;
+  const y = Number(parts[0]);
+  const mo = Number(parts[1]);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || mo < 1 || mo > 12) return monthKey;
+  const d = new Date(y, mo - 1, 1);
+  return d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+}
+
+/**
  * Build SQL WHERE clause for financial year filtering
  */
 export function buildFYWhereClause(fy: string | undefined): { clause: string; params: string[] } {

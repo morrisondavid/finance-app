@@ -162,19 +162,26 @@ export const UploadedFileSchema = z.object({
 // API Response Schemas
 // ============================================
 
+export const BudgetMonthComparisonSchema = z.object({
+  monthKey: z.string(),
+  monthLabel: z.string(),
+  budget: z.number(),
+  spent: z.number(),
+  /** spent minus budget (negative = under budget). */
+  difference: z.number(),
+});
+
 export const BudgetComparisonSchema = z.object({
   category: z.string(),
-  budgetAmount: z.number(),
-  spent: z.number(),
-  remaining: z.number(),
-  overBy: z.number(),
+  monthlyBudget: z.number(),
+  months: z.array(BudgetMonthComparisonSchema).default([]),
 });
 
 export const BudgetRowSchema = z.object({
   id: z.number(),
   account: AccountNameSchema,
   category: z.string(),
-  financialYear: z.string(),
+  /** Permanent monthly cap for this account + category. */
   amount: z.number(),
 });
 
@@ -185,7 +192,6 @@ export const BudgetsListResponseSchema = z.object({
 export const BudgetUpsertBodySchema = z.object({
   account: AccountNameSchema,
   category: z.string(),
-  financialYear: z.string(),
   amount: z.number(),
 });
 
@@ -470,6 +476,7 @@ export type TaxLiabilities = z.infer<typeof TaxLiabilitiesSchema>;
 export type UploadedFile = z.infer<typeof UploadedFileSchema>;
 export type CategoryBreakdown = z.infer<typeof CategoryBreakdownSchema>;
 export type CategoriesResponse = z.infer<typeof CategoriesResponseSchema>;
+export type BudgetMonthComparison = z.infer<typeof BudgetMonthComparisonSchema>;
 export type BudgetComparison = z.infer<typeof BudgetComparisonSchema>;
 export type BudgetRow = z.infer<typeof BudgetRowSchema>;
 export type BudgetsListResponse = z.infer<typeof BudgetsListResponseSchema>;

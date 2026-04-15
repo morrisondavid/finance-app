@@ -24,17 +24,12 @@ function validateAccount(account: string | undefined): AccountName {
 
 interface BudgetListQuery {
   account?: string;
-  financialYear?: string;
 }
 
 router.get('/', (req: Request<object, BudgetsListResponse, object, BudgetListQuery>, res: Response) => {
   try {
     const selectedAccount = validateAccount(req.query.account);
-    const fy = typeof req.query.financialYear === 'string' ? req.query.financialYear.trim() : '';
-    const budgets = listBudgets({
-      account: selectedAccount,
-      ...(fy ? { financialYear: fy.replace('-', '/') } : {}),
-    });
+    const budgets = listBudgets({ account: selectedAccount });
     res.json({ budgets });
   } catch (error) {
     console.error('[Budgets] GET error:', error);
@@ -52,7 +47,6 @@ router.post('/', (req: Request<object, unknown, BudgetUpsertBody>, res: Response
     const row = upsertBudget({
       account: body.account,
       category: body.category as CategoryName,
-      financialYear: body.financialYear,
       amount: body.amount,
     });
     res.status(201).json(BudgetRowSchema.parse(row));

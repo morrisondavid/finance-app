@@ -98,21 +98,6 @@
         <div class="vat-timeline-grid" id="vat-timeline-grid"></div>
       </div>
 
-      <div class="summary-cards">
-        <div class="card clickable" id="income-card">
-          <div class="card-label">Income</div>
-          <div class="card-value income" id="total-income">£0.00</div>
-        </div>
-        <div class="card clickable" id="outgoings-card">
-          <div class="card-label">Outgoings</div>
-          <div class="card-value expense" id="total-expenses">£0.00</div>
-        </div>
-        <div class="card">
-          <div class="card-label">Net Position</div>
-          <div class="card-value" id="net-position">£0.00</div>
-        </div>
-      </div>
-
       <!-- Account Balance Panel -->
       <div class="balance-panel">
         <div class="balance-header">
@@ -134,6 +119,21 @@
             <span class="balance-label">= Current Balance</span>
             <span class="balance-value" id="current-balance">£0.00</span>
           </div>
+        </div>
+      </div>
+
+      <div class="summary-cards">
+        <div class="card clickable" id="income-card">
+          <div class="card-label">Income</div>
+          <div class="card-value income" id="total-income">£0.00</div>
+        </div>
+        <div class="card clickable" id="outgoings-card">
+          <div class="card-label">Outgoings</div>
+          <div class="card-value expense" id="total-expenses">£0.00</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Net Position</div>
+          <div class="card-value" id="net-position">£0.00</div>
         </div>
       </div>
 
@@ -469,17 +469,12 @@
           <span class="account-btn-latest"></span>
         </button>
       </div>
-      <div class="dashboard-controls budget-tab-controls">
-        <label for="budget-fy-filter">Financial Year:</label>
-        <select id="budget-fy-filter">
-          <option value="">All Time</option>
-        </select>
-      </div>
+      <!-- Budget tab: caps are per account+category (see server/db/repositories/budgets.ts). FY vs spend is on the dashboard. -->
       <div class="budget-tab-toolbar">
         <label class="ad-hoc-expenses-field">Category
           <select id="budget-category-select"></select>
         </label>
-        <label class="ad-hoc-expenses-field">Budget (£)
+        <label class="ad-hoc-expenses-field">Monthly budget (£)
           <input type="number" id="budget-amount-input" min="0" step="0.01" placeholder="0.00" />
         </label>
         <button type="button" class="ad-hoc-expenses-refresh" id="budget-add-btn">Add budget</button>

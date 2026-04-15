@@ -7,3 +7,11 @@ export function escapeHtml(str: string): string {
   div.textContent = str;
   return div.innerHTML;
 }
+
+/** Escape for double-quoted HTML attribute values. */
+export function escapeAttribute(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}

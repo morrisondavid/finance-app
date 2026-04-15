@@ -1,6 +1,6 @@
 /**
  * Budget tab — CRUD for category budgets (CSV-backed on server).
- * Account and FY selectors are shared with the dashboard module (`initDashboard`).
+ * Budgets are permanent per (account, category); account selector is shared with `initDashboard`.
  */
 
 import { state } from './state';
@@ -39,25 +39,19 @@ async function ensureCategoryOptions(): Promise<void> {
 }
 
 async function submitBudget(): Promise<void> {
-  const fy = state.selectedFinancialYear?.trim();
-  if (!fy) {
-    alert('Select a financial year before adding a budget.');
-    return;
-  }
   const catSel = document.getElementById('budget-category-select');
   const amtEl = document.getElementById('budget-amount-input');
   if (!(catSel instanceof HTMLSelectElement) || !(amtEl instanceof HTMLInputElement)) return;
   const category = catSel.value;
   const amount = Number(amtEl.value);
   if (!Number.isFinite(amount) || amount < 0) {
-    alert('Enter a valid budget amount (0 or more).');
+    alert('Enter a valid monthly budget (0 or more).');
     return;
   }
   try {
     await createBudget({
       account: state.selectedAccount,
       category,
-      financialYear: fy,
       amount,
     });
     amtEl.value = '';
@@ -76,50 +70,43 @@ export async function loadBudgetSheet(): Promise<void> {
 
   await ensureCategoryOptions();
 
-  const fy = state.selectedFinancialYear?.trim();
   const cfg = getAccountConfig(state.selectedAccount);
   const accountLabel = cfg?.label ?? state.selectedAccount;
 
-  if (!fy) {
-    meta.textContent = `Account: ${accountLabel} · Select a financial year to view and edit budgets.`;
-    wrap.innerHTML = '';
-    return;
-  }
-
-  meta.textContent = `Account: ${accountLabel} · Financial year ${fy}.`;
+  meta.textContent = `Account: ${accountLabel}`;
   wrap.innerHTML = '<p class="ad-hoc-expenses-empty">Loading…</p>';
 
   try {
     const { budgets } = await fetchBudgetsList({
       account: state.selectedAccount,
-      financialYear: fy,
     });
     if (budgets.length === 0) {
       wrap.innerHTML = '<p class="ad-hoc-expenses-empty">No budgets yet. Add one above.</p>';
       return;
     }
     const rows = budgets
-      .map(
-        b => `
+      .map(b => {
+        const fyCap = Math.round(b.amount * 12 * 100) / 100;
+        return `
       <tr>
-        <td>${escapeHtml(b.financialYear)}</td>
         <td>${escapeHtml(b.account)}</td>
         <td>${escapeHtml(b.category)}</td>
         <td class="ad-hoc-expenses-col-num">${formatCurrency(b.amount)}</td>
+        <td class="ad-hoc-expenses-col-num">${formatCurrency(fyCap)}</td>
         <td class="ad-hoc-expenses-col-num">
           <button type="button" class="btn-small budget-delete-btn" data-id="${b.id}">Delete</button>
         </td>
-      </tr>`,
-      )
+      </tr>`;
+      })
       .join('');
     wrap.innerHTML = `
       <table class="ad-hoc-expenses-table">
         <thead>
           <tr>
-            <th>Financial year</th>
             <th>Account</th>
             <th>Category</th>
-            <th>Budget</th>
+            <th>Monthly budget</th>
+            <th>FY cap (12×)</th>
             <th></th>
           </tr>
         </thead>

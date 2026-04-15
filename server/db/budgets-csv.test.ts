@@ -22,16 +22,14 @@ describe('budgets CSV', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('round-trips rows with stable sorted column order', () => {
+  it('round-trips rows with account,category,amount header', () => {
     const rows: BudgetCsvRow[] = [
       {
-        financialYear: '2025/26',
         account: 'natwest',
         category: 'Groceries',
         amount: 12.5,
       },
       {
-        financialYear: '2025/26',
         account: 'barclays-current',
         category: 'Other',
         amount: 100,
@@ -39,7 +37,7 @@ describe('budgets CSV', () => {
     ];
     writeBudgetsToCsvFile(csvPath, rows);
     const text = fs.readFileSync(csvPath, 'utf8');
-    expect(text.startsWith('financial_year,account,category,amount\n')).toBe(true);
+    expect(text.startsWith('account,category,amount\n')).toBe(true);
     const parsed = readBudgetsFromCsvFile(csvPath);
     expect(parsed).toHaveLength(2);
     expect(parsed.find(r => r.account === 'barclays-current')?.amount).toBe(100);
@@ -48,5 +46,17 @@ describe('budgets CSV', () => {
 
   it('returns [] when the CSV file does not exist', () => {
     expect(readBudgetsFromCsvFile(path.join(tmpDir, 'missing.csv'))).toEqual([]);
+  });
+
+  it('legacy financial_year column is ignored; last row wins per account+category', () => {
+    fs.writeFileSync(
+      csvPath,
+      'financial_year,account,category,amount\n2024/25,barclays-current,Groceries,50\n2025/26,barclays-current,Groceries,75\n',
+      'utf8',
+    );
+    const parsed = readBudgetsFromCsvFile(csvPath);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].amount).toBe(75);
+    expect(parsed[0].category).toBe('Groceries');
   });
 });

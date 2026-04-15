@@ -11,7 +11,13 @@ import { loadAdHocExpenses } from './ad-hoc-expenses.js';
 import { AccountNameSchema } from '../../../shared/api-contracts.js';
 
 import { renderMonthlyChart, renderCategoryChart, renderMonthlyTable } from './dashboard-charts';
-import { initTransactionsModal, initBalanceModal, initSummaryCardHandlers, initVatPaymentsHandler } from './dashboard-modals';
+import {
+  initTransactionsModal,
+  initBalanceModal,
+  initSummaryCardHandlers,
+  initVatPaymentsHandler,
+  initBudgetDashboardPanelInteractions,
+} from './dashboard-modals';
 import { renderLiabilities } from './dashboard-vat';
 import { renderBudgetDashboardPanel } from './dashboard-budgets';
 
@@ -51,7 +57,7 @@ export async function loadDashboard(): Promise<void> {
 
 // ─── Financial year filter ────────────────────────────────────────────────────
 
-const FY_FILTER_SELECTORS = '#fy-filter, #ad-hoc-fy-filter, #budget-fy-filter';
+const FY_FILTER_SELECTORS = '#fy-filter, #ad-hoc-fy-filter';
 
 function populateFinancialYearFilter(financialYears: string[]): void {
   const selects = document.querySelectorAll<HTMLSelectElement>(FY_FILTER_SELECTORS);
@@ -94,11 +100,6 @@ function initFinancialYearFilter(): void {
       const adHocSection = document.getElementById('ad-hoc-expenses');
       if (adHocSection?.classList.contains('active')) {
         void loadAdHocExpenses();
-      }
-
-      const budgetSection = document.getElementById('budget');
-      if (budgetSection?.classList.contains('active')) {
-        void import('./budget-sheet.js').then(m => m.loadBudgetSheet());
       }
     });
   });
@@ -283,6 +284,7 @@ export function initDashboard(): void {
   initAccountSelector();
   initBalanceModal();
   initTransactionsModal();
+  initBudgetDashboardPanelInteractions();
   initVatPaymentsHandler();
   initSummaryCardHandlers();
   loadDashboard();

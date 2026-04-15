@@ -13,7 +13,7 @@
  * - repositories/balance.ts: Account balance management
  */
 
-import { initConnection, closeConnection, initSchema } from './connection.js';
+import { initConnection, closeConnection, initSchema, migrateCategoryBudgetsIfNeeded } from './connection.js';
 import { populateFromCSVs } from './repositories/files.js';
 import { detectTransfers } from './repositories/transactions.js';
 import { loadBudgetsFromFileIntoDb } from './repositories/budgets.js';
@@ -96,7 +96,9 @@ export async function initDatabase(): Promise<void> {
   
   // Initialize schema (drops and recreates tables)
   initSchema();
-  
+
+  migrateCategoryBudgetsIfNeeded();
+
   // Populate from CSV files
   const result = await populateFromCSVs();
   

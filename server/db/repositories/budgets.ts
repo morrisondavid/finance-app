@@ -1,9 +1,17 @@
+/**
+ * Category budgets: DB mirrors canonical CSV; use upsert/delete here so file and DB stay aligned.
+ * One permanent monthly cap per (account, category); comparisons use the dashboard’s selected FY for spend only.
+ */
 import { getDb, BUDGETS_DIR } from '../connection.js';
 import type { AccountName } from '../../types.js';
 import { isValidAccountName } from '../../types.js';
 import type { CategoryName } from '../../utils/categorizer.js';
 import { CATEGORY_NAMES } from '../../utils/categorizer.js';
-import { getCategoryExpenseTotals } from '../../utils/category-expense-totals.js';
+import { getCategoryExpenseFyAndByMonth } from '../../utils/category-expense-totals.js';
+import {
+  listFyMonthKeysThroughDate,
+  formatFinancialYearMonthLabel,
+} from '../utils/financial-year.js';
 import {
   readBudgetsFromCsvFile,
   writeBudgetsToCsvFile,
@@ -16,16 +24,24 @@ export interface BudgetRow {
   id: number;
   account: AccountName;
   category: CategoryName;
-  financialYear: string;
+  /** Permanent monthly cap. */
   amount: number;
+}
+
+export interface BudgetMonthComparison {
+  monthKey: string;
+  monthLabel: string;
+  budget: number;
+  spent: number;
+  /** spent minus budget (negative = under budget). */
+  difference: number;
 }
 
 export interface BudgetComparison {
   category: CategoryName;
-  budgetAmount: number;
-  spent: number;
-  remaining: number;
-  overBy: number;
+  monthlyBudget: number;
+  /** Elapsed FY months for the dashboard window (past FY = all 12; current FY through current month). */
+  months: BudgetMonthComparison[];
 }
 
 function csvPath(): string {
@@ -41,13 +57,12 @@ export function loadBudgetsFromFileIntoDb(): void {
   const rows = readBudgetsFromCsvFile(csvPath());
   db.prepare('DELETE FROM category_budgets').run();
   const insert = db.prepare(`
-    INSERT INTO category_budgets (account, category, financial_year, amount, updated_at)
-    VALUES (?, ?, ?, ?, datetime('now'))
+    INSERT INTO category_budgets (account, category, amount, updated_at)
+    VALUES (?, ?, ?, datetime('now'))
   `);
-  const normalizeFy = (fy: string): string => fy.replace('-', '/');
   const run = db.transaction((list: BudgetCsvRow[]) => {
     for (const r of list) {
-      insert.run(r.account, r.category, normalizeFy(r.financialYear), r.amount);
+      insert.run(r.account, r.category, r.amount);
     }
   });
   run(rows);
@@ -61,42 +76,33 @@ export function exportBudgetsFromDbToFile(): void {
   const db = getDb();
   const rows = db
     .prepare(
-      `SELECT account, category, financial_year as financialYear, amount
+      `SELECT account, category, amount
        FROM category_budgets
-       ORDER BY account, financial_year, category`,
+       ORDER BY account, category`,
     )
     .all() as BudgetCsvRow[];
   writeBudgetsToCsvFile(csvPath(), rows);
 }
 
-export function listBudgets(filters: {
-  account?: AccountName;
-  financialYear?: string;
-}): BudgetRow[] {
+export function listBudgets(filters: { account?: AccountName }): BudgetRow[] {
   const db = getDb();
-  let sql = 'SELECT id, account, category, financial_year as financialYear, amount FROM category_budgets WHERE 1=1';
+  let sql = 'SELECT id, account, category, amount FROM category_budgets WHERE 1=1';
   const params: string[] = [];
   if (filters.account) {
     sql += ' AND account = ?';
     params.push(filters.account);
   }
-  if (filters.financialYear) {
-    sql += ' AND financial_year = ?';
-    params.push(filters.financialYear);
-  }
-  sql += ' ORDER BY financial_year DESC, account, category';
+  sql += ' ORDER BY account, category';
   const raw = db.prepare(sql).all(...params) as Array<{
     id: number;
     account: string;
     category: string;
-    financialYear: string;
     amount: number;
   }>;
   return raw.map(r => ({
     id: r.id,
     account: r.account as AccountName,
     category: r.category as CategoryName,
-    financialYear: r.financialYear,
     amount: Math.round(r.amount * 100) / 100,
   }));
 }
@@ -104,7 +110,6 @@ export function listBudgets(filters: {
 export function upsertBudget(row: {
   account: AccountName;
   category: CategoryName;
-  financialYear: string;
   amount: number;
 }): BudgetRow {
   if (!isValidAccountName(row.account)) {
@@ -113,10 +118,6 @@ export function upsertBudget(row: {
   if (!CATEGORY_NAMES.includes(row.category)) {
     throw new Error('Invalid category');
   }
-  if (!/^\d{4}[/-]\d{2}$/.test(row.financialYear)) {
-    throw new Error('Invalid financial year format');
-  }
-  const normalizedFy = row.financialYear.replace('-', '/');
   if (row.amount < 0 || !Number.isFinite(row.amount)) {
     throw new Error('Invalid amount');
   }
@@ -124,25 +125,24 @@ export function upsertBudget(row: {
   const db = getDb();
   db.prepare(
     `
-    INSERT INTO category_budgets (account, category, financial_year, amount, updated_at)
-    VALUES (?, ?, ?, ?, datetime('now'))
-    ON CONFLICT(account, category, financial_year) DO UPDATE SET
+    INSERT INTO category_budgets (account, category, amount, updated_at)
+    VALUES (?, ?, ?, datetime('now'))
+    ON CONFLICT(account, category) DO UPDATE SET
       amount = excluded.amount,
       updated_at = datetime('now')
   `,
-  ).run(row.account, row.category, normalizedFy, row.amount);
+  ).run(row.account, row.category, row.amount);
 
   const inserted = db
     .prepare(
-      `SELECT id, account, category, financial_year as financialYear, amount
+      `SELECT id, account, category, amount
        FROM category_budgets
-       WHERE account = ? AND category = ? AND financial_year = ?`,
+       WHERE account = ? AND category = ?`,
     )
-    .get(row.account, row.category, normalizedFy) as {
+    .get(row.account, row.category) as {
     id: number;
     account: string;
     category: string;
-    financialYear: string;
     amount: number;
   };
   exportBudgetsFromDbToFile();
@@ -150,7 +150,6 @@ export function upsertBudget(row: {
     id: inserted.id,
     account: inserted.account as AccountName,
     category: inserted.category as CategoryName,
-    financialYear: inserted.financialYear,
     amount: Math.round(inserted.amount * 100) / 100,
   };
 }
@@ -166,19 +165,35 @@ export function deleteBudgetById(id: number): boolean {
 }
 
 /**
- * Pure merge of budget rows with a spend map (used by dashboard and tests).
+ * Pure merge: one row per month key with budget, spent, and signed difference (spent − budget).
  */
-export function mergeBudgetsWithSpendTotals(
+export function mergeBudgetsWithMonthlySpend(
   budgets: Array<{ category: string; amount: number }>,
-  spend: ReadonlyMap<string, number>,
+  byMonth: ReadonlyMap<string, ReadonlyMap<string, number>>,
+  monthKeysInOrder: readonly string[],
 ): BudgetComparison[] {
   return budgets.map(b => {
     const category = b.category as CategoryName;
-    const budgetAmount = Math.round(b.amount * 100) / 100;
-    const spent = Math.round((spend.get(category) ?? 0) * 100) / 100;
-    const overBy = Math.max(0, spent - budgetAmount);
-    const remaining = Math.max(0, budgetAmount - spent);
-    return { category, budgetAmount, spent, remaining, overBy };
+    const monthlyBudget = Math.round(b.amount * 100) / 100;
+    const months: BudgetMonthComparison[] = [];
+    for (const mk of monthKeysInOrder) {
+      const monthMap = byMonth.get(mk);
+      const raw = monthMap?.get(category) ?? 0;
+      const monthSpend = Math.round(raw * 100) / 100;
+      const difference = Math.round((monthSpend - monthlyBudget) * 100) / 100;
+      months.push({
+        monthKey: mk,
+        monthLabel: formatFinancialYearMonthLabel(mk),
+        budget: monthlyBudget,
+        spent: monthSpend,
+        difference,
+      });
+    }
+    return {
+      category,
+      monthlyBudget,
+      months,
+    };
   });
 }
 
@@ -187,14 +202,16 @@ export function getBudgetVsActual(
   financialYear: string,
 ): BudgetComparison[] {
   const db = getDb();
+  const fyNorm = financialYear.replace('-', '/');
   const budgets = db
     .prepare(
       `SELECT category, amount FROM category_budgets
-       WHERE account = ? AND financial_year = ?`,
+       WHERE account = ?`,
     )
-    .all(account, financialYear) as Array<{ category: string; amount: number }>;
+    .all(account) as Array<{ category: string; amount: number }>;
 
-  const spend = getCategoryExpenseTotals(account, financialYear);
+  const { byMonth } = getCategoryExpenseFyAndByMonth(account, financialYear);
+  const monthKeys = listFyMonthKeysThroughDate(fyNorm, new Date());
 
-  return mergeBudgetsWithSpendTotals(budgets, spend);
+  return mergeBudgetsWithMonthlySpend(budgets, byMonth, monthKeys);
 }

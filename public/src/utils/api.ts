@@ -266,13 +266,9 @@ export async function fetchBudgetCategoryNames(): Promise<BudgetCategoryNamesRes
   return validateResponse(response, BudgetCategoryNamesResponseSchema);
 }
 
-export async function fetchBudgetsList(params: {
-  account: string;
-  financialYear?: string;
-}): Promise<BudgetsListResponse> {
+export async function fetchBudgetsList(params: { account: string }): Promise<BudgetsListResponse> {
   const query = new URLSearchParams();
   query.set('account', params.account);
-  if (params.financialYear) query.set('financialYear', params.financialYear);
   const response = await fetch(`/api/budgets?${query}`);
   return validateResponse(response, BudgetsListResponseSchema);
 }
