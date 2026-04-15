@@ -208,12 +208,14 @@ interface TransactionsQuery {
   includeTransfers?: string;
   financialYear?: string;
   search?: string;
+  merchantModalLabel?: string;
 }
 
 // GET /api/dashboard/transactions - Get transactions for a specific account
 router.get('/transactions', (req: Request<object, TransactionsResponse, object, TransactionsQuery>, res: Response<TransactionsResponse | { error: string }>) => {
   try {
-    const { account, year, month, type, category, includeTransfers, financialYear, search } = req.query;
+    const { account, year, month, type, category, includeTransfers, financialYear, search, merchantModalLabel } =
+      req.query;
     
     const selectedAccount = validateAccount(account);
     
@@ -225,6 +227,7 @@ router.get('/transactions', (req: Request<object, TransactionsResponse, object, 
       includeTransfers?: boolean;
       financialYear?: string;
       search?: string;
+      merchantModalLabel?: string;
     } = {
       account: selectedAccount
     };
@@ -239,7 +242,10 @@ router.get('/transactions', (req: Request<object, TransactionsResponse, object, 
     }
     if (financialYear) filters.financialYear = financialYear;
     if (search) filters.search = search;
-    
+    if (typeof merchantModalLabel === 'string' && merchantModalLabel.trim() !== '') {
+      filters.merchantModalLabel = merchantModalLabel.trim();
+    }
+
     const transactions = getTransactions(filters);
     
     let result: TransactionJSON[] = transactions.map(t => ({

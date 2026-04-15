@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import type {
   AdHocExpensesResponse,
+  AdHocMerchantSeriesResponse,
   ExpensesLineItem,
   ExpensesSection,
   ExpensesSheetResponse,
@@ -33,6 +34,10 @@ import {
   AD_HOC_MAX_LIMIT,
   computeAdHocExpenseGroups,
 } from '../utils/ad-hoc-expenses.js';
+import {
+  computeAdHocMerchantSeries,
+  parseAdHocBucketKey,
+} from '../utils/ad-hoc-merchant-series.js';
 
 export { accKey };
 
@@ -253,9 +258,95 @@ interface AdHocQuery {
   limit?: string;
 }
 
+interface AdHocSeriesQuery {
+  account?: string;
+  financialYear?: string;
+  bucketKey?: string;
+}
+
 function clampInt(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
 }
+
+router.get(
+  '/ad-hoc/series',
+  (req: Request<object, AdHocMerchantSeriesResponse, object, AdHocSeriesQuery>, res: Response<AdHocMerchantSeriesResponse | { error: string }>) => {
+    try {
+      const accountRaw = req.query.account;
+      if (!accountRaw || typeof accountRaw !== 'string' || !isValidAccountName(accountRaw)) {
+        res.status(400).json({ error: 'Invalid or missing account' });
+        return;
+      }
+      const account = accountRaw as AccountName;
+
+      const fyRaw = req.query.financialYear;
+      const financialYear =
+        typeof fyRaw === 'string' && fyRaw.trim() !== '' ? fyRaw.trim() : null;
+
+      if (financialYear !== null) {
+        const validYears = getAvailableFinancialYears();
+        if (!validYears.includes(financialYear)) {
+          res.status(400).json({ error: 'Invalid financial year' });
+          return;
+        }
+      }
+
+      const bucketKeyRaw = req.query.bucketKey;
+      if (typeof bucketKeyRaw !== 'string' || bucketKeyRaw.trim() === '') {
+        res.status(400).json({ error: 'Missing or invalid bucketKey' });
+        return;
+      }
+      const bucketKey = bucketKeyRaw.trim();
+
+      const pipeline = buildExpensePipelineForAccount(account, financialYear ?? undefined);
+      const expenseRows = getTransactions({
+        account,
+        financialYear: financialYear ?? undefined,
+        type: 'expense',
+      });
+      const expenseTransactions = expenseRows.map(transactionRowToRaw);
+
+      const points = computeAdHocMerchantSeries({
+        pipeline,
+        account,
+        expenseTransactions,
+        bucketKey,
+      });
+      if (points === null) {
+        res.status(400).json({ error: 'Invalid bucketKey for this account' });
+        return;
+      }
+
+      let periodDescription: string;
+      if (financialYear !== null) {
+        const range = getFinancialYearRange(financialYear);
+        periodDescription = `${formatUkLong(range.startDate)} – ${formatUkLong(range.endDate)} (${range.label})`;
+      } else {
+        periodDescription = 'All time';
+      }
+
+      const parsed = parseAdHocBucketKey(bucketKey, account);
+      if (parsed === null) {
+        res.status(400).json({ error: 'Invalid bucketKey for this account' });
+        return;
+      }
+
+      const body: AdHocMerchantSeriesResponse = {
+        account,
+        financialYear,
+        periodDescription,
+        bucketKey,
+        category: parsed.category,
+        merchant: parsed.merchant,
+        points,
+      };
+      res.json(body);
+    } catch (error) {
+      console.error('Error generating ad hoc merchant series:', error);
+      res.status(500).json({ error: 'Failed to generate ad hoc merchant series' });
+    }
+  },
+);
 
 router.get('/ad-hoc', (req: Request<object, AdHocExpensesResponse, object, AdHocQuery>, res: Response<AdHocExpensesResponse | { error: string }>) => {
   try {

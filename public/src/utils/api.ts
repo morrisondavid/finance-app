@@ -15,6 +15,7 @@ import {
   CategoriesResponseSchema,
   ExpensesSheetResponseSchema,
   AdHocExpensesResponseSchema,
+  AdHocMerchantSeriesResponseSchema,
   RecurringExpensesResponseSchema,
   BudgetsListResponseSchema,
   BudgetUpsertBodySchema,
@@ -31,6 +32,7 @@ import {
   type CategoriesResponse,
   type ExpensesSheetResponse,
   type AdHocExpensesResponse,
+  type AdHocMerchantSeriesResponse,
   type RecurringExpensesResponse,
   type BudgetsListResponse,
   type BudgetUpsertBody,
@@ -86,6 +88,8 @@ export async function fetchTransactions(params: {
   financialYear?: string;
   quarter?: string;
   search?: string;
+  /** Same matching rules as budget nudge merchant cards (pipeline display or drill SQL). */
+  merchantModalLabel?: string;
 }): Promise<TransactionsResponse> {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
@@ -183,6 +187,22 @@ export async function fetchAdHocExpenses(params: {
   query.set('limit', String(params.limit));
   const response = await fetch(`/api/expenses/ad-hoc?${query}`);
   return validateResponse(response, AdHocExpensesResponseSchema);
+}
+
+/**
+ * Monthly spend series for one ad-hoc bucket (`GET /api/expenses/ad-hoc/series`).
+ */
+export async function fetchAdHocMerchantSeries(params: {
+  account: string;
+  financialYear?: string;
+  bucketKey: string;
+}): Promise<AdHocMerchantSeriesResponse> {
+  const query = new URLSearchParams();
+  query.set('account', params.account);
+  query.set('bucketKey', params.bucketKey);
+  if (params.financialYear) query.set('financialYear', params.financialYear);
+  const response = await fetch(`/api/expenses/ad-hoc/series?${query}`);
+  return validateResponse(response, AdHocMerchantSeriesResponseSchema);
 }
 
 /**

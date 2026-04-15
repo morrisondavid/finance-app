@@ -8,6 +8,7 @@ import { CATEGORY_CONFIG } from './categorizer.js';
 import type { CategoryName } from './categorizer.js';
 import type { RawTransaction, PipelineResult } from './recurring-pipeline.js';
 import { accumulationFromTxn, classifyTransactionSide, recurringKey } from './recurring-pipeline.js';
+import { expenseTxnMatchesMerchantModal } from './merchant-drill-search.js';
 import { round2 } from './math.js';
 import { getMerchantLogoUrl } from './merchant-logos.js';
 
@@ -62,6 +63,7 @@ export function computeBudgetNudges(input: BudgetNudgesInput): BudgetNudgeRow[] 
 
     const acc = accumulationFromTxn(txn, 'expense');
     if (!acc) continue;
+    if (!expenseTxnMatchesMerchantModal(txn, acc.displayMerchant)) continue;
     if (recurringKeys.has(acc.key)) continue;
     const catConfig = CATEGORY_CONFIG[acc.category];
     if (!catConfig || !catConfig.budgetable) continue;

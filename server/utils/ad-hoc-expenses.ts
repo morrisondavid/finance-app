@@ -4,12 +4,14 @@
 
 import type { AccountName } from '../types.js';
 import { ROLLING_MONTHS } from './math.js';
+import { SPECIAL_CATEGORY } from './category-constants.js';
 import {
   accumulationFromTxn,
   recurringKey,
   type PipelineResult,
   type RawTransaction,
 } from './recurring-pipeline.js';
+import { AD_HOC_MERGED_BUCKET_TAG } from './ad-hoc-merchant-series.js';
 
 export const AD_HOC_DEFAULT_MONTHS = 12;
 export const AD_HOC_DEFAULT_MIN_TOTAL = 200;
@@ -17,6 +19,11 @@ export const AD_HOC_DEFAULT_LIMIT = 25;
 export const AD_HOC_MAX_LIMIT = 100;
 
 export interface AdHocExpenseRow {
+  /**
+   * Ad-hoc group id: `category|displayMerchant|account|all` (merged across amount bins; fourth segment
+   * is `AD_HOC_MERGED_BUCKET_TAG` in ad-hoc-merchant-series). Used for `GET /api/expenses/ad-hoc/series?bucketKey=`.
+   */
+  bucketKey: string;
   category: string;
   merchant: string;
   total: number;
@@ -48,6 +55,7 @@ export function computeAdHocExpenseGroups(input: ComputeAdHocInput): AdHocExpens
   }
 
   interface AggRow {
+    bucketKey: string;
     category: string;
     merchant: string;
     total: number;
@@ -61,10 +69,12 @@ export function computeAdHocExpenseGroups(input: ComputeAdHocInput): AdHocExpens
   for (const txn of expenseTransactions) {
     const bucket = accumulationFromTxn(txn, 'expense');
     if (!bucket) continue;
+    if (bucket.category === SPECIAL_CATEGORY.tax) continue;
     if (surfaced.has(bucket.key)) continue;
 
+    const mergedKey = `${bucket.category}|${bucket.displayMerchant}|${account}|${AD_HOC_MERGED_BUCKET_TAG}`;
     const abs = Math.abs(txn.amount);
-    const prev = byKey.get(bucket.key);
+    const prev = byKey.get(mergedKey);
     if (prev) {
       prev.total += abs;
       prev.count += 1;
@@ -73,7 +83,8 @@ export function computeAdHocExpenseGroups(input: ComputeAdHocInput): AdHocExpens
         prev.sampleDescription = txn.description;
       }
     } else {
-      byKey.set(bucket.key, {
+      byKey.set(mergedKey, {
+        bucketKey: mergedKey,
         category: bucket.category,
         merchant: bucket.displayMerchant,
         total: abs,

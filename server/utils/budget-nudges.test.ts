@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { transactionDescriptionMatchesDrillSearch } from './merchant-drill-search.js';
+import { expenseTxnMatchesMerchantModal, transactionDescriptionMatchesDrillSearch } from './merchant-drill-search.js';
 import { computeBudgetNudges, type BudgetNudgesInput } from './budget-nudges.js';
 import type { RawTransaction, PipelineResult } from './recurring-pipeline.js';
 import type { RecurringExpense } from '../../shared/api-contracts.js';
@@ -232,8 +232,8 @@ describe('computeBudgetNudges', () => {
 });
 
 /**
- * Modal drill-down uses `search` = display `merchant` (see `showMerchantTransactionsModal`).
- * Must match `getTransactions` + {@link ./merchant-drill-search.js}.
+ * Budget nudge cards and the merchant modal both use {@link expenseTxnMatchesMerchantModal}
+ * (see `showMerchantTransactionsModal` + `getTransactions` with `merchantModalLabel`).
  */
 describe('budget nudge drill search contract', () => {
   const variedCursorLikeLines = [
@@ -270,5 +270,21 @@ describe('budget nudge drill search contract', () => {
         transactionDescriptionMatchesDrillSearch(d, 'Uber Eats'),
       ),
     ).toBe(true);
+  });
+
+  it('Emirates: specialised drill excludes hotel / country noise (same rule as nudge totals)', () => {
+    expect(transactionDescriptionMatchesDrillSearch('EMIRATES AIRLINE', 'Emirates')).toBe(true);
+    expect(transactionDescriptionMatchesDrillSearch('H-HOTEL EMIRATES HILLS', 'Emirates')).toBe(false);
+    expect(transactionDescriptionMatchesDrillSearch('MASAFI CO LLC U.A.EMIRATES', 'Emirates')).toBe(
+      false,
+    );
+    const airline = { id: 1, date: '2026-01-01', account: 'natwest', type: 'expense' as const, description: 'EMIRATES AIRLINE', amount: -1 };
+    const hotel = { id: 2, date: '2026-01-01', account: 'natwest', type: 'expense' as const, description: 'H-HOTEL EMIRATES HILLS', amount: -1 };
+    expect(expenseTxnMatchesMerchantModal(airline, 'Emirates')).toBe(true);
+    expect(expenseTxnMatchesMerchantModal(hotel, 'Emirates')).toBe(false);
+  });
+
+  it('MCE Advisors modal search matches advisory wording on statements', () => {
+    expect(transactionDescriptionMatchesDrillSearch('MCE ADVISORY LTD', 'MCE Advisors')).toBe(true);
   });
 });

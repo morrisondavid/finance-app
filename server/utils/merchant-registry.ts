@@ -28,6 +28,7 @@ export const CATEGORY_NAMES = [
   'Tax',
   'Business',
   'Payroll',
+  'Dividends',
   'Property',
   'Transfers',
   'Accommodation',

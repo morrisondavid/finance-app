@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeAdHocExpenseGroups } from './ad-hoc-expenses.js';
+import { AD_HOC_MERGED_BUCKET_TAG } from './ad-hoc-merchant-series.js';
 import {
   accumulationFromTxn,
   recurringKey,
@@ -39,6 +40,11 @@ describe('computeAdHocExpenseGroups', () => {
       limit: 25,
     });
     expect(rows).toHaveLength(1);
+    const b = accumulationFromTxn(expenseTransactions[0]!, 'expense');
+    if (b === null) throw new Error('expected bucket');
+    expect(rows[0].bucketKey).toBe(
+      `${b.category}|${b.displayMerchant}|${account}|${AD_HOC_MERGED_BUCKET_TAG}`,
+    );
     expect(rows[0].total).toBe(310);
     expect(rows[0].count).toBe(2);
     expect(rows[0].lastDate).toBe('2024-02-05');
@@ -77,6 +83,22 @@ describe('computeAdHocExpenseGroups', () => {
     expect(rows[0].total).toBe(100);
     expect(rows[1].lastDate).toBe('2024-01-02');
     expect(rows[1].total).toBe(200);
+  });
+
+  it('excludes Tax category rows from ad hoc groups', () => {
+    const expenseTransactions: RawTransaction[] = [
+      { id: 1, date: '2024-01-05', description: 'HMRC VAT', amount: -500, account, type: 'expense' },
+      { id: 2, date: '2024-01-06', description: 'TESCO STORES 1234', amount: -200, account, type: 'expense' },
+    ];
+    const rows = computeAdHocExpenseGroups({
+      pipeline: emptyPipeline(),
+      account,
+      expenseTransactions,
+      minTotal: 1,
+      limit: 25,
+    });
+    expect(rows.some(r => r.category === 'Tax')).toBe(false);
+    expect(rows.some(r => r.merchant === 'Tesco')).toBe(true);
   });
 
   it('excludes transactions whose bucket matches a surfaced monthly recurring', () => {
@@ -118,5 +140,31 @@ describe('computeAdHocExpenseGroups', () => {
       limit: 25,
     });
     expect(rows).toHaveLength(0);
+  });
+
+  it('merges different amount buckets into one row for the same merchant', () => {
+    const expenseTransactions: RawTransaction[] = [
+      { id: 1, date: '2024-01-05', description: 'TESCO STORES 1234', amount: -2.99, account, type: 'expense' },
+      { id: 2, date: '2024-01-06', description: 'TESCO STORES 5678', amount: -45.0, account, type: 'expense' },
+    ];
+    const b0 = accumulationFromTxn(expenseTransactions[0]!, 'expense');
+    const b1 = accumulationFromTxn(expenseTransactions[1]!, 'expense');
+    if (b0 === null || b1 === null) throw new Error('expected buckets');
+    expect(b0.displayMerchant).toBe(b1.displayMerchant);
+    expect(b0.key).not.toBe(b1.key);
+
+    const rows = computeAdHocExpenseGroups({
+      pipeline: emptyPipeline(),
+      account,
+      expenseTransactions,
+      minTotal: 1,
+      limit: 25,
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].total).toBeCloseTo(47.99, 2);
+    expect(rows[0].count).toBe(2);
+    expect(rows[0].bucketKey).toBe(
+      `${b0.category}|${b0.displayMerchant}|${account}|${AD_HOC_MERGED_BUCKET_TAG}`,
+    );
   });
 });

@@ -12,6 +12,11 @@ import {
   getIncomeCondition,
   getExpenseCondition 
 } from '../utils/query-builders.js';
+import {
+  expenseTxnMatchesMerchantModal,
+  merchantDrillSearchSql,
+} from '../../utils/merchant-drill-search.js';
+import type { RawTransaction } from '../../utils/recurring-pipeline.js';
 
 export interface TransactionRow {
   id: number;
@@ -32,6 +37,8 @@ export interface TransactionFilters {
   includeTransfers?: boolean;
   financialYear?: string;
   search?: string;
+  /** Budget nudge / merchant modal: same rules as {@link expenseTxnMatchesMerchantModal}. */
+  merchantModalLabel?: string;
 }
 
 /** Escape `%`, `_`, and `\` for SQL `LIKE` when using `ESCAPE '\\'`. */
@@ -355,6 +362,23 @@ export function detectTransfers(): number {
  * Respects account config for including transfers as income/expense
  */
 export function getTransactions(filters: TransactionFilters = {}): TransactionRow[] {
+  const modalLabel = filters.merchantModalLabel?.trim();
+  if (modalLabel && filters.type === 'expense') {
+    const { merchantModalLabel: _omitModal, search: _omitSearch, ...base } = filters;
+    const rows = getTransactions({ ...base, search: undefined });
+    return rows.filter(row => {
+      const raw: RawTransaction = {
+        id: row.id,
+        date: row.date,
+        description: row.description,
+        amount: row.amount,
+        account: row.account,
+        type: row.type,
+      };
+      return expenseTxnMatchesMerchantModal(raw, modalLabel);
+    });
+  }
+
   const db = getDb();
   let sql = 'SELECT * FROM transactions WHERE 1=1';
   const params: (string | number)[] = [];
@@ -411,12 +435,17 @@ export function getTransactions(filters: TransactionFilters = {}): TransactionRo
 
   if (filters.search) {
     const needle = filters.search.trim();
-    // Display label "Uber Eats" does not appear on card lines (e.g. UBER *EATS).
-    if (needle.toLowerCase() === 'uber eats') {
-      sql += " AND LOWER(description) LIKE '%uber%eats%' ESCAPE '\\'";
-    } else {
+    const drill = merchantDrillSearchSql(needle);
+    if (drill === null) {
       sql += " AND description LIKE ? ESCAPE '\\'";
       params.push(`%${escapeLikePatternSegment(needle)}%`);
+    } else if (drill.kind === 'like_lower') {
+      sql += " AND LOWER(description) LIKE ? ESCAPE '\\'";
+      params.push(drill.pattern);
+    } else {
+      sql += ' AND regexp(?, description) = 1';
+      params.push(drill.pattern);
+      if (drill.extraSql) sql += drill.extraSql;
     }
   }
 

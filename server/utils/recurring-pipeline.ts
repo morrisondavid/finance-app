@@ -18,7 +18,7 @@ import type { RecurringExpense } from '../../shared/api-contracts.js';
 import { round2, monthKeyFromIsoDate } from './math.js';
 import { SPECIAL_CATEGORY } from './category-constants.js';
 import { matchRentalProperty, RENTAL_PROPERTIES } from './rental-properties.js';
-import { matchPayrollEntry } from '../config/payroll.js';
+import { resolveExpenseCategoryWithPayroll, type PayrollEntry } from '../config/payroll.js';
 
 export interface RawTransaction {
   id: number;
@@ -88,17 +88,22 @@ interface AccumulationRow {
 
 /** Registry category + payroll config override + rental display (same loop as Pass 1 / Pass 2). */
 function rowForAccumulation(txn: RawTransaction, side: 'expense' | 'income'): AccumulationRow | null {
-  let category = categorizeTransaction(txn.description);
   const merchant = normalizeMerchant(txn.description);
   const absAmount = Math.abs(txn.amount);
   const account = txn.account;
 
-  let payrollHit = null as ReturnType<typeof matchPayrollEntry>;
+  let category = categorizeTransaction(txn.description);
+  let payrollHit: PayrollEntry | null = null;
   if (side === 'expense') {
-    payrollHit = matchPayrollEntry(merchant, account, absAmount, txn.description);
-    if (payrollHit) {
-      category = SPECIAL_CATEGORY.payroll;
-    }
+    const resolved = resolveExpenseCategoryWithPayroll(
+      txn.description,
+      merchant,
+      account,
+      absAmount,
+      category,
+    );
+    category = resolved.category;
+    payrollHit = resolved.payrollHit;
   }
   if (category === SPECIAL_CATEGORY.transfers) return null;
 

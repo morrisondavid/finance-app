@@ -216,7 +216,7 @@ export async function showCategoryTransactionsModal(categoryName: string): Promi
   }
 }
 
-/** Drill-down uses the same display merchant string as `search` (broad `LIKE` against `description`). */
+/** Drill-down uses `merchantModalLabel` so totals match budget nudge cards (pipeline + drill rules). */
 export async function showMerchantTransactionsModal(displayTitle: string): Promise<void> {
   const els = getModalElements();
   if (!els) return;
@@ -228,13 +228,13 @@ export async function showMerchantTransactionsModal(displayTitle: string): Promi
   listEl.innerHTML = '<div class="loading">Loading transactions...</div>';
   modal.style.display = 'flex';
 
-  const search = displayTitle.trim();
+  const merchantModalLabel = displayTitle.trim();
 
   try {
     const data = await fetchTransactions({
       account: state.selectedAccount,
       type: 'expense',
-      search,
+      merchantModalLabel,
       ...(state.selectedFinancialYear ? { financialYear: state.selectedFinancialYear } : {}),
     });
     const sorted = [...data].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());

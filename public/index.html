@@ -386,6 +386,13 @@
         <button type="button" class="ad-hoc-expenses-refresh" id="ad-hoc-expenses-refresh">Refresh</button>
       </div>
       <p class="ad-hoc-expenses-meta" id="ad-hoc-expenses-meta"></p>
+      <div id="ad-hoc-merchant-chart-panel" class="ad-hoc-merchant-chart-panel">
+        <h3 class="ad-hoc-merchant-chart-title" id="ad-hoc-merchant-chart-title">Spend by month</h3>
+        <p class="ad-hoc-merchant-chart-empty" id="ad-hoc-merchant-chart-empty">Click the chart icon on a row in the table below to see monthly spend for that group.</p>
+        <div id="ad-hoc-merchant-chart-canvas-wrap" class="ad-hoc-merchant-chart-canvas-wrap" hidden>
+          <canvas id="ad-hoc-merchant-chart" aria-label="Monthly spend line chart"></canvas>
+        </div>
+      </div>
       <div id="ad-hoc-expenses-table-wrap" class="ad-hoc-expenses-table-wrap"></div>
     </section>
 

@@ -38,6 +38,22 @@ export function initConnection(): void {
   // Open database connection
   db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');
+
+  // Enables `column REGEXP pattern` in queries (used for merchant drill-down word boundaries).
+  db.function(
+    'regexp',
+    { deterministic: true },
+    (pattern: unknown, text: unknown) => {
+      if (typeof pattern !== 'string' || typeof text !== 'string') return 0;
+      try {
+        // SQLite passes the pattern string from SQL; JS does not support (?i) the same way — use flag `i`.
+        const body = pattern.replace(/^\(\?i\)/, '');
+        return new RegExp(body, 'i').test(text) ? 1 : 0;
+      } catch {
+        return 0;
+      }
+    },
+  );
 }
 
 /**

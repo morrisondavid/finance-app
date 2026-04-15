@@ -372,6 +372,8 @@ export const ExpensesSheetResponseSchema = z.object({
 
 // GET /api/expenses/ad-hoc?account=&financialYear=&min=&limit=  (financialYear empty = all time)
 export const AdHocExpenseItemSchema = z.object({
+  /** `category|merchant|account|all` (merged bins) or legacy strict pipeline key for series. */
+  bucketKey: z.string(),
   category: z.string(),
   merchant: z.string(),
   total: z.number(),
@@ -393,6 +395,24 @@ export const AdHocExpensesResponseSchema = z.object({
   minTotal: z.number(),
   limit: z.number(),
   items: z.array(AdHocExpenseItemSchema),
+});
+
+// GET /api/expenses/ad-hoc/series?account=&financialYear=&bucketKey=
+export const AdHocMerchantSeriesPointSchema = z.object({
+  month: z.string(),
+  total: z.number(),
+  count: z.number(),
+});
+
+export const AdHocMerchantSeriesResponseSchema = z.object({
+  account: z.string(),
+  financialYear: z.string().nullable(),
+  periodDescription: z.string(),
+  /** Echo of request key: merged `…|all` or strict `…|amountBucket`. */
+  bucketKey: z.string(),
+  category: z.string(),
+  merchant: z.string(),
+  points: z.array(AdHocMerchantSeriesPointSchema),
 });
 
 // GET /api/expenses/recurring
@@ -517,6 +537,8 @@ export type ExpensesInsight = z.infer<typeof ExpensesInsightSchema>;
 export type ExpensesSheetResponse = z.infer<typeof ExpensesSheetResponseSchema>;
 export type AdHocExpenseItem = z.infer<typeof AdHocExpenseItemSchema>;
 export type AdHocExpensesResponse = z.infer<typeof AdHocExpensesResponseSchema>;
+export type AdHocMerchantSeriesPoint = z.infer<typeof AdHocMerchantSeriesPointSchema>;
+export type AdHocMerchantSeriesResponse = z.infer<typeof AdHocMerchantSeriesResponseSchema>;
 export type RecurringFrequency = z.infer<typeof RecurringFrequencySchema>;
 export type RecurringExpense = z.infer<typeof RecurringExpenseSchema>;
 export type RecurringExpensesResponse = z.infer<typeof RecurringExpensesResponseSchema>;

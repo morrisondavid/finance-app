@@ -7,7 +7,6 @@ import type { AccountName } from '../types.js';
 import type { CategoryName } from '../utils/merchant-registry.js';
 import { categorizeTransaction } from '../utils/categorizer.js';
 import { normalizeMerchant } from '../utils/merchant-normalizer.js';
-import { classifyTransactionSide } from '../utils/recurring-pipeline.js';
 
 export interface PayrollEntry {
   sourceAccount: AccountName;
@@ -63,6 +62,43 @@ export function matchPayrollEntry(
   return best;
 }
 
+function isOutgoingExpense(type: string, amount: number): boolean {
+  if (type === 'expense') return true;
+  if (type === 'transfer' && amount < 0) return true;
+  return false;
+}
+
+export interface ResolvePayrollCategoryResult {
+  category: CategoryName;
+  payrollHit: PayrollEntry | null;
+}
+
+/**
+ * Registry can label salary-like text as Payroll before payee-specific rules run.
+ * Only {@link PAYROLL_ENTRIES} matches (amount within tolerance) stay Payroll; other
+ * registry Payroll rows become Dividends (if DIVIDEND in description) or Business
+ * (director drawings / non-matching amounts — not Transfers, which are omitted from expense buckets).
+ */
+export function resolveExpenseCategoryWithPayroll(
+  description: string,
+  merchant: string,
+  account: string,
+  absAmount: number,
+  registryCategory: CategoryName,
+): ResolvePayrollCategoryResult {
+  const payrollHit = matchPayrollEntry(merchant, account, absAmount, description);
+  if (payrollHit !== null) {
+    return { category: 'Payroll', payrollHit };
+  }
+  if (registryCategory === 'Payroll') {
+    if (/\bDIVIDEND\b/i.test(description)) {
+      return { category: 'Dividends', payrollHit: null };
+    }
+    return { category: 'Business', payrollHit: null };
+  }
+  return { category: registryCategory, payrollHit: null };
+}
+
 /** Category for API / charts: Payroll when config matches an outgoing transfer/expense, else registry. */
 export function transactionCategoryWithPayroll(
   description: string,
@@ -71,9 +107,14 @@ export function transactionCategoryWithPayroll(
   type: 'income' | 'expense' | 'transfer',
 ): CategoryName {
   const base = categorizeTransaction(description);
-  if (classifyTransactionSide({ type, amount }) !== 'expense') return base;
+  if (!isOutgoingExpense(type, amount)) return base;
   const merchant = normalizeMerchant(description);
-  const payroll = matchPayrollEntry(merchant, account, Math.abs(amount), description);
-  if (payroll) return 'Payroll';
-  return base;
+  const { category } = resolveExpenseCategoryWithPayroll(
+    description,
+    merchant,
+    account,
+    Math.abs(amount),
+    base,
+  );
+  return category;
 }

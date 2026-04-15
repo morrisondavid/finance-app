@@ -22,6 +22,20 @@ describe('matchPayrollEntry', () => {
   });
 });
 
+describe('resolveExpenseCategoryWithPayroll (via transactionCategoryWithPayroll)', () => {
+  it('maps registry Payroll without config amount match to Business', () => {
+    expect(
+      transactionCategoryWithPayroll('STO SALARY DAVID MORRISON', -9999, 'barclays-current', 'transfer'),
+    ).toBe('Business');
+  });
+
+  it('still maps configured salary amount to Payroll', () => {
+    expect(
+      transactionCategoryWithPayroll('STO SALARY DAVID MORRISON', -765, 'barclays-current', 'transfer'),
+    ).toBe('Payroll');
+  });
+});
+
 describe('transactionCategoryWithPayroll', () => {
   it('returns Payroll for configured outgoing transfer', () => {
     const cat = transactionCategoryWithPayroll(
@@ -31,6 +45,12 @@ describe('transactionCategoryWithPayroll', () => {
       'transfer',
     );
     expect(cat).toBe('Payroll');
+  });
+
+  it('returns Business when registry says salary but amount does not match payroll config', () => {
+    expect(
+      transactionCategoryWithPayroll('STO SALARY DAVID MORRISON', -9999, 'barclays-current', 'transfer'),
+    ).toBe('Business');
   });
 
   it('leaves generic David transfer as Transfers', () => {

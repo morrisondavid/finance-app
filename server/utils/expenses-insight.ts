@@ -29,6 +29,7 @@ export const NON_QOL_CATEGORIES = new Set<CategoryName>([
   'Insurance',
   'Tax',
   'Property',
+  'Dividends',
   SPECIAL_CATEGORY.debtRepayment,
   'Business',
   SPECIAL_CATEGORY.payroll,

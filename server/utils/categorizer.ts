@@ -63,6 +63,7 @@ export const CATEGORY_CONFIG: Record<CategoryName, CategoryConfig> = {
   'Debt Repayment':        { colour: '#EF4444', budgetable: false },
   'Tax':                   { colour: '#F43F5E', budgetable: false },
   'Payroll':               { colour: '#0D9488', budgetable: false },
+  'Dividends':             { colour: '#DB2777', budgetable: false },
   'Property':              { colour: '#F59E0B', budgetable: false },
   'Transfers':             { colour: '#38BDF8', budgetable: false },
   'Income':                { colour: '#34D399', budgetable: false },
