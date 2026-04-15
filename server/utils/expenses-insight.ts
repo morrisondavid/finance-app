@@ -1,10 +1,14 @@
 /**
- * Morrison-style monthly insight: passive vs salary, net personal, joint need, bills/QoL split, debt terms.
- * Pure functions — uses recurring line items only.
+ * Monthly insight: external income, net lines, bills/QoL split, debt terms.
  *
- * `isSalaryIncome` and `debtTermForMerchant` match on **normalised merchant display names**
- * (see `normalizeMerchant` / `merchant-registry.ts`). Renaming a display name there can break
- * these heuristics — keep patterns in sync or add regression tests when registry strings change.
+ * Director salary debits are **Payroll** (config + pipeline / registry) and appear in
+ * recurring outgoings like other fixed business costs.
+ *
+ * `monthlyIncomeNeededAfterPassive` = `max(0, outgoings − external income)`.
+ * Pure functions — uses recurring line items from the expenses pipeline.
+ *
+ * `debtTermForMerchant` matches on **normalised merchant display names**
+ * (see `normalizeMerchant` / `merchant-registry.ts`).
  */
 
 import type { ExpensesInsight, ExpensesLineItem, ExpensesSection } from '../../shared/api-contracts.js';
@@ -27,6 +31,7 @@ export const NON_QOL_CATEGORIES = new Set<CategoryName>([
   'Property',
   SPECIAL_CATEGORY.debtRepayment,
   'Business',
+  SPECIAL_CATEGORY.payroll,
   SPECIAL_CATEGORY.transfers,
   SPECIAL_CATEGORY.income,
 ]);
@@ -51,7 +56,7 @@ export function isSalaryIncome(merchant: string): boolean {
     return false;
   }
   return (
-    /\b(SALARY|WAGE|PAYROLL|PAYE|EMPLOYMENT)\b|AUTONIZE|AUTONIZEITLIMITED|DIRECTOR|MONTHLY PAY|STAFF PAY|GROSS PAY|NET PAY|NI\s|N\.I\./i.test(
+    /\b(SALARY|WAGE|PAYROLL|PAYE|EMPLOYMENT)\b|DIRECTOR|MONTHLY PAY|STAFF PAY|GROSS PAY|NET PAY|NI\s|N\.I\./i.test(
       m,
     )
   );
@@ -73,21 +78,6 @@ function shortfallSurplus(signedNet: number): { shortfall: number; surplus: numb
   const x = round2(signedNet);
   if (x >= 0) return { shortfall: x, surplus: 0 };
   return { shortfall: 0, surplus: round2(-x) };
-}
-
-function dividendSplitFromIncome(items: ExpensesLineItem[]): { heena: number | null; david: number | null } {
-  let heena = 0;
-  let david = 0;
-  let anyDiv = false;
-  for (const i of items) {
-    const m = i.merchant.toUpperCase();
-    if (!/\bDIVIDEND\b|DIV\b.*LTD|DIV\s/i.test(m)) continue;
-    anyDiv = true;
-    if (/HEENA|H MORRISON|H\.MORRISON/i.test(m)) heena += i.amount;
-    else if (/DAVID|D MORRISON|D\.MORRISON/i.test(m)) david += i.amount;
-  }
-  if (!anyDiv) return { heena: null, david: null };
-  return { heena: round2(heena), david: round2(david) };
 }
 
 export function buildExpensesInsight(
@@ -121,6 +111,7 @@ export function buildExpensesInsight(
   let qualityOfLifeExpenses = 0;
   let debtShortTerm = 0;
   let debtMediumTerm = 0;
+  let natwestPersonalFixed = 0;
 
   for (const sec of monthlyOutgoings) {
     for (const item of sec.items) {
@@ -135,6 +126,9 @@ export function buildExpensesInsight(
       if (item.ownership === 'personal' && isQoLCategory(item.category)) {
         qualityOfLifeExpenses += item.amount;
       }
+      if (item.sourceAccount === 'natwest' && item.ownership === 'personal') {
+        natwestPersonalFixed += item.amount;
+      }
     }
   }
 
@@ -143,11 +137,14 @@ export function buildExpensesInsight(
   debtShortTerm = round2(debtShortTerm);
   debtMediumTerm = round2(debtMediumTerm);
   const debtTotal = round2(debtShortTerm + debtMediumTerm);
+  natwestPersonalFixed = round2(natwestPersonalFixed);
 
-  const { heena: dividendHeena, david: dividendDavid } = dividendSplitFromIncome(incomeMonthlyItems);
+  /** Plain £ still needed from work after external income; £0 when external covers all fixed costs. */
+  const monthlyIncomeNeededAfterPassive = round2(Math.max(0, rawNetIncluded));
 
   return {
     totalFixedMonthlyExpenses: totalMonthlyOutgoings,
+    monthlyIncomeNeededAfterPassive,
     netExpensesSalaryIncludedShortfall: afterPassive.shortfall,
     netExpensesSalaryIncludedSurplus: afterPassive.surplus,
     netExpensesSalaryExcludedShortfall: afterSalary.shortfall,
@@ -160,13 +157,14 @@ export function buildExpensesInsight(
     businessExpensesSalaryExcluded,
     totalSalary,
     personalExpenses: personalMonthlyFixed,
+    natwestPersonalFixed,
     qualityOfLifeExpenses,
     billsExpenses,
     totalPassiveIncome,
     debtShortTerm,
     debtMediumTerm,
     debtTotal,
-    dividendHeena,
-    dividendDavid,
+    dividendHeena: null,
+    dividendDavid: null,
   };
 }

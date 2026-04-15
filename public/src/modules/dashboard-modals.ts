@@ -80,6 +80,11 @@ function getModalElements() {
   return { modal, titleEl, countEl, totalEl, listEl };
 }
 
+type RenderTransactionListOptions = {
+  /** When set, header total matches income card: gross minus pass-through for the loaded FY. */
+  passThroughExcluded?: number;
+};
+
 function renderTransactionList(
   transactions: Array<{ date: string; description: string; amount: number; type: string }>,
   type: string,
@@ -87,10 +92,15 @@ function renderTransactionList(
   countEl: HTMLElement,
   totalEl: HTMLElement,
   emptyMessage = 'No transactions found.',
+  options?: RenderTransactionListOptions,
 ): void {
-  const total = transactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+  const grossTotal = transactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+  const passThrough = options?.passThroughExcluded ?? 0;
+  const displayTotal =
+    type === 'income' && passThrough > 0 ? Math.max(0, grossTotal - passThrough) : grossTotal;
+
   countEl.textContent = `${transactions.length} transaction${transactions.length !== 1 ? 's' : ''}`;
-  totalEl.textContent = formatCurrency(total);
+  totalEl.textContent = formatCurrency(displayTotal);
   totalEl.className = 'modal-total ' + type;
 
   if (transactions.length === 0) {
@@ -184,13 +194,22 @@ async function showAllTransactionsModal(type: 'income' | 'expense'): Promise<voi
   modal.style.display = 'flex';
 
   try {
-    const data = await fetchTransactions({ account: state.selectedAccount, type });
+    const fy = state.selectedFinancialYear?.trim();
+    const data = await fetchTransactions({
+      account: state.selectedAccount,
+      type,
+      ...(fy ? { financialYear: fy } : {}),
+    });
     const sorted = [...data].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     const formatted = sorted.map(t => ({
       ...t,
       date: new Date(t.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
     }));
-    renderTransactionList(formatted, type, listEl, countEl, totalEl, 'No transactions found for the selected period.');
+    const passThrough =
+      type === 'income' && fy ? (state.summaryData?.totals.passThroughIncome ?? 0) : 0;
+    renderTransactionList(formatted, type, listEl, countEl, totalEl, 'No transactions found for the selected period.', {
+      passThroughExcluded: passThrough > 0 ? passThrough : undefined,
+    });
   } catch (error) {
     console.error(`Error loading ${type}:`, error);
     listEl.innerHTML = '<p class="error">Error loading transactions.</p>';
@@ -258,7 +277,12 @@ async function showVatLiabilityModal(): Promise<void> {
   modal.style.display = 'flex';
 
   try {
-    const data = await fetchTransactions({ account: state.selectedAccount, type: 'income' });
+    const fy = state.selectedFinancialYear?.trim();
+    const data = await fetchTransactions({
+      account: state.selectedAccount,
+      type: 'income',
+      ...(fy ? { financialYear: fy } : {}),
+    });
     const sorted = [...data].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     const totalIncome = sorted.reduce((sum, t) => sum + t.amount, 0);

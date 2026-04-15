@@ -22,7 +22,8 @@ import {
   setOpeningBalance,
   getTaxLiabilities
 } from '../db/index.js';
-import { categorizeTransaction, CATEGORY_COLOURS } from '../utils/categorizer.js';
+import { CATEGORY_COLOURS } from '../utils/categorizer.js';
+import { transactionCategoryWithPayroll } from '../config/payroll.js';
 import type { CategoryName } from '../utils/categorizer.js';
 import { SPECIAL_CATEGORY } from '../utils/category-constants.js';
 
@@ -159,7 +160,7 @@ router.get('/categories', (req: Request<object, CategoriesResponse, object, Cate
     const totals = new Map<CategoryName, { total: number; count: number }>();
 
     for (const t of transactions) {
-      const category = categorizeTransaction(t.description);
+      const category = transactionCategoryWithPayroll(t.description, t.amount, t.account, t.type);
       if (category === SPECIAL_CATEGORY.transfers) continue;
       const entry = totals.get(category) ?? { total: 0, count: 0 };
       entry.total += Math.abs(t.amount);
@@ -232,7 +233,7 @@ router.get('/transactions', (req: Request<object, TransactionsResponse, object, 
       amount: t.amount,
       account: t.account,
       type: t.type,
-      category: categorizeTransaction(t.description),
+      category: transactionCategoryWithPayroll(t.description, t.amount, t.account, t.type),
       linkedTransactionId: t.linked_transaction_id ?? undefined
     }));
 

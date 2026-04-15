@@ -45,6 +45,7 @@ export {
   isTransferLikeDescription,
   isBouncedPayment,
   getTransactions,
+  getExpensesForAccountSinceAsc,
   getTransactionCount,
   getTransferCount,
   type TransactionRow,

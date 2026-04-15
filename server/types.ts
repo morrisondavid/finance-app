@@ -250,3 +250,23 @@ export function getPersonalPaymentAccounts(): AccountName[] {
 export function isCreditCard(account: AccountName): boolean {
   return ACCOUNT_CONFIG[account].type === 'credit-card';
 }
+
+/**
+ * True if the account id is configured as a business-owned account.
+ */
+export function isBusinessAccount(account: string): boolean {
+  if (!isValidAccountName(account)) return false;
+  return ACCOUNT_CONFIG[account as AccountName].ownership === 'business';
+}
+
+/**
+ * Cross-account transfer pairing (same amount / opposite sign) is only for business-to-business
+ * movements. Payouts to personal accounts (e.g. director salary/dividends) stay as expense/income.
+ */
+export function isCrossAccountBusinessToBusinessTransfer(
+  expenseAccount: string,
+  incomeAccount: string,
+): boolean {
+  if (expenseAccount === incomeAccount) return false;
+  return isBusinessAccount(expenseAccount) && isBusinessAccount(incomeAccount);
+}

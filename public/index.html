@@ -15,7 +15,8 @@
 
     <nav class="tabs">
       <button class="tab active" data-tab="dashboard">Dashboard</button>
-      <button class="tab" data-tab="budget">Expenses</button>
+      <button class="tab" data-tab="ad-hoc-expenses">Ad Hoc Expenses</button>
+      <button class="tab" data-tab="fixed-expenses">Fixed Expenses</button>
       <button class="tab" data-tab="statements">Statements</button>
       <button class="tab" data-tab="upload">Upload</button>
     </nav>
@@ -23,28 +24,28 @@
     <!-- Dashboard Tab -->
     <section id="dashboard" class="tab-content active">
       <!-- Account Selector -->
-      <div class="account-selector">
-        <button class="account-btn active" data-account="barclays-current">
+      <div class="account-selector" aria-label="Account">
+        <button type="button" class="account-btn active" data-account="barclays-current">
           <span class="account-btn-label">Barclays Current</span>
           <span class="account-btn-latest"></span>
         </button>
-        <button class="account-btn" data-account="barclays-savings">
+        <button type="button" class="account-btn" data-account="barclays-savings">
           <span class="account-btn-label">Barclays Savings</span>
           <span class="account-btn-latest"></span>
         </button>
-        <button class="account-btn" data-account="capital-on-tap">
+        <button type="button" class="account-btn" data-account="capital-on-tap">
           <span class="account-btn-label">Capital on Tap</span>
           <span class="account-btn-latest"></span>
         </button>
-        <button class="account-btn" data-account="barclaycard">
+        <button type="button" class="account-btn" data-account="barclaycard">
           <span class="account-btn-label">Barclaycard</span>
           <span class="account-btn-latest"></span>
         </button>
-        <button class="account-btn" data-account="natwest">
+        <button type="button" class="account-btn" data-account="natwest">
           <span class="account-btn-label">NatWest</span>
           <span class="account-btn-latest"></span>
         </button>
-        <button class="account-btn" data-account="monzo-joint">
+        <button type="button" class="account-btn" data-account="monzo-joint">
           <span class="account-btn-label">Monzo Joint</span>
           <span class="account-btn-latest"></span>
         </button>
@@ -317,7 +318,7 @@
       </div>
 
       <div class="panel recurring-panel" id="recurring-panel" style="display:none">
-        <h2>Recurring Expenses</h2>
+        <h2>Fixed Expenses</h2>
         <div class="recurring-sections" id="recurring-sections"></div>
       </div>
 
@@ -327,74 +328,110 @@
       </div>
     </section>
 
-    <!-- Expenses sheet (household) — recurring / fixed costs only -->
-    <section id="budget" class="tab-content">
-      <div class="expenses-tab-bar" role="tablist" aria-label="Monthly or annual view">
-        <button type="button" class="expenses-tab-btn is-active" role="tab" aria-selected="true" data-expenses-tab="monthly" id="expenses-tab-monthly-btn">Monthly</button>
-        <button type="button" class="expenses-tab-btn" role="tab" aria-selected="false" data-expenses-tab="annual" id="expenses-tab-annual-btn">Annual</button>
+    <section id="ad-hoc-expenses" class="tab-content">
+      <div class="account-selector" aria-label="Account">
+        <button type="button" class="account-btn active" data-account="barclays-current">
+          <span class="account-btn-label">Barclays Current</span>
+          <span class="account-btn-latest"></span>
+        </button>
+        <button type="button" class="account-btn" data-account="barclays-savings">
+          <span class="account-btn-label">Barclays Savings</span>
+          <span class="account-btn-latest"></span>
+        </button>
+        <button type="button" class="account-btn" data-account="capital-on-tap">
+          <span class="account-btn-label">Capital on Tap</span>
+          <span class="account-btn-latest"></span>
+        </button>
+        <button type="button" class="account-btn" data-account="barclaycard">
+          <span class="account-btn-label">Barclaycard</span>
+          <span class="account-btn-latest"></span>
+        </button>
+        <button type="button" class="account-btn" data-account="natwest">
+          <span class="account-btn-label">NatWest</span>
+          <span class="account-btn-latest"></span>
+        </button>
+        <button type="button" class="account-btn" data-account="monzo-joint">
+          <span class="account-btn-label">Monzo Joint</span>
+          <span class="account-btn-latest"></span>
+        </button>
+      </div>
+      <div class="dashboard-controls ad-hoc-expenses-fy">
+        <label for="ad-hoc-fy-filter">Financial Year:</label>
+        <select id="ad-hoc-fy-filter">
+          <option value="">All Time</option>
+        </select>
+      </div>
+      <div class="ad-hoc-expenses-toolbar">
+        <label class="ad-hoc-expenses-field">Min total (£)
+          <input type="number" id="ad-hoc-expenses-min" min="0" step="1" value="200" />
+        </label>
+        <label class="ad-hoc-expenses-field">Max rows
+          <input type="number" id="ad-hoc-expenses-limit" min="1" max="100" value="25" />
+        </label>
+        <button type="button" class="ad-hoc-expenses-refresh" id="ad-hoc-expenses-refresh">Refresh</button>
+      </div>
+      <p class="ad-hoc-expenses-meta" id="ad-hoc-expenses-meta"></p>
+      <div id="ad-hoc-expenses-table-wrap" class="ad-hoc-expenses-table-wrap"></div>
+    </section>
+
+    <!-- Fixed expenses (household) — recurring fixed costs only -->
+    <section id="fixed-expenses" class="tab-content">
+      <div class="fixed-expenses-tab-bar" role="tablist" aria-label="Monthly or annual fixed view">
+        <button type="button" class="fixed-expenses-tab-btn is-active" role="tab" aria-selected="true" data-fixed-expenses-tab="monthly" id="fixed-expenses-tab-monthly-btn">Monthly</button>
+        <button type="button" class="fixed-expenses-tab-btn" role="tab" aria-selected="false" data-fixed-expenses-tab="annual" id="fixed-expenses-tab-annual-btn">Annual</button>
       </div>
 
-      <div id="expenses-panel-monthly" class="expenses-panel" role="tabpanel">
-        <div class="expenses-intro">
-          <p class="expenses-intro-lead">Fixed recurring costs and income only (bills, subscriptions, rent, loan payments, etc.). Day-to-day variable spend is not included.</p>
-          <p class="expenses-intro-period" id="expenses-period-line"></p>
+      <div id="fixed-expenses-panel-monthly" class="fixed-expenses-panel" role="tabpanel">
+        <div class="fixed-expenses-insight-wrap" id="fixed-expenses-insight-wrap">
+          <table class="fixed-expenses-insight-table" id="fixed-expenses-insight-primary-table"></table>
+          <div class="fixed-expenses-insight-gap" aria-hidden="true"></div>
+          <table class="fixed-expenses-insight-table fixed-expenses-debt-table" id="fixed-expenses-insight-debt-table"></table>
         </div>
 
-        <div class="expenses-insight-wrap" id="expenses-insight-wrap">
-          <table class="expenses-insight-table" id="expenses-insight-primary-table"></table>
-          <div class="expenses-insight-gap" aria-hidden="true"></div>
-          <table class="expenses-insight-table expenses-debt-table" id="expenses-insight-debt-table"></table>
-          <p class="expenses-insight-footnote" id="expenses-insight-footnote"></p>
-        </div>
+        <h2 class="fixed-expenses-page-heading">Fixed monthly outgoings</h2>
+        <div id="fixed-expenses-monthly-outgoings" class="fixed-expenses-tables-wrap"></div>
 
-        <h2 class="expenses-page-heading">Fixed monthly outgoings</h2>
-        <div id="expenses-monthly-outgoings" class="expenses-tables-wrap"></div>
-
-        <h2 class="expenses-page-heading">Fixed monthly income</h2>
-        <div id="expenses-income-monthly-table" class="expenses-tables-wrap"></div>
+        <h2 class="fixed-expenses-page-heading">Fixed monthly income</h2>
+        <div id="fixed-expenses-income-monthly-table" class="fixed-expenses-tables-wrap"></div>
       </div>
 
-      <div id="expenses-panel-annual" class="expenses-panel" role="tabpanel" hidden>
-        <div class="expenses-intro">
-          <p class="expenses-intro-lead">Yearly recurring charges and income (insurance renewals, annual subscriptions, etc.). Not included in the monthly figures above.</p>
-        </div>
-
-        <div class="expenses-pods-grid expenses-annual-summary-pods">
-          <div class="expenses-mini-pod">
-            <div class="expenses-mini-label">Fixed annual outgoings</div>
-            <div class="expenses-mini-value" id="expenses-annual-pod-out">£0</div>
+      <div id="fixed-expenses-panel-annual" class="fixed-expenses-panel" role="tabpanel" hidden>
+        <div class="fixed-expenses-pods-grid fixed-expenses-annual-summary-pods">
+          <div class="fixed-expenses-mini-pod">
+            <div class="fixed-expenses-mini-label">Fixed annual outgoings</div>
+            <div class="fixed-expenses-mini-value" id="fixed-expenses-annual-pod-out">£0</div>
           </div>
-          <div class="expenses-mini-pod">
-            <div class="expenses-mini-label">Fixed annual income</div>
-            <div class="expenses-mini-value" id="expenses-annual-pod-in">£0</div>
+          <div class="fixed-expenses-mini-pod">
+            <div class="fixed-expenses-mini-label">Fixed annual income</div>
+            <div class="fixed-expenses-mini-value" id="fixed-expenses-annual-pod-in">£0</div>
           </div>
-          <div class="expenses-mini-pod expenses-mini-pod-net">
-            <div class="expenses-mini-label">Net (annual)</div>
-            <div class="expenses-mini-value" id="expenses-annual-pod-net">£0</div>
+          <div class="fixed-expenses-mini-pod fixed-expenses-mini-pod-net">
+            <div class="fixed-expenses-mini-label">Net (annual)</div>
+            <div class="fixed-expenses-mini-value" id="fixed-expenses-annual-pod-net">£0</div>
           </div>
         </div>
 
-        <div class="expenses-annual-wrap" id="expenses-annual-wrap">
-          <h2 class="expenses-page-heading">Fixed annual outgoings</h2>
-          <p class="expenses-annual-total">Total: <strong id="expenses-annual-subtotal">£0</strong></p>
-          <div id="expenses-annual-outgoings" class="expenses-tables-wrap"></div>
+        <div class="fixed-expenses-annual-wrap" id="fixed-expenses-annual-wrap">
+          <h2 class="fixed-expenses-page-heading">Fixed annual outgoings</h2>
+          <p class="fixed-expenses-annual-total">Total: <strong id="fixed-expenses-annual-subtotal">£0</strong></p>
+          <div id="fixed-expenses-annual-outgoings" class="fixed-expenses-tables-wrap"></div>
         </div>
 
-        <div class="expenses-annual-wrap" id="expenses-income-annual-wrap">
-          <h2 class="expenses-page-heading">Fixed annual income</h2>
-          <p class="expenses-annual-total">Total: <strong id="expenses-annual-income-subtotal">£0</strong></p>
-          <div id="expenses-income-annual-table" class="expenses-tables-wrap"></div>
+        <div class="fixed-expenses-annual-wrap" id="fixed-expenses-income-annual-wrap">
+          <h2 class="fixed-expenses-page-heading">Fixed annual income</h2>
+          <p class="fixed-expenses-annual-total">Total: <strong id="fixed-expenses-annual-income-subtotal">£0</strong></p>
+          <div id="fixed-expenses-income-annual-table" class="fixed-expenses-tables-wrap"></div>
         </div>
       </div>
     </section>
 
-    <div id="expenses-variance-modal" class="modal" style="display:none">
-      <div class="modal-content expenses-variance-modal-content">
+    <div id="fixed-expenses-variance-modal" class="modal" style="display:none">
+      <div class="modal-content fixed-expenses-variance-modal-content">
         <div class="modal-header">
-          <h3 id="expenses-variance-modal-title">Variance</h3>
-          <button type="button" class="modal-close" id="expenses-variance-modal-close">&times;</button>
+          <h3 id="fixed-expenses-variance-modal-title">Variance</h3>
+          <button type="button" class="modal-close" id="fixed-expenses-variance-modal-close">&times;</button>
         </div>
-        <div id="expenses-variance-modal-body" class="modal-body"></div>
+        <div id="fixed-expenses-variance-modal-body" class="modal-body"></div>
       </div>
     </div>
 

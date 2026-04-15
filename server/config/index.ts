@@ -6,4 +6,5 @@
 
 export * from './tax-rates.js';
 export * from './payees.js';
+export * from './payroll.js';
 export * from './transfer-patterns.js';

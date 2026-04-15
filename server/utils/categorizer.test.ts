@@ -78,6 +78,15 @@ describe('categorizer', () => {
       expect(categorizeTransaction('HEENA TAILOR')).toBe('Transfers');
     });
 
+    it('director salary tokens to David are Payroll (before generic transfer)', () => {
+      expect(categorizeTransaction('STO SALARY DAVID MORRISON')).toBe('Payroll');
+      expect(categorizeTransaction('STANDING ORDER PAYROLL HEENA TAILOR')).toBe('Payroll');
+    });
+
+    it('David Morrison line with DIVIDEND stays Transfers', () => {
+      expect(categorizeTransaction('STO DIVIDEND DAVID MORRISON')).toBe('Transfers');
+    });
+
     it('Monzo Joint', () => {
       expect(categorizeTransaction('MONZO JOINT')).toBe('Transfers');
     });
@@ -91,10 +100,18 @@ describe('categorizer', () => {
     });
   });
 
-  describe('Income', () => {
-    it('Autonize payroll is Income, not Transfers', () => {
-      expect(categorizeTransaction('AUTONIZE')).toBe('Income');
-      expect(categorizeTransaction('AUTONIZEITLIMITED')).toBe('Income');
+  describe('Autonize (own company — Transfers)', () => {
+    it('Autonize is classified as Transfers (internal)', () => {
+      expect(categorizeTransaction('AUTONIZE')).toBe('Transfers');
+      expect(categorizeTransaction('AUTONIZEITLIMITED')).toBe('Transfers');
+      expect(categorizeTransaction('AUTONIZE LTD')).toBe('Transfers');
+    });
+  });
+
+  describe('NatWest Account Fee', () => {
+    it('NatWest fees are Other (personal account, not Business)', () => {
+      expect(categorizeTransaction('14APR A/C')).toBe('Other');
+      expect(categorizeTransaction('02JAN A C')).toBe('Other');
     });
   });
 
@@ -120,6 +137,14 @@ describe('categorizer', () => {
 
     it('Novuna', () => {
       expect(categorizeTransaction('NOVUNA PERSONAL FI')).toBe('Debt Repayment');
+    });
+
+    it('Bounce Back Loan (BARCLAYS 0520A ref)', () => {
+      expect(categorizeTransaction('BARCLAYS 0520A6538148615 DDR')).toBe('Debt Repayment');
+    });
+
+    it('generic Barclays DDR', () => {
+      expect(categorizeTransaction('BARCLAYS 9999 SOMETHING DDR')).toBe('Debt Repayment');
     });
   });
 });

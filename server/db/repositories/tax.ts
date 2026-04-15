@@ -3,8 +3,7 @@ import { buildDashboardFilters, type DashboardFilters } from '../utils/financial
 import { 
   VAT, 
   calculateCorporationTax, 
-  INCOME_TAX,
-  DIVIDEND_TAX,
+  calculateDividendTax,
   getCurrentVatQuarter,
   getVatQuarterForDate,
   type VatQuarterRange
@@ -62,7 +61,8 @@ export interface TaxLiabilities {
 }
 
 /**
- * Get salary and dividend payments for a director
+ * Salary and dividend lines paid from the business (outbound expenses).
+ * Director payouts are not classified as business-to-business transfers, so they remain `expense`.
  */
 function getDirectorPayments(
   db: ReturnType<typeof getDb>,
@@ -72,11 +72,16 @@ function getDirectorPayments(
   clause: string,
   params: string[]
 ): { salary: number; dividends: number; total: number; annualSalary: number } {
+  const outboundExpense = `
+    type = 'expense'
+    AND amount < 0
+    AND description LIKE ?
+  `;
+
   const salaryResult = db.prepare(`
     SELECT COALESCE(SUM(ABS(amount)), 0) as total 
     FROM transactions 
-    WHERE type = 'expense' 
-    AND description LIKE ?
+    WHERE ${outboundExpense}
     AND ABS(amount) >= ? AND ABS(amount) <= ?
     ${clause}
   `).get(namePattern, salaryMin, salaryMax, ...params) as { total: number };
@@ -84,8 +89,7 @@ function getDirectorPayments(
   const dividendResult = db.prepare(`
     SELECT COALESCE(SUM(ABS(amount)), 0) as total 
     FROM transactions 
-    WHERE type = 'expense' 
-    AND description LIKE ?
+    WHERE ${outboundExpense}
     AND (ABS(amount) < ? OR ABS(amount) > ?)
     ${clause}
   `).get(namePattern, salaryMin, salaryMax, ...params) as { total: number };
@@ -101,23 +105,9 @@ function getDirectorPayments(
   };
 }
 
-/**
- * Calculate dividend tax for a director
- */
-function calculateDirectorDividendTax(salary: number, dividends: number): number {
-  if (dividends <= DIVIDEND_TAX.ALLOWANCE) {
-    return 0;
-  }
-  
-  const taxableDividends = dividends - DIVIDEND_TAX.ALLOWANCE;
-  const remainingBasicBand = Math.max(0, INCOME_TAX.BASIC_RATE_LIMIT - salary);
-  
-  if (taxableDividends <= remainingBasicBand) {
-    return taxableDividends * DIVIDEND_TAX.BASIC_RATE;
-  }
-  
-  return (remainingBasicBand * DIVIDEND_TAX.BASIC_RATE) + 
-         ((taxableDividends - remainingBasicBand) * DIVIDEND_TAX.HIGHER_RATE);
+/** Delegates to calculateDividendTax in tax-rates (one implementation, tested there). */
+function calculateDirectorDividendTax(salaryPaidInPeriod: number, dividends: number): number {
+  return calculateDividendTax(dividends, salaryPaidInPeriod);
 }
 
 /**
@@ -127,7 +117,7 @@ function calculateDirectorDividendTax(salary: number, dividends: number): number
  * Corporation Tax: 19% for profits under £50k, 25% for over £250k, marginal between
  *   - Calculated on income only (expenses are NOT deducted)
  *   - This provides a conservative/worst-case tax liability estimate
- * Personal Tax: Based on payments to directors
+ * Director personal: dividend tax estimate vs salary paid in the selected period (PAYE on salary excluded).
  */
 export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilities {
   const db = getDb();
@@ -227,7 +217,6 @@ export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilitie
   const corporationTax = Math.round(corpTax.tax * 100) / 100;
   const corporationTaxRate = Math.round(corpTax.effectiveRate * 10000) / 100; // as percentage
   
-  // Calculate dividend tax for each director
   const davidDividendTax = calculateDirectorDividendTax(davidPayments.salary, davidPayments.dividends);
   const heenaDividendTax = calculateDirectorDividendTax(heenaPayments.salary, heenaPayments.dividends);
   

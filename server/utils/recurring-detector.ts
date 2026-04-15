@@ -9,6 +9,7 @@
 import type { RecurringExpense, RecurringFrequency } from '../../shared/api-contracts.js';
 import { CATEGORY_COLOURS } from './categorizer.js';
 import type { CategoryName } from './categorizer.js';
+import { SPECIAL_CATEGORY } from './category-constants.js';
 import { getMerchantLogoUrl } from './merchant-logos.js';
 import { round2 } from './math.js';
 
@@ -109,6 +110,10 @@ const SEASONAL_BILLING_EXCEPTIONS = [
   /council\s*tax/i,
 ];
 
+// ─── Property income (rental) — relaxed thresholds ───────────────────
+const PROPERTY_INCOME_MIN_MONTHS = 2;
+const PROPERTY_INCOME_AMOUNT_CV_MAX = 0.60;
+
 // ─── Annual thresholds ───────────────────────────────────────────────
 const ANNUAL_MIN_YEARS_EXACT = 2;  // enough if amounts are identical
 const ANNUAL_MIN_YEARS_VARIED = 3; // need more evidence when amounts differ
@@ -156,6 +161,7 @@ export function classifyRecurring(
   candidates: RecurringCandidate[],
   monthsCovered: number,
   referenceDate: Date = new Date(),
+  isIncome = false,
 ): RecurringClassification {
   const effectiveMonths = Math.max(monthsCovered, 1);
   const monthlyThreshold = Math.ceil(effectiveMonths * MONTHLY_MIN_MONTHS_RATIO);
@@ -171,21 +177,32 @@ export function classifyRecurring(
     const days = c.transactions.map(t => new Date(t.date).getDate());
     const mean = amounts.reduce((s, v) => s + v, 0) / amounts.length;
     const amountCV = mean > 0 ? stddev(amounts) / mean : Infinity;
-    const typicalAmount = median(amounts);
+
+    const isPropertyIncome = isIncome && c.category === SPECIAL_CATEGORY.property;
+
+    // Property income uses max (gross rent before agent deductions); everything else uses median
+    const typicalAmount = isPropertyIncome ? Math.max(...amounts) : median(amounts);
 
     // ── Monthly test ──────────────────────────────────────────────
     let classifiedAsMonthly = false;
-    if (c.monthsActive >= monthlyThreshold) {
+
+    const minMonths = isPropertyIncome ? PROPERTY_INCOME_MIN_MONTHS : monthlyThreshold;
+    const maxCV = isPropertyIncome ? PROPERTY_INCOME_AMOUNT_CV_MAX : MONTHLY_AMOUNT_CV_MAX;
+
+    if (c.monthsActive >= minMonths) {
       const daySD = circularDayStddev(days);
-      if (amountCV <= MONTHLY_AMOUNT_CV_MAX && daySD <= MONTHLY_DAY_STDDEV_MAX) {
+      if (amountCV <= maxCV && daySD <= MONTHLY_DAY_STDDEV_MAX) {
         let stale = false;
-        const isSeasonalException = SEASONAL_BILLING_EXCEPTIONS.some(p => p.test(c.merchant));
-        if (!isSeasonalException) {
-          const lastTxMonth = c.transactions
-            .map(t => t.date.slice(0, 7))
-            .sort()
-            .pop()!;
-          stale = lastTxMonth < staleAfter;
+        // Property income skips staleness check
+        if (!isPropertyIncome) {
+          const isSeasonalException = SEASONAL_BILLING_EXCEPTIONS.some(p => p.test(c.merchant));
+          if (!isSeasonalException) {
+            const lastTxMonth = c.transactions
+              .map(t => t.date.slice(0, 7))
+              .sort()
+              .pop()!;
+            stale = lastTxMonth < staleAfter;
+          }
         }
         if (!stale) {
           const avgDay = circularMeanDay(days);

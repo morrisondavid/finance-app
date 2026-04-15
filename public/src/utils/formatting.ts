@@ -39,6 +39,20 @@ export function formatMonthYear(dateStr: string): string {
 }
 
 /**
+ * Format an ISO calendar date (YYYY-MM-DD) for UK display (DD/MM/YYYY).
+ */
+export function formatIsoDateUk(isoDate: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!m) return isoDate;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const da = Number(m[3]);
+  const d = new Date(y, mo - 1, da);
+  if (d.getFullYear() !== y || d.getMonth() !== mo - 1 || d.getDate() !== da) return isoDate;
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'numeric', year: 'numeric' });
+}
+
+/**
  * Format a quarter string for display in ZIP filenames
  * @example "Q1-2025" => "VAT-Q1-Nov-Jan-2024-25"
  */

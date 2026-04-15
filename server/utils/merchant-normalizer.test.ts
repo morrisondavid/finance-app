@@ -42,4 +42,10 @@ describe('normalizeMerchant', () => {
       ).toBe('Steam Games');
     });
   });
+
+  describe('Bounce Back Loan', () => {
+    it('resolves BARCLAYS 0520A ref to Bounce Back Loan', () => {
+      expect(normalizeMerchant('BARCLAYS 0520A6538148615 DDR')).toBe('Bounce Back Loan');
+    });
+  });
 });

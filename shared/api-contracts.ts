@@ -207,7 +207,7 @@ export const CategoriesResponseSchema = z.object({
   totalExpenses: z.number(),
 });
 
-// GET /api/budget/overview — household expenses sheet (monthly + separate annual)
+// GET /api/expenses/overview — household expenses sheet (monthly + separate annual)
 export const ExpensesVariancePointSchema = z.object({
   period: z.string(),
   expected: z.number(),
@@ -241,6 +241,8 @@ export const ExpensesIncomeSplitSchema = z.object({
 /** Morrison spreadsheet–aligned monthly insight (recurring fixed costs only). */
 export const ExpensesInsightSchema = z.object({
   totalFixedMonthlyExpenses: z.number(),
+  /** max(0, total fixed − passive); single headline figure for income still needed after rent/dividends etc. */
+  monthlyIncomeNeededAfterPassive: z.number(),
   /** Net after passive: shortfall (need) vs surplus (income exceeds costs) — both ≥ 0 */
   netExpensesSalaryIncludedShortfall: z.number(),
   netExpensesSalaryIncludedSurplus: z.number(),
@@ -248,15 +250,22 @@ export const ExpensesInsightSchema = z.object({
   netExpensesSalaryExcludedSurplus: z.number(),
   netPersonalExpensesSalaryExcludedShortfall: z.number(),
   netPersonalExpensesSalaryExcludedSurplus: z.number(),
-  /** Cash still needed from joint when salary + passive don’t cover personal fixed costs */
+  /**
+   * How much must flow to the joint / household bills layer after passive, salary, and
+   * business recurring are recognised — same as `netPersonalExpensesSalaryExcluded*` (shortfall
+   * or surplus). Salaries are assumed to stay in personal accounts; this is what’s left to fund
+   * joint bills from company dividends/transfers in the model.
+   */
   moneyNeededJointAccount: z.number(),
-  /** Headroom when salary + passive exceed personal fixed costs (same as personal surplus) */
+  /** Surplus on the joint / household layer when income allocations exceed personal fixed costs. */
   jointAccountMonthlySurplus: z.number(),
   businessExpenses: z.number(),
   businessExpensesSalaryExcluded: z.number(),
   totalSalary: z.number(),
   /** Personal fixed recurring excluding debt (matches “Personal Expenses” hyphen row) */
   personalExpenses: z.number(),
+  /** Recurring monthly outgoings on NatWest personal (same account as personal fixed subset). */
+  natwestPersonalFixed: z.number(),
   qualityOfLifeExpenses: z.number(),
   billsExpenses: z.number(),
   totalPassiveIncome: z.number(),
@@ -268,6 +277,7 @@ export const ExpensesInsightSchema = z.object({
   dividendDavid: z.number().nullable(),
 });
 
+/** GET /api/expenses/overview — Fixed Expenses tab payload (fixed recurring monthly/annual, all accounts). */
 export const ExpensesSheetResponseSchema = z.object({
   monthlyOutgoings: z.array(ExpensesSectionSchema),
   annualOutgoings: z.array(ExpensesSectionSchema),
@@ -297,7 +307,32 @@ export const ExpensesSheetResponseSchema = z.object({
   }),
 });
 
-// GET /api/budget/recurring
+// GET /api/expenses/ad-hoc?account=&financialYear=&min=&limit=  (financialYear empty = all time)
+export const AdHocExpenseItemSchema = z.object({
+  category: z.string(),
+  merchant: z.string(),
+  total: z.number(),
+  count: z.number(),
+  lastDate: z.string(),
+  sampleDescription: z.string(),
+});
+
+export const AdHocExpensesResponseSchema = z.object({
+  account: z.string(),
+  /** Selected FY label (e.g. `2024/25`) or null for all time */
+  financialYear: z.string().nullable(),
+  /** Human-readable range, e.g. `1 May 2024 – 30 Apr 2025 (2024/25)` or `All time` */
+  periodDescription: z.string(),
+  /** Start of analysis window (FY start, or oldest expense date in all-time mode) */
+  analysisCutoff: z.string(),
+  pipelineMonths: z.number(),
+  analysisMonths: z.number(),
+  minTotal: z.number(),
+  limit: z.number(),
+  items: z.array(AdHocExpenseItemSchema),
+});
+
+// GET /api/expenses/recurring
 export const RecurringFrequencySchema = z.enum(['monthly', 'annual']);
 
 export const RecurringExpenseSchema = z.object({
@@ -409,6 +444,8 @@ export type ExpensesSection = z.infer<typeof ExpensesSectionSchema>;
 export type ExpensesIncomeSplit = z.infer<typeof ExpensesIncomeSplitSchema>;
 export type ExpensesInsight = z.infer<typeof ExpensesInsightSchema>;
 export type ExpensesSheetResponse = z.infer<typeof ExpensesSheetResponseSchema>;
+export type AdHocExpenseItem = z.infer<typeof AdHocExpenseItemSchema>;
+export type AdHocExpensesResponse = z.infer<typeof AdHocExpensesResponseSchema>;
 export type RecurringFrequency = z.infer<typeof RecurringFrequencySchema>;
 export type RecurringExpense = z.infer<typeof RecurringExpenseSchema>;
 export type RecurringExpensesResponse = z.infer<typeof RecurringExpensesResponseSchema>;

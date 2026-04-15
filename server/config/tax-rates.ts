@@ -273,29 +273,47 @@ export function calculateCorporationTax(taxableProfit: number): { tax: number; e
 }
 
 /**
- * Calculate dividend tax
+ * Estimate income tax on dividends (outside PAYE) for a UK taxpayer.
+ *
+ * Model (aligned with common HMRC ordering):
+ * - Personal allowance is applied to salary first; any unused PA reduces dividend income
+ *   (after the dividend allowance) before rate bands.
+ * - Salary uses basic then higher then additional rate bands; taxable dividends stack on top.
+ * - Amounts should be annual (or the same period for both); bank salary lines are often net pay,
+ *   so treat as an indicative estimate.
  */
-export function calculateDividendTax(
-  dividends: number, 
-  otherIncome: number = 0
-): number {
+export function calculateDividendTax(dividends: number, salary: number = 0): number {
   if (dividends <= DIVIDEND_TAX.ALLOWANCE) {
     return 0;
   }
-  
-  const taxableDividends = dividends - DIVIDEND_TAX.ALLOWANCE;
 
-  // Determine which band the dividends fall into
-  const remainingBasicBand = Math.max(0, INCOME_TAX.BASIC_RATE_LIMIT - otherIncome);
-  
-  if (taxableDividends <= remainingBasicBand) {
-    return taxableDividends * DIVIDEND_TAX.BASIC_RATE;
-  }
-  
-  // Part in basic band, part in higher band
-  const basicBandDividends = remainingBasicBand;
-  const higherBandDividends = taxableDividends - remainingBasicBand;
-  
-  return (basicBandDividends * DIVIDEND_TAX.BASIC_RATE) + 
-         (higherBandDividends * DIVIDEND_TAX.HIGHER_RATE);
+  const pa = INCOME_TAX.PERSONAL_ALLOWANCE;
+  const basicBandWidth = INCOME_TAX.BASIC_RATE_LIMIT - pa;
+  const higherBandWidth = INCOME_TAX.HIGHER_RATE_LIMIT - INCOME_TAX.BASIC_RATE_LIMIT;
+
+  const taxableSalary = Math.max(0, salary - pa);
+  const salaryInBasic = Math.min(taxableSalary, basicBandWidth);
+  const salaryBeyondBasic = Math.max(0, taxableSalary - basicBandWidth);
+  const salaryInHigher = Math.min(salaryBeyondBasic, higherBandWidth);
+
+  const unusedPa = Math.max(0, pa - salary);
+
+  const afterDividendAllowance = dividends - DIVIDEND_TAX.ALLOWANCE;
+  const taxableDividends = Math.max(0, afterDividendAllowance - unusedPa);
+
+  const basicLeftForDividends = Math.max(0, basicBandWidth - salaryInBasic);
+  const higherLeftForDividends = Math.max(0, higherBandWidth - salaryInHigher);
+
+  let remainder = taxableDividends;
+  const atBasic = Math.min(remainder, basicLeftForDividends);
+  remainder -= atBasic;
+  const atHigher = Math.min(remainder, higherLeftForDividends);
+  remainder -= atHigher;
+  const atAdditional = remainder;
+
+  return (
+    atBasic * DIVIDEND_TAX.BASIC_RATE +
+    atHigher * DIVIDEND_TAX.HIGHER_RATE +
+    atAdditional * DIVIDEND_TAX.ADDITIONAL_RATE
+  );
 }

@@ -1,5 +1,5 @@
 import type { Transaction, TransactionType, AccountName } from '../../types.js';
-import { isCreditCard } from '../../types.js';
+import { isCreditCard, isCrossAccountBusinessToBusinessTransfer } from '../../types.js';
 import { getDb, formatDateLocal, generateTransactionHash } from '../connection.js';
 import { getFinancialYearRange, buildDashboardFilters, type DashboardFilters } from '../utils/financial-year.js';
 import { 
@@ -176,6 +176,11 @@ export function detectTransfers(): number {
       // - OR the income side is a bounced payment (REV, insufficient funds)
       if (expense.account === income.account) {
         if (!incomeIsTransferLike && !expenseIsTransferLike && !incomeIsBounce) continue;
+      } else if (
+        !isCrossAccountBusinessToBusinessTransfer(expense.account, income.account)
+      ) {
+        // Business → personal (or unknown account): not an internal transfer
+        continue;
       }
       
       // Found a match! Mark both as transfers
@@ -401,6 +406,16 @@ export function getTransactions(filters: TransactionFilters = {}): TransactionRo
   sql += ' ORDER BY date DESC';
   
   return db.prepare(sql).all(...params) as TransactionRow[];
+}
+
+/** Expense rows for one account on or after `sinceDate` (YYYY-MM-DD), oldest first. */
+export function getExpensesForAccountSinceAsc(account: string, sinceDate: string): TransactionRow[] {
+  const db = getDb();
+  return db
+    .prepare(
+      `SELECT * FROM transactions WHERE account = ? AND date >= ? AND type = 'expense' ORDER BY date ASC`,
+    )
+    .all(account, sinceDate) as TransactionRow[];
 }
 
 /**

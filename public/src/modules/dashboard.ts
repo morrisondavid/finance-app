@@ -7,6 +7,8 @@ import { state, setState } from './state';
 import { fetchDashboard, fetchTransactions } from '../utils/api';
 import { formatCurrency } from '../utils/formatting';
 import { loadRecurring } from './recurring.js';
+import { loadAdHocExpenses } from './ad-hoc-expenses.js';
+import { AccountNameSchema } from '../../../shared/api-contracts.js';
 
 import { renderMonthlyChart, renderCategoryChart, renderMonthlyTable } from './dashboard-charts';
 import { initTransactionsModal, initBalanceModal, initSummaryCardHandlers, initVatPaymentsHandler } from './dashboard-modals';
@@ -29,6 +31,7 @@ export async function loadDashboard(): Promise<void> {
 
     populateFinancialYearFilter(data.financialYears);
     updateAccountIndicators(data.byAccount as Record<string, AccountSummary>);
+    setActiveAccountButtons(state.selectedAccount);
     renderSummaryCards(data);
     renderMonthlyChart(data.monthly);
     renderMonthlyTable(data.monthly);
@@ -47,48 +50,76 @@ export async function loadDashboard(): Promise<void> {
 // ─── Financial year filter ────────────────────────────────────────────────────
 
 function populateFinancialYearFilter(financialYears: string[]): void {
-  const financialYearFilter = document.getElementById('fy-filter') as HTMLSelectElement;
-  if (!financialYearFilter || !financialYears || financialYears.length === 0) return;
+  const selects = document.querySelectorAll<HTMLSelectElement>('#fy-filter, #ad-hoc-fy-filter');
+  if (selects.length === 0 || !financialYears || financialYears.length === 0) return;
 
-  const currentValue = financialYearFilter.value;
+  const currentValue = selects[0].value;
 
-  financialYearFilter.innerHTML = '<option value="">All Time</option>' +
+  const optionHtml = '<option value="">All Time</option>' +
     financialYears.map(year => `<option value="${year}">${year}</option>`).join('');
 
+  selects.forEach(sel => {
+    sel.innerHTML = optionHtml;
+  });
+
+  let nextValue: string;
   if (currentValue && financialYears.includes(currentValue)) {
-    financialYearFilter.value = currentValue;
+    nextValue = currentValue;
   } else if (state.selectedFinancialYear && financialYears.includes(state.selectedFinancialYear)) {
-    financialYearFilter.value = state.selectedFinancialYear;
+    nextValue = state.selectedFinancialYear;
   } else {
-    financialYearFilter.value = financialYears[0];
+    nextValue = financialYears[0];
     setState('selectedFinancialYear', financialYears[0]);
   }
+
+  selects.forEach(sel => {
+    sel.value = nextValue;
+  });
 }
 
 function initFinancialYearFilter(): void {
-  const financialYearFilter = document.getElementById('fy-filter') as HTMLSelectElement;
-  if (!financialYearFilter) return;
+  document.querySelectorAll<HTMLSelectElement>('#fy-filter, #ad-hoc-fy-filter').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const val = sel.value;
+      setState('selectedFinancialYear', val);
+      document.querySelectorAll<HTMLSelectElement>('#fy-filter, #ad-hoc-fy-filter').forEach(s => {
+        if (s !== sel) s.value = val;
+      });
+      void loadDashboard();
 
-  financialYearFilter.addEventListener('change', () => {
-    setState('selectedFinancialYear', financialYearFilter.value);
-    loadDashboard();
+      const adHocSection = document.getElementById('ad-hoc-expenses');
+      if (adHocSection?.classList.contains('active')) {
+        void loadAdHocExpenses();
+      }
+    });
   });
 }
 
 // ─── Account selector ─────────────────────────────────────────────────────────
+
+function setActiveAccountButtons(account: string): void {
+  document.querySelectorAll<HTMLElement>('.account-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.account === account);
+  });
+}
 
 function initAccountSelector(): void {
   const accountBtns = document.querySelectorAll<HTMLElement>('.account-btn');
 
   accountBtns.forEach(btn => {
     btn.addEventListener('click', () => {
-      accountBtns.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-
       const account = btn.dataset.account;
-      if (account) {
-        setState('selectedAccount', account as typeof state.selectedAccount);
-        loadDashboard();
+      if (!account) return;
+      const parsed = AccountNameSchema.safeParse(account);
+      if (!parsed.success) return;
+
+      setActiveAccountButtons(account);
+      setState('selectedAccount', parsed.data);
+      void loadDashboard();
+
+      const adHocSection = document.getElementById('ad-hoc-expenses');
+      if (adHocSection?.classList.contains('active')) {
+        void loadAdHocExpenses();
       }
     });
   });

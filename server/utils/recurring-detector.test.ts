@@ -373,3 +373,117 @@ describe('classifyRecurring – edge cases', () => {
     expect(result.monthly[0].colour).toBe('#A855F7');
   });
 });
+
+// ===========================================================================
+// Property income (rental) — relaxed thresholds when isIncome=true
+// ===========================================================================
+
+function makeVaryingRentTxns(months: number, baseAmount: number): TransactionDetail[] {
+  const txns: TransactionDetail[] = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const refMonth = 3;
+    const refYear = 2026;
+    const totalMonths = refYear * 12 + refMonth - i;
+    const y = Math.floor(totalMonths / 12);
+    const m = (totalMonths % 12) + 1;
+    // Simulate agent deducting fees some months (lower amounts)
+    const amount = i % 3 === 0 ? baseAmount * 0.7 : baseAmount;
+    txns.push({ date: `${y}-${String(m).padStart(2, '0')}-02`, amount });
+  }
+  return txns;
+}
+
+describe('classifyRecurring – Property income (rental)', () => {
+  it('Property income with only 2 months is classified as monthly recurring', () => {
+    const c = makeCandidate({
+      merchant: 'Prospect Holdings',
+      category: 'Property',
+      transactions: makeTxns({ months: 2, day: 2, amount: 1900 }),
+    });
+    const result = classifyRecurring([c], 12, REF_DATE, true);
+
+    expect(result.monthly).toHaveLength(1);
+    expect(result.monthly[0].merchant).toBe('Prospect Holdings');
+  });
+
+  it('Property income with varying amounts (agent deductions) is classified', () => {
+    const txns = makeVaryingRentTxns(6, 1900);
+    const c = makeCandidate({
+      merchant: 'Stoneshaw Estates',
+      category: 'Property',
+      transactions: txns,
+      monthsActive: 6,
+    });
+    const result = classifyRecurring([c], 12, REF_DATE, true);
+
+    expect(result.monthly).toHaveLength(1);
+    expect(result.monthly[0].merchant).toBe('Stoneshaw Estates');
+  });
+
+  it('Property income uses max amount (gross rent) not median', () => {
+    const txns = makeVaryingRentTxns(6, 1900);
+    const c = makeCandidate({
+      merchant: 'Stoneshaw Estates',
+      category: 'Property',
+      transactions: txns,
+      monthsActive: 6,
+    });
+    const result = classifyRecurring([c], 12, REF_DATE, true);
+
+    expect(result.monthly[0].amount).toBe(1900);
+  });
+
+  it('Property income skips staleness check', () => {
+    // All transactions are old (> 2 months ago) — would be stale under normal rules
+    const txns: TransactionDetail[] = [];
+    for (let i = 11; i >= 4; i--) {
+      const totalMonths = 2026 * 12 + 3 - i;
+      const y = Math.floor(totalMonths / 12);
+      const m = (totalMonths % 12) + 1;
+      txns.push({ date: `${y}-${String(m).padStart(2, '0')}-02`, amount: 1500 });
+    }
+    const c = makeCandidate({
+      merchant: 'Prospect Holdings',
+      category: 'Property',
+      transactions: txns,
+      monthsActive: txns.length,
+    });
+    const result = classifyRecurring([c], 12, REF_DATE, true);
+
+    expect(result.monthly).toHaveLength(1);
+  });
+
+  it('non-Property income with only 2 months is NOT classified (standard threshold)', () => {
+    const c = makeCandidate({
+      merchant: 'Random Sender',
+      category: 'Other',
+      transactions: makeTxns({ months: 2, day: 10, amount: 500 }),
+    });
+    const result = classifyRecurring([c], 12, REF_DATE, true);
+
+    expect(result.monthly).toHaveLength(0);
+  });
+
+  it('non-Property income passing standard thresholds is still classified (no regression)', () => {
+    const c = makeCandidate({
+      merchant: 'Interest Credit',
+      category: 'Other',
+      transactions: makeTxns({ months: 10, day: 1, amount: 12.50 }),
+    });
+    const result = classifyRecurring([c], 12, REF_DATE, true);
+
+    expect(result.monthly).toHaveLength(1);
+    expect(result.monthly[0].merchant).toBe('Interest Credit');
+  });
+
+  it('Property expense (isIncome=false) uses standard thresholds, not relaxed', () => {
+    const c = makeCandidate({
+      merchant: 'Plumber',
+      category: 'Property',
+      transactions: makeTxns({ months: 2, day: 15, amount: 200 }),
+    });
+    const result = classifyRecurring([c], 12, REF_DATE, false);
+
+    expect(result.monthly).toHaveLength(0);
+  });
+});

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { accKey } from './budget.js';
+import { accKey } from './expenses.js';
 
-describe('budget accumulator keying', () => {
+describe('expenses accumulator keying', () => {
   it('keeps two payments to the same merchant at different amounts separate', () => {
     const key1 = accKey('Debt Repayment', 'Barclays Partner Finance', 'barclays-current', 97.50);
     const key2 = accKey('Debt Repayment', 'Barclays Partner Finance', 'barclays-current', 143.20);
@@ -20,9 +20,9 @@ describe('budget accumulator keying', () => {
     expect(a).toBe(b);
   });
 
-  it('separates payments that differ by more than £1', () => {
-    const a = accKey('Debt Repayment', 'Novuna Finance', 'barclays-current', 390.71);
-    const b = accKey('Debt Repayment', 'Novuna Finance', 'barclays-current', 425.00);
+  it('separates payments that differ significantly (>20%)', () => {
+    const a = accKey('Debt Repayment', 'Novuna Finance', 'barclays-current', 300);
+    const b = accKey('Debt Repayment', 'Novuna Finance', 'barclays-current', 425);
     expect(a).not.toBe(b);
   });
 

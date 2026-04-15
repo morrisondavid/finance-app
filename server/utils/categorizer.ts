@@ -54,6 +54,7 @@ export const CATEGORY_COLOURS: Record<CategoryName, string> = {
   'Debt Repayment':        '#EF4444',
   'Tax':                   '#F43F5E',
   'Business':              '#14B8A6',
+  'Payroll':               '#0D9488',
   'Property':              '#F59E0B',
   'Transfers':             '#38BDF8',
   'Travel':                '#FB923C',

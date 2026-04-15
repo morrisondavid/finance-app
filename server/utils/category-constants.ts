@@ -5,4 +5,6 @@ export const SPECIAL_CATEGORY = {
   transfers: 'Transfers',
   income: 'Income',
   debtRepayment: 'Debt Repayment',
+  property: 'Property',
+  payroll: 'Payroll',
 } as const satisfies Record<string, CategoryName>;

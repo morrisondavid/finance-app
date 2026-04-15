@@ -1,5 +1,5 @@
 /**
- * Recurring Expenses widget – renders floating pods on the dashboard.
+ * Dashboard Fixed Expenses widget — recurring pods for the selected account.
  */
 
 import { state } from './state';

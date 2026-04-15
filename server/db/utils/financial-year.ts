@@ -4,7 +4,8 @@ import { getDb } from '../connection.js';
  * Company Accounting Period: May 1 to end of April
  * 
  * Accounting year "2024/25" means: May 1, 2024 to April 30, 2025
- * Corporation tax is due 9 months + 1 day after year-end (1 February)
+ * Corporation tax is due 9 months + 1 day after the accounting period ends
+ * (e.g. period ending 30 Apr → due 31 Jan the following calendar year).
  */
 export interface FinancialYearRange {
   startDate: string; // YYYY-MM-DD

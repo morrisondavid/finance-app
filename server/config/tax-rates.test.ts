@@ -149,29 +149,42 @@ describe('calculateDividendTax', () => {
     expect(calculateDividendTax(500)).toBe(0);
   });
 
-  it('should apply basic rate for dividends above allowance within basic band', () => {
-    // £5000 dividends, no other income
-    // Taxable: £5000 - £1000 = £4000
-    // Tax: £4000 * 8.75% = £350
-    const tax = calculateDividendTax(5000, 0);
-    expect(tax).toBeCloseTo(350, 2);
+  it('should return 0 when unused personal allowance covers dividends after dividend allowance', () => {
+    // £5000 dividends, no salary: PA £12570 covers £4000 after £1000 dividend allowance → no dividend tax
+    expect(calculateDividendTax(5000, 0)).toBe(0);
   });
 
-  it('should consider other income when calculating band', () => {
-    // £10000 dividends with £45000 salary
-    // Remaining basic band: £50270 - £45000 = £5270
-    // Taxable dividends: £10000 - £1000 = £9000
-    // £5270 at 8.75% + £3730 at 33.75%
+  it('should apply basic rate when salary uses PA but dividends remain taxable', () => {
+    // Salary exactly uses PA; £4000 taxable dividends, all in basic band
+    const tax = calculateDividendTax(5000, 12570);
+    expect(tax).toBeCloseTo(4000 * 0.0875, 2);
+  });
+
+  it('should stack salary in bands then split dividends across basic and higher rate', () => {
+    // £10000 dividends with £45000 salary (taxable salary £32430 in basic band; £5270 basic left for dividends)
     const tax = calculateDividendTax(10000, 45000);
     const expected = (5270 * 0.0875) + (3730 * 0.3375);
     expect(tax).toBeCloseTo(expected, 2);
   });
 
-  it('should apply higher rate when basic band exhausted', () => {
-    // Dividends with income already exceeding basic rate limit
+  it('should apply higher rate when basic band exhausted by salary', () => {
     const tax = calculateDividendTax(5000, 60000);
-    // All taxable dividends (£4000) at higher rate
     expect(tax).toBeCloseTo(4000 * 0.3375, 2);
+  });
+
+  it('should reduce dividend tax when salary leaves part of PA unused (12 × £758 salary)', () => {
+    // Full-year net salary £9096; £5k dividends → £4k after dividend allowance; unused PA £3474 → £526 taxable at basic
+    const salary = 758 * 12;
+    const tax = calculateDividendTax(5000, salary);
+    const unusedPa = 12570 - salary;
+    const taxableDiv = Math.max(0, 5000 - 1000 - unusedPa);
+    expect(taxableDiv).toBeCloseTo(526, 2);
+    expect(tax).toBeCloseTo(526 * 0.0875, 2);
+  });
+
+  it('should charge no dividend tax when unused PA fully covers post-allowance dividends', () => {
+    const tax = calculateDividendTax(5000, 7580);
+    expect(tax).toBe(0);
   });
 });
 

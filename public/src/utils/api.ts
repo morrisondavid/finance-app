@@ -14,6 +14,7 @@ import {
   CheckQuarterResponseSchema,
   CategoriesResponseSchema,
   ExpensesSheetResponseSchema,
+  AdHocExpensesResponseSchema,
   RecurringExpensesResponseSchema,
   type DashboardSummaryResponse,
   type AccountConfigsResponse,
@@ -25,6 +26,7 @@ import {
   type CheckQuarterResponse,
   type CategoriesResponse,
   type ExpensesSheetResponse,
+  type AdHocExpensesResponse,
   type RecurringExpensesResponse,
 } from '../../../shared/api-contracts.js';
 
@@ -150,15 +152,33 @@ export async function fetchCategories(params: {
 }
 
 /**
- * Fetch budget overview (household-level, all accounts combined)
+ * Fetch the Fixed Expenses sheet: fixed recurring monthly/annual items across all accounts (`GET /api/expenses/overview`).
  */
-export async function fetchBudgetOverview(): Promise<ExpensesSheetResponse> {
-  const response = await fetch('/api/budget/overview');
+export async function fetchExpensesSheetOverview(): Promise<ExpensesSheetResponse> {
+  const response = await fetch('/api/expenses/overview');
   return validateResponse(response, ExpensesSheetResponseSchema);
 }
 
 /**
- * Fetch recurring expenses for a single account
+ * Ad hoc expense groups for one account, scoped by financial year (or all time) with the same recurring logic as `/recurring` (`GET /api/expenses/ad-hoc`).
+ */
+export async function fetchAdHocExpenses(params: {
+  account: string;
+  financialYear?: string;
+  min: number;
+  limit: number;
+}): Promise<AdHocExpensesResponse> {
+  const query = new URLSearchParams();
+  query.set('account', params.account);
+  if (params.financialYear) query.set('financialYear', params.financialYear);
+  query.set('min', String(params.min));
+  query.set('limit', String(params.limit));
+  const response = await fetch(`/api/expenses/ad-hoc?${query}`);
+  return validateResponse(response, AdHocExpensesResponseSchema);
+}
+
+/**
+ * Dashboard Fixed Expenses widget: recurring line items for one account (`GET /api/expenses/recurring`).
  */
 export async function fetchRecurringExpenses(params: {
   account: string;
@@ -168,7 +188,7 @@ export async function fetchRecurringExpenses(params: {
   query.set('account', params.account);
   if (params.financialYear) query.set('financialYear', params.financialYear);
 
-  const response = await fetch(`/api/budget/recurring?${query}`);
+  const response = await fetch(`/api/expenses/recurring?${query}`);
   return validateResponse(response, RecurringExpensesResponseSchema);
 }
 

@@ -1,15 +1,20 @@
 import express, { Request, Response } from 'express';
 import type {
+  AdHocExpensesResponse,
   ExpensesLineItem,
   ExpensesSection,
   ExpensesSheetResponse,
   RecurringExpensesResponse,
 } from '../../shared/api-contracts.js';
-import { ACCOUNTS, ACCOUNT_CONFIG } from '../types.js';
+import { ACCOUNTS, ACCOUNT_CONFIG, isValidAccountName } from '../types.js';
 import type { AccountName } from '../types.js';
-import { getTransactions, getAvailableFinancialYears } from '../db/index.js';
+import {
+  getTransactions,
+  getAvailableFinancialYears,
+  getFinancialYearRange,
+} from '../db/index.js';
+import type { TransactionRow } from '../db/repositories/transactions.js';
 import { CATEGORY_COLOURS, CATEGORY_NAMES } from '../utils/categorizer.js';
-import { detectPassThrough } from '../utils/pass-through-detector.js';
 import { buildExpensesInsight } from '../utils/expenses-insight.js';
 import { round2, ROLLING_MONTHS, VARIANCE_EPS } from '../utils/math.js';
 import { SPECIAL_CATEGORY } from '../utils/category-constants.js';
@@ -19,8 +24,36 @@ import {
   accKey,
   type RawTransaction,
 } from '../utils/recurring-pipeline.js';
+import { runExpensesOverviewPipeline } from '../utils/expenses-overview-pipeline.js';
+import {
+  AD_HOC_DEFAULT_LIMIT,
+  AD_HOC_DEFAULT_MIN_TOTAL,
+  AD_HOC_MAX_LIMIT,
+  computeAdHocExpenseGroups,
+} from '../utils/ad-hoc-expenses.js';
 
 export { accKey };
+
+function transactionRowToRaw(t: TransactionRow): RawTransaction {
+  return {
+    id: t.id,
+    date: t.date,
+    description: t.description,
+    amount: t.amount,
+    account: t.account,
+    type: t.type,
+  };
+}
+
+function oldestIsoDate(rows: RawTransaction[]): string {
+  if (rows.length === 0) return '';
+  return rows.reduce((min, r) => (r.date < min ? r.date : min), rows[0].date);
+}
+
+function formatUkLong(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
 
 const router = express.Router();
 
@@ -61,15 +94,6 @@ function getAnnualVariance(
   return out;
 }
 
-function rollingCutoffIsoDate(months: number): string {
-  const d = new Date();
-  d.setMonth(d.getMonth() - months);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 function toLineItem(
   e: { merchant: string; category: string; amount: number; sourceAccount: string; billingDay?: string | null },
   frequency: 'monthly' | 'annual',
@@ -93,29 +117,7 @@ function toLineItem(
 
 router.get('/overview', (_req: Request<object, ExpensesSheetResponse, object, OverviewQuery>, res: Response<ExpensesSheetResponse | { error: string }>) => {
   try {
-    const cutoff = rollingCutoffIsoDate(ROLLING_MONTHS);
-
-    const scopedTransactions: RawTransaction[] = [];
-    const allTimeTransactions: RawTransaction[] = [];
-
-    for (const account of ACCOUNTS) {
-      const txns = getTransactions({ account });
-      for (const t of txns) {
-        allTimeTransactions.push(t);
-        if (t.date >= cutoff) {
-          scopedTransactions.push(t);
-        }
-      }
-    }
-
-    const { passThroughIds } = detectPassThrough(scopedTransactions);
-
-    const pipeline = buildRecurringPipeline({
-      scopedTransactions,
-      allTimeTransactions,
-      passThroughIds,
-      includeIncome: true,
-    });
+    const pipeline = runExpensesOverviewPipeline();
 
     // Build expense sections grouped by category
     const monthlyItemsByCategory = new Map<string, ExpensesLineItem[]>();
@@ -182,7 +184,7 @@ router.get('/overview', (_req: Request<object, ExpensesSheetResponse, object, Ov
     incomeMonthlyItems.sort((a, b) => b.amount - a.amount);
     incomeAnnualItems.sort((a, b) => b.amount - a.amount);
 
-    // Totals and splits
+    // Pipeline already excludes transfers (internal moves) via the merchant registry
     const totalMonthlyOutgoings = round2(monthlyOutgoings.reduce((s, sec) => s + sec.subtotal, 0));
     const totalAnnualOutgoings = round2(annualOutgoings.reduce((s, sec) => s + sec.subtotal, 0));
     const totalMonthlyIncome = round2(incomeMonthlyItems.reduce((s, i) => s + i.amount, 0));
@@ -246,8 +248,108 @@ router.get('/overview', (_req: Request<object, ExpensesSheetResponse, object, Ov
 
     res.json(response);
   } catch (error) {
-    console.error('Error generating budget overview:', error);
-    res.status(500).json({ error: 'Failed to generate budget overview' });
+    console.error('Error generating expenses sheet overview:', error);
+    res.status(500).json({ error: 'Failed to generate expenses sheet overview' });
+  }
+});
+
+// ─── /ad-hoc ───────────────────────────────────────────────────────────────────
+
+interface AdHocQuery {
+  account?: string;
+  financialYear?: string;
+  min?: string;
+  limit?: string;
+}
+
+function clampInt(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n));
+}
+
+router.get('/ad-hoc', (req: Request<object, AdHocExpensesResponse, object, AdHocQuery>, res: Response<AdHocExpensesResponse | { error: string }>) => {
+  try {
+    const accountRaw = req.query.account;
+    if (!accountRaw || typeof accountRaw !== 'string' || !isValidAccountName(accountRaw)) {
+      res.status(400).json({ error: 'Invalid or missing account' });
+      return;
+    }
+    const account = accountRaw as AccountName;
+
+    const fyRaw = req.query.financialYear;
+    const financialYear =
+      typeof fyRaw === 'string' && fyRaw.trim() !== '' ? fyRaw.trim() : null;
+
+    if (financialYear !== null) {
+      const validYears = getAvailableFinancialYears();
+      if (!validYears.includes(financialYear)) {
+        res.status(400).json({ error: 'Invalid financial year' });
+        return;
+      }
+    }
+
+    const minTotal = Math.max(
+      0,
+      parseFloat(String(req.query.min ?? AD_HOC_DEFAULT_MIN_TOTAL)) || AD_HOC_DEFAULT_MIN_TOTAL,
+    );
+    const limit = clampInt(
+      parseInt(String(req.query.limit ?? AD_HOC_DEFAULT_LIMIT), 10) || AD_HOC_DEFAULT_LIMIT,
+      1,
+      AD_HOC_MAX_LIMIT,
+    );
+
+    const scopedRows = getTransactions({
+      account,
+      financialYear: financialYear ?? undefined,
+    });
+    const allTimeRows = getTransactions({ account });
+
+    const pipeline = buildRecurringPipeline({
+      scopedTransactions: scopedRows.map(transactionRowToRaw),
+      allTimeTransactions: allTimeRows.map(transactionRowToRaw),
+      includeIncome: false,
+    });
+
+    const expenseRows = getTransactions({
+      account,
+      financialYear: financialYear ?? undefined,
+      type: 'expense',
+    });
+    const expenseTransactions = expenseRows.map(transactionRowToRaw);
+
+    const items = computeAdHocExpenseGroups({
+      pipeline,
+      account,
+      expenseTransactions,
+      minTotal,
+      limit,
+    });
+
+    let periodDescription: string;
+    let analysisCutoff: string;
+    if (financialYear !== null) {
+      const range = getFinancialYearRange(financialYear);
+      periodDescription = `${formatUkLong(range.startDate)} – ${formatUkLong(range.endDate)} (${range.label})`;
+      analysisCutoff = range.startDate;
+    } else {
+      periodDescription = 'All time';
+      analysisCutoff = oldestIsoDate(expenseTransactions);
+    }
+
+    const body: AdHocExpensesResponse = {
+      account,
+      financialYear,
+      periodDescription,
+      analysisCutoff,
+      pipelineMonths: pipeline.monthsCovered,
+      analysisMonths: pipeline.monthsCovered,
+      minTotal,
+      limit,
+      items,
+    };
+    res.json(body);
+  } catch (error) {
+    console.error('Error generating ad hoc expenses:', error);
+    res.status(500).json({ error: 'Failed to generate ad hoc expenses' });
   }
 });
 

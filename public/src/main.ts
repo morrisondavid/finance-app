@@ -8,7 +8,8 @@ import { initTabs } from './modules/tabs';
 import { initDashboard, loadDashboard } from './modules/dashboard';
 import { initStatements, loadStatements } from './modules/statements';
 import { initUpload } from './modules/upload';
-import { initBudget, loadBudget } from './modules/budget';
+import { initFixedExpensesSheet, loadFixedExpensesSheet } from './modules/fixed-expenses-sheet';
+import { initAdHocExpenses, loadAdHocExpenses } from './modules/ad-hoc-expenses';
 import { initRecurring } from './modules/recurring';
 import { fetchAccountConfig } from './utils/api';
 
@@ -51,8 +52,10 @@ function initializeTabNavigation(): void {
       // Load data for the active tab
       if (target === 'dashboard') {
         loadDashboard();
-      } else if (target === 'budget') {
-        loadBudget();
+      } else if (target === 'fixed-expenses') {
+        loadFixedExpensesSheet();
+      } else if (target === 'ad-hoc-expenses') {
+        loadAdHocExpenses();
       } else if (target === 'statements') {
         loadStatements();
       }
@@ -72,7 +75,8 @@ async function initializeApp(): Promise<void> {
   // Initialize modules
   initDashboard();
   initRecurring();
-  initBudget();
+  initFixedExpensesSheet();
+  initAdHocExpenses();
   initStatements();
   initUpload({
     onUploadSuccess: () => {

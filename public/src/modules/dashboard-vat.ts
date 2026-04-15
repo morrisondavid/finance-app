@@ -7,6 +7,18 @@ import { state, getAccountConfig } from './state';
 import { fetchVATPayments } from '../utils/api';
 import { formatCurrency } from '../utils/formatting';
 
+/**
+ * HMRC: Corporation Tax due 9 months and 1 day after the end of the accounting period.
+ * Our FY is May–April; period end is always 30 April of `aprilEndYear` (the second calendar year in the label).
+ */
+function corporationTaxDueDateForMayAprilFY(aprilEndYear: number): Date {
+  const periodEnd = new Date(aprilEndYear, 3, 30);
+  const due = new Date(periodEnd);
+  due.setMonth(due.getMonth() + 9);
+  due.setDate(due.getDate() + 1);
+  return due;
+}
+
 function getNextVatDueDate(): string {
   const now = new Date();
   const year = now.getFullYear();
@@ -230,8 +242,7 @@ export function renderLiabilities(tax: DashboardSummary['taxLiabilities'], finan
         const periodLabel = `May ${sYear} - Apr ${eYear}`;
         if (corpTaxPeriodEl) corpTaxPeriodEl.textContent = `(${periodLabel})`;
 
-        const dueDate = new Date(eYear, 0, 1);
-        dueDate.setMonth(dueDate.getMonth() + 1);
+        const dueDate = corporationTaxDueDateForMayAprilFY(eYear);
         const formattedDue = dueDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
         if (corpTaxDueEl) corpTaxDueEl.textContent = `Due: ${formattedDue}`;
       }

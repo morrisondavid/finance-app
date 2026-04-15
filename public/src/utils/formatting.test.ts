@@ -5,6 +5,7 @@ import {
   formatAccountName,
   formatMonthYear,
   formatQuarterName,
+  formatIsoDateUk,
 } from './formatting';
 
 describe('round2', () => {
@@ -109,5 +110,17 @@ describe('formatQuarterName', () => {
     expect(formatQuarterName('Q5-2025')).toBe('Q5-2025');
     expect(formatQuarterName('q1-2025')).toBe('q1-2025');
     expect(formatQuarterName('Q1-2025-extra')).toBe('Q1-2025-extra');
+  });
+});
+
+describe('formatIsoDateUk', () => {
+  it('formats YYYY-MM-DD as en-GB day-first', () => {
+    expect(formatIsoDateUk('2025-03-07')).toMatch(/7\/3\/2025|07\/03\/2025/);
+  });
+
+  it('returns the input unchanged when not a plain ISO date or calendar-invalid', () => {
+    expect(formatIsoDateUk('')).toBe('');
+    expect(formatIsoDateUk('2025-02-30')).toBe('2025-02-30');
+    expect(formatIsoDateUk('n/a')).toBe('n/a');
   });
 });

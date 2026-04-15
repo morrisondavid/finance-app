@@ -9,8 +9,8 @@
  * Entries with `displayName: null` contribute to categorisation only — the normalizer
  * will fall through to later entries or its generic cleanup fallback.
  *
- * IMPORTANT: "Transfers" must stay first so inter-account movements are caught
- * before they accidentally match more specific categories.
+ * IMPORTANT: Narrow **Payroll** (salary tokens, no dividend) sits before generic person-name
+ * **Transfers**. Remaining **Transfers** rows stay early so other inter-account movements match first.
  */
 
 export const CATEGORY_NAMES = [
@@ -27,6 +27,7 @@ export const CATEGORY_NAMES = [
   'Debt Repayment',
   'Tax',
   'Business',
+  'Payroll',
   'Property',
   'Transfers',
   'Travel',
@@ -43,12 +44,24 @@ export interface MerchantEntry {
 }
 
 export const MERCHANT_REGISTRY: readonly MerchantEntry[] = [
-  // ─── Transfers (must be first) ──────────────────────────────────────────────
+  // ─── Transfers (early) + narrow Payroll before generic person transfers ─────
+  {
+    pattern:
+      /^(?!.*\bDIVIDEND\b)(?=.*\b(?:SALARY|PAYROLL|WAGE|NET\s+PAY|GROSS\s+PAY)\b).*DAVID\s+MORRISON/i,
+    category: 'Payroll',
+    displayName: null,
+  },
+  {
+    pattern:
+      /^(?!.*\bDIVIDEND\b)(?=.*\b(?:SALARY|PAYROLL|WAGE|NET\s+PAY|GROSS\s+PAY)\b).*(?:HEENA\s+TAILOR|HEENA\s+MORRISON)/i,
+    category: 'Payroll',
+    displayName: null,
+  },
   { pattern: /DAVID MORRISON/i, category: 'Transfers', displayName: 'David Morrison' },
   { pattern: /HEENA TAILOR|HEENA MORRISON/i, category: 'Transfers', displayName: 'Heena Tailor' },
   { pattern: /MONZO JOINT/i, category: 'Transfers', displayName: 'Monzo Joint' },
   // Payroll from own company — Income, not inter-account Transfers (must stay above generic transfer patterns)
-  { pattern: /AUTONIZE|AUTONIZEITLIMITED/i, category: 'Income', displayName: 'Autonize IT' },
+  { pattern: /AUTONIZE|AUTONIZEITLIMITED/i, category: 'Transfers', displayName: 'Autonize IT' },
   { pattern: /MORRISON DD/i, category: 'Transfers', displayName: null },
   { pattern: /TAILOR HEENA/i, category: 'Transfers', displayName: null },
   { pattern: /D MORRISON\b/i, category: 'Transfers', displayName: null },
@@ -85,12 +98,12 @@ export const MERCHANT_REGISTRY: readonly MerchantEntry[] = [
   { pattern: /MBNA/i, category: 'Debt Repayment', displayName: 'MBNA' },
   { pattern: /FUNDING CIRCLE/i, category: 'Debt Repayment', displayName: 'Funding Circle' },
   { pattern: /BARCLAYS PARTNER/i, category: 'Debt Repayment', displayName: 'Barclays Partner Finance' },
-  { pattern: /BOUNCE BACK/i, category: 'Debt Repayment', displayName: 'Bounce Back Loan' },
   { pattern: /CAPITAL ON TAP/i, category: 'Debt Repayment', displayName: 'Capital on Tap' },
   { pattern: /WWW\.BARCLAYCARD|BCARD/i, category: 'Debt Repayment', displayName: 'Barclaycard' },
   { pattern: /BANK OF IRELAND/i, category: 'Debt Repayment', displayName: 'Bank of Ireland' },
   { pattern: /FORD CREDIT/i, category: 'Debt Repayment', displayName: 'Ford Credit' },
   { pattern: /CREDIT STYLE/i, category: 'Debt Repayment', displayName: 'Credit Style' },
+  { pattern: /BARCLAYS\s+0520A/i, category: 'Debt Repayment', displayName: 'Bounce Back Loan' },
   { pattern: /BARCLAYS\s+\d{4}/i, category: 'Debt Repayment', displayName: null },
   { pattern: /INTEREST CHARGE\b(?!D)/i, category: 'Debt Repayment', displayName: 'Interest Charges' },
   { pattern: /BALANCE.*TRANSACTION/i, category: 'Debt Repayment', displayName: 'Balance Transaction' },
@@ -477,7 +490,7 @@ export const MERCHANT_REGISTRY: readonly MerchantEntry[] = [
   { pattern: /PLAN FEE/i, category: 'Business', displayName: 'Plan Fee' },
   { pattern: /CHARGES COMMISSION|CHARGES\*.*TFR/i, category: 'Business', displayName: 'Bank Charges' },
   { pattern: /UNPAID TRANSAC FEE/i, category: 'Business', displayName: 'Unpaid Transaction Fee' },
-  { pattern: /\d{2}(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC) A(?:\/| )C/i, category: 'Business', displayName: 'NatWest Account Fee' },
+  { pattern: /\d{2}(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC) A(?:\/| )C/i, category: 'Other', displayName: 'NatWest Account Fee' },
   { pattern: /INTEREST CHARGED/i, category: 'Business', displayName: 'Interest Charged' },
   { pattern: /PAYPAL \*STEAM/i, category: 'Business', displayName: 'Steam Games' },
   { pattern: /PAYPAL \*SEGPAY/i, category: 'Business', displayName: 'Segpay Subscription' },
