@@ -38,26 +38,43 @@ export function categorizeTransaction(description: string): CategoryName {
   return 'Other';
 }
 
-// ─── Colour Map ──────────────────────────────────────────────────────────────
+// ─── Category Config ─────────────────────────────────────────────────────────
 
-export const CATEGORY_COLOURS: Record<CategoryName, string> = {
-  'Housing':               '#6366F1',
-  'Utilities':             '#06B6D4',
-  'Groceries':             '#22C55E',
-  'Eating Out':            '#F97316',
-  'Transport':             '#EAB308',
-  'Shopping':              '#EC4899',
-  'Entertainment':         '#A855F7',
-  'Childcare & Education': '#3B82F6',
-  'Health & Personal':     '#10B981',
-  'Insurance':             '#8B5CF6',
-  'Debt Repayment':        '#EF4444',
-  'Tax':                   '#F43F5E',
-  'Business':              '#14B8A6',
-  'Payroll':               '#0D9488',
-  'Property':              '#F59E0B',
-  'Transfers':             '#38BDF8',
-  'Travel':                '#FB923C',
-  'Income':                '#34D399',
-  'Other':                 '#C084FC',
+interface CategoryConfig {
+  colour: string;
+  budgetable: boolean;
+}
+
+export const CATEGORY_CONFIG: Record<CategoryName, CategoryConfig> = {
+  'Groceries':             { colour: '#22C55E', budgetable: true },
+  'Eating Out':            { colour: '#F97316', budgetable: true },
+  'Transport':             { colour: '#EAB308', budgetable: true },
+  'Shopping':              { colour: '#EC4899', budgetable: true },
+  'Entertainment':         { colour: '#A855F7', budgetable: true },
+  'Childcare & Education': { colour: '#3B82F6', budgetable: true },
+  'Health & Personal':     { colour: '#10B981', budgetable: true },
+  'Business':              { colour: '#14B8A6', budgetable: true },
+  'Accommodation':         { colour: '#B45309', budgetable: true },
+  'Travel':                { colour: '#FB923C', budgetable: true },
+  'Other':                 { colour: '#C084FC', budgetable: true },
+  'Housing':               { colour: '#6366F1', budgetable: false },
+  'Utilities':             { colour: '#06B6D4', budgetable: false },
+  'Insurance':             { colour: '#8B5CF6', budgetable: false },
+  'Debt Repayment':        { colour: '#EF4444', budgetable: false },
+  'Tax':                   { colour: '#F43F5E', budgetable: false },
+  'Payroll':               { colour: '#0D9488', budgetable: false },
+  'Property':              { colour: '#F59E0B', budgetable: false },
+  'Transfers':             { colour: '#38BDF8', budgetable: false },
+  'Income':                { colour: '#34D399', budgetable: false },
 };
+
+export const CATEGORY_COLOURS: Record<CategoryName, string> =
+  Object.fromEntries(
+    CATEGORY_NAMES.map(name => [name, CATEGORY_CONFIG[name].colour]),
+  ) as Record<CategoryName, string>;
+
+const CATEGORY_COLOUR_FALLBACK = '#6B7280';
+
+export function categoryColour(name: string): string {
+  return CATEGORY_COLOURS[name as CategoryName] ?? CATEGORY_COLOUR_FALLBACK;
+}

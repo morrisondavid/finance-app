@@ -2,8 +2,8 @@
  * Canonical budgets CSV on disk (source of truth). DB is populated on startup;
  * mutating APIs rewrite this file.
  *
- * `amount` is the permanent monthly budget cap per account + category (all financial years).
- * Legacy CSV rows may include `financial_year`; that column is ignored when loading.
+ * `amount`: monthly cap when `period` is `monthly` (default), or full FY cap when `period` is `yearly`.
+ * Legacy CSV rows may omit `period` (defaults to monthly) or include `financial_year` (ignored).
  */
 
 import fs from 'fs';
@@ -12,16 +12,20 @@ import { parse } from 'csv-parse/sync';
 import type { AccountName } from '../types.js';
 import { isValidAccountName } from '../types.js';
 import { CATEGORY_NAMES, type CategoryName } from '../utils/categorizer.js';
+import { round2 } from '../utils/math.js';
 
 export const BUDGETS_CSV_FILENAME = 'category-budgets.csv';
+
+export type BudgetPeriodCsv = 'monthly' | 'yearly';
 
 export interface BudgetCsvRow {
   account: AccountName;
   category: CategoryName;
   amount: number;
+  period: BudgetPeriodCsv;
 }
 
-const HEADERS = ['account', 'category', 'amount'] as const;
+const HEADERS = ['account', 'category', 'amount', 'period'] as const;
 
 function ensureBudgetsDir(budgetsDir: string): void {
   if (!fs.existsSync(budgetsDir)) {
@@ -63,11 +67,14 @@ export function readBudgetsFromCsvFile(csvPath: string): BudgetCsvRow[] {
     if (!CATEGORY_NAMES.includes(category as CategoryName)) continue;
     const amount = Number(amountRaw);
     if (!Number.isFinite(amount) || amount < 0) continue;
+    const periodRaw = (row.period ?? 'monthly').toLowerCase().trim();
+    const period: BudgetPeriodCsv = periodRaw === 'yearly' ? 'yearly' : 'monthly';
     const key = `${account}\t${category}`;
     merged.set(key, {
       account: account as AccountName,
       category: category as CategoryName,
       amount,
+      period,
     });
   }
 
@@ -100,7 +107,8 @@ export function writeBudgetsToCsvFile(csvPath: string, rows: BudgetCsvRow[]): vo
       [
         escapeCsvField(r.account),
         escapeCsvField(r.category),
-        String(Math.round(r.amount * 100) / 100),
+        String(round2(r.amount)),
+        r.period,
       ].join(','),
     );
   }

@@ -4,6 +4,8 @@
 
 import { state } from './state';
 import { fetchRecurringExpenses } from '../utils/api';
+import { formatCurrency } from '../utils/formatting';
+import { escapeHtml, escapeAttribute } from '../utils/dom';
 import type { RecurringExpense } from '../../../shared/api-contracts.js';
 
 export function initRecurring(): void {
@@ -11,7 +13,7 @@ export function initRecurring(): void {
 }
 
 function formatAmount(expense: RecurringExpense): string {
-  const formatted = `£${expense.amount.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formatted = formatCurrency(expense.amount);
   return expense.frequency === 'monthly' ? `-${formatted}/mo` : `-${formatted}`;
 }
 
@@ -29,32 +31,33 @@ function buildPodHTML(expense: RecurringExpense, index: number): string {
   const initials = getInitials(expense.merchant);
 
   const logoImg = expense.logoUrl
-    ? `<img class="recurring-pod-logo" src="${expense.logoUrl}" alt="" loading="lazy"
+    ? `<img class="recurring-pod-logo" src="${escapeAttribute(expense.logoUrl)}" alt="" loading="lazy"
            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'">`
     : '';
 
+  const safeColour = escapeAttribute(expense.colour);
   const initialsDiv = expense.logoUrl
-    ? `<div class="recurring-pod-initials" style="display:none; background:${expense.colour}">${initials}</div>`
-    : `<div class="recurring-pod-initials" style="display:flex; background:${expense.colour}">${initials}</div>`;
+    ? `<div class="recurring-pod-initials" style="display:none; background:${safeColour}">${escapeHtml(initials)}</div>`
+    : `<div class="recurring-pod-initials" style="display:flex; background:${safeColour}">${escapeHtml(initials)}</div>`;
 
   const billingInfo = expense.billingDay ? ` — ${expense.billingDay}` : '';
   const tooltip = `${expense.merchant} — ${expense.category} — ${formatAmount(expense)}${billingInfo}`;
 
   return `
-    <div class="recurring-pod" style="animation-delay:${delay}s" title="${tooltip}">
+    <div class="recurring-pod" style="animation-delay:${delay}s" title="${escapeAttribute(tooltip)}">
       ${logoImg}
       ${initialsDiv}
       <div class="recurring-pod-info">
-        <span class="recurring-pod-name">${expense.merchant}</span>
-        <span class="recurring-pod-amount">${formatAmount(expense)}</span>
-        ${expense.billingDay ? `<span class="recurring-pod-date">${expense.billingDay}</span>` : ''}
-        <span class="recurring-pod-category"><span class="recurring-pod-cat-dot" style="background:${expense.colour}"></span>${expense.category}</span>
+        <span class="recurring-pod-name">${escapeHtml(expense.merchant)}</span>
+        <span class="recurring-pod-amount">${escapeHtml(formatAmount(expense))}</span>
+        ${expense.billingDay ? `<span class="recurring-pod-date">${escapeHtml(expense.billingDay)}</span>` : ''}
+        <span class="recurring-pod-category"><span class="recurring-pod-cat-dot" style="background:${safeColour}"></span>${escapeHtml(expense.category)}</span>
       </div>
     </div>`;
 }
 
 function formatTotal(amount: number): string {
-  return `£${amount.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatCurrency(amount);
 }
 
 function renderSection(label: string, expenses: RecurringExpense[]): string {

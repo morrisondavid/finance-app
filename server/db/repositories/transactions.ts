@@ -31,6 +31,12 @@ export interface TransactionFilters {
   type?: TransactionType;
   includeTransfers?: boolean;
   financialYear?: string;
+  search?: string;
+}
+
+/** Escape `%`, `_`, and `\` for SQL `LIKE` when using `ESCAPE '\\'`. */
+function escapeLikePatternSegment(fragment: string): string {
+  return fragment.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
 
 /**
@@ -402,7 +408,18 @@ export function getTransactions(filters: TransactionFilters = {}): TransactionRo
     sql += ' AND date >= ? AND date <= ?';
     params.push(range.startDate, range.endDate);
   }
-  
+
+  if (filters.search) {
+    const needle = filters.search.trim();
+    // Display label "Uber Eats" does not appear on card lines (e.g. UBER *EATS).
+    if (needle.toLowerCase() === 'uber eats') {
+      sql += " AND LOWER(description) LIKE '%uber%eats%' ESCAPE '\\'";
+    } else {
+      sql += " AND description LIKE ? ESCAPE '\\'";
+      params.push(`%${escapeLikePatternSegment(needle)}%`);
+    }
+  }
+
   sql += ' ORDER BY date DESC';
   
   return db.prepare(sql).all(...params) as TransactionRow[];

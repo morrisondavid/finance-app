@@ -6,6 +6,7 @@ import type { DashboardSummary, AccountSummary } from '../types';
 import { state, setState } from './state';
 import { fetchDashboard, fetchTransactions } from '../utils/api';
 import { formatCurrency } from '../utils/formatting';
+import { escapeHtml } from '../utils/dom';
 import { loadRecurring } from './recurring.js';
 import { loadAdHocExpenses } from './ad-hoc-expenses.js';
 import { AccountNameSchema } from '../../../shared/api-contracts.js';
@@ -17,9 +18,11 @@ import {
   initSummaryCardHandlers,
   initVatPaymentsHandler,
   initBudgetDashboardPanelInteractions,
+  initYearlyBudgetDashboardPanelInteractions,
 } from './dashboard-modals';
 import { renderLiabilities } from './dashboard-vat';
-import { renderBudgetDashboardPanel } from './dashboard-budgets';
+import { renderBudgetDashboardPanel, renderYearlyBudgetDashboardPanel } from './dashboard-budgets';
+import { renderBudgetNudgesPanel, initBudgetNudgeInteractions } from './dashboard-budget-nudges';
 
 // ─── Data loading ─────────────────────────────────────────────────────────────
 
@@ -46,6 +49,8 @@ export async function loadDashboard(): Promise<void> {
     loadRecentTransactions();
     loadRecurring();
     renderBudgetDashboardPanel(data);
+    renderYearlyBudgetDashboardPanel(data);
+    renderBudgetNudgesPanel(data);
   } catch (error) {
     console.error('[Dashboard] Error loading dashboard:', error);
     const container = document.getElementById('monthly-table');
@@ -134,7 +139,7 @@ function initAccountSelector(): void {
 
       const budgetSection = document.getElementById('budget');
       if (budgetSection?.classList.contains('active')) {
-        void import('./budget-sheet.js').then(m => m.loadBudgetSheet());
+        void import('./budget-sheet.js').then(m => m.loadBudgetSheet()).catch(err => console.error('[Budget] reload failed', err));
       }
     });
   });
@@ -263,8 +268,8 @@ async function loadRecentTransactions(): Promise<void> {
     container.innerHTML = data.map(t => `
       <div class="transaction-item">
         <div class="transaction-info">
-          <div class="transaction-desc">${t.description || 'No description'}</div>
-          <div class="transaction-meta">${t.date}</div>
+          <div class="transaction-desc">${escapeHtml(t.description || 'No description')}</div>
+          <div class="transaction-meta">${escapeHtml(t.date)}</div>
         </div>
         <div class="transaction-amount ${t.type}">
           ${t.type === 'income' ? '+' : ''}${formatCurrency(t.amount)}
@@ -285,6 +290,8 @@ export function initDashboard(): void {
   initBalanceModal();
   initTransactionsModal();
   initBudgetDashboardPanelInteractions();
+  initYearlyBudgetDashboardPanelInteractions();
+  initBudgetNudgeInteractions();
   initVatPaymentsHandler();
   initSummaryCardHandlers();
   loadDashboard();

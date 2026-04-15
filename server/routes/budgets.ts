@@ -1,6 +1,5 @@
 import express, { Request, Response } from 'express';
-import type { AccountName } from '../types.js';
-import { ACCOUNTS } from '../types.js';
+import { validateAccount } from '../types.js';
 import type { BudgetsListResponse, BudgetUpsertBody } from '../../shared/api-contracts.js';
 import {
   BudgetUpsertBodySchema,
@@ -14,13 +13,6 @@ const router = express.Router();
 router.get('/category-names', (_req, res: Response) => {
   res.json({ categories: [...CATEGORY_NAMES] });
 });
-
-function validateAccount(account: string | undefined): AccountName {
-  if (account && ACCOUNTS.includes(account as AccountName)) {
-    return account as AccountName;
-  }
-  return 'barclays-current';
-}
 
 interface BudgetListQuery {
   account?: string;
@@ -48,6 +40,7 @@ router.post('/', (req: Request<object, unknown, BudgetUpsertBody>, res: Response
       account: body.account,
       category: body.category as CategoryName,
       amount: body.amount,
+      period: body.period,
     });
     res.status(201).json(BudgetRowSchema.parse(row));
   } catch (error) {

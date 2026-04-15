@@ -7,7 +7,7 @@
  */
 
 import type { RecurringExpense, RecurringFrequency } from '../../shared/api-contracts.js';
-import { CATEGORY_COLOURS } from './categorizer.js';
+import { categoryColour } from './categorizer.js';
 import type { CategoryName } from './categorizer.js';
 import { SPECIAL_CATEGORY } from './category-constants.js';
 import { getMerchantLogoUrl } from './merchant-logos.js';
@@ -264,7 +264,7 @@ function toExpense(
   return {
     merchant: c.merchant,
     category: c.category,
-    colour: CATEGORY_COLOURS[c.category] ?? '#6B7280',
+    colour: categoryColour(c.category),
     amount: round2(displayAmount),
     frequency,
     monthsActive: c.monthsActive,

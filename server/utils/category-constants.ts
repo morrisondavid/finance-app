@@ -7,4 +7,5 @@ export const SPECIAL_CATEGORY = {
   debtRepayment: 'Debt Repayment',
   property: 'Property',
   payroll: 'Payroll',
+  tax: 'Tax',
 } as const satisfies Record<string, CategoryName>;

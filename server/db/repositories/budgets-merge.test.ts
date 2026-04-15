@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { mergeBudgetsWithMonthlySpend } from './budgets.js';
+import type { CategoryName } from '../../utils/categorizer.js';
+import { mergeBudgetsWithMonthlySpend, mergeYearlyBudgetsWithFySpend } from './budgets.js';
 
 const MONTH_KEYS = [
   '2025-05',
@@ -83,5 +84,31 @@ describe('mergeBudgetsWithMonthlySpend', () => {
     const [row] = mergeBudgetsWithMonthlySpend([{ category: 'X', amount: 10 }], byMonth, MONTH_KEYS);
     expect(row.months).toHaveLength(12);
     expect(row.months.every(m => m.difference === -10)).toBe(true);
+  });
+});
+
+describe('mergeYearlyBudgetsWithFySpend', () => {
+  it('returns negative difference when under yearly cap', () => {
+    const fyTotals = new Map<CategoryName, number>([['Travel', 400]]);
+    const [row] = mergeYearlyBudgetsWithFySpend([{ category: 'Travel', amount: 1000 }], fyTotals);
+    expect(row).toMatchObject({
+      category: 'Travel',
+      yearlyBudget: 1000,
+      spent: 400,
+      difference: -600,
+    });
+  });
+
+  it('returns positive difference when over yearly cap', () => {
+    const fyTotals = new Map<CategoryName, number>([['Travel', 1200]]);
+    const [row] = mergeYearlyBudgetsWithFySpend([{ category: 'Travel', amount: 1000 }], fyTotals);
+    expect(row.difference).toBe(200);
+  });
+
+  it('treats missing category spend as zero', () => {
+    const fyTotals = new Map<CategoryName, number>();
+    const [row] = mergeYearlyBudgetsWithFySpend([{ category: 'Other', amount: 500 }], fyTotals);
+    expect(row.spent).toBe(0);
+    expect(row.difference).toBe(-500);
   });
 });

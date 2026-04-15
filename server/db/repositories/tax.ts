@@ -10,6 +10,7 @@ import {
 } from '../../config/tax-rates.js';
 import { DIRECTORS, HMRC_PATTERNS } from '../../config/payees.js';
 import { getBusinessPaymentAccounts } from '../../types.js';
+import { round2 } from '../../utils/math.js';
 
 export interface TaxLiabilities {
   // VAT (outstanding quarter - due next)
@@ -94,8 +95,8 @@ function getDirectorPayments(
     ${clause}
   `).get(namePattern, salaryMin, salaryMax, ...params) as { total: number };
   
-  const salary = Math.round(salaryResult.total * 100) / 100;
-  const dividends = Math.round(dividendResult.total * 100) / 100;
+  const salary = round2(salaryResult.total);
+  const dividends = round2(dividendResult.total);
   
   return {
     salary,
@@ -142,7 +143,7 @@ export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilitie
   `).get(vatQuarter.startDate, vatQuarter.endDate) as { total: number };
   
   const vatQuarterIncome = vatQuarterIncomeResult.total;
-  const vatOwedThisQuarter = Math.round((vatQuarterIncome * VAT.FRACTION) * 100) / 100;
+  const vatOwedThisQuarter = round2(vatQuarterIncome * VAT.FRACTION);
   
   // In-progress quarter: the quarter we're currently inside (may differ from outstanding)
   const calendarQuarter = getVatQuarterForDate(new Date());
@@ -157,11 +158,11 @@ export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilitie
       WHERE type = 'income'
       AND date >= ? AND date <= ?
     `).get(calendarQuarter.startDate, calendarQuarter.endDate) as { total: number };
-    vatInProgressEstimate = Math.round((inProgressIncomeResult.total * VAT.FRACTION) * 100) / 100;
+    vatInProgressEstimate = round2(inProgressIncomeResult.total * VAT.FRACTION);
   }
   
   // Legacy: VAT on income for the FY (still needed for some displays)
-  const vatOnIncome = Math.round((income * VAT.FRACTION) * 100) / 100;
+  const vatOnIncome = round2(income * VAT.FRACTION);
   
   // Get VAT already paid to HMRC (rolling 12 months / 4 quarters)
   // VAT payments can come from any business account that can make payments
@@ -194,7 +195,7 @@ export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilitie
     AND date >= ? AND date <= ?
   `).get(...vatPatterns, ...vatAccounts, formatDate(twelveMonthsAgo), formatDate(today)) as { total: number };
   
-  const vatPaidLast4Quarters = Math.round(vatPaidResult.total * 100) / 100;
+  const vatPaidLast4Quarters = round2(vatPaidResult.total);
   
   // Get director payments
   const david = DIRECTORS.find(d => d.name === 'David Morrison');
@@ -214,7 +215,7 @@ export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilitie
   const taxableProfit = Math.max(0, incomeNetOfVat);
   
   const corpTax = calculateCorporationTax(taxableProfit);
-  const corporationTax = Math.round(corpTax.tax * 100) / 100;
+  const corporationTax = round2(corpTax.tax);
   const corporationTaxRate = Math.round(corpTax.effectiveRate * 10000) / 100; // as percentage
   
   const davidDividendTax = calculateDirectorDividendTax(davidPayments.salary, davidPayments.dividends);
@@ -241,18 +242,18 @@ export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilitie
     // Corporation Tax
     corporationTax,
     corporationTaxRate,
-    taxableProfit: Math.round(taxableProfit * 100) / 100,
+    taxableProfit: round2(taxableProfit),
     
     // Director payments
     davidPayments,
-    davidTaxEstimate: Math.round(davidDividendTax * 100) / 100,
+    davidTaxEstimate: round2(davidDividendTax),
     davidTaxBreakdown: {
-      dividendTax: Math.round(davidDividendTax * 100) / 100
+      dividendTax: round2(davidDividendTax)
     },
     heenaPayments,
-    heenaTaxEstimate: Math.round(heenaDividendTax * 100) / 100,
+    heenaTaxEstimate: round2(heenaDividendTax),
     heenaTaxBreakdown: {
-      dividendTax: Math.round(heenaDividendTax * 100) / 100
+      dividendTax: round2(heenaDividendTax)
     }
   };
 }

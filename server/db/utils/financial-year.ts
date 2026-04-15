@@ -21,6 +21,11 @@ export interface DashboardFilters {
   financialYear?: string;
 }
 
+/** Canonical form: "2024/25" (slash-separated). Accepts "2024-25" or "2024/25". */
+export function normalizeFinancialYear(fy: string): string {
+  return fy.replace('-', '/');
+}
+
 /**
  * Get the date range for a financial year
  * @param fy Financial year in format "2024/25" or "2024-25"

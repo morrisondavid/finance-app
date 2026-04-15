@@ -9,6 +9,7 @@
  */
 
 import { TRANSFER_DATE_TOLERANCE_DAYS } from '../config/transfer-patterns.js';
+import { classifyTransactionSide } from './recurring-pipeline.js';
 
 export interface PassThroughTransaction {
   id: number;
@@ -46,12 +47,9 @@ export function detectPassThrough(
   const outgoings: PassThroughTransaction[] = [];
 
   for (const t of transactions) {
-    if (t.type === 'income' || (t.type === 'transfer' && t.amount > 0)) {
-      incomes.push(t);
-    }
-    if (t.type === 'expense' || (t.type === 'transfer' && t.amount < 0)) {
-      outgoings.push(t);
-    }
+    const side = classifyTransactionSide(t);
+    if (side === 'income') incomes.push(t);
+    if (side === 'expense') outgoings.push(t);
   }
 
   incomes.sort((a, b) => a.date.localeCompare(b.date));

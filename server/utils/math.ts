@@ -3,6 +3,11 @@ export function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Extract YYYY-MM from an ISO date string (e.g. "2025-06-15" → "2025-06"). */
+export function monthKeyFromIsoDate(dateStr: string): string {
+  return dateStr.slice(0, 7);
+}
+
 /** Rolling window for expenses / recurring analysis (months). */
 export const ROLLING_MONTHS = 24;
 

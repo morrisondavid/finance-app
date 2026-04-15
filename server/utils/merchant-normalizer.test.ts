@@ -13,11 +13,14 @@ describe('normalizeMerchant', () => {
       ['VIRGIN MEDIA PYMTS     REF: 12345', 'Virgin Media'],
       ['DELIVEROO', 'Deliveroo'],
       ['UBER EATS', 'Uber Eats'],
+      ['5120 15APR26 UBER *EATS NATWEST GBR', 'Uber Eats'],
       ['UBER                   CARD PAYMENT', 'Uber'],
+      ['UBER PAYMENTS UK', 'Uber'],
       ['HMRC VAT', 'HMRC'],
       ['DAVID MORRISON', 'David Morrison'],
       ['HEENA TAILOR', 'Heena Tailor'],
       ['NATWEST', 'NatWest Mortgage'],
+      ['DRAW DOWN OF 6000.00 CAP ONE', 'Credit line drawdown'],
     ] as const)('normalizes %j to %j', (raw, expected) => {
       expect(normalizeMerchant(raw)).toBe(expected);
     });
@@ -30,6 +33,10 @@ describe('normalizeMerchant', () => {
 
     it('title-cases remaining words when short numeric tokens and payment noise are stripped', () => {
       expect(normalizeMerchant('ZZZLOCAL SHOP 1111 STO')).toBe('Zzzlocal Shop');
+    });
+
+    it('drops orphaned fractional tails after large amount digits are stripped', () => {
+      expect(normalizeMerchant('ACME LOANS 5000.00 REF 9')).toBe('Acme Loans');
     });
   });
 

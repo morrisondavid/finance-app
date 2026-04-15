@@ -162,6 +162,9 @@ export const UploadedFileSchema = z.object({
 // API Response Schemas
 // ============================================
 
+export const BudgetPeriodSchema = z.enum(['monthly', 'yearly']);
+export type BudgetPeriod = z.infer<typeof BudgetPeriodSchema>;
+
 export const BudgetMonthComparisonSchema = z.object({
   monthKey: z.string(),
   monthLabel: z.string(),
@@ -177,12 +180,21 @@ export const BudgetComparisonSchema = z.object({
   months: z.array(BudgetMonthComparisonSchema).default([]),
 });
 
+export const YearlyBudgetComparisonSchema = z.object({
+  category: z.string(),
+  yearlyBudget: z.number(),
+  spent: z.number(),
+  /** spent minus yearlyBudget (negative = under budget). */
+  difference: z.number(),
+});
+
 export const BudgetRowSchema = z.object({
   id: z.number(),
   account: AccountNameSchema,
   category: z.string(),
-  /** Permanent monthly cap for this account + category. */
+  /** Monthly cap or full FY cap depending on `period`. */
   amount: z.number(),
+  period: BudgetPeriodSchema,
 });
 
 export const BudgetsListResponseSchema = z.object({
@@ -193,10 +205,21 @@ export const BudgetUpsertBodySchema = z.object({
   account: AccountNameSchema,
   category: z.string(),
   amount: z.number(),
+  period: BudgetPeriodSchema,
 });
 
 export const BudgetCategoryNamesResponseSchema = z.object({
   categories: z.array(z.string()),
+});
+
+export const BudgetNudgeSchema = z.object({
+  /** Display label (registry or cleaned merchant name); also used as drill-down `search` substring. */
+  merchant: z.string(),
+  suggestedCategory: z.string(),
+  totalSpend: z.number(),
+  transactionCount: z.number(),
+  lastDate: z.string(),
+  logoUrl: z.string().nullable(),
 });
 
 // GET /api/dashboard/summary
@@ -214,6 +237,8 @@ export const DashboardSummaryResponseSchema = z.object({
   selectedFinancialYear: z.string().nullable(),
   selectedAccount: AccountNameSchema.optional(),
   budgetComparisons: z.array(BudgetComparisonSchema).default([]),
+  yearlyBudgetComparisons: z.array(YearlyBudgetComparisonSchema).default([]),
+  budgetNudges: z.array(BudgetNudgeSchema).default([]),
 });
 
 // GET /api/dashboard/accounts
@@ -478,10 +503,12 @@ export type CategoryBreakdown = z.infer<typeof CategoryBreakdownSchema>;
 export type CategoriesResponse = z.infer<typeof CategoriesResponseSchema>;
 export type BudgetMonthComparison = z.infer<typeof BudgetMonthComparisonSchema>;
 export type BudgetComparison = z.infer<typeof BudgetComparisonSchema>;
+export type YearlyBudgetComparison = z.infer<typeof YearlyBudgetComparisonSchema>;
 export type BudgetRow = z.infer<typeof BudgetRowSchema>;
 export type BudgetsListResponse = z.infer<typeof BudgetsListResponseSchema>;
 export type BudgetUpsertBody = z.infer<typeof BudgetUpsertBodySchema>;
 export type BudgetCategoryNamesResponse = z.infer<typeof BudgetCategoryNamesResponseSchema>;
+export type BudgetNudge = z.infer<typeof BudgetNudgeSchema>;
 export type ExpensesVariancePoint = z.infer<typeof ExpensesVariancePointSchema>;
 export type ExpensesLineItem = z.infer<typeof ExpensesLineItemSchema>;
 export type ExpensesSection = z.infer<typeof ExpensesSectionSchema>;

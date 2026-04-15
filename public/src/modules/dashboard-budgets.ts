@@ -3,6 +3,7 @@
  */
 
 import type { DashboardSummary } from '../types';
+import type { YearlyBudgetComparison } from '../../../shared/api-contracts.js';
 import { escapeHtml, escapeAttribute } from '../utils/dom';
 import { formatCurrency } from '../utils/formatting';
 
@@ -64,6 +65,28 @@ function categoryTableRows(r: {
     .join('');
 }
 
+function yearlyTableRows(rows: YearlyBudgetComparison[]): string {
+  return rows
+    .map(r => {
+      const rowClass = rowClassForDifference(r.difference);
+      const cat = escapeHtml(r.category);
+      const catAttr = escapeAttribute(r.category);
+      const ariaOpen = escapeAttribute(`View transactions: ${r.category}, full financial year`);
+      return `<tr class="${rowClass}" data-budget-yearly data-budget-yearly-category="${catAttr}" tabindex="0" role="button" aria-label="${ariaOpen}">
+        <td>${cat}</td>
+        <td class="budget-dashboard-td-amount">${formatCurrency(r.yearlyBudget)}</td>
+        <td class="budget-dashboard-td-amount">${formatCurrency(r.spent)}</td>
+        <td class="budget-dashboard-td-amount">${formatCurrency(r.difference)}</td>
+      </tr>`;
+    })
+    .join('');
+}
+
+function yearlyHasAnyOver(rows: YearlyBudgetComparison[]): boolean {
+  return rows.some(r => r.difference > 0);
+}
+
+/** Monthly budgets — original dashboard panel (unchanged behaviour). */
 export function renderBudgetDashboardPanel(data: DashboardSummary): void {
   const note = document.getElementById('budget-dashboard-note');
   const body = document.getElementById('budget-dashboard-body');
@@ -120,6 +143,63 @@ export function renderBudgetDashboardPanel(data: DashboardSummary): void {
           </tr>
         </thead>
         <tbody>${tbody}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+/** Yearly budgets — separate panel below monthly Budgets. */
+export function renderYearlyBudgetDashboardPanel(data: DashboardSummary): void {
+  const note = document.getElementById('yearly-budget-dashboard-note');
+  const body = document.getElementById('yearly-budget-dashboard-body');
+  const panel = document.getElementById('yearly-budget-dashboard-panel');
+  if (!note || !body || !panel) return;
+
+  panel.classList.remove('budget-dashboard-panel--has-over', 'budget-dashboard-panel--all-clear');
+
+  if (!data.selectedFinancialYear) {
+    note.hidden = false;
+    note.textContent = 'Select a financial year to compare budgets.';
+    body.innerHTML = '';
+    return;
+  }
+
+  const yearlyRows = data.yearlyBudgetComparisons ?? [];
+  if (yearlyRows.length === 0) {
+    note.hidden = false;
+    note.textContent =
+      'No yearly budgets set for this account in this financial year. Use the Budget tab, choose Yearly, and add amounts.';
+    body.innerHTML = '';
+    return;
+  }
+
+  note.hidden = true;
+
+  const hasOver = yearlyHasAnyOver(yearlyRows);
+  if (hasOver) {
+    panel.classList.add('budget-dashboard-panel--has-over');
+  } else {
+    panel.classList.add('budget-dashboard-panel--all-clear');
+  }
+
+  body.innerHTML = `
+    <div class="budget-dashboard-table-scroll">
+      <table class="budget-dashboard-budgets-table budget-dashboard-budgets-table--yearly">
+        <colgroup>
+          <col class="budget-dashboard-col-category" />
+          <col class="budget-dashboard-col-amount" />
+          <col class="budget-dashboard-col-amount" />
+          <col class="budget-dashboard-col-amount" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th class="budget-dashboard-th-amount">Budget (FY)</th>
+            <th class="budget-dashboard-th-amount">Spent (FY)</th>
+            <th class="budget-dashboard-th-amount">Difference</th>
+          </tr>
+        </thead>
+        <tbody>${yearlyTableRows(yearlyRows)}</tbody>
       </table>
     </div>
   `;

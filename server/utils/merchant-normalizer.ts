@@ -28,6 +28,8 @@ function cleanFallback(description: string): string {
   for (const pat of NOISE_PATTERNS) {
     cleaned = cleaned.replace(pat, ' ');
   }
+  // Remove orphaned fractional tails left when 4+ digit amounts were stripped (e.g. "… Of .00").
+  cleaned = cleaned.replace(/\s+\.\d{1,3}\b/g, ' ');
   cleaned = cleaned.trim().replace(/\s+/g, ' ');
 
   if (cleaned.length === 0) return description.trim();

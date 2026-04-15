@@ -7,6 +7,7 @@ import type { AccountName } from '../types.js';
 import type { CategoryName } from '../utils/merchant-registry.js';
 import { categorizeTransaction } from '../utils/categorizer.js';
 import { normalizeMerchant } from '../utils/merchant-normalizer.js';
+import { classifyTransactionSide } from '../utils/recurring-pipeline.js';
 
 export interface PayrollEntry {
   sourceAccount: AccountName;
@@ -70,8 +71,7 @@ export function transactionCategoryWithPayroll(
   type: 'income' | 'expense' | 'transfer',
 ): CategoryName {
   const base = categorizeTransaction(description);
-  const isOut = type === 'expense' || (type === 'transfer' && amount < 0);
-  if (!isOut) return base;
+  if (classifyTransactionSide({ type, amount }) !== 'expense') return base;
   const merchant = normalizeMerchant(description);
   const payroll = matchPayrollEntry(merchant, account, Math.abs(amount), description);
   if (payroll) return 'Payroll';

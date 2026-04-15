@@ -130,12 +130,13 @@ export function initSchema(): void {
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
-    -- category_budgets.amount = permanent monthly cap per account + category (all FYs)
+    -- category_budgets: one row per (account, category). amount = monthly cap or FY yearly cap; budget_period disambiguates.
     CREATE TABLE IF NOT EXISTS category_budgets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       account TEXT NOT NULL,
       category TEXT NOT NULL,
       amount REAL NOT NULL CHECK(amount >= 0),
+      budget_period TEXT NOT NULL DEFAULT 'monthly',
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(account, category)
     );
@@ -182,12 +183,13 @@ export function migrateCategoryBudgetsIfNeeded(): void {
       account TEXT NOT NULL,
       category TEXT NOT NULL,
       amount REAL NOT NULL CHECK(amount >= 0),
+      budget_period TEXT NOT NULL DEFAULT 'monthly',
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(account, category)
     );
 
-    INSERT INTO category_budgets__new (account, category, amount, updated_at)
-    SELECT b.account, b.category, b.amount, b.updated_at
+    INSERT INTO category_budgets__new (account, category, amount, budget_period, updated_at)
+    SELECT b.account, b.category, b.amount, 'monthly', b.updated_at
     FROM category_budgets b
     INNER JOIN (
       SELECT account, category, MAX(id) AS max_id
@@ -201,4 +203,14 @@ export function migrateCategoryBudgetsIfNeeded(): void {
     CREATE INDEX IF NOT EXISTS idx_category_budgets_account ON category_budgets(account);
   `);
   console.log('[Database] Migrated category_budgets to permanent (account, category) rows');
+}
+
+/** Add budget_period column for DBs created before monthly/yearly budgets. */
+export function migrateCategoryBudgetsBudgetPeriodIfNeeded(): void {
+  const db = getDb();
+  const cols = db.prepare(`PRAGMA table_info('category_budgets')`).all() as Array<{ name: string }>;
+  if (cols.length === 0) return;
+  if (cols.some(c => c.name === 'budget_period')) return;
+  db.exec(`ALTER TABLE category_budgets ADD COLUMN budget_period TEXT NOT NULL DEFAULT 'monthly'`);
+  console.log('[Database] Added category_budgets.budget_period');
 }

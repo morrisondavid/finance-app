@@ -11,6 +11,7 @@ import { ACCOUNTS } from '../../types.js';
 import { getTransactions } from './transactions.js';
 import { detectPassThrough } from '../../utils/pass-through-detector.js';
 import { VAT } from '../../config/tax-rates.js';
+import { round2 } from '../../utils/math.js';
 
 /**
  * Get dashboard totals
@@ -38,13 +39,12 @@ export function getDashboardTotals(filters: DashboardFilters = {}): DashboardTot
     SELECT COALESCE(SUM(ABS(amount)), 0) as total FROM transactions WHERE type = 'transfer' AND amount < 0${clause}
   `).get(...params) as { total: number };
   
-  const income = Math.round(incomeResult.total * 100) / 100;
-  const expenses = Math.round(expenseResult.total * 100) / 100;
-  const net = Math.round((income - expenses) * 100) / 100;
-  // VAT in gross (VAT-inclusive) expenses: standard-rate fraction from tax config
-  const vatLiability = Math.round((expenses * VAT.FRACTION) * 100) / 100;
-  const transfersIn = Math.round(transfersInResult.total * 100) / 100;
-  const transfersOut = Math.round(transfersOutResult.total * 100) / 100;
+  const income = round2(incomeResult.total);
+  const expenses = round2(expenseResult.total);
+  const net = round2(income - expenses);
+  const vatLiability = round2(expenses * VAT.FRACTION);
+  const transfersIn = round2(transfersInResult.total);
+  const transfersOut = round2(transfersOutResult.total);
 
   // Detect pass-through income for the selected account (or all accounts)
   const txns = getTransactions({
@@ -53,7 +53,7 @@ export function getDashboardTotals(filters: DashboardFilters = {}): DashboardTot
     includeTransfers: true,
   });
   const { totalExcluded } = detectPassThrough(txns);
-  const passThroughIncome = Math.round(totalExcluded * 100) / 100;
+  const passThroughIncome = round2(totalExcluded);
   
   return { income, expenses, net, vatLiability, transfersIn, transfersOut, passThroughIncome };
 }
@@ -81,10 +81,10 @@ export function getMonthlySummary(filters: DashboardFilters = {}): MonthlySummar
   
   return rows.map(row => ({
     month: row.month,
-    income: Math.round(row.income * 100) / 100,
-    expenses: Math.round(row.expenses * 100) / 100,
-    net: Math.round((row.income - row.expenses) * 100) / 100,
-    vat: Math.round((row.expenses * VAT.FRACTION) * 100) / 100
+    income: round2(row.income),
+    expenses: round2(row.expenses),
+    net: round2(row.income - row.expenses),
+    vat: round2(row.expenses * VAT.FRACTION)
   }));
 }
 
@@ -117,8 +117,8 @@ export function getAccountSummary(filters: DashboardFilters = {}): Record<string
     `).get(account, ...params) as { income: number | null; expenses: number | null; count: number; newest: string | null };
     
     result[account] = {
-      income: Math.round((row.income || 0) * 100) / 100,
-      expenses: Math.round((row.expenses || 0) * 100) / 100,
+      income: round2(row.income || 0),
+      expenses: round2(row.expenses || 0),
       transactionCount: row.count,
       newestTransaction: row.newest
     };

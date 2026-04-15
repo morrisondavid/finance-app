@@ -3,6 +3,7 @@
  */
 
 import { uploadFiles as apiUploadFiles } from '../utils/api';
+import { escapeHtml } from '../utils/dom';
 
 /**
  * Initialize upload functionality
@@ -99,7 +100,7 @@ function showDuplicateModal(duplicates: string[]): Promise<boolean> {
       return;
     }
 
-    list.innerHTML = duplicates.map(f => `<li>${f}</li>`).join('');
+    list.innerHTML = duplicates.map(f => `<li>${escapeHtml(f)}</li>`).join('');
     modal.style.display = 'flex';
 
     function cleanup() {
@@ -160,17 +161,17 @@ async function handleFiles(
     }
     
     if (response.ok) {
-      statusEl.innerHTML = `<div class="success">${result.message || 'Upload successful!'}</div>`;
+      statusEl.innerHTML = `<div class="success">${escapeHtml(result.message || 'Upload successful!')}</div>`;
       
       setTimeout(() => {
         if (onSuccess) onSuccess();
         statusEl.innerHTML = '';
       }, 2000);
     } else {
-      statusEl.innerHTML = `<div class="error">Error: ${result.error || result.message || 'Upload failed'}</div>`;
+      statusEl.innerHTML = `<div class="error">Error: ${escapeHtml(result.error || result.message || 'Upload failed')}</div>`;
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    statusEl.innerHTML = `<div class="error">Upload failed: ${errorMessage}</div>`;
+    statusEl.innerHTML = `<div class="error">Upload failed: ${escapeHtml(errorMessage)}</div>`;
   }
 }

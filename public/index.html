@@ -323,10 +323,18 @@
         <div class="recurring-sections" id="recurring-sections"></div>
       </div>
 
+      <div class="panel budget-nudges-panel" id="budget-nudges-panel" hidden></div>
+
       <div class="panel budget-dashboard-panel" id="budget-dashboard-panel">
-        <h2>Budgets</h2>
+        <h2>Monthly Budgets</h2>
         <p class="budget-dashboard-note" id="budget-dashboard-note" hidden></p>
         <div id="budget-dashboard-body" class="budget-dashboard-body"></div>
+      </div>
+
+      <div class="panel budget-dashboard-panel" id="yearly-budget-dashboard-panel">
+        <h2>Yearly budgets</h2>
+        <p class="budget-dashboard-note" id="yearly-budget-dashboard-note" hidden></p>
+        <div id="yearly-budget-dashboard-body" class="budget-dashboard-body"></div>
       </div>
 
       <div class="panel">
@@ -474,11 +482,18 @@
         <label class="ad-hoc-expenses-field">Category
           <select id="budget-category-select"></select>
         </label>
-        <label class="ad-hoc-expenses-field">Monthly budget (£)
+        <label class="ad-hoc-expenses-field">Period
+          <select id="budget-period-select">
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+          </select>
+        </label>
+        <label class="ad-hoc-expenses-field">Amount (£)
           <input type="number" id="budget-amount-input" min="0" step="0.01" placeholder="0.00" />
         </label>
         <button type="button" class="ad-hoc-expenses-refresh" id="budget-add-btn">Add budget</button>
       </div>
+      <p class="budget-period-hint" id="budget-period-hint"></p>
       <p class="ad-hoc-expenses-meta" id="budget-tab-meta"></p>
       <div id="budget-table-wrap" class="ad-hoc-expenses-table-wrap"></div>
     </section>

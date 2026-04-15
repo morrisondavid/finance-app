@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
-import type { TransactionJSON, TransactionType, AccountName, AccountConfig } from '../types.js';
-import { ACCOUNTS, ACCOUNT_CONFIG } from '../types.js';
+import type { TransactionJSON, TransactionType, AccountConfig } from '../types.js';
+import { ACCOUNTS, ACCOUNT_CONFIG, validateAccount } from '../types.js';
 import type {
   DashboardSummaryResponse,
   AccountConfigsResponse,
@@ -22,22 +22,17 @@ import {
   setOpeningBalance,
   getTaxLiabilities
 } from '../db/index.js';
-import { CATEGORY_COLOURS } from '../utils/categorizer.js';
+import { categoryColour } from '../utils/categorizer.js';
 import { transactionCategoryWithPayroll } from '../config/payroll.js';
 import { getCategoryExpenseBreakdown } from '../utils/category-expense-totals.js';
-import { getBudgetVsActual } from '../db/repositories/budgets.js';
+import { getBudgetComparisonsForFy, listBudgets } from '../db/repositories/budgets.js';
+import { normalizeFinancialYear } from '../db/utils/financial-year.js';
+import { round2 } from '../utils/math.js';
+import { buildExpensePipelineForAccount, transactionRowToRaw } from '../utils/expenses-overview-pipeline.js';
+import { computeBudgetNudges } from '../utils/budget-nudges.js';
 
 const router = express.Router();
 
-/**
- * Validate and return account type, or default to barclays-current
- */
-function validateAccount(account: string | undefined): AccountName {
-  if (account && ACCOUNTS.includes(account as AccountName)) {
-    return account as AccountName;
-  }
-  return 'barclays-current';
-}
 
 interface SummaryQuery {
   financialYear?: string;
@@ -63,19 +58,39 @@ router.get('/summary', (req: Request<object, DashboardSummaryResponse, object, S
       financialYear: selectedFY
     };
 
-    const fyNormalized = selectedFY ? selectedFY.replace('-', '/') : undefined;
-    const budgetComparisons =
+    const fyNormalized = selectedFY ? normalizeFinancialYear(selectedFY) : undefined;
+    const budgetBlock =
       fyNormalized !== undefined
-        ? getBudgetVsActual(selectedAccount, fyNormalized)
-        : [];
-    
+        ? getBudgetComparisonsForFy(selectedAccount, fyNormalized)
+        : { monthly: [], yearly: [] };
+    const budgetComparisons = budgetBlock.monthly;
+    const yearlyBudgetComparisons = budgetBlock.yearly;
+
+    let budgetNudges: ReturnType<typeof computeBudgetNudges> = [];
+    if (fyNormalized !== undefined) {
+      const pipeline = buildExpensePipelineForAccount(selectedAccount, fyNormalized);
+      const expenseTxns = getTransactions({
+        account: selectedAccount,
+        financialYear: selectedFY,
+        type: 'expense',
+      });
+      const expenseTransactions = expenseTxns.map(transactionRowToRaw);
+      const budgetRows = listBudgets({ account: selectedAccount });
+      const budgetedCategories = new Set(budgetRows.map(b => b.category));
+      budgetNudges = computeBudgetNudges({
+        expenseTransactions,
+        pipeline,
+        budgetedCategories,
+      });
+    }
+
     const summary = {
       totals: getDashboardTotals(filters),
       monthly: getMonthlySummary(filters),
-      byAccount: getAccountSummary({ financialYear: selectedFY }), // All accounts for selector indicators
-      balances: getAllAccountBalances(), // Account balances - always show total (no FY filter)
-      currentAccountBalance: getAccountBalance(selectedAccount), // Always show total balance (no FY filter)
-      taxLiabilities: getTaxLiabilities(filters), // Tax estimates for selected FY
+      byAccount: getAccountSummary({ financialYear: selectedFY }),
+      balances: getAllAccountBalances(),
+      currentAccountBalance: getAccountBalance(selectedAccount),
+      taxLiabilities: getTaxLiabilities(filters),
       transactionCount: getTransactionCount(filters),
       transferCount: getTransferCount(filters),
       fileCount: getFileCount(),
@@ -83,6 +98,8 @@ router.get('/summary', (req: Request<object, DashboardSummaryResponse, object, S
       selectedFinancialYear: selectedFY || null,
       selectedAccount,
       budgetComparisons,
+      yearlyBudgetComparisons,
+      budgetNudges,
     };
     
     res.json(summary as DashboardSummaryResponse);
@@ -168,14 +185,14 @@ router.get('/categories', (req: Request<object, CategoriesResponse, object, Cate
     const categories = Array.from(totals.entries())
       .map(([name, { total, count }]) => ({
         name,
-        total: Math.round(total * 100) / 100,
+        total: round2(total),
         count,
         percentage: totalExpenses > 0 ? Math.round((total / totalExpenses) * 1000) / 10 : 0,
-        colour: CATEGORY_COLOURS[name] ?? '#6B7280',
+        colour: categoryColour(name),
       }))
       .sort((a, b) => b.total - a.total);
 
-    res.json({ categories, totalExpenses: Math.round(totalExpenses * 100) / 100 });
+    res.json({ categories, totalExpenses: round2(totalExpenses) });
   } catch (error) {
     console.error('Error generating category breakdown:', error);
     res.status(500).json({ error: 'Failed to generate category breakdown' });
@@ -190,12 +207,13 @@ interface TransactionsQuery {
   category?: string;
   includeTransfers?: string;
   financialYear?: string;
+  search?: string;
 }
 
 // GET /api/dashboard/transactions - Get transactions for a specific account
 router.get('/transactions', (req: Request<object, TransactionsResponse, object, TransactionsQuery>, res: Response<TransactionsResponse | { error: string }>) => {
   try {
-    const { account, year, month, type, category, includeTransfers, financialYear } = req.query;
+    const { account, year, month, type, category, includeTransfers, financialYear, search } = req.query;
     
     const selectedAccount = validateAccount(account);
     
@@ -206,6 +224,7 @@ router.get('/transactions', (req: Request<object, TransactionsResponse, object, 
       type?: TransactionType;
       includeTransfers?: boolean;
       financialYear?: string;
+      search?: string;
     } = {
       account: selectedAccount
     };
@@ -219,6 +238,7 @@ router.get('/transactions', (req: Request<object, TransactionsResponse, object, 
       filters.includeTransfers = true;
     }
     if (financialYear) filters.financialYear = financialYear;
+    if (search) filters.search = search;
     
     const transactions = getTransactions(filters);
     

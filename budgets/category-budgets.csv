@@ -1,2 +1,2 @@
-financial_year,account,category,amount
-2025/26,monzo-joint,Groceries,600
+account,category,amount,period
+monzo-joint,Groceries,600,monthly

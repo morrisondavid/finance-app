@@ -224,6 +224,14 @@ export function isValidAccountName(account: string): account is AccountName {
   return ACCOUNTS.includes(account as AccountName);
 }
 
+/** Validate account or fall back to barclays-current. Shared by all route handlers. */
+export function validateAccount(account: string | undefined): AccountName {
+  if (account && ACCOUNTS.includes(account as AccountName)) {
+    return account as AccountName;
+  }
+  return 'barclays-current';
+}
+
 /**
  * Get business accounts that can make outgoing payments (for VAT, Corp Tax, etc.)
  */

@@ -22,26 +22,30 @@ describe('budgets CSV', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('round-trips rows with account,category,amount header', () => {
+  it('round-trips rows with account,category,amount,period header', () => {
     const rows: BudgetCsvRow[] = [
       {
         account: 'natwest',
         category: 'Groceries',
         amount: 12.5,
+        period: 'monthly',
       },
       {
         account: 'barclays-current',
         category: 'Other',
         amount: 100,
+        period: 'yearly',
       },
     ];
     writeBudgetsToCsvFile(csvPath, rows);
     const text = fs.readFileSync(csvPath, 'utf8');
-    expect(text.startsWith('account,category,amount\n')).toBe(true);
+    expect(text.startsWith('account,category,amount,period\n')).toBe(true);
     const parsed = readBudgetsFromCsvFile(csvPath);
     expect(parsed).toHaveLength(2);
     expect(parsed.find(r => r.account === 'barclays-current')?.amount).toBe(100);
+    expect(parsed.find(r => r.account === 'barclays-current')?.period).toBe('yearly');
     expect(parsed.find(r => r.account === 'natwest')?.amount).toBe(12.5);
+    expect(parsed.find(r => r.account === 'natwest')?.period).toBe('monthly');
   });
 
   it('returns [] when the CSV file does not exist', () => {

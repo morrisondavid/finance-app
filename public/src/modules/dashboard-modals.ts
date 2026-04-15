@@ -7,6 +7,7 @@ import { state } from './state';
 import { getAccountConfig } from './state';
 import { fetchTransactions, fetchVATPayments } from '../utils/api';
 import { formatCurrency } from '../utils/formatting';
+import { escapeHtml } from '../utils/dom';
 import { loadDashboard } from './dashboard';
 
 export function initTransactionsModal(): void {
@@ -109,8 +110,8 @@ function renderTransactionList(
     listEl.innerHTML = transactions.map(t => `
       <div class="transaction-item">
         <div class="transaction-info">
-          <div class="transaction-desc">${t.description || 'No description'}</div>
-          <div class="transaction-meta">${t.date}</div>
+          <div class="transaction-desc">${escapeHtml(t.description || 'No description')}</div>
+          <div class="transaction-meta">${escapeHtml(t.date)}</div>
         </div>
         <div class="transaction-amount ${t.type}">
           ${t.type === 'income' ? '+' : ''}${formatCurrency(t.amount)}
@@ -215,6 +216,46 @@ export async function showCategoryTransactionsModal(categoryName: string): Promi
   }
 }
 
+/** Drill-down uses the same display merchant string as `search` (broad `LIKE` against `description`). */
+export async function showMerchantTransactionsModal(displayTitle: string): Promise<void> {
+  const els = getModalElements();
+  if (!els) return;
+  const { modal, titleEl, countEl, totalEl, listEl } = els;
+
+  const period = state.selectedFinancialYear || 'All Time';
+  titleEl.textContent = `${displayTitle} — ${period}`;
+  titleEl.className = 'expense';
+  listEl.innerHTML = '<div class="loading">Loading transactions...</div>';
+  modal.style.display = 'flex';
+
+  const search = displayTitle.trim();
+
+  try {
+    const data = await fetchTransactions({
+      account: state.selectedAccount,
+      type: 'expense',
+      search,
+      ...(state.selectedFinancialYear ? { financialYear: state.selectedFinancialYear } : {}),
+    });
+    const sorted = [...data].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const formatted = sorted.map(t => ({
+      ...t,
+      date: new Date(t.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+    }));
+    renderTransactionList(
+      formatted,
+      'expense',
+      listEl,
+      countEl,
+      totalEl,
+      `No transactions found for ${displayTitle}.`,
+    );
+  } catch (error) {
+    console.error('Error loading merchant transactions:', error);
+    listEl.innerHTML = '<p class="error">Error loading transactions.</p>';
+  }
+}
+
 export function initSummaryCardHandlers(): void {
   document.getElementById('income-card')?.addEventListener('click', () => showAllTransactionsModal('income'));
   document.getElementById('outgoings-card')?.addEventListener('click', () => showAllTransactionsModal('expense'));
@@ -268,14 +309,21 @@ function openBudgetMonthRowFromTable(tr: HTMLTableRowElement): void {
   void showBudgetMonthTransactionsModal(category, monthKey, monthLabel);
 }
 
-/** One-time delegated clicks on budget month rows (re-render safe). */
+function openBudgetYearlyRowFromTable(tr: HTMLTableRowElement): void {
+  const category = tr.dataset.budgetYearlyCategory;
+  if (!category) return;
+  void showCategoryTransactionsModal(category);
+}
+
+/** One-time delegated clicks on monthly budget rows (re-render safe). */
 export function initBudgetDashboardPanelInteractions(): void {
   const panel = document.getElementById('budget-dashboard-panel');
   if (!panel || panel.dataset.budgetDrillBound === '1') return;
   panel.dataset.budgetDrillBound = '1';
 
   panel.addEventListener('click', e => {
-    const tr = (e.target as HTMLElement | null)?.closest?.('tr[data-budget-month]');
+    const t = e.target as HTMLElement | null;
+    const tr = t?.closest?.('tr[data-budget-month]');
     if (!(tr instanceof HTMLTableRowElement) || !panel.contains(tr)) return;
     openBudgetMonthRowFromTable(tr);
   });
@@ -287,6 +335,29 @@ export function initBudgetDashboardPanelInteractions(): void {
     if (!(tr instanceof HTMLTableRowElement) || !panel.contains(tr)) return;
     e.preventDefault();
     openBudgetMonthRowFromTable(tr);
+  });
+}
+
+/** One-time delegated clicks on yearly budget rows (separate panel). */
+export function initYearlyBudgetDashboardPanelInteractions(): void {
+  const panel = document.getElementById('yearly-budget-dashboard-panel');
+  if (!panel || panel.dataset.budgetYearlyDrillBound === '1') return;
+  panel.dataset.budgetYearlyDrillBound = '1';
+
+  panel.addEventListener('click', e => {
+    const t = e.target as HTMLElement | null;
+    const tr = t?.closest?.('tr[data-budget-yearly]');
+    if (!(tr instanceof HTMLTableRowElement) || !panel.contains(tr)) return;
+    openBudgetYearlyRowFromTable(tr);
+  });
+
+  panel.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const t = e.target as HTMLElement | null;
+    const tr = t?.closest?.('tr[data-budget-yearly]');
+    if (!(tr instanceof HTMLTableRowElement) || !panel.contains(tr)) return;
+    e.preventDefault();
+    openBudgetYearlyRowFromTable(tr);
   });
 }
 
@@ -319,8 +390,8 @@ async function showVatPaymentsModal(): Promise<void> {
         return `
           <div class="transaction-item">
             <div class="transaction-info">
-              <div class="transaction-desc">${t.description || 'HMRC VAT Payment'}</div>
-              <div class="transaction-meta">${date} • ${accountLabel}</div>
+              <div class="transaction-desc">${escapeHtml(t.description || 'HMRC VAT Payment')}</div>
+              <div class="transaction-meta">${escapeHtml(date)} &bull; ${escapeHtml(accountLabel)}</div>
             </div>
             <div class="transaction-amount income">${formatCurrency(Math.abs(t.amount))}</div>
           </div>
@@ -330,7 +401,7 @@ async function showVatPaymentsModal(): Promise<void> {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('Error loading VAT payments:', error);
-    listEl.innerHTML = `<p class="error">Error loading VAT payments: ${errorMessage}</p>`;
+    listEl.innerHTML = `<p class="error">Error loading VAT payments: ${escapeHtml(errorMessage)}</p>`;
   }
 }
 
@@ -370,8 +441,8 @@ async function showVatLiabilityModal(): Promise<void> {
         return `
           <div class="transaction-item">
             <div class="transaction-info">
-              <div class="transaction-desc">${t.description || 'Income'}</div>
-              <div class="transaction-meta">${date}</div>
+              <div class="transaction-desc">${escapeHtml(t.description || 'Income')}</div>
+              <div class="transaction-meta">${escapeHtml(date)}</div>
             </div>
             <div class="transaction-amount income">
               ${formatCurrency(t.amount)} <span style="color: var(--color-text-muted); font-size: 0.75rem;">(VAT: ${formatCurrency(vat)})</span>

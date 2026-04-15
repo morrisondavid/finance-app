@@ -147,4 +147,37 @@ describe('categorizer', () => {
       expect(categorizeTransaction('BARCLAYS 9999 SOMETHING DDR')).toBe('Debt Repayment');
     });
   });
+
+  describe('Accommodation vs Travel', () => {
+    it('lodging and OTAs are Accommodation', () => {
+      expect(categorizeTransaction('AIRBNB *HM123')).toBe('Accommodation');
+      expect(categorizeTransaction('BOOKING.COM AMSTERDAM')).toBe('Accommodation');
+      expect(categorizeTransaction('PAN PACIFIC SINGAPORE')).toBe('Accommodation');
+      expect(categorizeTransaction('PREMIER INN LONDON')).toBe('Accommodation');
+      expect(categorizeTransaction('EXPEDIA 12345')).toBe('Accommodation');
+    });
+
+    it('airlines, car hire, and airports stay Travel', () => {
+      expect(categorizeTransaction('EASYJET')).toBe('Travel');
+      expect(categorizeTransaction('BRITISH AIRWAYS')).toBe('Travel');
+      expect(categorizeTransaction('EMIRATES AIRLINE')).toBe('Travel');
+      expect(categorizeTransaction('ENTERPRISE RENT A CAR')).toBe('Travel');
+      expect(categorizeTransaction('STANSTED AIRPORT')).toBe('Travel');
+      expect(categorizeTransaction('SCHIPHOL')).toBe('Travel');
+    });
+
+    it('NatWest-style commas normalise before match (lodging)', () => {
+      expect(categorizeTransaction('5120 08APR26 , AIRBNB , GUEST')).toBe('Accommodation');
+    });
+  });
+
+  describe('Uber vs Uber Eats', () => {
+    it('NatWest-style UBER *EATS is Eating Out', () => {
+      expect(categorizeTransaction('5120 15APR26 UBER *EATS NATWEST GBR')).toBe('Eating Out');
+    });
+
+    it('UBER PAYMENTS UK is Transport', () => {
+      expect(categorizeTransaction('UBER PAYMENTS UK')).toBe('Transport');
+    });
+  });
 });

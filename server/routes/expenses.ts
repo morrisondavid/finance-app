@@ -13,18 +13,20 @@ import {
   getAvailableFinancialYears,
   getFinancialYearRange,
 } from '../db/index.js';
-import type { TransactionRow } from '../db/repositories/transactions.js';
-import { CATEGORY_COLOURS, CATEGORY_NAMES } from '../utils/categorizer.js';
+import { categoryColour, CATEGORY_NAMES } from '../utils/categorizer.js';
 import { buildExpensesInsight } from '../utils/expenses-insight.js';
 import { round2, ROLLING_MONTHS, VARIANCE_EPS } from '../utils/math.js';
 import { SPECIAL_CATEGORY } from '../utils/category-constants.js';
 import {
-  buildRecurringPipeline,
   recurringKey,
   accKey,
   type RawTransaction,
 } from '../utils/recurring-pipeline.js';
-import { runExpensesOverviewPipeline } from '../utils/expenses-overview-pipeline.js';
+import {
+  runExpensesOverviewPipeline,
+  buildExpensePipelineForAccount,
+  transactionRowToRaw,
+} from '../utils/expenses-overview-pipeline.js';
 import {
   AD_HOC_DEFAULT_LIMIT,
   AD_HOC_DEFAULT_MIN_TOTAL,
@@ -33,17 +35,6 @@ import {
 } from '../utils/ad-hoc-expenses.js';
 
 export { accKey };
-
-function transactionRowToRaw(t: TransactionRow): RawTransaction {
-  return {
-    id: t.id,
-    date: t.date,
-    description: t.description,
-    amount: t.amount,
-    account: t.account,
-    type: t.type,
-  };
-}
 
 function oldestIsoDate(rows: RawTransaction[]): string {
   if (rows.length === 0) return '';
@@ -138,7 +129,7 @@ router.get('/overview', (_req: Request<object, ExpensesSheetResponse, object, Ov
       items.sort((a, b) => b.amount - a.amount);
       monthlyOutgoings.push({
         name: catName,
-        colour: CATEGORY_COLOURS[catName] ?? '#6B7280',
+        colour: categoryColour(catName),
         subtotal: round2(items.reduce((s, i) => s + i.amount, 0)),
         items,
       });
@@ -160,7 +151,7 @@ router.get('/overview', (_req: Request<object, ExpensesSheetResponse, object, Ov
       items.sort((a, b) => b.amount - a.amount);
       annualOutgoings.push({
         name: catName,
-        colour: CATEGORY_COLOURS[catName] ?? '#6B7280',
+        colour: categoryColour(catName),
         subtotal: round2(items.reduce((s, i) => s + i.amount, 0)),
         items,
       });
@@ -297,17 +288,7 @@ router.get('/ad-hoc', (req: Request<object, AdHocExpensesResponse, object, AdHoc
       AD_HOC_MAX_LIMIT,
     );
 
-    const scopedRows = getTransactions({
-      account,
-      financialYear: financialYear ?? undefined,
-    });
-    const allTimeRows = getTransactions({ account });
-
-    const pipeline = buildRecurringPipeline({
-      scopedTransactions: scopedRows.map(transactionRowToRaw),
-      allTimeTransactions: allTimeRows.map(transactionRowToRaw),
-      includeIncome: false,
-    });
+    const pipeline = buildExpensePipelineForAccount(account, financialYear ?? undefined);
 
     const expenseRows = getTransactions({
       account,
@@ -368,17 +349,10 @@ router.get('/recurring', (req: Request<object, RecurringExpensesResponse, object
     const allYears = getAvailableFinancialYears();
     const selectedFY = financialYear || allYears[0] || '';
 
-    const fyTxns = getTransactions({
-      account: selectedAccount,
-      financialYear: selectedFY || undefined,
-    });
-    const allTimeTxns = getTransactions({ account: selectedAccount });
-
-    const pipeline = buildRecurringPipeline({
-      scopedTransactions: fyTxns,
-      allTimeTransactions: allTimeTxns,
-      includeIncome: false,
-    });
+    const pipeline = buildExpensePipelineForAccount(
+      selectedAccount as AccountName,
+      selectedFY || undefined,
+    );
 
     const response: RecurringExpensesResponse = {
       monthly: pipeline.monthlyExpenseRecurring,

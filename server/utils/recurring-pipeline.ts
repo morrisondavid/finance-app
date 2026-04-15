@@ -15,7 +15,7 @@ import { normalizeMerchant } from './merchant-normalizer.js';
 import { classifyRecurring } from './recurring-detector.js';
 import type { RecurringCandidate, TransactionDetail } from './recurring-detector.js';
 import type { RecurringExpense } from '../../shared/api-contracts.js';
-import { round2 } from './math.js';
+import { round2, monthKeyFromIsoDate } from './math.js';
 import { SPECIAL_CATEGORY } from './category-constants.js';
 import { matchRentalProperty, RENTAL_PROPERTIES } from './rental-properties.js';
 import { matchPayrollEntry } from '../config/payroll.js';
@@ -73,11 +73,8 @@ export function recurringKey(e: RecurringExpense): string {
   return accKey(e.category, e.merchant, e.sourceAccount, skipAmount ? 0 : e.amount);
 }
 
-function toYearMonth(dateStr: string): string {
-  return dateStr.slice(0, 7);
-}
-
-function classifyTxn(txn: RawTransaction): 'expense' | 'income' | null {
+/** Classify a transaction as expense, income, or null (zero-amount transfer). */
+export function classifyTransactionSide(txn: { type: string; amount: number }): 'expense' | 'income' | null {
   if (txn.type === 'expense' || (txn.type === 'transfer' && txn.amount < 0)) return 'expense';
   if (txn.type === 'income' || (txn.type === 'transfer' && txn.amount > 0)) return 'income';
   return null;
@@ -150,7 +147,7 @@ export function accumulatorKeyForTxn(txn: RawTransaction, side: 'expense' | 'inc
   return accumulationFromTxn(txn, side)?.key ?? null;
 }
 
-function accumulatorsToCandiates(map: Map<string, Accumulator>): RecurringCandidate[] {
+function accumulatorsToCandidates(map: Map<string, Accumulator>): RecurringCandidate[] {
   const candidates: RecurringCandidate[] = [];
   for (const acc of map.values()) {
     const monthlyValues = Array.from(acc.monthlyTotals.values());
@@ -192,7 +189,7 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
   for (const txn of scopedTransactions) {
     if (passThroughIds?.has(txn.id)) continue;
 
-    const side = classifyTxn(txn);
+    const side = classifyTransactionSide(txn);
     if (!side) continue;
     if (side === 'income' && !includeIncome) continue;
 
@@ -203,7 +200,7 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
     const account = txn.account;
     const ownership = ACCOUNT_CONFIG[account as AccountName]?.ownership ?? 'personal';
     const absAmount = Math.abs(txn.amount);
-    const ym = toYearMonth(txn.date);
+    const ym = monthKeyFromIsoDate(txn.date);
     allMonths.add(ym);
 
     const map = side === 'income' ? incomeAccumulators : expenseAccumulators;
@@ -227,7 +224,7 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
 
   // Pass 2: all-time transactions -> attach for annual pattern detection
   for (const txn of allTimeTransactions) {
-    const side = classifyTxn(txn);
+    const side = classifyTransactionSide(txn);
     if (!side) continue;
     if (side === 'income' && !includeIncome) continue;
 
@@ -244,8 +241,8 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
 
   const monthsCovered = allMonths.size || 1;
 
-  const expenseCandidates = accumulatorsToCandiates(expenseAccumulators);
-  const incomeCandidates = includeIncome ? accumulatorsToCandiates(incomeAccumulators) : [];
+  const expenseCandidates = accumulatorsToCandidates(expenseAccumulators);
+  const incomeCandidates = includeIncome ? accumulatorsToCandidates(incomeAccumulators) : [];
 
   const { monthly: monthlyExpenseRecurring, annual: annualExpenseRecurring } =
     classifyRecurring(expenseCandidates, monthsCovered);
