@@ -6,6 +6,7 @@ import capitalOnTapParser from './capital-on-tap.js';
 import barclaycardParser from './barclaycard.js';
 import monzoParser from './monzo.js';
 import type { BankParser, ParserMap, Transaction, CSVRow } from '../types.js';
+import { isCreditCard, isValidAccountName } from '../types.js';
 
 /**
  * Map account names to their parsers
@@ -18,6 +19,24 @@ export const PARSERS: ParserMap = {
   'barclaycard': barclaycardParser,
   'monzo-joint': monzoParser
 };
+
+/**
+ * Credit card CSVs report purchases as positive and payments as negative,
+ * but the balance model uses "credit limit as opening balance" where
+ * purchases must reduce the balance (negative) and payments restore it
+ * (positive).  This single post-parse step handles the inversion for
+ * every credit-card account automatically — individual parsers stay
+ * unaware of balance semantics.
+ */
+export function normaliseCreditCardAmounts(
+  transaction: Transaction,
+  account: string,
+): Transaction {
+  if (isValidAccountName(account) && isCreditCard(account)) {
+    return { ...transaction, amount: -transaction.amount };
+  }
+  return transaction;
+}
 
 /**
  * Parse a CSV file and return normalized transactions
@@ -55,7 +74,7 @@ export async function parseCSVFile(filePath: string, account: string): Promise<T
         try {
           const transaction = parser.transform(record, account);
           if (transaction) {
-            transactions.push(transaction);
+            transactions.push(normaliseCreditCardAmounts(transaction, account));
           }
         } catch (e) {
           // Skip malformed rows

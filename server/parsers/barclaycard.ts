@@ -231,14 +231,12 @@ const barclaycardParser: BankParser = {
       description = [reference, address].filter(Boolean).join(' - ');
     }
     
-    // For credit cards, purchases are typically positive (spending)
-    // Payments/credits are negative
     return {
       date,
       description: description.trim(),
       amount,
       account,
-      type: amount >= 0 ? 'expense' : 'income',
+      type: amount > 0 ? 'expense' : 'income',
       occurrence
     };
   }

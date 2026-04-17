@@ -212,14 +212,10 @@ const capitalOnTapParser: BankParser = {
                        getColumnValue(row, 'Merchant Name') ||
                        getColumnValue(row, 'Merchant') || '';
     
-    // For credit cards with "credit limit as opening balance" model:
-    // CSV: purchases=positive, payments=negative
-    // DB needs: purchases=negative (reduce available), payments=positive (increase available)
-    // Therefore: invert amounts
     return {
       date,
       description,
-      amount: -amount, // Invert: purchases reduce available credit, payments increase it
+      amount,
       account,
       type: amount > 0 ? 'expense' : 'income',
       occurrence
