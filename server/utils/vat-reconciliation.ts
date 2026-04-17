@@ -14,6 +14,13 @@ export interface VatQuarterReconciliation {
 }
 
 /**
+ * Reconcile a single VAT quarter against a single HMRC payment.
+ *
+ * VAT is one settling transaction per quarter, so callers are expected to
+ * pre-match payments to quarters using `matchPaymentsToQuarters` and pass the
+ * resolved match (or null) here. Passing multiple payments is not supported —
+ * the matcher owns that concern.
+ *
  * @param dataCutoffDate Quarters ending before this date are treated as having
  *   insufficient transaction coverage. Callers should set this to the start of
  *   the *previous* financial year so both the current and prior FY are trusted.
@@ -22,7 +29,7 @@ export function reconcileVatQuarter(
   quarter: VatQuarterRange,
   quarterIncome: number,
   vatFraction: number,
-  payments: HmrcPaymentMatch[],
+  match: HmrcPaymentMatch | null,
   referenceDate: Date = new Date(),
   dataCutoffDate: string | null = null,
 ): VatQuarterReconciliation {
@@ -32,43 +39,23 @@ export function reconcileVatQuarter(
     return { quarter, expectedAmount: 0, paidAmount: 0, paidDate: null, paidFromAccount: null, status: 'no-income' };
   }
 
+  const paidAmount = match ? round2(Math.abs(match.amount)) : 0;
+  const paidDate = match?.date ?? null;
+  const paidFromAccount = match?.account ?? null;
+
   const dueDate = new Date(`${quarter.dueDate}T23:59:59`);
   if (referenceDate < dueDate) {
-    const paidAmount = round2(payments.reduce((s, p) => s + Math.abs(p.amount), 0));
-    if (paidAmount >= expectedAmount * 0.95) {
-      const sorted = [...payments].sort((a, b) => a.date.localeCompare(b.date));
-      const accounts = [...new Set(payments.map(p => p.account))];
-      return {
-        quarter, expectedAmount, paidAmount,
-        paidDate: sorted[sorted.length - 1]?.date ?? null,
-        paidFromAccount: accounts.join(', ') || null,
-        status: 'paid',
-      };
-    }
-    return {
-      quarter, expectedAmount, paidAmount,
-      paidDate: payments.length > 0 ? [...payments].sort((a, b) => a.date.localeCompare(b.date)).pop()?.date ?? null : null,
-      paidFromAccount: payments.length > 0 ? [...new Set(payments.map(p => p.account))].join(', ') : null,
-      status: 'not-yet-due',
-    };
+    const status: VatReconciliationStatus = paidAmount >= expectedAmount * 0.95 ? 'paid' : 'not-yet-due';
+    return { quarter, expectedAmount, paidAmount, paidDate, paidFromAccount, status };
   }
 
-  if (payments.length === 0) {
+  if (!match) {
     const isOutsideTrustedRange = dataCutoffDate !== null && quarter.endDate < dataCutoffDate;
     const status: VatReconciliationStatus = isOutsideTrustedRange ? 'insufficient-data' : 'unpaid';
     return { quarter, expectedAmount, paidAmount: 0, paidDate: null, paidFromAccount: null, status };
   }
 
-  const paidAmount = round2(payments.reduce((s, p) => s + Math.abs(p.amount), 0));
-  const sorted = [...payments].sort((a, b) => a.date.localeCompare(b.date));
-  const accounts = [...new Set(payments.map(p => p.account))];
-
   const status: VatReconciliationStatus = paidAmount >= expectedAmount * 0.95 ? 'paid' : 'underpaid';
 
-  return {
-    quarter, expectedAmount, paidAmount,
-    paidDate: sorted[sorted.length - 1]?.date ?? null,
-    paidFromAccount: accounts.join(', ') || null,
-    status,
-  };
+  return { quarter, expectedAmount, paidAmount, paidDate, paidFromAccount, status };
 }

@@ -8,6 +8,16 @@ import {
   type ManualObligationCsvRow,
 } from '../obligations-csv.js';
 import { OBLIGATIONS_DIR } from '../connection.js';
+import { buildFyWhereClauseForColumn } from '../utils/financial-year.js';
+
+/**
+ * Statuses that indicate an obligation has been resolved and doesn't need further action.
+ * Used consistently across overdue, upcoming, and "hide completed" queries so behaviour
+ * never drifts between endpoints.
+ */
+export const COMPLETED_STATUSES = ['paid', 'confirmed'] as const;
+
+const COMPLETED_PLACEHOLDERS = COMPLETED_STATUSES.map(() => '?').join(',');
 
 interface ObligationRow {
   id: string;
@@ -79,21 +89,49 @@ export function insertAutoObligation(obligation: {
   );
 }
 
-export function getAllObligations(filters?: {
+export interface ObligationFilters {
   status?: string;
   type?: string;
   source?: string;
-}): ObligationRow[] {
+  hideCompleted?: boolean;
+  financialYear?: string;
+}
+
+export function getAllObligations(filters?: ObligationFilters): ObligationRow[] {
   const db = getDb();
   const conditions: string[] = [];
-  const params: string[] = [];
+  const params: unknown[] = [];
 
   if (filters?.status) { conditions.push('status = ?'); params.push(filters.status); }
   if (filters?.type) { conditions.push('type = ?'); params.push(filters.type); }
   if (filters?.source) { conditions.push('source = ?'); params.push(filters.source); }
+  if (filters?.hideCompleted) {
+    conditions.push(`status NOT IN (${COMPLETED_PLACEHOLDERS})`);
+    params.push(...COMPLETED_STATUSES);
+  }
 
-  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  let where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  if (filters?.financialYear) {
+    const fy = buildFyWhereClauseForColumn(filters.financialYear, 'due_date');
+    if (fy.clause) {
+      where = where ? `${where}${fy.clause}` : `WHERE 1=1${fy.clause}`;
+      params.push(...fy.params);
+    }
+  }
+
   return db.prepare(`SELECT * FROM financial_obligations ${where} ORDER BY due_date ASC`).all(...params) as ObligationRow[];
+}
+
+export function getOverdueObligations(): ObligationRow[] {
+  const db = getDb();
+  const todayStr = new Date().toISOString().slice(0, 10);
+  return db.prepare(`
+    SELECT * FROM financial_obligations
+    WHERE due_date IS NOT NULL
+      AND due_date < ?
+      AND status NOT IN (${COMPLETED_PLACEHOLDERS})
+    ORDER BY due_date ASC
+  `).all(todayStr, ...COMPLETED_STATUSES) as ObligationRow[];
 }
 
 export function getUpcomingObligations(days: number): ObligationRow[] {
@@ -107,10 +145,10 @@ export function getUpcomingObligations(days: number): ObligationRow[] {
   return db.prepare(`
     SELECT * FROM financial_obligations
     WHERE due_date IS NOT NULL
-    AND due_date >= ? AND due_date <= ?
-    AND status NOT IN ('paid', 'confirmed')
+      AND due_date >= ? AND due_date <= ?
+      AND status NOT IN (${COMPLETED_PLACEHOLDERS})
     ORDER BY due_date ASC
-  `).all(todayStr, futureStr) as ObligationRow[];
+  `).all(todayStr, futureStr, ...COMPLETED_STATUSES) as ObligationRow[];
 }
 
 export function getObligationById(id: string): ObligationRow | undefined {

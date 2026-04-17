@@ -2,15 +2,16 @@ import express, { Request, Response } from 'express';
 import { getDb } from '../db/connection.js';
 import { HMRC_PATTERNS } from '../config/payees.js';
 import { getBusinessPaymentAccounts } from '../types.js';
-import { VAT, getVatQuarterForDate } from '../config/tax-rates.js';
+import { VAT, getVatQuarterForDate, type VatQuarterRange } from '../config/tax-rates.js';
 import { findHmrcPayments } from '../db/repositories/tax.js';
 import { reconcileVatQuarter } from '../utils/vat-reconciliation.js';
-import { formatDateISO } from '../../shared/date-format.js';
+import { matchPaymentsToQuarters, quarterKey } from '../utils/vat-payment-matcher.js';
 import { getFinancialYearRange, getPreviousFyStartDate } from '../db/utils/financial-year.js';
 import { buildVatAccountFilter } from '../db/utils/tax-account-filter.js';
 import {
   getAllObligations,
   getUpcomingObligations,
+  getOverdueObligations,
   createManualObligation,
   updateManualObligation,
   deleteManualObligation,
@@ -23,23 +24,46 @@ import {
   type ObligationsListResponse,
   type VatReconciliationResponse,
   type UpcomingObligationsResponse,
+  type OverdueObligationsResponse,
+  type UpcomingPaymentsResponse,
+  type UpcomingPaymentItem,
   type Obligation,
 } from '../../shared/api-contracts.js';
+import { runExpensesOverviewPipeline } from '../utils/expenses-overview-pipeline.js';
+import { buildUpcomingRecurring } from '../utils/recurring-upcoming.js';
 
 const router = express.Router();
 
+function parseBooleanQueryParam(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  const normalised = value.trim().toLowerCase();
+  return normalised === '1' || normalised === 'true' || normalised === 'yes';
+}
+
 router.get('/', (req: Request, res: Response<ObligationsListResponse | { error: string }>) => {
   try {
-    const { status, type, source } = req.query;
+    const { status, type, source, hideCompleted, financialYear } = req.query;
     const rows = getAllObligations({
       status: typeof status === 'string' ? status : undefined,
       type: typeof type === 'string' ? type : undefined,
       source: typeof source === 'string' ? source : undefined,
+      hideCompleted: parseBooleanQueryParam(hideCompleted),
+      financialYear: typeof financialYear === 'string' ? financialYear : undefined,
     });
     res.json({ obligations: rows.map(toApiObligation) as Obligation[] });
   } catch (error) {
     console.error('Error fetching obligations:', error);
     res.status(500).json({ error: 'Failed to fetch obligations' });
+  }
+});
+
+router.get('/overdue', (_req: Request, res: Response<OverdueObligationsResponse | { error: string }>) => {
+  try {
+    const rows = getOverdueObligations();
+    res.json({ obligations: rows.map(toApiObligation) as Obligation[] });
+  } catch (error) {
+    console.error('Error fetching overdue obligations:', error);
+    res.status(500).json({ error: 'Failed to fetch overdue obligations' });
   }
 });
 
@@ -63,55 +87,55 @@ router.get('/vat-reconciliation', (req: Request, res: Response<VatReconciliation
     const now = new Date();
     const dataCutoff = getPreviousFyStartDate(now);
 
+    // Enumerate every distinct VAT quarter from the earliest income date to now.
+    // Matching is done once against the full candidate set so payments cannot be
+    // reused across quarters, matching the auto-seed behaviour exactly.
     const startDate = new Date(`${earliestDate}T12:00:00`);
     const seen = new Set<string>();
-    const quarters: VatReconciliationResponse['quarters'] = [];
-
+    const candidateQuarters: VatQuarterRange[] = [];
     const cursor = new Date(startDate);
     while (cursor <= now) {
       const q = getVatQuarterForDate(cursor);
       const key = `${q.startDate}-${q.endDate}`;
-      if (!seen.has(key)) {
+      if (!seen.has(key) && q.startDate >= earliestDate) {
         seen.add(key);
-
-        if (q.startDate < earliestDate) {
-          cursor.setMonth(cursor.getMonth() + 1);
-          continue;
-        }
-
-        if (fyRange && (q.endDate < fyRange.startDate || q.startDate > fyRange.endDate)) {
-          cursor.setMonth(cursor.getMonth() + 1);
-          continue;
-        }
-
-        const incomeResult = db.prepare(`
-          SELECT COALESCE(SUM(amount), 0) as total
-          FROM transactions WHERE type = 'income' AND date >= ? AND date <= ? ${vatFilter.clause}
-        `).get(q.startDate, q.endDate, ...vatFilter.params) as { total: number };
-
-        const payments = findHmrcPayments({
-          patterns: HMRC_PATTERNS.VAT,
-          accounts: getBusinessPaymentAccounts(),
-          startDate: q.startDate,
-          endDate: formatDateISO(new Date(new Date(q.dueDate).getTime() + 60 * 86400000)),
-        });
-
-        const recon = reconcileVatQuarter(q, incomeResult.total, VAT.FRACTION, payments, now, dataCutoff);
-
-        quarters.push({
-          quarterLabel: q.label,
-          startDate: q.startDate,
-          endDate: q.endDate,
-          dueDate: q.dueDate,
-          quarter: q.quarter,
-          expectedAmount: recon.expectedAmount,
-          paidAmount: recon.paidAmount,
-          paidDate: recon.paidDate,
-          paidFromAccount: recon.paidFromAccount,
-          status: recon.status,
-        });
+        candidateQuarters.push(q);
       }
       cursor.setMonth(cursor.getMonth() + 1);
+    }
+
+    const allPayments = findHmrcPayments({
+      patterns: HMRC_PATTERNS.VAT,
+      accounts: getBusinessPaymentAccounts(),
+      startDate: '0000-01-01',
+      endDate: '9999-12-31',
+    });
+    const paymentByQuarter = matchPaymentsToQuarters(candidateQuarters, allPayments);
+
+    const quarters: VatReconciliationResponse['quarters'] = [];
+    for (const q of candidateQuarters) {
+      if (fyRange && (q.endDate < fyRange.startDate || q.startDate > fyRange.endDate)) continue;
+
+      const incomeResult = db.prepare(`
+        SELECT COALESCE(SUM(amount), 0) as total
+        FROM transactions WHERE type = 'income' AND date >= ? AND date <= ? ${vatFilter.clause}
+      `).get(q.startDate, q.endDate, ...vatFilter.params) as { total: number };
+
+      const match = paymentByQuarter.get(quarterKey(q)) ?? null;
+      const recon = reconcileVatQuarter(q, incomeResult.total, VAT.FRACTION, match, now, dataCutoff);
+
+      quarters.push({
+        quarterLabel: q.label,
+        startDate: q.startDate,
+        endDate: q.endDate,
+        dueDate: q.dueDate,
+        quarter: q.quarter,
+        expectedAmount: recon.expectedAmount,
+        paidAmount: recon.paidAmount,
+        paidDate: recon.paidDate,
+        paidFromAccount: recon.paidFromAccount,
+        status: recon.status,
+      });
     }
 
     quarters.sort((a, b) => a.startDate.localeCompare(b.startDate));
@@ -130,6 +154,55 @@ router.get('/upcoming', (req: Request, res: Response<UpcomingObligationsResponse
   } catch (error) {
     console.error('Error fetching upcoming obligations:', error);
     res.status(500).json({ error: 'Failed to fetch upcoming obligations' });
+  }
+});
+
+/**
+ * Merged feed of non-completed obligations + predicted annual recurring charges,
+ * sorted by soonest date. Monthly recurring items are intentionally excluded —
+ * they live in the Fixed Expenses / Budget surfaces, not on the Obligations page.
+ */
+router.get('/upcoming-payments', (req: Request, res: Response<UpcomingPaymentsResponse | { error: string }>) => {
+  try {
+    const days = parseInt(String(req.query.days ?? '365'), 10) || 365;
+
+    const obligationItems: UpcomingPaymentItem[] = getUpcomingObligations(days)
+      .filter(row => row.due_date !== null)
+      .map(row => ({
+        kind: 'obligation',
+        id: row.id,
+        type: row.type,
+        name: row.name,
+        entity: row.entity,
+        expectedAmount: row.expected_amount,
+        dueDate: row.due_date as string,
+        status: row.status,
+        source: row.source,
+      }));
+
+    const pipeline = runExpensesOverviewPipeline();
+    const recurring = buildUpcomingRecurring(pipeline, new Date()).thisYear;
+    const recurringItems: UpcomingPaymentItem[] = recurring.map(r => ({
+      kind: 'recurring',
+      merchant: r.merchant,
+      category: r.category,
+      colour: r.colour,
+      logoUrl: r.logoUrl,
+      amount: r.amount,
+      sourceAccount: r.sourceAccount,
+      nextExpectedDate: r.nextExpectedDate,
+    }));
+
+    const items = [...obligationItems, ...recurringItems].sort((a, b) => {
+      const dateA = a.kind === 'obligation' ? a.dueDate : a.nextExpectedDate;
+      const dateB = b.kind === 'obligation' ? b.dueDate : b.nextExpectedDate;
+      return dateA.localeCompare(dateB);
+    });
+
+    res.json({ items });
+  } catch (error) {
+    console.error('Error fetching upcoming payments:', error);
+    res.status(500).json({ error: 'Failed to fetch upcoming payments' });
   }
 });
 

@@ -5,9 +5,9 @@ import { getBusinessPaymentAccounts } from '../../types.js';
 import { findHmrcPayments } from './tax.js';
 import { insertAutoObligation } from './obligations.js';
 import { reconcileVatQuarter } from '../../utils/vat-reconciliation.js';
-import { formatDateISO } from '../../../shared/date-format.js';
 import { getPreviousFyStartDate } from '../utils/financial-year.js';
 import { buildVatAccountFilter } from '../utils/tax-account-filter.js';
+import { matchPaymentsToQuarters, quarterKey } from '../../utils/vat-payment-matcher.js';
 
 function iterateHistoricalQuarters(): { quarters: VatQuarterRange[]; earliestDate: string | null } {
   const db = getDb();
@@ -37,32 +37,41 @@ function iterateHistoricalQuarters(): { quarters: VatQuarterRange[]; earliestDat
 
 export function deriveAndInsertAutoObligations(): void {
   const db = getDb();
+  db.prepare("DELETE FROM financial_obligations WHERE source = 'auto'").run();
   const { quarters, earliestDate } = iterateHistoricalQuarters();
   const vatFilter = buildVatAccountFilter();
   const now = new Date();
   const dataCutoff = getPreviousFyStartDate(now);
+
+  // Only quarters starting on or after the earliest income date are candidates;
+  // older quarters have no reliable income figure and are skipped outright.
+  const candidateQuarters = earliestDate
+    ? quarters.filter(q => q.startDate >= earliestDate)
+    : quarters;
+
+  // Fetch the full HMRC VAT payment pool once, then match single payments to
+  // quarters via the shared chronological matcher (no cross-quarter reuse).
+  const allPayments = findHmrcPayments({
+    patterns: HMRC_PATTERNS.VAT,
+    accounts: getBusinessPaymentAccounts(),
+    startDate: '0000-01-01',
+    endDate: '9999-12-31',
+  });
+  const paymentByQuarter = matchPaymentsToQuarters(candidateQuarters, allPayments);
+
   let count = 0;
-
-  for (const q of quarters) {
-    if (earliestDate && q.startDate < earliestDate) {
-      continue;
-    }
-
+  for (const q of candidateQuarters) {
     const incomeResult = db.prepare(`
       SELECT COALESCE(SUM(amount), 0) as total
       FROM transactions WHERE type = 'income' AND date >= ? AND date <= ? ${vatFilter.clause}
     `).get(q.startDate, q.endDate, ...vatFilter.params) as { total: number };
 
-    const quarterIncome = incomeResult.total;
+    const match = paymentByQuarter.get(quarterKey(q)) ?? null;
+    const recon = reconcileVatQuarter(q, incomeResult.total, VAT.FRACTION, match, now, dataCutoff);
 
-    const payments = findHmrcPayments({
-      patterns: HMRC_PATTERNS.VAT,
-      accounts: getBusinessPaymentAccounts(),
-      startDate: q.startDate,
-      endDate: formatDateISO(new Date(new Date(q.dueDate).getTime() + 60 * 86400000)),
-    });
-
-    const recon = reconcileVatQuarter(q, quarterIncome, VAT.FRACTION, payments, now, dataCutoff);
+    // Skip inserting obligations we can't reliably judge — keeps the Overdue
+    // hero and registry free of unverifiable 2022-era noise.
+    if (recon.status === 'insufficient-data') continue;
 
     insertAutoObligation({
       id: `auto-vat-${q.startDate}`,

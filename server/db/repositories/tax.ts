@@ -38,7 +38,7 @@ export function findHmrcPayments(opts: {
     AND (${patternCondition})
     AND account IN (${accountPlaceholders})
     AND date >= ? AND date <= ?
-    ORDER BY date DESC
+    ORDER BY date ASC
   `).all(...opts.patterns, ...opts.accounts, opts.startDate, opts.endDate) as HmrcPaymentMatch[];
 }
 

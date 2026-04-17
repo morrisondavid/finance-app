@@ -3180,11 +3180,78 @@ body {
 .obligations-urgency-warning { border-left-color: #f97316; background: #fffbeb; }
 .obligations-urgency-ok { border-left-color: #22c55e; background: #f0fdf4; }
 
+/* Yellow highlight for anything due within the next 14 days (non-overdue) */
+.obligations-upcoming-item.urgent {
+  background: #fef9c3;
+  border-left-color: #eab308;
+  box-shadow: 0 0 0 1px #fde047 inset;
+}
+.obligations-upcoming-item.urgent .obligations-upcoming-days { color: #854d0e; }
+
 .obligations-upcoming-entity { color: #64748b; font-size: 0.8rem; display: block; }
 .obligations-upcoming-days { font-weight: 600; font-size: 0.85rem; min-width: 3rem; text-align: right; }
+.obligations-upcoming-kind {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  font-weight: 600;
+}
 
-.obligations-registry-toolbar { display: flex; justify-content: flex-end; margin-bottom: 1rem; }
+.obligations-registry-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
 .obligations-auto-label { font-size: 0.7rem; color: #94a3b8; font-style: italic; }
+
+.obligations-fy-selector { display: inline-flex; align-items: center; gap: 0.5rem; }
+.obligations-fy-selector .btn-sm { padding: 0.25rem 0.6rem; font-size: 0.85rem; }
+.obligations-fy-selector span { font-weight: 600; min-width: 4rem; text-align: center; }
+
+/* Overdue hero banner — loud, dominates the page when present */
+.obligations-overdue-hero {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  color: #fff;
+  border: 3px solid #7f1d1d;
+  box-shadow: 0 10px 30px rgba(220, 38, 38, 0.25);
+}
+.obligations-overdue-title {
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  margin: 0 0 0.75rem 0;
+  color: #fff;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+.obligations-overdue-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  margin: 0.5rem 0;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  border-left: 6px solid #fff;
+}
+.obligations-overdue-item strong { font-size: 1.05rem; font-weight: 800; color: #fff; }
+.obligations-overdue-item .obligations-overdue-entity { display: block; font-weight: 500; opacity: 0.85; font-size: 0.85rem; }
+.obligations-overdue-item .obligations-overdue-amount { font-weight: 800; font-size: 1.05rem; }
+.obligations-overdue-item .obligations-overdue-due { font-size: 0.9rem; opacity: 0.9; }
+.obligations-overdue-item .obligations-overdue-days {
+  font-weight: 900;
+  font-size: 0.9rem;
+  background: #fff;
+  color: #b91c1c;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
 
 .obligations-registry-table td:last-child { white-space: nowrap; }
 .btn-sm { padding: 0.2em 0.5em; font-size: 0.75rem; }
@@ -3193,12 +3260,8 @@ body {
 
 .badge { background: #3b82f6; color: #fff; border-radius: 999px; padding: 0.1em 0.5em; font-size: 0.75rem; font-weight: 600; }
 
-.obligations-vat-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-.obligations-vat-header h3 { margin: 0; }
 .obligations-toggle-label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #64748b; cursor: pointer; user-select: none; }
 .obligations-toggle-label input[type="checkbox"] { accent-color: #3b82f6; }
-
-.obligations-row-insufficient { opacity: 0.5; }
 
 .modal-overlay {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;

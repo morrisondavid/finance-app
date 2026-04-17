@@ -144,14 +144,24 @@ export function getPreviousFyStartDate(date: Date = new Date()): string {
  * Build SQL WHERE clause for financial year filtering
  */
 export function buildFYWhereClause(fy: string | undefined): { clause: string; params: string[] } {
+  return buildFyWhereClauseForColumn(fy, 'date');
+}
+
+/**
+ * Build SQL WHERE clause for financial year filtering on an arbitrary column name.
+ * Use this when the FY range should apply to a column other than `date` (e.g. `due_date`).
+ */
+export function buildFyWhereClauseForColumn(
+  fy: string | undefined,
+  column: string,
+): { clause: string; params: string[] } {
   if (!fy) {
     return { clause: '', params: [] };
   }
-  
   const range = getFinancialYearRange(fy);
   return {
-    clause: ' AND date >= ? AND date <= ?',
-    params: [range.startDate, range.endDate]
+    clause: ` AND ${column} >= ? AND ${column} <= ?`,
+    params: [range.startDate, range.endDate],
   };
 }
 

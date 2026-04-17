@@ -4,6 +4,7 @@ import {
   getFinancialYearForDate,
   getPreviousFyStartDate,
   buildFYWhereClause,
+  buildFyWhereClauseForColumn,
   listMonthKeysInFinancialYear,
   listFyMonthKeysThroughDate,
   formatFinancialYearMonthLabel,
@@ -107,6 +108,29 @@ describe('listFyMonthKeysThroughDate', () => {
   it('caps at April when asOf is in the last month of the FY', () => {
     const asOf = new Date(2026, 3, 28); // Apr 2026
     expect(listFyMonthKeysThroughDate(fy, asOf)).toEqual(all);
+  });
+});
+
+describe('buildFyWhereClauseForColumn', () => {
+  it('returns empty clause when fy is undefined', () => {
+    expect(buildFyWhereClauseForColumn(undefined, 'due_date')).toEqual({ clause: '', params: [] });
+  });
+
+  it('builds a clause targeting the given column', () => {
+    const { clause, params } = buildFyWhereClauseForColumn('2025/26', 'due_date');
+    expect(clause).toBe(' AND due_date >= ? AND due_date <= ?');
+    expect(params).toEqual(['2025-05-01', '2026-04-30']);
+  });
+
+  it('supports arbitrary column names (e.g. `paid_date`)', () => {
+    const { clause } = buildFyWhereClauseForColumn('2024/25', 'paid_date');
+    expect(clause).toBe(' AND paid_date >= ? AND paid_date <= ?');
+  });
+
+  it('buildFYWhereClause remains a thin wrapper over the column helper for `date`', () => {
+    const legacy = buildFYWhereClause('2025/26');
+    const direct = buildFyWhereClauseForColumn('2025/26', 'date');
+    expect(legacy).toEqual(direct);
   });
 });
 

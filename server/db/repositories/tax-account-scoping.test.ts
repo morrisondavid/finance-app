@@ -244,4 +244,101 @@ describe('findHmrcPayments respects account list', () => {
     expect(payments).toHaveLength(1);
     expect(payments[0].account).toBe('barclays-current');
   });
+
+  it('returns results ordered by date ascending (earliest first)', async () => {
+    insertExpense('barclays-current', '2023-08-01', -1000, 'HMRC VAT');
+    insertExpense('barclays-current', '2023-11-01', -2000, 'HMRC VAT');
+    insertExpense('barclays-current', '2023-05-01', -3000, 'HMRC VAT');
+
+    const { findHmrcPayments } = await import('./tax.js');
+    const payments = findHmrcPayments({
+      patterns: ['%HMRC%VAT%'],
+      accounts: ['barclays-current'],
+      startDate: '2023-01-01',
+      endDate: '2023-12-31',
+    });
+
+    expect(payments.map(p => p.date)).toEqual(['2023-05-01', '2023-08-01', '2023-11-01']);
+  });
+});
+
+describe('deriveAndInsertAutoObligations stale cleanup', () => {
+  it('deletes pre-existing auto-derived obligations before re-deriving', async () => {
+    testDb.prepare(`
+      INSERT INTO financial_obligations
+        (id, source, type, name, entity, recurrence, expected_amount, due_date, status)
+      VALUES
+        ('auto-vat-2019-08-01', 'auto', 'vat', 'VAT Aug-Oct 2019', 'HMRC', 'quarterly', 1234, '2019-12-07', 'paid'),
+        ('auto-vat-2020-02-01', 'auto', 'vat', 'VAT Feb-Apr 2020', 'HMRC', 'quarterly', 5678, '2020-06-07', 'paid')
+    `).run();
+
+    insertIncome('barclays-current', '2023-07-15', 6000);
+
+    const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
+    deriveAndInsertAutoObligations();
+
+    const stale = testDb.prepare(
+      `SELECT id FROM financial_obligations WHERE id IN ('auto-vat-2019-08-01', 'auto-vat-2020-02-01')`
+    ).all();
+    expect(stale).toHaveLength(0);
+  });
+
+  it('preserves manual obligations when re-deriving auto obligations', async () => {
+    testDb.prepare(`
+      INSERT INTO financial_obligations
+        (id, source, type, name, entity, recurrence, expected_amount, due_date, status)
+      VALUES
+        ('manual-vat-backdated', 'manual', 'vat', 'Old VAT payment', 'HMRC', 'one-off', 500, '2020-01-01', 'paid'),
+        ('auto-vat-stale', 'auto', 'vat', 'Stale auto', 'HMRC', 'quarterly', 999, '2019-06-07', 'paid')
+    `).run();
+
+    insertIncome('barclays-current', '2023-07-15', 6000);
+
+    const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
+    deriveAndInsertAutoObligations();
+
+    const manual = testDb.prepare(
+      `SELECT id FROM financial_obligations WHERE id = 'manual-vat-backdated'`
+    ).get();
+    expect(manual).toBeDefined();
+
+    const staleAuto = testDb.prepare(
+      `SELECT id FROM financial_obligations WHERE id = 'auto-vat-stale'`
+    ).get();
+    expect(staleAuto).toBeUndefined();
+  });
+});
+
+describe('VAT payment matching maps each HMRC payment to exactly one quarter', () => {
+  it('does not double-count payments across adjacent quarters', async () => {
+    // Barclays opens April 2022. Inject 4 quarters of income + 4 matching HMRC payments,
+    // one per quarter on or just after each due date.
+    insertIncome('barclays-current', '2025-02-15', 30000);
+    insertIncome('barclays-current', '2025-05-15', 48360);
+    insertIncome('barclays-current', '2025-08-15', 69918);
+    insertIncome('barclays-current', '2025-11-15', 50964);
+
+    insertExpense('barclays-current', '2025-06-09', -5000, 'HMRC VAT');
+    insertExpense('barclays-current', '2025-09-08', -8060, 'HMRC VAT');
+    insertExpense('barclays-current', '2025-12-08', -11653.06, 'HMRC VAT');
+    insertExpense('barclays-current', '2026-03-09', -8494.07, 'HMRC VAT');
+
+    const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
+    deriveAndInsertAutoObligations();
+
+    const rows = testDb.prepare(
+      `SELECT id, paid_amount, paid_date FROM financial_obligations
+       WHERE source = 'auto' AND type = 'vat' AND paid_amount IS NOT NULL
+       ORDER BY due_date`
+    ).all() as Array<{ id: string; paid_amount: number; paid_date: string }>;
+
+    const paidAmounts = rows.map(r => r.paid_amount);
+    for (const amount of paidAmounts) {
+      expect(amount).toBeLessThanOrEqual(11653.06);
+    }
+
+    const paidDates = rows.map(r => r.paid_date);
+    const uniqueDates = new Set(paidDates);
+    expect(uniqueDates.size).toBe(paidDates.length);
+  });
 });

@@ -582,6 +582,58 @@ export const UpcomingObligationsResponseSchema = z.object({
   obligations: z.array(ObligationSchema),
 });
 
+export const OverdueObligationsResponseSchema = z.object({
+  obligations: z.array(ObligationSchema),
+});
+
+export const UpcomingRecurringFrequencySchema = z.enum(['monthly', 'annual']);
+
+export const UpcomingRecurringSchema = z.object({
+  merchant: z.string(),
+  category: z.string(),
+  colour: z.string(),
+  logoUrl: z.string().nullable(),
+  amount: z.number(),
+  frequency: UpcomingRecurringFrequencySchema,
+  sourceAccount: z.string(),
+  nextExpectedDate: z.string(),
+  lastChargeDate: z.string().nullable(),
+});
+
+/**
+ * Merged upcoming-payments feed combining non-completed obligations with
+ * predicted annual recurring charges. The Obligations page renders this single
+ * list, sorted by soonest date, so monthly recurring items are deliberately
+ * excluded upstream (they live in the Fixed Expenses / Budget surfaces).
+ */
+export const UpcomingPaymentItemSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('obligation'),
+    id: z.string(),
+    type: z.string(),
+    name: z.string(),
+    entity: z.string(),
+    expectedAmount: z.number().nullable(),
+    dueDate: z.string(),
+    status: z.string(),
+    source: z.string(),
+  }),
+  z.object({
+    kind: z.literal('recurring'),
+    merchant: z.string(),
+    category: z.string(),
+    colour: z.string(),
+    logoUrl: z.string().nullable(),
+    amount: z.number(),
+    sourceAccount: z.string(),
+    nextExpectedDate: z.string(),
+  }),
+]);
+
+export const UpcomingPaymentsResponseSchema = z.object({
+  items: z.array(UpcomingPaymentItemSchema),
+});
+
 export const CreateObligationBodySchema = z.object({
   type: ObligationTypeSchema,
   name: z.string().min(1),
@@ -647,6 +699,7 @@ export type DashboardSummaryResponse = z.infer<typeof DashboardSummaryResponseSc
 export type AccountConfigsResponse = z.infer<typeof AccountConfigsResponseSchema>;
 export type TransactionsResponse = z.infer<typeof TransactionsResponseSchema>;
 export type AccountBalanceResponse = z.infer<typeof AccountBalanceResponseSchema>;
+export type HmrcPaymentMatch = z.infer<typeof HmrcPaymentMatchSchema>;
 export type VATPaymentsResponse = z.infer<typeof VATPaymentsResponseSchema>;
 export type StatementsResponse = z.infer<typeof StatementsResponseSchema>;
 export type StatementYearsResponse = z.infer<typeof StatementYearsResponseSchema>;
@@ -670,6 +723,10 @@ export type ObligationsListResponse = z.infer<typeof ObligationsListResponseSche
 export type VatQuarterReconciliation = z.infer<typeof VatQuarterReconciliationSchema>;
 export type VatReconciliationResponse = z.infer<typeof VatReconciliationResponseSchema>;
 export type UpcomingObligationsResponse = z.infer<typeof UpcomingObligationsResponseSchema>;
+export type OverdueObligationsResponse = z.infer<typeof OverdueObligationsResponseSchema>;
+export type UpcomingRecurring = z.infer<typeof UpcomingRecurringSchema>;
+export type UpcomingPaymentItem = z.infer<typeof UpcomingPaymentItemSchema>;
+export type UpcomingPaymentsResponse = z.infer<typeof UpcomingPaymentsResponseSchema>;
 export type CreateObligationBody = z.infer<typeof CreateObligationBodySchema>;
 export type UpdateObligationBody = z.infer<typeof UpdateObligationBodySchema>;
 

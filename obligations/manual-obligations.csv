@@ -1,1 +1,2 @@
 id,type,name,entity,recurrence,expected_amount,due_date,status,notes
+manual-ed2f2cf3-8f8b-45d2-8ede-bf3bb94df495,self-assessment,Self Assessment Tax,HMRC,one-off,2083.54,2026-01-31,pending,

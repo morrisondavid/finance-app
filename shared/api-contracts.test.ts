@@ -1,0 +1,421 @@
+import { describe, it, expect } from 'vitest';
+import {
+  VATPaymentsResponseSchema,
+  HmrcPaymentMatchSchema,
+  AccountConfigsResponseSchema,
+  DashboardSummaryResponseSchema,
+  TaxLiabilitiesSchema,
+  OverdueObligationsResponseSchema,
+  UpcomingRecurringSchema,
+  UpcomingPaymentItemSchema,
+  UpcomingPaymentsResponseSchema,
+} from './api-contracts.js';
+
+describe('HmrcPaymentMatchSchema', () => {
+  it('validates a typical HMRC VAT payment (no type field)', () => {
+    const payment = {
+      date: '2025-09-08',
+      amount: -8060,
+      account: 'barclays-current',
+      description: 'HMRC VAT SOUTHEND\t292146596 BBP',
+    };
+    const result = HmrcPaymentMatchSchema.safeParse(payment);
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a payment missing account', () => {
+    const result = HmrcPaymentMatchSchema.safeParse({
+      date: '2025-09-08',
+      amount: -8060,
+      description: 'HMRC VAT',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a payment missing description', () => {
+    const result = HmrcPaymentMatchSchema.safeParse({
+      date: '2025-09-08',
+      amount: -8060,
+      account: 'barclays-current',
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('VATPaymentsResponseSchema', () => {
+  it('validates an array of HmrcPaymentMatch objects', () => {
+    const response = {
+      payments: [
+        { date: '2025-09-08', amount: -8060, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
+        { date: '2025-12-08', amount: -11653.06, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
+        { date: '2025-06-09', amount: -5578.79, account: 'capital-on-tap', description: 'HMRC ETMP - GLASGOW - Card Ending: 8346' },
+      ],
+    };
+    const result = VATPaymentsResponseSchema.safeParse(response);
+    expect(result.success).toBe(true);
+  });
+
+  it('validates an empty payments array', () => {
+    const result = VATPaymentsResponseSchema.safeParse({ payments: [] });
+    expect(result.success).toBe(true);
+  });
+
+  it('does NOT require a transaction type field on payments', () => {
+    const withoutType = {
+      payments: [
+        { date: '2025-09-08', amount: -8060, account: 'barclays-current', description: 'HMRC VAT' },
+      ],
+    };
+    expect(VATPaymentsResponseSchema.safeParse(withoutType).success).toBe(true);
+
+    const withType = {
+      payments: [
+        { date: '2025-09-08', amount: -8060, account: 'barclays-current', description: 'HMRC VAT', type: 'expense' },
+      ],
+    };
+    expect(VATPaymentsResponseSchema.safeParse(withType).success).toBe(true);
+  });
+
+  it('rejects payments missing required fields', () => {
+    const result = VATPaymentsResponseSchema.safeParse({
+      payments: [{ date: '2025-09-08', amount: -100 }],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a bare array (must be wrapped in { payments })', () => {
+    const result = VATPaymentsResponseSchema.safeParse([
+      { date: '2025-09-08', amount: -8060, account: 'barclays-current', description: 'HMRC VAT' },
+    ]);
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('AccountConfigsResponseSchema', () => {
+  const validBusinessConfig = {
+    name: 'barclays-current',
+    label: 'Barclays Current',
+    type: 'current',
+    category: 'business',
+    canMakeOutgoingPayments: true,
+    excludeTransfersFromIncome: true,
+    showTaxLiabilities: true,
+  };
+
+  const validPersonalConfig = {
+    name: 'natwest',
+    label: 'NatWest',
+    type: 'current',
+    category: 'personal',
+    canMakeOutgoingPayments: true,
+    excludeTransfersFromIncome: false,
+    showTaxLiabilities: false,
+  };
+
+  it('validates configs with category field', () => {
+    const result = AccountConfigsResponseSchema.safeParse([validBusinessConfig, validPersonalConfig]);
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects configs using deprecated ownership field instead of category', () => {
+    const staleConfig = {
+      name: 'barclays-current',
+      label: 'Barclays Current',
+      type: 'current',
+      ownership: 'business',
+      canMakeOutgoingPayments: true,
+      excludeTransfersFromIncome: true,
+      showTaxLiabilities: true,
+    };
+    const result = AccountConfigsResponseSchema.safeParse([staleConfig]);
+    expect(result.success).toBe(false);
+  });
+
+  it('strips extra server-only fields (business config) without failing', () => {
+    const withBusinessTaxConfig = {
+      ...validBusinessConfig,
+      business: { vatApplicable: true, corpTaxApplicable: true },
+      quarterOverlapMonths: 1,
+    };
+    const result = AccountConfigsResponseSchema.safeParse([withBusinessTaxConfig]);
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('TaxLiabilitiesSchema', () => {
+  const baseTaxLiabilities = {
+    corporationTax: 50000,
+    corporationTaxRate: 25,
+    taxableProfit: 200000,
+  };
+
+  it('validates minimal tax liabilities (only required fields)', () => {
+    const result = TaxLiabilitiesSchema.safeParse(baseTaxLiabilities);
+    expect(result.success).toBe(true);
+  });
+
+  it('validates full tax liabilities with vatInProgressQuarter: null', () => {
+    const full = {
+      ...baseTaxLiabilities,
+      vatOwedThisQuarter: 10828.42,
+      vatOutstanding: 10828.42,
+      vatOnIncome: 39559.62,
+      vatPaidLast4Quarters: 33785.92,
+      vatPaid: 33785.92,
+      vatRate: 0.2,
+      vatQuarter: {
+        label: 'Feb-Apr 2026',
+        quarter: 2,
+        startDate: '2026-02-01',
+        endDate: '2026-04-30',
+        dueDate: '2026-06-07',
+      },
+      vatInProgressQuarter: null,
+      vatInProgressEstimate: 0,
+      davidTaxEstimate: 5000,
+      davidPayments: { total: 30000, salary: 12000, dividends: 18000, annualSalary: 12000 },
+      davidTaxBreakdown: { dividendTax: 5000 },
+      heenaTaxEstimate: 3000,
+      heenaPayments: { total: 20000, salary: 12000, dividends: 8000, annualSalary: 12000 },
+      heenaTaxBreakdown: { dividendTax: 3000 },
+    };
+    const result = TaxLiabilitiesSchema.safeParse(full);
+    expect(result.success).toBe(true);
+  });
+
+  it('validates tax liabilities with a non-null vatInProgressQuarter', () => {
+    const withInProgress = {
+      ...baseTaxLiabilities,
+      vatInProgressQuarter: {
+        label: 'Feb-Apr 2026',
+        quarter: 2,
+        startDate: '2026-02-01',
+        endDate: '2026-04-30',
+        dueDate: '2026-06-07',
+      },
+      vatInProgressEstimate: 5000,
+    };
+    const result = TaxLiabilitiesSchema.safeParse(withInProgress);
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('DashboardSummaryResponseSchema', () => {
+  const minimalDashboard = {
+    totals: { income: 100, expenses: 50, net: 50, vatLiability: 10, transfersIn: 0, transfersOut: 0, passThroughIncome: 0 },
+    monthly: [],
+    byAccount: {},
+    taxLiabilities: {
+      corporationTax: 50000,
+      corporationTaxRate: 25,
+      taxableProfit: 200000,
+      vatInProgressQuarter: null,
+    },
+    transactionCount: 100,
+    transferCount: 10,
+    fileCount: 5,
+    financialYears: ['2025/26'],
+    selectedFinancialYear: null,
+  };
+
+  it('validates a minimal dashboard response', () => {
+    const result = DashboardSummaryResponseSchema.safeParse(minimalDashboard);
+    if (!result.success) {
+      const errors = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`);
+      expect.fail(`Validation failed:\n${errors.join('\n')}`);
+    }
+    expect(result.success).toBe(true);
+  });
+
+  it('validates with balances and currentAccountBalance', () => {
+    const withBalances = {
+      ...minimalDashboard,
+      balances: {
+        'barclays-current': {
+          openingBalance: 63035.54,
+          transactionTotal: -12000,
+          currentBalance: 51035.54,
+          transactionCount: 500,
+        },
+      },
+      currentAccountBalance: {
+        openingBalance: 63035.54,
+        transactionTotal: -12000,
+        currentBalance: 51035.54,
+        transactionCount: 500,
+      },
+    };
+    const result = DashboardSummaryResponseSchema.safeParse(withBalances);
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('OverdueObligationsResponseSchema', () => {
+  it('accepts a realistic overdue-obligations fixture', () => {
+    const fixture = {
+      obligations: [
+        {
+          id: 'manual-self-assessment-2025',
+          source: 'manual',
+          type: 'self-assessment',
+          name: 'Self Assessment 2024/25',
+          entity: 'HMRC',
+          recurrence: 'annual',
+          expectedAmount: 12500,
+          dueDate: '2026-01-31',
+          status: 'pending',
+          paidAmount: null,
+          paidDate: null,
+          paidFromAccount: null,
+          notes: null,
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
+      ],
+    };
+    const result = OverdueObligationsResponseSchema.safeParse(fixture);
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts an empty list', () => {
+    const result = OverdueObligationsResponseSchema.safeParse({ obligations: [] });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe('UpcomingRecurringSchema', () => {
+  const baseItem = {
+    merchant: 'Netflix',
+    category: 'Subscriptions',
+    colour: '#ff0000',
+    logoUrl: null,
+    amount: 9.99,
+    frequency: 'monthly' as const,
+    sourceAccount: 'barclays-current',
+    nextExpectedDate: '2026-04-20',
+    lastChargeDate: '2026-03-20',
+  };
+
+  it('accepts a complete upcoming-recurring item', () => {
+    expect(UpcomingRecurringSchema.safeParse(baseItem).success).toBe(true);
+  });
+
+  it('accepts null lastChargeDate and logoUrl', () => {
+    const result = UpcomingRecurringSchema.safeParse({
+      ...baseItem,
+      logoUrl: null,
+      lastChargeDate: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a missing nextExpectedDate', () => {
+    const { nextExpectedDate: _drop, ...rest } = baseItem;
+    void _drop;
+    expect(UpcomingRecurringSchema.safeParse(rest).success).toBe(false);
+  });
+
+  it('rejects an invalid frequency', () => {
+    const result = UpcomingRecurringSchema.safeParse({ ...baseItem, frequency: 'weekly' });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('UpcomingPaymentItemSchema', () => {
+  const obligationItem = {
+    kind: 'obligation' as const,
+    id: 'auto-vat-2025-08-01',
+    type: 'vat',
+    name: 'VAT Aug-Oct 2025',
+    entity: 'HMRC',
+    expectedAmount: 11371.42,
+    dueDate: '2025-12-07',
+    status: 'paid',
+    source: 'auto',
+  };
+
+  const recurringItem = {
+    kind: 'recurring' as const,
+    merchant: 'Domain Renewal',
+    category: 'Software',
+    colour: '#3b82f6',
+    logoUrl: 'https://logo.clearbit.com/domain.com',
+    amount: 25,
+    sourceAccount: 'capital-on-tap',
+    nextExpectedDate: '2026-11-15',
+  };
+
+  it('accepts an obligation item', () => {
+    expect(UpcomingPaymentItemSchema.safeParse(obligationItem).success).toBe(true);
+  });
+
+  it('accepts a recurring item', () => {
+    expect(UpcomingPaymentItemSchema.safeParse(recurringItem).success).toBe(true);
+  });
+
+  it('accepts obligation with null expectedAmount', () => {
+    const result = UpcomingPaymentItemSchema.safeParse({ ...obligationItem, expectedAmount: null });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts recurring with null logoUrl', () => {
+    const result = UpcomingPaymentItemSchema.safeParse({ ...recurringItem, logoUrl: null });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects items with missing kind discriminator', () => {
+    const { kind: _drop, ...bad } = obligationItem;
+    void _drop;
+    expect(UpcomingPaymentItemSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('rejects items with unknown kind', () => {
+    const result = UpcomingPaymentItemSchema.safeParse({ ...obligationItem, kind: 'mystery' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects mixed shape (obligation fields on recurring kind)', () => {
+    const result = UpcomingPaymentItemSchema.safeParse({ ...obligationItem, kind: 'recurring' });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('UpcomingPaymentsResponseSchema', () => {
+  it('accepts a mixed items array', () => {
+    const fixture = {
+      items: [
+        {
+          kind: 'obligation' as const,
+          id: 'manual-sa-2024',
+          type: 'self-assessment',
+          name: 'Self Assessment 2024',
+          entity: 'HMRC',
+          expectedAmount: 3200,
+          dueDate: '2026-01-31',
+          status: 'pending',
+          source: 'manual',
+        },
+        {
+          kind: 'recurring' as const,
+          merchant: 'Domain Renewal',
+          category: 'Software',
+          colour: '#3b82f6',
+          logoUrl: null,
+          amount: 25,
+          sourceAccount: 'capital-on-tap',
+          nextExpectedDate: '2026-11-15',
+        },
+      ],
+    };
+    const result = UpcomingPaymentsResponseSchema.safeParse(fixture);
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts an empty items array', () => {
+    expect(UpcomingPaymentsResponseSchema.safeParse({ items: [] }).success).toBe(true);
+  });
+
+  it('rejects when items is missing', () => {
+    expect(UpcomingPaymentsResponseSchema.safeParse({}).success).toBe(false);
+  });
+});

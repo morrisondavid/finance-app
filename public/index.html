@@ -540,22 +540,16 @@
     <section id="obligations" class="tab-content">
       <h2>Financial Obligations</h2>
 
-      <!-- Upcoming Deadlines Panel -->
-      <div class="card" id="obligations-upcoming-panel">
-        <h3>Upcoming Deadlines <span id="obligations-upcoming-count" class="badge"></span></h3>
-        <div id="obligations-upcoming-list"></div>
+      <!-- Overdue Hero Banner (hidden when no overdue items) -->
+      <div class="card obligations-overdue-hero" id="obligations-overdue-panel" style="display:none">
+        <h2 class="obligations-overdue-title">OVERDUE</h2>
+        <div id="obligations-overdue-list"></div>
       </div>
 
-      <!-- VAT Reconciliation Panel -->
-      <div class="card" id="obligations-vat-panel">
-        <div class="obligations-vat-header">
-          <h3>VAT Reconciliation</h3>
-          <label class="obligations-toggle-label">
-            <input type="checkbox" id="vat-show-historical" />
-            Show historical
-          </label>
-        </div>
-        <div id="obligations-vat-table"></div>
+      <!-- Upcoming Payments Panel -->
+      <div class="card" id="obligations-upcoming-panel">
+        <h3>Upcoming Payments <span id="obligations-upcoming-count" class="badge"></span></h3>
+        <div id="obligations-upcoming-list"></div>
       </div>
 
       <!-- Obligation Registry Panel -->
@@ -563,6 +557,15 @@
         <h3>All Obligations</h3>
         <div class="obligations-registry-toolbar">
           <button type="button" class="btn btn-primary" id="obligations-add-btn">+ Add Obligation</button>
+          <label class="obligations-toggle-label">
+            <input type="checkbox" id="obligations-show-completed" />
+            Show completed
+          </label>
+          <div id="obligations-fy-selector" class="obligations-fy-selector" style="display:none">
+            <button type="button" class="btn btn-sm" id="obligations-fy-prev" aria-label="Previous financial year">&larr;</button>
+            <span id="obligations-fy-label"></span>
+            <button type="button" class="btn btn-sm" id="obligations-fy-next" aria-label="Next financial year">&rarr;</button>
+          </div>
         </div>
         <div id="obligations-registry-list"></div>
       </div>
