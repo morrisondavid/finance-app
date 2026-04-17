@@ -94,10 +94,10 @@ describe('Barclaycard Parser', () => {
       const result = barclaycardParser.transform(row, 'barclaycard');
       
       expect(result).not.toBeNull();
-      expect(result!.amount).toBe(84.95);
+      expect(result!.amount).toBe(84.95);  // Raw CSV amount; credit card inversion happens in parsers/index.ts
       expect(result!.description).toBe('PURCHASE FINANCE CHARGE');
       expect(result!.account).toBe('barclaycard');
-      expect(result!.type).toBe('expense');  // Positive amount = expense for credit card
+      expect(result!.type).toBe('expense');
     });
 
     it('transforms payment correctly', () => {
@@ -110,8 +110,8 @@ describe('Barclaycard Parser', () => {
       const result = barclaycardParser.transform(row, 'barclaycard');
       
       expect(result).not.toBeNull();
-      expect(result!.amount).toBe(-86.13);
-      expect(result!.type).toBe('income');  // Negative amount = income (payment received)
+      expect(result!.amount).toBe(-86.13);  // Raw CSV amount; inversion is central
+      expect(result!.type).toBe('income');
     });
 
     it('returns null for row without valid date', () => {

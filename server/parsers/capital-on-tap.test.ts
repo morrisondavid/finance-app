@@ -97,7 +97,7 @@ describe('Capital on Tap Parser', () => {
       const result = capitalOnTapParser.transform(row, 'capital-on-tap');
       
       expect(result).not.toBeNull();
-      expect(result!.amount).toBe(-105);  // Inverted for credit card
+      expect(result!.amount).toBe(105);  // Raw CSV amount; credit card inversion is central
       expect(result!.type).toBe('expense');
     });
 
@@ -111,7 +111,7 @@ describe('Capital on Tap Parser', () => {
       const result = capitalOnTapParser.transform(row, 'capital-on-tap');
       
       expect(result).not.toBeNull();
-      expect(result!.amount).toBe(100);  // Inverted: negative payment becomes positive
+      expect(result!.amount).toBe(-100);  // Raw CSV amount; inversion is central
       expect(result!.type).toBe('income');
     });
   });
