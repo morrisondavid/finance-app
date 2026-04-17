@@ -6,7 +6,7 @@ import type {
   Transaction as TransactionContract,
   TransactionType as TransactionTypeContract,
   AccountType as AccountTypeContract,
-  AccountOwnership as AccountOwnershipContract,
+  AccountCategory as AccountCategoryContract,
   AccountName as AccountNameContract,
   AccountConfig as AccountConfigContract,
   ExtractedDate as ExtractedDateContract,
@@ -28,7 +28,7 @@ import type {
 export type Transaction = TransactionContract;
 export type TransactionType = TransactionTypeContract;
 export type AccountType = AccountTypeContract;
-export type AccountOwnership = AccountOwnershipContract;
+export type AccountCategory = AccountCategoryContract;
 export type AccountName = AccountNameContract;
 export type AccountConfig = AccountConfigContract;
 export type ExtractedDate = ExtractedDateContract;

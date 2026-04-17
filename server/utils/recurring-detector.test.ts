@@ -27,7 +27,7 @@ function makeCandidate(overrides: Partial<RecurringCandidate> & { transactions?:
     merchant: 'Test Merchant',
     category: 'Utilities',
     sourceAccount: 'natwest',
-    ownership: 'personal',
+    accountCategory: 'personal',
     monthlyMax: Math.max(...amounts),
     monthlyAvg: amounts.reduce((s, v) => s + v, 0) / amounts.length,
     monthsActive: new Set(txns.map(t => t.date.slice(0, 7))).size,

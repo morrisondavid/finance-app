@@ -129,25 +129,44 @@ export type AccountName = typeof ACCOUNTS[number];
 export type AccountType = 'current' | 'savings' | 'credit-card';
 
 /**
- * Account ownership classification
+ * Account category classification
  * - business: Company accounts used for business finances
  * - personal: Personal accounts for individual finances
  */
-export type AccountOwnership = 'business' | 'personal';
+export type AccountCategory = 'business' | 'personal';
+
+/** @deprecated Use AccountCategory instead */
+export type AccountOwnership = AccountCategory;
 
 /**
- * Account configuration with behavior settings
+ * Per-tax-type flags for business accounts.
+ * Only business accounts can have these — enforced by the discriminated union below.
  */
-export interface AccountConfig {
+export interface BusinessTaxConfig {
+  vatApplicable: boolean;
+  corpTaxApplicable: boolean;
+}
+
+interface BaseAccountConfig {
   name: AccountName;
   label: string;
   type: AccountType;
-  ownership: AccountOwnership;              // business or personal
-  canMakeOutgoingPayments: boolean;         // can pay bills? (savings accounts can't)
-  excludeTransfersFromIncome: boolean;      // true = don't count transfers as income
-  showTaxLiabilities: boolean;              // true = show tax panel
-  quarterOverlapMonths?: number;            // extra months before quarter start to include in exports (default 0)
+  canMakeOutgoingPayments: boolean;
+  excludeTransfersFromIncome: boolean;
+  showTaxLiabilities: boolean;
+  quarterOverlapMonths?: number;
 }
+
+export interface BusinessAccountConfig extends BaseAccountConfig {
+  category: 'business';
+  business: BusinessTaxConfig;
+}
+
+export interface PersonalAccountConfig extends BaseAccountConfig {
+  category: 'personal';
+}
+
+export type AccountConfig = BusinessAccountConfig | PersonalAccountConfig;
 
 /**
  * Configuration for all accounts
@@ -157,35 +176,39 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     name: 'barclays-current',
     label: 'Barclays Current',
     type: 'current',
-    ownership: 'business',
+    category: 'business',
+    business: { vatApplicable: true, corpTaxApplicable: true },
     canMakeOutgoingPayments: true,
-    excludeTransfersFromIncome: true,   // Primary business account
+    excludeTransfersFromIncome: true,
     showTaxLiabilities: true,
   },
   'barclays-savings': {
     name: 'barclays-savings',
     label: 'Barclays Savings',
     type: 'savings',
-    ownership: 'business',
-    canMakeOutgoingPayments: false,     // Savings accounts can't pay bills
-    excludeTransfersFromIncome: false,  // Show transfers as income
+    category: 'business',
+    business: { vatApplicable: false, corpTaxApplicable: false },
+    canMakeOutgoingPayments: false,
+    excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
   },
   'capital-on-tap': {
     name: 'capital-on-tap',
     label: 'Capital on Tap',
     type: 'credit-card',
-    ownership: 'business',
+    category: 'business',
+    business: { vatApplicable: false, corpTaxApplicable: false },
     canMakeOutgoingPayments: true,
-    excludeTransfersFromIncome: false,  // Show payments as income
+    excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
-    quarterOverlapMonths: 1,            // mid-month billing: include 1 extra month before quarter start
+    quarterOverlapMonths: 1,
   },
   'barclaycard': {
     name: 'barclaycard',
     label: 'Barclaycard',
     type: 'credit-card',
-    ownership: 'business',
+    category: 'business',
+    business: { vatApplicable: false, corpTaxApplicable: false },
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
@@ -194,16 +217,16 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     name: 'natwest',
     label: 'NatWest',
     type: 'current',
-    ownership: 'personal',
+    category: 'personal',
     canMakeOutgoingPayments: true,
-    excludeTransfersFromIncome: false,  // Legacy/secondary account
+    excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
   },
   'monzo-joint': {
     name: 'monzo-joint',
     label: 'Monzo Joint',
     type: 'current',
-    ownership: 'personal',
+    category: 'personal',
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
@@ -233,12 +256,19 @@ export function validateAccount(account: string | undefined): AccountName {
 }
 
 /**
+ * Type guard: narrows AccountConfig to BusinessAccountConfig.
+ */
+export function isBusinessConfig(c: AccountConfig): c is BusinessAccountConfig {
+  return c.category === 'business';
+}
+
+/**
  * Get business accounts that can make outgoing payments (for VAT, Corp Tax, etc.)
  */
 export function getBusinessPaymentAccounts(): AccountName[] {
   return ACCOUNTS.filter(account => {
     const config = ACCOUNT_CONFIG[account];
-    return config.ownership === 'business' && config.canMakeOutgoingPayments;
+    return config.category === 'business' && config.canMakeOutgoingPayments;
   });
 }
 
@@ -248,7 +278,29 @@ export function getBusinessPaymentAccounts(): AccountName[] {
 export function getPersonalPaymentAccounts(): AccountName[] {
   return ACCOUNTS.filter(account => {
     const config = ACCOUNT_CONFIG[account];
-    return config.ownership === 'personal' && config.canMakeOutgoingPayments;
+    return config.category === 'personal' && config.canMakeOutgoingPayments;
+  });
+}
+
+/**
+ * Accounts whose income is subject to VAT.
+ * Double gate: must be category === 'business' AND business.vatApplicable === true.
+ */
+export function getVatApplicableAccounts(): AccountName[] {
+  return ACCOUNTS.filter(a => {
+    const c = ACCOUNT_CONFIG[a];
+    return isBusinessConfig(c) && c.business.vatApplicable;
+  });
+}
+
+/**
+ * Accounts whose income is subject to Corporation Tax.
+ * Double gate: must be category === 'business' AND business.corpTaxApplicable === true.
+ */
+export function getCorpTaxApplicableAccounts(): AccountName[] {
+  return ACCOUNTS.filter(a => {
+    const c = ACCOUNT_CONFIG[a];
+    return isBusinessConfig(c) && c.business.corpTaxApplicable;
   });
 }
 
@@ -264,7 +316,7 @@ export function isCreditCard(account: AccountName): boolean {
  */
 export function isBusinessAccount(account: string): boolean {
   if (!isValidAccountName(account)) return false;
-  return ACCOUNT_CONFIG[account as AccountName].ownership === 'business';
+  return ACCOUNT_CONFIG[account as AccountName].category === 'business';
 }
 
 /**

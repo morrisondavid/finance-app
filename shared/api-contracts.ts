@@ -27,7 +27,9 @@ export const TransactionSchema = z.object({
 });
 
 export const AccountTypeSchema = z.enum(['current', 'savings', 'credit-card']);
-export const AccountOwnershipSchema = z.enum(['business', 'personal']);
+export const AccountCategorySchema = z.enum(['business', 'personal']);
+/** @deprecated Use AccountCategorySchema instead */
+export const AccountOwnershipSchema = AccountCategorySchema;
 export const AccountNameSchema = z.enum([
   'barclays-current',
   'barclays-savings',
@@ -41,7 +43,7 @@ export const AccountConfigSchema = z.object({
   name: AccountNameSchema,
   label: z.string(),
   type: AccountTypeSchema,
-  ownership: AccountOwnershipSchema,
+  category: AccountCategorySchema,
   canMakeOutgoingPayments: z.boolean(),
   excludeTransfersFromIncome: z.boolean(),
   showTaxLiabilities: z.boolean()
@@ -251,9 +253,16 @@ export const TransactionsResponseSchema = z.array(TransactionSchema);
 // POST /api/dashboard/balance/:account (response)
 export const AccountBalanceResponseSchema = AccountBalanceSchema;
 
-// GET /api/tax/vat-payments
+// GET /api/tax/vat-payments — returns HMRC payment matches (not full Transaction rows)
+export const HmrcPaymentMatchSchema = z.object({
+  date: z.string(),
+  amount: z.number(),
+  account: z.string(),
+  description: z.string(),
+});
+
 export const VATPaymentsResponseSchema = z.object({
-  payments: z.array(TransactionSchema)
+  payments: z.array(HmrcPaymentMatchSchema)
 });
 
 // GET /api/dashboard/categories
@@ -285,7 +294,7 @@ export const ExpensesLineItemSchema = z.object({
   amount: z.number(),
   frequency: z.enum(['monthly', 'annual']),
   sourceAccount: z.string(),
-  ownership: AccountOwnershipSchema,
+  accountCategory: AccountCategorySchema,
   isVariable: z.boolean(),
   billingDayOfMonth: z.number().nullable(),
   billingMonth: z.number().nullable(),
@@ -593,7 +602,9 @@ export const UpdateObligationBodySchema = CreateObligationBodySchema.partial();
 export type TransactionType = z.infer<typeof TransactionTypeSchema>;
 export type Transaction = z.infer<typeof TransactionSchema>;
 export type AccountType = z.infer<typeof AccountTypeSchema>;
-export type AccountOwnership = z.infer<typeof AccountOwnershipSchema>;
+export type AccountCategory = z.infer<typeof AccountCategorySchema>;
+/** @deprecated Use AccountCategory instead */
+export type AccountOwnership = AccountCategory;
 export type AccountName = z.infer<typeof AccountNameSchema>;
 export type AccountConfig = z.infer<typeof AccountConfigSchema>;
 export type ExtractedDate = z.infer<typeof ExtractedDateSchema>;

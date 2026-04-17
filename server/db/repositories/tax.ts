@@ -12,6 +12,7 @@ import {
 import { DIRECTORS, HMRC_PATTERNS } from '../../config/payees.js';
 import { getBusinessPaymentAccounts } from '../../types.js';
 import { round2 } from '../../utils/math.js';
+import { buildVatAccountFilter, buildCorpTaxAccountFilter } from '../utils/tax-account-filter.js';
 
 export interface HmrcPaymentMatch {
   date: string;
@@ -152,24 +153,26 @@ function calculateDirectorDividendTax(salaryPaidInPeriod: number, dividends: num
 export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilities {
   const db = getDb();
   const { clause, params } = buildDashboardFilters(filters);
+  const corpTaxFilter = buildCorpTaxAccountFilter();
+  const vatFilter = buildVatAccountFilter();
   
-  // Get income for the selected financial year (for Corp Tax, etc.)
+  // Get income for the selected financial year (for Corp Tax) — always scoped to corpTax accounts
   const incomeResult = db.prepare(`
-    SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE type = 'income'${clause}
-  `).get(...params) as { total: number };
+    SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE type = 'income'${clause} ${corpTaxFilter.clause}
+  `).get(...params, ...corpTaxFilter.params) as { total: number };
   
   const income = incomeResult.total;
   
   // VAT calculation - use current VAT QUARTER, not financial year
   const vatQuarter = getCurrentVatQuarter();
   
-  // Get income for the current VAT quarter only
+  // Get income for the current VAT quarter only — scoped to VAT-applicable accounts
   const vatQuarterIncomeResult = db.prepare(`
     SELECT COALESCE(SUM(amount), 0) as total 
     FROM transactions 
     WHERE type = 'income'
-    AND date >= ? AND date <= ?
-  `).get(vatQuarter.startDate, vatQuarter.endDate) as { total: number };
+    AND date >= ? AND date <= ? ${vatFilter.clause}
+  `).get(vatQuarter.startDate, vatQuarter.endDate, ...vatFilter.params) as { total: number };
   
   const vatQuarterIncome = vatQuarterIncomeResult.total;
   const vatOwedThisQuarter = round2(vatQuarterIncome * VAT.FRACTION);
@@ -185,8 +188,8 @@ export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilitie
       SELECT COALESCE(SUM(amount), 0) as total 
       FROM transactions 
       WHERE type = 'income'
-      AND date >= ? AND date <= ?
-    `).get(calendarQuarter.startDate, calendarQuarter.endDate) as { total: number };
+      AND date >= ? AND date <= ? ${vatFilter.clause}
+    `).get(calendarQuarter.startDate, calendarQuarter.endDate, ...vatFilter.params) as { total: number };
     vatInProgressEstimate = round2(inProgressIncomeResult.total * VAT.FRACTION);
   }
   

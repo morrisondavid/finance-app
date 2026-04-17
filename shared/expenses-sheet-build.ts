@@ -34,7 +34,7 @@ function computeMonthlyOutgoingSplits(
   for (const sec of monthlyOutgoings) {
     for (const item of sec.items) {
       if (!included(item, excluded)) continue;
-      if (item.ownership === 'business') {
+      if (item.accountCategory === 'business') {
         businessMonthlyFixed += item.amount;
       } else {
         personalMonthlyFixed += item.amount;

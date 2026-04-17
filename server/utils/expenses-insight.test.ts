@@ -18,7 +18,7 @@ function item(
   merchant: string,
   amount: number,
   category: string,
-  ownership: 'personal' | 'business',
+  accountCategory: 'personal' | 'business',
   sourceAccount = 'barclays-current',
 ): ExpensesLineItem {
   testLineKeySeq += 1;
@@ -29,7 +29,7 @@ function item(
     amount,
     frequency: 'monthly',
     sourceAccount,
-    ownership,
+    accountCategory,
     isVariable: false,
     billingDayOfMonth: null,
     billingMonth: null,
@@ -220,7 +220,7 @@ function buildSpreadsheetFixture() {
 
   for (const sec of monthlyOutgoings) {
     for (const it of sec.items) {
-      if (it.ownership === 'business') {
+      if (it.accountCategory === 'business') {
         businessMonthlyFixed += it.amount;
       } else {
         personalMonthlyFixed += it.amount;
@@ -883,7 +883,7 @@ describe('buildExpensesInsight', () => {
         amount,
         frequency: 'annual',
         sourceAccount: 'natwest',
-        ownership: 'personal',
+        accountCategory: 'personal',
         isVariable: false,
         billingDayOfMonth: null,
         billingMonth: null,

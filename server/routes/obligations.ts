@@ -1,12 +1,13 @@
 import express, { Request, Response } from 'express';
 import { getDb } from '../db/connection.js';
 import { HMRC_PATTERNS } from '../config/payees.js';
-import { ACCOUNTS } from '../types.js';
+import { getBusinessPaymentAccounts } from '../types.js';
 import { VAT, getVatQuarterForDate } from '../config/tax-rates.js';
 import { findHmrcPayments } from '../db/repositories/tax.js';
 import { reconcileVatQuarter } from '../utils/vat-reconciliation.js';
 import { formatDateISO } from '../../shared/date-format.js';
 import { getFinancialYearRange, getPreviousFyStartDate } from '../db/utils/financial-year.js';
+import { buildVatAccountFilter } from '../db/utils/tax-account-filter.js';
 import {
   getAllObligations,
   getUpcomingObligations,
@@ -45,22 +46,24 @@ router.get('/', (req: Request, res: Response<ObligationsListResponse | { error: 
 router.get('/vat-reconciliation', (req: Request, res: Response<VatReconciliationResponse | { error: string }>) => {
   try {
     const db = getDb();
+    const vatFilter = buildVatAccountFilter();
     const oldest = db.prepare(
-      `SELECT MIN(date) as minDate FROM transactions WHERE type = 'income'`
-    ).get() as { minDate: string | null };
+      `SELECT MIN(date) as minDate FROM transactions WHERE type = 'income' ${vatFilter.clause}`
+    ).get(...vatFilter.params) as { minDate: string | null };
 
     if (!oldest?.minDate) {
       res.json({ quarters: [] });
       return;
     }
 
+    const earliestDate = oldest.minDate;
     const fyParam = typeof req.query.financialYear === 'string' ? req.query.financialYear : undefined;
     const fyRange = fyParam ? getFinancialYearRange(fyParam) : undefined;
 
     const now = new Date();
     const dataCutoff = getPreviousFyStartDate(now);
 
-    const startDate = new Date(`${oldest.minDate}T12:00:00`);
+    const startDate = new Date(`${earliestDate}T12:00:00`);
     const seen = new Set<string>();
     const quarters: VatReconciliationResponse['quarters'] = [];
 
@@ -71,6 +74,11 @@ router.get('/vat-reconciliation', (req: Request, res: Response<VatReconciliation
       if (!seen.has(key)) {
         seen.add(key);
 
+        if (q.startDate < earliestDate) {
+          cursor.setMonth(cursor.getMonth() + 1);
+          continue;
+        }
+
         if (fyRange && (q.endDate < fyRange.startDate || q.startDate > fyRange.endDate)) {
           cursor.setMonth(cursor.getMonth() + 1);
           continue;
@@ -78,12 +86,12 @@ router.get('/vat-reconciliation', (req: Request, res: Response<VatReconciliation
 
         const incomeResult = db.prepare(`
           SELECT COALESCE(SUM(amount), 0) as total
-          FROM transactions WHERE type = 'income' AND date >= ? AND date <= ?
-        `).get(q.startDate, q.endDate) as { total: number };
+          FROM transactions WHERE type = 'income' AND date >= ? AND date <= ? ${vatFilter.clause}
+        `).get(q.startDate, q.endDate, ...vatFilter.params) as { total: number };
 
         const payments = findHmrcPayments({
           patterns: HMRC_PATTERNS.VAT,
-          accounts: [...ACCOUNTS],
+          accounts: getBusinessPaymentAccounts(),
           startDate: q.startDate,
           endDate: formatDateISO(new Date(new Date(q.dueDate).getTime() + 60 * 86400000)),
         });

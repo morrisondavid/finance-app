@@ -365,7 +365,7 @@ router.get('/download-all', (req: Request<object, unknown, object, StatementsQue
 
 // Helper to get business accounts only
 function getBusinessAccounts(): AccountName[] {
-  return ACCOUNTS.filter(account => ACCOUNT_CONFIG[account].ownership === 'business');
+  return ACCOUNTS.filter(account => ACCOUNT_CONFIG[account].category === 'business');
 }
 
 // Helper to get expected months for a quarter

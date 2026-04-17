@@ -125,10 +125,10 @@ export function buildExpensesInsight(
           debtMediumTerm += item.amount;
         }
       }
-      if (item.ownership === 'personal' && isQoLCategory(item.category)) {
+      if (item.accountCategory === 'personal' && isQoLCategory(item.category)) {
         qualityOfLifeExpenses += item.amount;
       }
-      if (item.sourceAccount === 'natwest' && item.ownership === 'personal') {
+      if (item.sourceAccount === 'natwest' && item.accountCategory === 'personal') {
         natwestPersonalFixed += item.amount;
       }
     }

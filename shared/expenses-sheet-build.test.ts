@@ -7,7 +7,7 @@ function line(
   merchant: string,
   amount: number,
   category: string,
-  ownership: 'personal' | 'business',
+  accountCategory: 'personal' | 'business',
   sourceAccount = 'barclays-current',
   frequency: 'monthly' | 'annual' = 'monthly',
 ): ExpensesLineItem {
@@ -18,7 +18,7 @@ function line(
     amount,
     frequency,
     sourceAccount,
-    ownership,
+    accountCategory,
     isVariable: false,
     billingDayOfMonth: null,
     billingMonth: null,

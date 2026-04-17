@@ -34,7 +34,7 @@ export interface Accumulator {
   merchant: string;
   category: CategoryName;
   sourceAccount: string;
-  ownership: 'personal' | 'business';
+  accountCategory: 'personal' | 'business';
   monthlyTotals: Map<string, number>;
   annualTotal: number;
   transactions: TransactionDetail[];
@@ -174,7 +174,7 @@ function accumulatorsToCandidates(map: Map<string, Accumulator>): RecurringCandi
       monthsActive: acc.monthlyTotals.size,
       annualTotal: round2(acc.annualTotal),
       sourceAccount: acc.sourceAccount,
-      ownership: acc.ownership,
+      accountCategory: acc.accountCategory,
       transactions: acc.transactions,
     });
   }
@@ -208,7 +208,7 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
 
     const { key, category, displayMerchant } = bucket;
     const account = txn.account;
-    const ownership = ACCOUNT_CONFIG[account as AccountName]?.ownership ?? 'personal';
+    const accountCategory = ACCOUNT_CONFIG[account as AccountName]?.category ?? 'personal';
     const absAmount = Math.abs(txn.amount);
     const ym = monthKeyFromIsoDate(txn.date);
     allMonths.add(ym);
@@ -220,7 +220,7 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
         merchant: displayMerchant,
         category,
         sourceAccount: account,
-        ownership,
+        accountCategory,
         monthlyTotals: new Map(),
         annualTotal: 0,
         transactions: [],

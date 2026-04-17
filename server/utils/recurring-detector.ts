@@ -85,7 +85,7 @@ export interface RecurringCandidate {
   merchant: string;
   category: CategoryName;
   sourceAccount: string;
-  ownership: 'personal' | 'business';
+  accountCategory: 'personal' | 'business';
   monthlyMax: number;
   monthlyAvg: number;
   monthsActive: number;
