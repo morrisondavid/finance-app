@@ -118,6 +118,29 @@ export function formatFinancialYearMonthLabel(monthKey: string): string {
 }
 
 /**
+ * Returns the FY label for a given date based on the company accounting period (May–April).
+ * e.g. 2025-03-15 → "2024/25", 2025-06-01 → "2025/26"
+ */
+export function getFinancialYearForDate(date: Date = new Date()): string {
+  const month = date.getMonth(); // 0-11
+  const year = date.getFullYear();
+  const startYear = month < 4 ? year - 1 : year;
+  return `${startYear}/${String(startYear + 1).slice(-2)}`;
+}
+
+/**
+ * Returns the start date of the previous financial year relative to `date`.
+ * Used as the data-coverage cutoff: quarters ending before this are treated
+ * as having insufficient transaction data.
+ */
+export function getPreviousFyStartDate(date: Date = new Date()): string {
+  const currentFyLabel = getFinancialYearForDate(date);
+  const currentStartYear = parseInt(currentFyLabel.slice(0, 4), 10);
+  const prevStartYear = currentStartYear - 1;
+  return `${prevStartYear}-05-01`;
+}
+
+/**
  * Build SQL WHERE clause for financial year filtering
  */
 export function buildFYWhereClause(fy: string | undefined): { clause: string; params: string[] } {

@@ -4,6 +4,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import type { Transaction } from '../types.js';
+import { formatDateISO } from '../../shared/date-format.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +13,8 @@ export const DB_PATH = path.join(__dirname, '../../data/transactions.db');
 export const STATEMENTS_DIR = path.join(__dirname, '../../statements');
 /** Canonical category budgets CSV lives here (see budgets-csv.ts). */
 export const BUDGETS_DIR = path.join(__dirname, '../../budgets');
+/** Manual obligations CSV lives here (see obligations-csv.ts). */
+export const OBLIGATIONS_DIR = path.join(__dirname, '../../obligations');
 
 let db: Database.Database;
 
@@ -66,17 +69,6 @@ export function closeConnection(): void {
 }
 
 /**
- * Format date as YYYY-MM-DD using local time (not UTC)
- * This avoids timezone issues where toISOString() shifts dates
- */
-export function formatDateLocal(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-/**
  * Normalize a description for hashing
  * - Lowercase
  * - Trim leading/trailing whitespace
@@ -94,7 +86,7 @@ export function normalizeDescription(desc: string): string {
  * Uses: account + date + amount + full normalized description + occurrence
  */
 export function generateTransactionHash(t: Transaction): string {
-  const dateStr = formatDateLocal(t.date);
+  const dateStr = formatDateISO(t.date);
   const descNormalized = normalizeDescription(t.description);
   // Occurrence should always be set (1 for non-duplicates), but default to 1 for safety
   const occurrence = (t.occurrence !== undefined && t.occurrence !== null) ? t.occurrence : 1;
@@ -241,6 +233,29 @@ export function migrateFixedExpenseSimulationExclusionsIfNeeded(): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS fixed_expense_simulation_exclusions (
       line_key TEXT PRIMARY KEY NOT NULL
+    );
+  `);
+}
+
+export function migrateObligationsIfNeeded(): void {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS financial_obligations (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      type TEXT NOT NULL,
+      name TEXT NOT NULL,
+      entity TEXT NOT NULL,
+      recurrence TEXT NOT NULL,
+      expected_amount REAL,
+      due_date TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      paid_amount REAL,
+      paid_date TEXT,
+      paid_from_account TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
 }

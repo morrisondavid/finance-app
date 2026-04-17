@@ -125,7 +125,8 @@ describe('computeAdHocExpenseGroups', () => {
       annualTotal: 1440,
       logoUrl: null,
       sourceAccount: account,
-      billingDay: null,
+      billingDayOfMonth: null,
+      billingMonth: null,
     };
     expect(recurringKey(recurring)).toBe(bucket.key);
 

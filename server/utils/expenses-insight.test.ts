@@ -31,7 +31,8 @@ function item(
     sourceAccount,
     ownership,
     isVariable: false,
-    billingDay: null,
+    billingDayOfMonth: null,
+    billingMonth: null,
     variance: [],
   };
 }
@@ -884,7 +885,8 @@ describe('buildExpensesInsight', () => {
         sourceAccount: 'natwest',
         ownership: 'personal',
         isVariable: false,
-        billingDay: null,
+        billingDayOfMonth: null,
+        billingMonth: null,
         variance: [],
       };
     }

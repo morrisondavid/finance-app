@@ -206,10 +206,6 @@ const natwestParser: BankParser = {
    * Transform a CSV row to normalized transaction
    */
   transform(row: CSVRow, account: string): Transaction | null {
-    // Parse occurrence if present (for split payment tracking)
-    const occurrenceStr = getColumnValue(row, '_occurrence');
-    const occurrence = occurrenceStr && occurrenceStr !== '' ? parseInt(occurrenceStr, 10) : 1;
-    
     // Handle format with Paid In / Paid Out columns
     const paidIn = getColumnValue(row, 'Paid In');
     const paidOut = getColumnValue(row, 'Paid Out');
@@ -229,7 +225,6 @@ const natwestParser: BankParser = {
         amount,
         account,
         type: amount >= 0 ? 'income' : 'expense',
-        occurrence
       };
     }
     
@@ -247,7 +242,6 @@ const natwestParser: BankParser = {
         amount: value,
         account,
         type: value >= 0 ? 'income' : 'expense',
-        occurrence
       };
     }
     

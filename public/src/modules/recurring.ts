@@ -4,7 +4,7 @@
 
 import { state } from './state';
 import { fetchRecurringExpenses } from '../utils/api';
-import { formatCurrency } from '../utils/formatting';
+import { formatCurrency, formatBillingDay } from '../utils/formatting';
 import { escapeHtml, escapeAttribute } from '../utils/dom';
 import type { RecurringExpense } from '../../../shared/api-contracts.js';
 
@@ -40,7 +40,8 @@ function buildPodHTML(expense: RecurringExpense, index: number): string {
     ? `<div class="recurring-pod-initials" style="display:none; background:${safeColour}">${escapeHtml(initials)}</div>`
     : `<div class="recurring-pod-initials" style="display:flex; background:${safeColour}">${escapeHtml(initials)}</div>`;
 
-  const billingInfo = expense.billingDay ? ` — ${expense.billingDay}` : '';
+  const billingLabel = formatBillingDay(expense.billingDayOfMonth, expense.billingMonth, expense.frequency);
+  const billingInfo = billingLabel ? ` — ${billingLabel}` : '';
   const tooltip = `${expense.merchant} — ${expense.category} — ${formatAmount(expense)}${billingInfo}`;
 
   return `
@@ -50,7 +51,7 @@ function buildPodHTML(expense: RecurringExpense, index: number): string {
       <div class="recurring-pod-info">
         <span class="recurring-pod-name">${escapeHtml(expense.merchant)}</span>
         <span class="recurring-pod-amount">${escapeHtml(formatAmount(expense))}</span>
-        ${expense.billingDay ? `<span class="recurring-pod-date">${escapeHtml(expense.billingDay)}</span>` : ''}
+        ${billingLabel ? `<span class="recurring-pod-date">${escapeHtml(billingLabel)}</span>` : ''}
         <span class="recurring-pod-category"><span class="recurring-pod-cat-dot" style="background:${safeColour}"></span>${escapeHtml(expense.category)}</span>
       </div>
     </div>`;

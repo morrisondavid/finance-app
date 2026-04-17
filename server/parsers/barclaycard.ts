@@ -207,10 +207,6 @@ const barclaycardParser: BankParser = {
    * Transform a CSV row to normalized transaction
    */
   transform(row: CSVRow, account: string): Transaction | null {
-    // Parse occurrence if present (for split payment tracking)
-    const occurrenceStr = getColumnValue(row, '_occurrence');
-    const occurrence = occurrenceStr && occurrenceStr !== '' ? parseInt(occurrenceStr, 10) : 1;
-    
     // Find date column
     const dateValue = getColumnValue(row, 'Transaction Date') ||
                       getColumnValue(row, 'Date');
@@ -237,7 +233,6 @@ const barclaycardParser: BankParser = {
       amount,
       account,
       type: amount > 0 ? 'expense' : 'income',
-      occurrence
     };
   }
 };

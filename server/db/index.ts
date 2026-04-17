@@ -20,21 +20,26 @@ import {
   migrateCategoryBudgetsIfNeeded,
   migrateCategoryBudgetsBudgetPeriodIfNeeded,
   migrateFixedExpenseSimulationExclusionsIfNeeded,
+  migrateObligationsIfNeeded,
 } from './connection.js';
 import { populateFromCSVs } from './repositories/files.js';
 import { detectTransfers } from './repositories/transactions.js';
 import { loadBudgetsFromFileIntoDb } from './repositories/budgets.js';
+import { loadManualObligationsFromCsv } from './repositories/obligations.js';
+import { deriveAndInsertAutoObligations } from './repositories/vat-auto-seed.js';
 
 // Re-export from connection
 export { 
   getDb, 
-  formatDateLocal, 
   normalizeDescription, 
   generateTransactionHash,
   DB_PATH,
   STATEMENTS_DIR,
-  BUDGETS_DIR
+  BUDGETS_DIR,
+  OBLIGATIONS_DIR
 } from './connection.js';
+
+export { formatDateISO } from '../../shared/date-format.js';
 
 // Re-export from financial year utils
 export {
@@ -115,6 +120,10 @@ export async function initDatabase(): Promise<void> {
   const transferPairs = detectTransfers();
 
   loadBudgetsFromFileIntoDb();
+
+  migrateObligationsIfNeeded();
+  loadManualObligationsFromCsv();
+  deriveAndInsertAutoObligations();
   
   console.log(`[Database] Ready: ${result.files} files, ${result.transactions} transactions (${result.duplicates} duplicates removed, ${transferPairs} transfer pairs detected)`);
 }

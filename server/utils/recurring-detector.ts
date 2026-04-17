@@ -76,8 +76,6 @@ function circularMeanMonth(months: number[]): number {
   return Math.round((meanAngle * period) / (2 * Math.PI)) || 1;
 }
 
-const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
 export interface TransactionDetail {
   date: string;   // "YYYY-MM-DD"
   amount: number;  // always positive (absolute)
@@ -206,7 +204,7 @@ export function classifyRecurring(
         }
         if (!stale) {
           const avgDay = circularMeanDay(days);
-          monthly.push(toExpense(c, 'monthly', typicalAmount, `~${ordinal(avgDay)} of each month`));
+          monthly.push(toExpense(c, 'monthly', typicalAmount, avgDay, null));
           classifiedAsMonthly = true;
         }
       }
@@ -238,8 +236,7 @@ export function classifyRecurring(
       const mostRecentPick = annualPicks.sort((a, b) => b.date.localeCompare(a.date))[0];
       const avgMonth = circularMeanMonth(pickMonths);
       const avgDay = circularMeanDay(pickDays);
-      const billingLabel = `~${ordinal(avgDay)} ${MONTH_NAMES[avgMonth]}`;
-      annual.push(toExpense(c, 'annual', mostRecentPick.amount, billingLabel));
+      annual.push(toExpense(c, 'annual', mostRecentPick.amount, avgDay, avgMonth));
     }
   }
 
@@ -249,17 +246,12 @@ export function classifyRecurring(
   return { monthly, annual };
 }
 
-function ordinal(n: number): string {
-  const s = ['th', 'st', 'nd', 'rd'];
-  const v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
-}
-
 function toExpense(
   c: RecurringCandidate,
   frequency: RecurringFrequency,
   displayAmount: number,
-  billingDay: string | null,
+  billingDayOfMonth: number | null,
+  billingMonth: number | null,
 ): RecurringExpense {
   return {
     merchant: c.merchant,
@@ -271,6 +263,7 @@ function toExpense(
     annualTotal: round2(c.annualTotal),
     logoUrl: getMerchantLogoUrl(c.merchant),
     sourceAccount: c.sourceAccount,
-    billingDay,
+    billingDayOfMonth,
+    billingMonth,
   };
 }

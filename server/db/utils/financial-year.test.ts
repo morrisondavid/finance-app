@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   getFinancialYearRange,
+  getFinancialYearForDate,
+  getPreviousFyStartDate,
   buildFYWhereClause,
   listMonthKeysInFinancialYear,
   listFyMonthKeysThroughDate,
@@ -105,6 +107,42 @@ describe('listFyMonthKeysThroughDate', () => {
   it('caps at April when asOf is in the last month of the FY', () => {
     const asOf = new Date(2026, 3, 28); // Apr 2026
     expect(listFyMonthKeysThroughDate(fy, asOf)).toEqual(all);
+  });
+});
+
+describe('getFinancialYearForDate', () => {
+  it('returns correct FY for a date in the second half of the year (May onwards)', () => {
+    expect(getFinancialYearForDate(new Date(2025, 5, 15))).toBe('2025/26'); // June 2025
+  });
+
+  it('returns correct FY for a date in the first half of the year (before May)', () => {
+    expect(getFinancialYearForDate(new Date(2025, 2, 15))).toBe('2024/25'); // March 2025
+  });
+
+  it('returns correct FY for May 1st (start of new FY)', () => {
+    expect(getFinancialYearForDate(new Date(2025, 4, 1))).toBe('2025/26');
+  });
+
+  it('returns correct FY for April 30th (end of FY)', () => {
+    expect(getFinancialYearForDate(new Date(2025, 3, 30))).toBe('2024/25');
+  });
+});
+
+describe('getPreviousFyStartDate', () => {
+  it('returns previous FY start when in the second half of the year', () => {
+    expect(getPreviousFyStartDate(new Date(2025, 5, 15))).toBe('2024-05-01'); // June 2025 → current FY 2025/26 → prev 2024/25
+  });
+
+  it('returns previous FY start when in the first half of the year', () => {
+    expect(getPreviousFyStartDate(new Date(2025, 2, 15))).toBe('2023-05-01'); // March 2025 → current FY 2024/25 → prev 2023/24
+  });
+
+  it('returns previous FY start on May 1st', () => {
+    expect(getPreviousFyStartDate(new Date(2025, 4, 1))).toBe('2024-05-01');
+  });
+
+  it('returns previous FY start on April 30th', () => {
+    expect(getPreviousFyStartDate(new Date(2025, 3, 30))).toBe('2023-05-01'); // Apr 2025 → current FY 2024/25 → prev 2023/24
   });
 });
 

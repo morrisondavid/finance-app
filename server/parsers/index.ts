@@ -7,6 +7,8 @@ import barclaycardParser from './barclaycard.js';
 import monzoParser from './monzo.js';
 import type { BankParser, ParserMap, Transaction, CSVRow } from '../types.js';
 import { isCreditCard, isValidAccountName } from '../types.js';
+import { normalizeDescription } from '../db/connection.js';
+import { formatDateISO } from '../../shared/date-format.js';
 
 /**
  * Map account names to their parsers
@@ -36,6 +38,25 @@ export function normaliseCreditCardAmounts(
     return { ...transaction, amount: -transaction.amount };
   }
   return transaction;
+}
+
+/**
+ * Compute sequential occurrence indices for transactions that share the same
+ * (date, amount, normalizedDescription). This makes the hash deterministic
+ * regardless of whether the source CSV had an _occurrence column.
+ */
+export function assignOccurrences(transactions: Transaction[]): Transaction[] {
+  const groups = new Map<string, Transaction[]>();
+  for (const t of transactions) {
+    const key = `${formatDateISO(t.date)}|${t.amount.toFixed(2)}|${normalizeDescription(t.description)}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(t);
+  }
+  const result: Transaction[] = [];
+  for (const group of groups.values()) {
+    group.forEach((t, i) => result.push({ ...t, occurrence: i + 1 }));
+  }
+  return result;
 }
 
 /**
@@ -83,7 +104,7 @@ export async function parseCSVFile(filePath: string, account: string): Promise<T
         }
       }
       
-      resolve(transactions);
+      resolve(assignOccurrences(transactions));
     });
   });
 }

@@ -139,9 +139,6 @@ const monzoParser: BankParser = {
   },
 
   transform(row: CSVRow, account: string): Transaction | null {
-    const occurrenceStr = getColumnValue(row, '_occurrence');
-    const occurrence = occurrenceStr && occurrenceStr !== '' ? parseInt(occurrenceStr, 10) : 1;
-
     const amountStr = getColumnValue(row, 'Amount');
     const amount = parseAmount(amountStr);
     const date = parseDateInternal(getColumnValue(row, 'Date'));
@@ -159,7 +156,6 @@ const monzoParser: BankParser = {
       amount,
       account,
       type: amount >= 0 ? 'income' : 'expense',
-      occurrence
     };
   }
 };

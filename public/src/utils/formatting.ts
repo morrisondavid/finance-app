@@ -2,6 +2,8 @@
  * Formatting utilities for the Bank Statements Dashboard
  */
 
+import { ordinal } from '../../../shared/formatting.js';
+
 /** Round to 2 decimal places (banker-safe). */
 export function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -72,4 +74,17 @@ export function formatQuarterName(quarter: string): string {
   };
   
   return `VAT-${qNum}-${quarterNames[qNum] || year}`;
+}
+
+export function formatBillingDay(
+  dayOfMonth: number | null,
+  month: number | null,
+  frequency: 'monthly' | 'annual',
+): string | null {
+  if (dayOfMonth === null) return null;
+  if (frequency === 'annual' && month !== null) {
+    const names = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `~${ordinal(dayOfMonth)} ${names[month]}`;
+  }
+  return `~${ordinal(dayOfMonth)} of each month`;
 }

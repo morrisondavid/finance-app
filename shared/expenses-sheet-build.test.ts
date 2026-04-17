@@ -20,7 +20,8 @@ function line(
     sourceAccount,
     ownership,
     isVariable: false,
-    billingDay: null,
+    billingDayOfMonth: null,
+    billingMonth: null,
     variance: [],
   };
 }

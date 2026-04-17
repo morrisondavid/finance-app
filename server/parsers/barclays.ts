@@ -205,10 +205,6 @@ const barclaysParser: BankParser = {
    * Transform a CSV row to normalized transaction
    */
   transform(row: CSVRow, account: string): Transaction | null {
-    // Parse occurrence if present (for split payment tracking)
-    const occurrenceStr = getColumnValue(row, '_occurrence');
-    const occurrence = occurrenceStr && occurrenceStr !== '' ? parseInt(occurrenceStr, 10) : 1;
-    
     // Handle format with Money In / Money Out columns
     if ('Money In' in row || 'Money Out' in row || 'money in' in row || 'money out' in row) {
       const moneyIn = parseAmount(getColumnValue(row, 'Money In'));
@@ -225,7 +221,6 @@ const barclaysParser: BankParser = {
         amount,
         account,
         type: amount >= 0 ? 'income' : 'expense',
-        occurrence
       };
     }
     
@@ -242,7 +237,6 @@ const barclaysParser: BankParser = {
         amount,
         account,
         type: amount >= 0 ? 'income' : 'expense',
-        occurrence
       };
     }
     
@@ -267,7 +261,6 @@ const barclaysParser: BankParser = {
         amount,
         account,
         type: amount >= 0 ? 'income' : 'expense',
-        occurrence
       };
     }
     

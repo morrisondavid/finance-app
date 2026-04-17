@@ -68,14 +68,15 @@ describe('classifyRecurring – monthly', () => {
     expect(result.monthly[0].amount).toBe(100);
   });
 
-  it('includes billingDay for monthly items', () => {
+  it('includes billingDayOfMonth for monthly items', () => {
     const c = makeCandidate({
       merchant: 'Gym',
       transactions: makeTxns({ months: 10, day: 15, amount: 30 }),
     });
     const result = classifyRecurring([c], 12, REF_DATE);
 
-    expect(result.monthly[0].billingDay).toMatch(/15th/);
+    expect(result.monthly[0].billingDayOfMonth).toBe(15);
+    expect(result.monthly[0].billingMonth).toBeNull();
   });
 
   it('rejects items with highly variable amounts', () => {
@@ -238,7 +239,7 @@ describe('classifyRecurring – annual', () => {
     expect(result.annual[0].amount).toBe(99.99);
   });
 
-  it('includes billingDay showing month and day for annual items', () => {
+  it('includes billingDayOfMonth and billingMonth for annual items', () => {
     const txns: TransactionDetail[] = [
       { date: '2023-10-03', amount: 99.99 },
       { date: '2024-10-04', amount: 99.99 },
@@ -248,7 +249,8 @@ describe('classifyRecurring – annual', () => {
     const result = classifyRecurring([c], 12, REF_DATE);
 
     expect(result.annual).toHaveLength(1);
-    expect(result.annual[0].billingDay).toMatch(/Oct/);
+    expect(result.annual[0].billingMonth).toBe(10);
+    expect(result.annual[0].billingDayOfMonth).toBeDefined();
   });
 
   it('rejects annual items under £5', () => {

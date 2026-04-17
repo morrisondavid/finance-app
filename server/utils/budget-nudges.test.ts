@@ -61,7 +61,8 @@ describe('computeBudgetNudges', () => {
       annualTotal: 191.88,
       logoUrl: null,
       sourceAccount: 'barclays-current',
-      billingDay: null,
+      billingDayOfMonth: null,
+      billingMonth: null,
     };
 
     const transactions = [

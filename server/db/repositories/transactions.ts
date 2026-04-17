@@ -1,6 +1,7 @@
 import type { Transaction, TransactionType, AccountName } from '../../types.js';
 import { isCreditCard, isCrossAccountBusinessToBusinessTransfer } from '../../types.js';
-import { getDb, formatDateLocal, generateTransactionHash } from '../connection.js';
+import { getDb, generateTransactionHash } from '../connection.js';
+import { formatDateISO } from '../../../shared/date-format.js';
 import { getFinancialYearRange, buildDashboardFilters, type DashboardFilters } from '../utils/financial-year.js';
 import { 
   TRANSFER_DATE_TOLERANCE_DAYS,
@@ -67,7 +68,7 @@ export function isBouncedPayment(description: string): boolean {
 export function insertTransaction(t: Transaction): boolean {
   const db = getDb();
   const hash = generateTransactionHash(t);
-  const dateStr = formatDateLocal(t.date);
+  const dateStr = formatDateISO(t.date);
   
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO transactions (hash, date, description, amount, account, type)

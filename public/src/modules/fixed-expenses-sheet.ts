@@ -6,7 +6,7 @@ import type { ExpensesInsight, ExpensesLineItem, ExpensesSection, ExpensesSheetR
 import { applySimulationExclusions } from '../../../shared/expenses-sheet-build.js';
 import { fetchExpensesSheetOverview, putSimulationExclusions } from '../utils/api';
 import { escapeHtml } from '../utils/dom';
-import { formatCurrency, round2 } from '../utils/formatting';
+import { formatCurrency, formatBillingDay, round2 } from '../utils/formatting';
 
 interface VariancePayload {
   merchant: string;
@@ -292,8 +292,9 @@ function renderIncomeRow(item: ExpensesLineItem, amountSuffix: string, excluded:
   const infoBtn = item.variance.length > 0
     ? `<button type="button" class="fixed-expenses-info-btn" data-variance="${variancePayload}" title="Show periods where amount differed">i</button>`
     : '';
-  const billing = item.billingDay
-    ? `<span class="fixed-expenses-billing">${escapeHtml(item.billingDay)}</span>`
+  const billingLabel = formatBillingDay(item.billingDayOfMonth, item.billingMonth, item.frequency);
+  const billing = billingLabel
+    ? `<span class="fixed-expenses-billing">${escapeHtml(billingLabel)}</span>`
     : '';
   const excludedChecked = excluded.has(item.lineKey) ? ' checked' : '';
   const excludeCell = `<td class="fixed-expenses-col-exclude"><label class="fixed-expenses-exclude-label"><input type="checkbox" class="fixed-expenses-exclude-cb" data-line-key="${escapeHtml(item.lineKey)}" aria-label="Exclude from simulation totals"${excludedChecked} /></label></td>`;
@@ -328,8 +329,9 @@ function renderRow(
     ? `<button type="button" class="fixed-expenses-info-btn" data-variance="${variancePayload}" title="Show periods where amount differed">i</button>`
     : '';
 
-  const billing = item.billingDay
-    ? `<span class="fixed-expenses-billing">${escapeHtml(item.billingDay)}</span>`
+  const billingLabel = formatBillingDay(item.billingDayOfMonth, item.billingMonth, item.frequency);
+  const billing = billingLabel
+    ? `<span class="fixed-expenses-billing">${escapeHtml(billingLabel)}</span>`
     : '';
 
   const categoryCell = categoryColour !== undefined

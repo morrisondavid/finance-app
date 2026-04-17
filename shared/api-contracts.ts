@@ -287,7 +287,8 @@ export const ExpensesLineItemSchema = z.object({
   sourceAccount: z.string(),
   ownership: AccountOwnershipSchema,
   isVariable: z.boolean(),
-  billingDay: z.string().nullable(),
+  billingDayOfMonth: z.number().nullable(),
+  billingMonth: z.number().nullable(),
   variance: z.array(ExpensesVariancePointSchema),
 });
 
@@ -446,7 +447,8 @@ export const RecurringExpenseSchema = z.object({
   annualTotal: z.number(),
   logoUrl: z.string().nullable(),
   sourceAccount: z.string(),
-  billingDay: z.string().nullable(),
+  billingDayOfMonth: z.number().nullable(),
+  billingMonth: z.number().nullable(),
 });
 
 export const RecurringExpensesResponseSchema = z.object({
@@ -518,6 +520,73 @@ export const DownloadSelectedRequestSchema = z.object({
 });
 
 // ============================================
+// Obligations Schemas
+// ============================================
+
+export const ObligationSourceSchema = z.enum(['manual', 'auto']);
+export const ObligationTypeSchema = z.enum([
+  'vat', 'corporation-tax', 'self-assessment', 'loan', 'subscription', 'insurance', 'other'
+]);
+export const ObligationRecurrenceSchema = z.enum(['quarterly', 'annual', 'monthly', 'one-off']);
+export const ObligationStatusSchema = z.enum(['pending', 'paid', 'overdue', 'confirmed', 'not-yet-due', 'no-income', 'underpaid', 'insufficient-data']);
+
+export const ObligationSchema = z.object({
+  id: z.string(),
+  source: ObligationSourceSchema,
+  type: ObligationTypeSchema,
+  name: z.string(),
+  entity: z.string(),
+  recurrence: ObligationRecurrenceSchema,
+  expectedAmount: z.number().nullable(),
+  dueDate: z.string().nullable(),
+  status: ObligationStatusSchema,
+  paidAmount: z.number().nullable(),
+  paidDate: z.string().nullable(),
+  paidFromAccount: z.string().nullable(),
+  notes: z.string().nullable(),
+  createdAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+});
+
+export const ObligationsListResponseSchema = z.object({
+  obligations: z.array(ObligationSchema),
+});
+
+export const VatQuarterReconciliationSchema = z.object({
+  quarterLabel: z.string(),
+  startDate: z.string(),
+  endDate: z.string(),
+  dueDate: z.string(),
+  quarter: z.number(),
+  expectedAmount: z.number(),
+  paidAmount: z.number(),
+  paidDate: z.string().nullable(),
+  paidFromAccount: z.string().nullable(),
+  status: ObligationStatusSchema,
+});
+
+export const VatReconciliationResponseSchema = z.object({
+  quarters: z.array(VatQuarterReconciliationSchema),
+});
+
+export const UpcomingObligationsResponseSchema = z.object({
+  obligations: z.array(ObligationSchema),
+});
+
+export const CreateObligationBodySchema = z.object({
+  type: ObligationTypeSchema,
+  name: z.string().min(1),
+  entity: z.string().min(1),
+  recurrence: ObligationRecurrenceSchema,
+  expectedAmount: z.number().nullable().optional(),
+  dueDate: z.string().nullable().optional(),
+  status: ObligationStatusSchema.optional(),
+  notes: z.string().nullable().optional(),
+});
+
+export const UpdateObligationBodySchema = CreateObligationBodySchema.partial();
+
+// ============================================
 // Inferred TypeScript Types
 // ============================================
 
@@ -579,6 +648,19 @@ export type UploadResponse = z.infer<typeof UploadResponseSchema>;
 // API Request Body Types
 export type SetBalanceRequest = z.infer<typeof SetBalanceRequestSchema>;
 export type DownloadSelectedRequest = z.infer<typeof DownloadSelectedRequestSchema>;
+
+// Obligations Types
+export type ObligationSource = z.infer<typeof ObligationSourceSchema>;
+export type ObligationType = z.infer<typeof ObligationTypeSchema>;
+export type ObligationRecurrence = z.infer<typeof ObligationRecurrenceSchema>;
+export type ObligationStatus = z.infer<typeof ObligationStatusSchema>;
+export type Obligation = z.infer<typeof ObligationSchema>;
+export type ObligationsListResponse = z.infer<typeof ObligationsListResponseSchema>;
+export type VatQuarterReconciliation = z.infer<typeof VatQuarterReconciliationSchema>;
+export type VatReconciliationResponse = z.infer<typeof VatReconciliationResponseSchema>;
+export type UpcomingObligationsResponse = z.infer<typeof UpcomingObligationsResponseSchema>;
+export type CreateObligationBody = z.infer<typeof CreateObligationBodySchema>;
+export type UpdateObligationBody = z.infer<typeof UpdateObligationBodySchema>;
 
 // ============================================
 // Validation Helper

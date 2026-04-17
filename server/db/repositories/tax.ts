@@ -1,4 +1,5 @@
 import { getDb } from '../connection.js';
+import { formatDateISO } from '../../../shared/date-format.js';
 import { buildDashboardFilters, type DashboardFilters } from '../utils/financial-year.js';
 import { 
   VAT, 
@@ -11,6 +12,34 @@ import {
 import { DIRECTORS, HMRC_PATTERNS } from '../../config/payees.js';
 import { getBusinessPaymentAccounts } from '../../types.js';
 import { round2 } from '../../utils/math.js';
+
+export interface HmrcPaymentMatch {
+  date: string;
+  amount: number;
+  account: string;
+  description: string;
+}
+
+export function findHmrcPayments(opts: {
+  patterns: readonly string[];
+  accounts: readonly string[];
+  startDate: string;
+  endDate: string;
+}): HmrcPaymentMatch[] {
+  const db = getDb();
+  const patternCondition = opts.patterns.map(() => 'description LIKE ?').join(' OR ');
+  const accountPlaceholders = opts.accounts.map(() => '?').join(',');
+
+  return db.prepare(`
+    SELECT date, amount, account, description
+    FROM transactions
+    WHERE type = 'expense'
+    AND (${patternCondition})
+    AND account IN (${accountPlaceholders})
+    AND date >= ? AND date <= ?
+    ORDER BY date DESC
+  `).all(...opts.patterns, ...opts.accounts, opts.startDate, opts.endDate) as HmrcPaymentMatch[];
+}
 
 export interface TaxLiabilities {
   // VAT (outstanding quarter - due next)
@@ -165,37 +194,19 @@ export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilitie
   const vatOnIncome = round2(income * VAT.FRACTION);
   
   // Get VAT already paid to HMRC (rolling 12 months / 4 quarters)
-  // VAT payments can come from any business account that can make payments
-  const vatAccounts = getBusinessPaymentAccounts();
-  const vatPatterns = HMRC_PATTERNS.VAT; // Array of patterns: ['HMRC VAT%', 'HMRC ETMP%']
-  
-  // Build pattern condition (OR for each pattern)
-  const patternCondition = vatPatterns.map(() => 'description LIKE ?').join(' OR ');
-  // Build account condition
-  const accountPlaceholders = vatAccounts.map(() => '?').join(',');
-  
-  // Calculate rolling 12-month window (4 VAT quarters)
   const today = new Date();
   const twelveMonthsAgo = new Date(today);
   twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
-  
-  const formatDate = (d: Date): string => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-  
-  const vatPaidResult = db.prepare(`
-    SELECT COALESCE(SUM(ABS(amount)), 0) as total 
-    FROM transactions 
-    WHERE type = 'expense' 
-    AND (${patternCondition})
-    AND account IN (${accountPlaceholders})
-    AND date >= ? AND date <= ?
-  `).get(...vatPatterns, ...vatAccounts, formatDate(twelveMonthsAgo), formatDate(today)) as { total: number };
-  
-  const vatPaidLast4Quarters = round2(vatPaidResult.total);
+
+  const vatPayments = findHmrcPayments({
+    patterns: HMRC_PATTERNS.VAT,
+    accounts: getBusinessPaymentAccounts(),
+    startDate: formatDateISO(twelveMonthsAgo),
+    endDate: formatDateISO(today),
+  });
+  const vatPaidLast4Quarters = round2(
+    vatPayments.reduce((sum, p) => sum + Math.abs(p.amount), 0),
+  );
   
   // Get director payments
   const david = DIRECTORS.find(d => d.name === 'David Morrison');

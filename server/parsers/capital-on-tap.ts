@@ -190,10 +190,6 @@ const capitalOnTapParser: BankParser = {
    * Transform a CSV row to normalized transaction
    */
   transform(row: CSVRow, account: string): Transaction | null {
-    // Parse occurrence if present (for split payment tracking)
-    const occurrenceStr = getColumnValue(row, '_occurrence');
-    const occurrence = occurrenceStr && occurrenceStr !== '' ? parseInt(occurrenceStr, 10) : 1;
-    
     // Find date column - Capital on Tap uses "Clearance Date"
     const dateValue = getColumnValue(row, 'Clearance Date') ||
                       getColumnValue(row, 'Transaction Date') ||
@@ -218,7 +214,6 @@ const capitalOnTapParser: BankParser = {
       amount,
       account,
       type: amount > 0 ? 'expense' : 'income',
-      occurrence
     };
   }
 };

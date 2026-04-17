@@ -119,7 +119,8 @@ function toLineItem(
     sourceAccount: e.sourceAccount,
     ownership,
     isVariable: false,
-    billingDay: e.billingDay ?? null,
+    billingDayOfMonth: e.billingDayOfMonth ?? null,
+    billingMonth: e.billingMonth ?? null,
     variance,
   };
 }

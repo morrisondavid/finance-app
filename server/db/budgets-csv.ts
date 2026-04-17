@@ -13,6 +13,7 @@ import type { AccountName } from '../types.js';
 import { isValidAccountName } from '../types.js';
 import { CATEGORY_NAMES, type CategoryName } from '../utils/categorizer.js';
 import { round2 } from '../utils/math.js';
+import { escapeCsvField, ensureDir, atomicWriteCsv } from '../utils/csv-helpers.js';
 
 export const BUDGETS_CSV_FILENAME = 'category-budgets.csv';
 
@@ -26,12 +27,6 @@ export interface BudgetCsvRow {
 }
 
 const HEADERS = ['account', 'category', 'amount', 'period'] as const;
-
-function ensureBudgetsDir(budgetsDir: string): void {
-  if (!fs.existsSync(budgetsDir)) {
-    fs.mkdirSync(budgetsDir, { recursive: true });
-  }
-}
 
 export function getBudgetCsvPath(budgetsDir: string): string {
   return path.join(budgetsDir, BUDGETS_CSV_FILENAME);
@@ -81,20 +76,10 @@ export function readBudgetsFromCsvFile(csvPath: string): BudgetCsvRow[] {
   return Array.from(merged.values());
 }
 
-function escapeCsvField(value: string): string {
-  if (/[",\n\r]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
-}
-
 /**
  * Write budgets to CSV atomically (temp file + rename).
  */
 export function writeBudgetsToCsvFile(csvPath: string, rows: BudgetCsvRow[]): void {
-  const dir = path.dirname(csvPath);
-  ensureBudgetsDir(dir);
-
   const sorted = [...rows].sort((a, b) => {
     const ak = `${a.account}\t${a.category}`;
     const bk = `${b.account}\t${b.category}`;
@@ -113,15 +98,13 @@ export function writeBudgetsToCsvFile(csvPath: string, rows: BudgetCsvRow[]): vo
     );
   }
   const body = `${lines.join('\n')}\n`;
-  const tmp = `${csvPath}.tmp`;
-  fs.writeFileSync(tmp, body, 'utf8');
-  fs.renameSync(tmp, csvPath);
+  atomicWriteCsv(csvPath, body);
 }
 
 /** Ensure CSV exists with header only when directory is new. */
 export function ensureBudgetCsvWithHeader(csvPath: string): void {
   if (fs.existsSync(csvPath)) return;
   const dir = path.dirname(csvPath);
-  ensureBudgetsDir(dir);
+  ensureDir(dir);
   fs.writeFileSync(csvPath, `${HEADERS.join(',')}\n`, 'utf8');
 }
