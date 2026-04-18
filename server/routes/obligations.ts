@@ -1,13 +1,9 @@
 import express, { Request, Response } from 'express';
-import { getDb } from '../db/connection.js';
 import { HMRC_PATTERNS } from '../config/payees.js';
-import { getBusinessPaymentAccounts } from '../types.js';
-import { VAT, getVatQuarterForDate, type VatQuarterRange } from '../config/tax-rates.js';
-import { findHmrcPayments } from '../db/repositories/tax.js';
-import { reconcileVatQuarter } from '../utils/vat-reconciliation.js';
-import { matchPaymentsToQuarters, quarterKey } from '../utils/vat-payment-matcher.js';
-import { getFinancialYearRange, getPreviousFyStartDate } from '../db/utils/financial-year.js';
-import { buildVatAccountFilter } from '../db/utils/tax-account-filter.js';
+import { getBusinessAndPersonalPaymentAccounts } from '../types.js';
+import { findUnmatchedHmrcPayments } from '../db/repositories/tax.js';
+import { getFinancialYearRange } from '../db/utils/financial-year.js';
+import { buildVatReconciliationSet } from '../db/repositories/vat-auto-seed.js';
 import {
   getAllObligations,
   getUpcomingObligations,
@@ -18,16 +14,31 @@ import {
   getObligationById,
   toApiObligation,
 } from '../db/repositories/obligations.js';
+import { deriveAndInsertAutoSaObligations } from '../db/repositories/sa-auto-seed.js';
+import { deriveAndInsertAutoObligations as deriveAndInsertAutoVatObligations } from '../db/repositories/vat-auto-seed.js';
+import { deriveAndInsertAutoCtObligations } from '../db/repositories/ct-auto-seed.js';
+import { deriveAndInsertAutoTtpObligations } from '../db/repositories/hmrc-ttp-auto-seed.js';
+import {
+  addDismissal,
+  removeDismissal,
+  listDismissals,
+  isAutoObligationId,
+  NonAutoDismissalError,
+} from '../db/repositories/obligation-dismissals.js';
 import {
   CreateObligationBodySchema,
   UpdateObligationBodySchema,
+  CreateDismissalBodySchema,
   type ObligationsListResponse,
   type VatReconciliationResponse,
   type UpcomingObligationsResponse,
   type OverdueObligationsResponse,
   type UpcomingPaymentsResponse,
   type UpcomingPaymentItem,
+  type UnmatchedHmrcPaymentsResponse,
   type Obligation,
+  type Dismissal,
+  type DismissalsListResponse,
 } from '../../shared/api-contracts.js';
 import { runExpensesOverviewPipeline } from '../utils/expenses-overview-pipeline.js';
 import { buildUpcomingRecurring } from '../utils/recurring-upcoming.js';
@@ -38,6 +49,57 @@ function parseBooleanQueryParam(value: unknown): boolean {
   if (typeof value !== 'string') return false;
   const normalised = value.trim().toLowerCase();
   return normalised === '1' || normalised === 'true' || normalised === 'yes';
+}
+
+/**
+ * Rerun auto-seeders affected by a mutation so the manual↔auto supersede
+ * state is reflected immediately instead of lingering until the next
+ * restart. Dispatched by obligation `type`:
+ *   - `self-assessment`  → SA seeder
+ *   - `corporation-tax`  → CT seeder
+ *
+ * Failures are logged but never block the HTTP response.
+ */
+function resyncAutoSeedersForTypes(types: Array<string | undefined | null>): void {
+  const affected = new Set(types.filter((t): t is string => typeof t === 'string'));
+  if (affected.has('self-assessment')) {
+    try {
+      deriveAndInsertAutoSaObligations();
+    } catch (err) {
+      console.error('[Obligations] SA resync after mutation failed:', err);
+    }
+  }
+  if (affected.has('corporation-tax')) {
+    try {
+      deriveAndInsertAutoCtObligations();
+    } catch (err) {
+      console.error('[Obligations] CT resync after mutation failed:', err);
+    }
+  }
+}
+
+/**
+ * Rerun the auto-seeder responsible for the given dismissed obligation id
+ * so the seeded set in `financial_obligations` is brought in line with the
+ * dismissal state immediately (no stale row waiting for the next restart).
+ *
+ * Id prefix dispatch keeps this trivially extensible: new auto seeders just
+ * need a `auto-<kind>-...` prefix and a case here.
+ */
+function resyncSeederForAutoId(obligationId: string): void {
+  try {
+    if (obligationId.startsWith('auto-sa-')) {
+      deriveAndInsertAutoSaObligations();
+    } else if (obligationId.startsWith('auto-vat-')) {
+      deriveAndInsertAutoVatObligations();
+    } else if (obligationId.startsWith('auto-ct-')) {
+      deriveAndInsertAutoCtObligations();
+    } else if (obligationId.startsWith('auto-ttp-')) {
+      deriveAndInsertAutoTtpObligations();
+    }
+  } catch (err) {
+    console.error('[Obligations] Dismissal resync failed:', err);
+  }
 }
 
 router.get('/', (req: Request, res: Response<ObligationsListResponse | { error: string }>) => {
@@ -69,61 +131,17 @@ router.get('/overdue', (_req: Request, res: Response<OverdueObligationsResponse 
 
 router.get('/vat-reconciliation', (req: Request, res: Response<VatReconciliationResponse | { error: string }>) => {
   try {
-    const db = getDb();
-    const vatFilter = buildVatAccountFilter();
-    const oldest = db.prepare(
-      `SELECT MIN(date) as minDate FROM transactions WHERE type = 'income' ${vatFilter.clause}`
-    ).get(...vatFilter.params) as { minDate: string | null };
-
-    if (!oldest?.minDate) {
-      res.json({ quarters: [] });
-      return;
-    }
-
-    const earliestDate = oldest.minDate;
     const fyParam = typeof req.query.financialYear === 'string' ? req.query.financialYear : undefined;
     const fyRange = fyParam ? getFinancialYearRange(fyParam) : undefined;
 
-    const now = new Date();
-    const dataCutoff = getPreviousFyStartDate(now);
-
-    // Enumerate every distinct VAT quarter from the earliest income date to now.
-    // Matching is done once against the full candidate set so payments cannot be
-    // reused across quarters, matching the auto-seed behaviour exactly.
-    const startDate = new Date(`${earliestDate}T12:00:00`);
-    const seen = new Set<string>();
-    const candidateQuarters: VatQuarterRange[] = [];
-    const cursor = new Date(startDate);
-    while (cursor <= now) {
-      const q = getVatQuarterForDate(cursor);
-      const key = `${q.startDate}-${q.endDate}`;
-      if (!seen.has(key) && q.startDate >= earliestDate) {
-        seen.add(key);
-        candidateQuarters.push(q);
-      }
-      cursor.setMonth(cursor.getMonth() + 1);
-    }
-
-    const allPayments = findHmrcPayments({
-      patterns: HMRC_PATTERNS.VAT,
-      accounts: getBusinessPaymentAccounts(),
-      startDate: '0000-01-01',
-      endDate: '9999-12-31',
-    });
-    const paymentByQuarter = matchPaymentsToQuarters(candidateQuarters, allPayments);
+    // Single source of truth: auto-seed and this endpoint share the same
+    // quarter enumeration + matching logic so the UI cannot show a quarter
+    // the auto-seeder would have dropped (or vice versa).
+    const rows = buildVatReconciliationSet();
 
     const quarters: VatReconciliationResponse['quarters'] = [];
-    for (const q of candidateQuarters) {
+    for (const { quarter: q, reconciliation: recon } of rows) {
       if (fyRange && (q.endDate < fyRange.startDate || q.startDate > fyRange.endDate)) continue;
-
-      const incomeResult = db.prepare(`
-        SELECT COALESCE(SUM(amount), 0) as total
-        FROM transactions WHERE type = 'income' AND date >= ? AND date <= ? ${vatFilter.clause}
-      `).get(q.startDate, q.endDate, ...vatFilter.params) as { total: number };
-
-      const match = paymentByQuarter.get(quarterKey(q)) ?? null;
-      const recon = reconcileVatQuarter(q, incomeResult.total, VAT.FRACTION, match, now, dataCutoff);
-
       quarters.push({
         quarterLabel: q.label,
         startDate: q.startDate,
@@ -206,6 +224,100 @@ router.get('/upcoming-payments', (req: Request, res: Response<UpcomingPaymentsRe
   }
 });
 
+/**
+ * HMRC payments that aren't linked to any known obligation. Lets the user
+ * reconcile Corp Tax / PAYE / off-cycle VAT payments that would otherwise
+ * silently leave the books without a paper trail on this page.
+ */
+router.get('/unmatched-hmrc-payments', (_req: Request, res: Response<UnmatchedHmrcPaymentsResponse | { error: string }>) => {
+  try {
+    // Scope widened to business + personal payment accounts: SA is personal
+    // tax and is legitimately paid from either; scoping to business-only
+    // silently orphans every personal-account SA debit, which was the bulk
+    // of the historical "orphan" noise.
+    const payments = findUnmatchedHmrcPayments({
+      patterns: HMRC_PATTERNS.ANY,
+      accounts: getBusinessAndPersonalPaymentAccounts(),
+    });
+    const total = payments.reduce((acc, p) => acc + p.amount, 0);
+    res.json({ payments, total });
+  } catch (error) {
+    console.error('Error fetching unmatched HMRC payments:', error);
+    res.status(500).json({ error: 'Failed to fetch unmatched HMRC payments' });
+  }
+});
+
+/**
+ * List all dismissals. Fuels the "Show dismissed" toggle in the registry
+ * so the UI can render greyed-out rows with an Undo action.
+ */
+router.get('/dismissals', (_req: Request, res: Response<DismissalsListResponse | { error: string }>) => {
+  try {
+    const dismissals = listDismissals();
+    res.json({ dismissals });
+  } catch (error) {
+    console.error('Error listing dismissals:', error);
+    res.status(500).json({ error: 'Failed to list dismissals' });
+  }
+});
+
+/**
+ * Dismiss an auto-seeded obligation by id. The row is removed from
+ * `financial_obligations` on the next seeder run (triggered here) and will
+ * not reappear on subsequent starts/reseeds until explicitly undismissed.
+ */
+router.post('/dismissals', (req: Request, res: Response<Dismissal | { error: string }>) => {
+  try {
+    const parsed = CreateDismissalBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: `Invalid body: ${parsed.error.issues.map(i => i.message).join(', ')}` });
+      return;
+    }
+
+    try {
+      const saved = addDismissal({
+        obligationId: parsed.data.obligationId,
+        reason: parsed.data.reason ?? null,
+      });
+      resyncSeederForAutoId(saved.obligationId);
+      res.status(201).json(saved);
+    } catch (err) {
+      if (err instanceof NonAutoDismissalError) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+  } catch (error) {
+    console.error('Error creating dismissal:', error);
+    res.status(500).json({ error: 'Failed to create dismissal' });
+  }
+});
+
+/**
+ * Remove a dismissal (undismiss). Reseeds so the row returns immediately
+ * when the user undoes their hide.
+ */
+router.delete('/dismissals/:id', (req: Request, res: Response<{ success: boolean } | { error: string }>) => {
+  try {
+    const obligationId = req.params.id;
+    if (typeof obligationId !== 'string' || !isAutoObligationId(obligationId)) {
+      res.status(400).json({ error: 'Dismissal id must be an auto-* obligation id' });
+      return;
+    }
+    const removed = removeDismissal(obligationId);
+    if (!removed) {
+      res.status(404).json({ error: 'Dismissal not found' });
+      return;
+    }
+    resyncSeederForAutoId(obligationId);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error removing dismissal:', error);
+    res.status(500).json({ error: 'Failed to remove dismissal' });
+  }
+});
+
 router.post('/', (req: Request, res: Response<Obligation | { error: string }>) => {
   try {
     const parsed = CreateObligationBodySchema.safeParse(req.body);
@@ -214,6 +326,7 @@ router.post('/', (req: Request, res: Response<Obligation | { error: string }>) =
       return;
     }
     const row = createManualObligation(parsed.data);
+    resyncAutoSeedersForTypes([row.type]);
     res.status(201).json(toApiObligation(row) as Obligation);
   } catch (error) {
     console.error('Error creating obligation:', error);
@@ -234,6 +347,7 @@ router.put('/:id', (req: Request, res: Response<Obligation | { error: string }>)
     }
     const updated = updateManualObligation(req.params.id, parsed.data);
     if (!updated) { res.status(404).json({ error: 'Obligation not found' }); return; }
+    resyncAutoSeedersForTypes([existing.type, updated.type]);
     res.json(toApiObligation(updated) as Obligation);
   } catch (error) {
     console.error('Error updating obligation:', error);
@@ -247,6 +361,7 @@ router.delete('/:id', (req: Request, res: Response<{ success: boolean } | { erro
     if (!existing) { res.status(404).json({ error: 'Obligation not found' }); return; }
     if (existing.source !== 'manual') { res.status(403).json({ error: 'Cannot delete auto-derived obligations' }); return; }
     deleteManualObligation(req.params.id);
+    resyncAutoSeedersForTypes([existing.type]);
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting obligation:', error);

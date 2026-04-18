@@ -283,6 +283,20 @@ export function getPersonalPaymentAccounts(): AccountName[] {
 }
 
 /**
+ * Every account that can make outgoing payments regardless of category.
+ *
+ * Self Assessment is personal tax but is legitimately paid from either
+ * business or personal accounts (directors sometimes route SA through the
+ * company card, sometimes via their personal current account). Restricting
+ * the matcher to business-only accounts silently orphans every personal-
+ * account SA payment, so anything that wants to match SA-style narratives
+ * needs the union.
+ */
+export function getBusinessAndPersonalPaymentAccounts(): AccountName[] {
+  return ACCOUNTS.filter(account => ACCOUNT_CONFIG[account].canMakeOutgoingPayments);
+}
+
+/**
  * Accounts whose income is subject to VAT.
  * Double gate: must be category === 'business' AND business.vatApplicable === true.
  */

@@ -2,7 +2,20 @@ import type { VatQuarterRange } from '../config/tax-rates.js';
 import type { HmrcPaymentMatch } from '../db/repositories/tax.js';
 import { round2 } from './math.js';
 
-export type VatReconciliationStatus = 'paid' | 'unpaid' | 'underpaid' | 'not-yet-due' | 'no-income' | 'insufficient-data';
+/**
+ * Simplified VAT quarter status.
+ *
+ * - `paid`            — a VAT payment has been attributed to this quarter.
+ *                       Amount match is irrelevant; the presence of a payment
+ *                       proves HMRC considers the quarter settled.
+ * - `not-yet-due`     — due date has not passed and no match was found.
+ * - `unpaid`          — due date has passed, the quarter is inside our trusted
+ *                       data window, and no payment could be attributed.
+ * - `insufficient-data` — due date has passed but the quarter ended before our
+ *                       trusted data cutoff; we have no basis to claim it is
+ *                       actually unpaid.
+ */
+export type VatReconciliationStatus = 'paid' | 'unpaid' | 'not-yet-due' | 'insufficient-data';
 
 export interface VatQuarterReconciliation {
   quarter: VatQuarterRange;
@@ -16,10 +29,14 @@ export interface VatQuarterReconciliation {
 /**
  * Reconcile a single VAT quarter against a single HMRC payment.
  *
- * VAT is one settling transaction per quarter, so callers are expected to
- * pre-match payments to quarters using `matchPaymentsToQuarters` and pass the
- * resolved match (or null) here. Passing multiple payments is not supported —
- * the matcher owns that concern.
+ * The VAT estimate this codebase calculates is a best-effort figure from our
+ * ledger — the real figure is whatever HMRC actually billed. Therefore:
+ *
+ *   match present  => paid (regardless of amount)
+ *   match absent   => not-yet-due / unpaid / insufficient-data
+ *
+ * We no longer flag "underpaid" or "no-income" states; `expectedAmount` is
+ * returned purely for informational display.
  *
  * @param dataCutoffDate Quarters ending before this date are treated as having
  *   insufficient transaction coverage. Callers should set this to the start of
@@ -33,29 +50,25 @@ export function reconcileVatQuarter(
   referenceDate: Date = new Date(),
   dataCutoffDate: string | null = null,
 ): VatQuarterReconciliation {
-  const expectedAmount = round2(quarterIncome * vatFraction);
+  const expectedAmount = round2(Math.max(0, quarterIncome) * vatFraction);
 
-  if (quarterIncome <= 0) {
-    return { quarter, expectedAmount: 0, paidAmount: 0, paidDate: null, paidFromAccount: null, status: 'no-income' };
+  if (match) {
+    return {
+      quarter,
+      expectedAmount,
+      paidAmount: round2(Math.abs(match.amount)),
+      paidDate: match.date,
+      paidFromAccount: match.account,
+      status: 'paid',
+    };
   }
-
-  const paidAmount = match ? round2(Math.abs(match.amount)) : 0;
-  const paidDate = match?.date ?? null;
-  const paidFromAccount = match?.account ?? null;
 
   const dueDate = new Date(`${quarter.dueDate}T23:59:59`);
   if (referenceDate < dueDate) {
-    const status: VatReconciliationStatus = paidAmount >= expectedAmount * 0.95 ? 'paid' : 'not-yet-due';
-    return { quarter, expectedAmount, paidAmount, paidDate, paidFromAccount, status };
+    return { quarter, expectedAmount, paidAmount: 0, paidDate: null, paidFromAccount: null, status: 'not-yet-due' };
   }
 
-  if (!match) {
-    const isOutsideTrustedRange = dataCutoffDate !== null && quarter.endDate < dataCutoffDate;
-    const status: VatReconciliationStatus = isOutsideTrustedRange ? 'insufficient-data' : 'unpaid';
-    return { quarter, expectedAmount, paidAmount: 0, paidDate: null, paidFromAccount: null, status };
-  }
-
-  const status: VatReconciliationStatus = paidAmount >= expectedAmount * 0.95 ? 'paid' : 'underpaid';
-
-  return { quarter, expectedAmount, paidAmount, paidDate, paidFromAccount, status };
+  const isOutsideTrustedRange = dataCutoffDate !== null && quarter.endDate < dataCutoffDate;
+  const status: VatReconciliationStatus = isOutsideTrustedRange ? 'insufficient-data' : 'unpaid';
+  return { quarter, expectedAmount, paidAmount: 0, paidDate: null, paidFromAccount: null, status };
 }

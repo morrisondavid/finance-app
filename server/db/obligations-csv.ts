@@ -5,7 +5,7 @@ import { escapeCsvField, atomicWriteCsv } from '../utils/csv-helpers.js';
 
 export const OBLIGATIONS_CSV_FILENAME = 'manual-obligations.csv';
 
-const HEADERS = ['id', 'type', 'name', 'entity', 'recurrence', 'expected_amount', 'due_date', 'status', 'notes'] as const;
+const HEADERS = ['id', 'type', 'name', 'entity', 'recurrence', 'expected_amount', 'due_date', 'status', 'notes', 'person_id'] as const;
 
 export interface ManualObligationCsvRow {
   id: string;
@@ -17,6 +17,8 @@ export interface ManualObligationCsvRow {
   dueDate: string | null;
   status: string;
   notes: string | null;
+  /** Person this obligation relates to (Self Assessment rows). Null for entity-level obligations. */
+  personId: string | null;
 }
 
 export function getObligationsCsvPath(obligationsDir: string): string {
@@ -58,6 +60,7 @@ export function readManualObligationsFromCsvFile(csvPath: string): ManualObligat
       dueDate: row.due_date || null,
       status: row.status || 'pending',
       notes: row.notes || null,
+      personId: row.person_id || null,
     });
   }
   return rows;
@@ -77,6 +80,7 @@ export function writeManualObligationsToCsvFile(csvPath: string, rows: ManualObl
       r.dueDate ?? '',
       r.status,
       escapeCsvField(r.notes ?? ''),
+      r.personId ?? '',
     ].join(','));
   }
   atomicWriteCsv(csvPath, `${lines.join('\n')}\n`);

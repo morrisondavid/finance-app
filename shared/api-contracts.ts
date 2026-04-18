@@ -534,10 +534,18 @@ export const DownloadSelectedRequestSchema = z.object({
 
 export const ObligationSourceSchema = z.enum(['manual', 'auto']);
 export const ObligationTypeSchema = z.enum([
-  'vat', 'corporation-tax', 'self-assessment', 'loan', 'subscription', 'insurance', 'other'
+  'vat', 'corporation-tax', 'self-assessment', 'hmrc-ttp', 'loan', 'subscription', 'insurance', 'other'
 ]);
 export const ObligationRecurrenceSchema = z.enum(['quarterly', 'annual', 'monthly', 'one-off']);
-export const ObligationStatusSchema = z.enum(['pending', 'paid', 'overdue', 'confirmed', 'not-yet-due', 'no-income', 'underpaid', 'insufficient-data']);
+export const ObligationStatusSchema = z.enum(['pending', 'paid', 'overdue', 'confirmed', 'not-yet-due', 'unpaid', 'insufficient-data']);
+
+/**
+ * Person identifier — matches the literal union type derived from
+ * `server/config/people.ts`. Kept as a string enum here so the shared
+ * package stays free of server-only imports; runtime validation defers
+ * to {@link server/config/people.ts#isPersonId} where it matters.
+ */
+export const PersonIdSchema = z.enum(['david', 'heena']);
 
 export const ObligationSchema = z.object({
   id: z.string(),
@@ -553,6 +561,7 @@ export const ObligationSchema = z.object({
   paidDate: z.string().nullable(),
   paidFromAccount: z.string().nullable(),
   notes: z.string().nullable(),
+  personId: PersonIdSchema.nullable().optional(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
 });
@@ -617,6 +626,7 @@ export const UpcomingPaymentItemSchema = z.discriminatedUnion('kind', [
     dueDate: z.string(),
     status: z.string(),
     source: z.string(),
+    personId: PersonIdSchema.nullable().optional(),
   }),
   z.object({
     kind: z.literal('recurring'),
@@ -634,6 +644,32 @@ export const UpcomingPaymentsResponseSchema = z.object({
   items: z.array(UpcomingPaymentItemSchema),
 });
 
+/**
+ * HMRC payments found in the transaction ledger that are not attached to any
+ * known obligation (no VAT quarter, no manual Corp Tax / Self Assessment row).
+ * Surfaced on the Obligations page so the user can reconcile them manually.
+ */
+export const HmrcNarrativeTypeSchema = z.enum([
+  'vat',
+  'self-assessment',
+  'corporation-tax',
+  'payment-plan',
+  'other',
+]);
+
+export const UnmatchedHmrcPaymentSchema = z.object({
+  date: z.string(),
+  amount: z.number(),
+  account: z.string(),
+  description: z.string(),
+  hmrcType: HmrcNarrativeTypeSchema,
+});
+
+export const UnmatchedHmrcPaymentsResponseSchema = z.object({
+  payments: z.array(UnmatchedHmrcPaymentSchema),
+  total: z.number(),
+});
+
 export const CreateObligationBodySchema = z.object({
   type: ObligationTypeSchema,
   name: z.string().min(1),
@@ -643,9 +679,36 @@ export const CreateObligationBodySchema = z.object({
   dueDate: z.string().nullable().optional(),
   status: ObligationStatusSchema.optional(),
   notes: z.string().nullable().optional(),
+  personId: PersonIdSchema.nullable().optional(),
 });
 
 export const UpdateObligationBodySchema = CreateObligationBodySchema.partial();
+
+// ============================================
+// Obligation Dismissals
+// ============================================
+//
+// A dismissal records that the user has hidden a specific auto-seeded
+// obligation slot (SA or VAT). Only ids prefixed `auto-` are valid — manual
+// rows are managed by the regular delete endpoint, not dismissed.
+
+/** Auto-row ids are `auto-<type>-...` by construction (see sa-auto-seed + vat-auto-seed). */
+export const AutoObligationIdSchema = z.string().regex(/^auto-/, 'Obligation id must start with "auto-"');
+
+export const DismissalSchema = z.object({
+  obligationId: AutoObligationIdSchema,
+  reason: z.string().nullable().optional(),
+  dismissedAt: z.string(),
+});
+
+export const CreateDismissalBodySchema = z.object({
+  obligationId: AutoObligationIdSchema,
+  reason: z.string().max(500).nullable().optional(),
+});
+
+export const DismissalsListResponseSchema = z.object({
+  dismissals: z.array(DismissalSchema),
+});
 
 // ============================================
 // Inferred TypeScript Types
@@ -716,6 +779,7 @@ export type DownloadSelectedRequest = z.infer<typeof DownloadSelectedRequestSche
 // Obligations Types
 export type ObligationSource = z.infer<typeof ObligationSourceSchema>;
 export type ObligationType = z.infer<typeof ObligationTypeSchema>;
+export type PersonId = z.infer<typeof PersonIdSchema>;
 export type ObligationRecurrence = z.infer<typeof ObligationRecurrenceSchema>;
 export type ObligationStatus = z.infer<typeof ObligationStatusSchema>;
 export type Obligation = z.infer<typeof ObligationSchema>;
@@ -727,8 +791,14 @@ export type OverdueObligationsResponse = z.infer<typeof OverdueObligationsRespon
 export type UpcomingRecurring = z.infer<typeof UpcomingRecurringSchema>;
 export type UpcomingPaymentItem = z.infer<typeof UpcomingPaymentItemSchema>;
 export type UpcomingPaymentsResponse = z.infer<typeof UpcomingPaymentsResponseSchema>;
+export type HmrcNarrativeType = z.infer<typeof HmrcNarrativeTypeSchema>;
+export type UnmatchedHmrcPayment = z.infer<typeof UnmatchedHmrcPaymentSchema>;
+export type UnmatchedHmrcPaymentsResponse = z.infer<typeof UnmatchedHmrcPaymentsResponseSchema>;
 export type CreateObligationBody = z.infer<typeof CreateObligationBodySchema>;
 export type UpdateObligationBody = z.infer<typeof UpdateObligationBodySchema>;
+export type Dismissal = z.infer<typeof DismissalSchema>;
+export type CreateDismissalBody = z.infer<typeof CreateDismissalBodySchema>;
+export type DismissalsListResponse = z.infer<typeof DismissalsListResponseSchema>;
 
 // ============================================
 // Validation Helper

@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { getVatApplicableAccounts, getCorpTaxApplicableAccounts } from '../../types.js';
 import { buildVatAccountFilter, buildCorpTaxAccountFilter } from '../utils/tax-account-filter.js';
+
+// See sa-auto-seed.test.ts for the rationale: dynamic imports below mean
+// the factory runs after this const is assigned.
+const tmpObligationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tax-account-scoping-test-'));
 
 /**
  * Integration-style tests that run real SQL against an in-memory SQLite database
@@ -16,6 +23,7 @@ let testDb: Database.Database;
 
 vi.mock('../connection.js', () => ({
   getDb: () => testDb,
+  OBLIGATIONS_DIR: tmpObligationsDir,
 }));
 
 function createSchema(): void {
@@ -45,8 +53,14 @@ function createSchema(): void {
       paid_date TEXT,
       paid_from_account TEXT,
       notes TEXT,
+      person_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS obligation_dismissals (
+      obligation_id TEXT PRIMARY KEY,
+      reason TEXT,
+      dismissed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
 }
@@ -75,12 +89,16 @@ beforeAll(() => {
 
 afterAll(() => {
   testDb.close();
+  fs.rmSync(tmpObligationsDir, { recursive: true, force: true });
 });
 
 beforeEach(() => {
   testDb.exec('DELETE FROM transactions');
   testDb.exec('DELETE FROM financial_obligations');
+  testDb.exec('DELETE FROM obligation_dismissals');
   hashSeq = 0;
+  const csv = path.join(tmpObligationsDir, 'obligation-dismissals.csv');
+  if (fs.existsSync(csv)) fs.unlinkSync(csv);
 });
 
 describe('VAT income queries exclude non-vatApplicable accounts', () => {
@@ -309,6 +327,217 @@ describe('deriveAndInsertAutoObligations stale cleanup', () => {
   });
 });
 
+describe('findUnmatchedHmrcPayments', () => {
+  it('returns HMRC payments not linked to any obligation', async () => {
+    insertExpense('barclays-current', '2024-03-08', -5780.23, 'HMRC ETMP');
+    insertExpense('barclays-current', '2025-09-08', -8060, 'HMRC VAT SOUTHEND');
+
+    testDb.prepare(`
+      INSERT INTO financial_obligations
+        (id, source, type, name, entity, recurrence, expected_amount, due_date,
+         status, paid_amount, paid_date, paid_from_account)
+      VALUES
+        ('auto-vat-matched', 'auto', 'vat', 'VAT', 'HMRC', 'quarterly',
+         8060, '2025-09-07', 'paid', 8060, '2025-09-08', 'barclays-current')
+    `).run();
+
+    const { findUnmatchedHmrcPayments } = await import('./tax.js');
+    const unmatched = findUnmatchedHmrcPayments({
+      patterns: ['HMRC VAT%', 'HMRC ETMP%'],
+      accounts: ['barclays-current', 'monzo-joint'],
+    });
+
+    expect(unmatched).toHaveLength(1);
+    expect(unmatched[0].date).toBe('2024-03-08');
+    expect(unmatched[0].description).toBe('HMRC ETMP');
+    expect(unmatched[0].hmrcType).toBe('payment-plan');
+  });
+
+  it('classifies VAT / ETMP / NDDS / SA / Corporation Tax narratives correctly', async () => {
+    insertExpense('barclays-current', '2024-03-08', -1000, 'HMRC VAT SOUTHEND');
+    insertExpense('barclays-current', '2024-04-08', -500, 'HMRC ETMP - GLASGOW');
+    insertExpense('barclays-current', '2024-05-08', -250, 'HMRC GOV.UK SA');
+    insertExpense('barclays-current', '2024-06-08', -100, 'HMRC GOV.UK');
+    insertExpense('barclays-current', '2024-07-08', -643.69, 'HMRC NDDS - CUMBERNAULD');
+    insertExpense('barclays-current', '2024-08-08', -1234, 'HMRC CORPORATION T');
+    insertExpense('barclays-current', '2024-09-08', -1500, 'HMRC GOV.UK COTAX');
+
+    const { findUnmatchedHmrcPayments } = await import('./tax.js');
+    const unmatched = findUnmatchedHmrcPayments({
+      patterns: [
+        'HMRC VAT%',
+        'HMRC ETMP%',
+        'HMRC GOV.UK SA%',
+        'HMRC GOV.UK%',
+        'HMRC NDDS%',
+        'HMRC CORPORATION T%',
+      ],
+      accounts: ['barclays-current'],
+    });
+
+    const byDate = new Map(unmatched.map(p => [p.date, p.hmrcType]));
+    expect(byDate.get('2024-03-08')).toBe('vat');
+    expect(byDate.get('2024-04-08')).toBe('payment-plan');
+    expect(byDate.get('2024-05-08')).toBe('self-assessment');
+    expect(byDate.get('2024-06-08')).toBe('other');
+    expect(byDate.get('2024-07-08')).toBe('payment-plan');
+    expect(byDate.get('2024-08-08')).toBe('corporation-tax');
+    expect(byDate.get('2024-09-08')).toBe('corporation-tax');
+  });
+
+  it('matches paid_from_account using LIKE so dense account identifiers still link', async () => {
+    insertExpense('barclays-current', '2025-06-09', -5578.79, 'HMRC ETMP - GLASGOW');
+
+    testDb.prepare(`
+      INSERT INTO financial_obligations
+        (id, source, type, name, entity, recurrence, expected_amount, due_date,
+         status, paid_amount, paid_date, paid_from_account)
+      VALUES
+        ('auto-vat-card', 'auto', 'vat', 'VAT', 'HMRC', 'quarterly',
+         5578.79, '2025-06-07', 'paid', 5578.79, '2025-06-09',
+         'Barclays Current (barclays-current)')
+    `).run();
+
+    const { findUnmatchedHmrcPayments } = await import('./tax.js');
+    const unmatched = findUnmatchedHmrcPayments({
+      patterns: ['HMRC ETMP%'],
+      accounts: ['barclays-current'],
+    });
+    expect(unmatched).toHaveLength(0);
+  });
+
+  it('excludes payments outside the supplied account list', async () => {
+    insertExpense('monzo-joint', '2024-01-01', -1000, 'HMRC ETMP');
+
+    const { findUnmatchedHmrcPayments } = await import('./tax.js');
+    const unmatched = findUnmatchedHmrcPayments({
+      patterns: ['HMRC ETMP%'],
+      accounts: ['barclays-current'],
+    });
+    expect(unmatched).toHaveLength(0);
+  });
+
+  it('CT-narrative debits covered by an auto CT obligation drop off the orphan feed', async () => {
+    insertExpense('barclays-current', '2025-01-29', -12500, 'HMRC CORPORATION T');
+
+    // Simulate the auto CT seeder having written an attributed row.
+    testDb.prepare(`
+      INSERT INTO financial_obligations
+        (id, source, type, name, entity, recurrence, expected_amount, due_date,
+         status, paid_amount, paid_date, paid_from_account)
+      VALUES
+        ('auto-ct-2024-04-30', 'auto', 'corporation-tax',
+         'Corporation Tax — FY 2024/25', 'HMRC', 'annual',
+         12500, '2025-01-31', 'paid', 12500, '2025-01-29', 'barclays-current')
+    `).run();
+
+    const { findUnmatchedHmrcPayments } = await import('./tax.js');
+    const unmatched = findUnmatchedHmrcPayments({
+      patterns: ['HMRC CORPORATION T%', 'HMRC GOV.UK COTAX%'],
+      accounts: ['barclays-current'],
+    });
+    expect(unmatched).toHaveLength(0);
+  });
+
+  it('SA-narrative debits covered by an auto SA obligation drop off the orphan feed', async () => {
+    insertExpense('natwest', '2026-01-31', -3500, 'HMRC GOV.UK SA');
+
+    testDb.prepare(`
+      INSERT INTO financial_obligations
+        (id, source, type, name, entity, recurrence, expected_amount, due_date,
+         status, paid_amount, paid_date, paid_from_account, person_id)
+      VALUES
+        ('auto-sa-david-2026-01-31', 'auto', 'self-assessment',
+         'Self Assessment — David (2026-01-31)', 'HMRC', 'annual',
+         3500, '2026-01-31', 'paid', 3500, '2026-01-31', 'natwest', 'david')
+    `).run();
+
+    const { findUnmatchedHmrcPayments } = await import('./tax.js');
+    const unmatched = findUnmatchedHmrcPayments({
+      patterns: ['HMRC GOV.UK SA%'],
+      accounts: ['barclays-current', 'natwest'],
+    });
+    expect(unmatched).toHaveLength(0);
+  });
+
+  it('TTP instalment debits covered by auto hmrc-ttp obligations drop off the orphan feed', async () => {
+    insertExpense('barclays-current', '2025-03-09', -643.69, 'HMRC NDDS - CUMBERNAULD');
+    insertExpense('barclays-current', '2025-04-09', -643.69, 'HMRC NDDS - CUMBERNAULD');
+
+    testDb.prepare(`
+      INSERT INTO financial_obligations
+        (id, source, type, name, entity, recurrence, expected_amount, due_date,
+         status, paid_amount, paid_date, paid_from_account)
+      VALUES
+        ('auto-ttp-barclays-current-64369-2025-03-09', 'auto', 'hmrc-ttp',
+         'HMRC payment plan', 'HMRC', 'monthly',
+         643.69, '2025-03-09', 'paid', 643.69, '2025-03-09', 'barclays-current'),
+        ('auto-ttp-barclays-current-64369-2025-04-09', 'auto', 'hmrc-ttp',
+         'HMRC payment plan', 'HMRC', 'monthly',
+         643.69, '2025-04-09', 'paid', 643.69, '2025-04-09', 'barclays-current')
+    `).run();
+
+    const { findUnmatchedHmrcPayments } = await import('./tax.js');
+    const unmatched = findUnmatchedHmrcPayments({
+      patterns: ['HMRC NDDS%', 'HMRC ETMP%'],
+      accounts: ['barclays-current'],
+    });
+    expect(unmatched).toHaveLength(0);
+  });
+});
+
+describe('vat-auto-seed implicit coverage (pre-firstVatPaymentDate quarters)', () => {
+  it('does NOT seed obligations for quarters due before the first observed VAT payment', async () => {
+    // Transaction history begins Jan 2024 (earliestTxDate) but the user only
+    // starts paying HMRC VAT in Oct 2024. Every quarter whose due date falls
+    // before 2024-10-15 with no attributed payment must be implicitly covered
+    // (status=insufficient-data), NOT surfaced as `unpaid` / overdue.
+    insertIncome('barclays-current', '2024-01-15', 6000);
+    insertIncome('barclays-current', '2024-02-15', 6000);
+    insertIncome('barclays-current', '2024-05-15', 6000);
+    insertIncome('barclays-current', '2024-08-15', 6000);
+    insertIncome('barclays-current', '2024-11-15', 6000);
+
+    // One VAT payment close to Aug-Oct 2024 due date (2024-12-07).
+    insertExpense('barclays-current', '2024-12-05', -1000, 'HMRC VAT SOUTHEND');
+
+    const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
+    deriveAndInsertAutoObligations();
+
+    const rows = testDb.prepare(
+      `SELECT id, status, due_date FROM financial_obligations WHERE type = 'vat' ORDER BY due_date`
+    ).all() as Array<{ id: string; status: string; due_date: string }>;
+
+    // No row may carry a due_date before 2024-12-05 (firstVatPaymentDate).
+    for (const row of rows) {
+      if (row.status !== 'paid') {
+        expect(row.due_date >= '2024-12-05').toBe(true);
+      }
+    }
+
+    // The 2024-12-05 payment was awarded to Aug-Oct 2024 (due 2024-12-07).
+    const augOct2024 = rows.find(r => r.id === 'auto-vat-2024-08-01');
+    expect(augOct2024?.status).toBe('paid');
+  });
+
+  it('never seeds a £0 overdue quarter (no-income is implicitly insufficient-data)', async () => {
+    // Income only in one quarter; previous quarters have no income BUT are
+    // also past due. We must NEVER seed a £0 overdue obligation — that would
+    // have been the old `no-income` bug.
+    insertIncome('barclays-current', '2024-11-15', 5000);
+
+    const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
+    deriveAndInsertAutoObligations();
+
+    const zeroOverdue = testDb.prepare(
+      `SELECT id FROM financial_obligations
+       WHERE type = 'vat' AND (expected_amount IS NULL OR expected_amount = 0)
+         AND status IN ('unpaid', 'overdue', 'pending')`
+    ).all() as Array<{ id: string }>;
+    expect(zeroOverdue).toHaveLength(0);
+  });
+});
+
 describe('VAT payment matching maps each HMRC payment to exactly one quarter', () => {
   it('does not double-count payments across adjacent quarters', async () => {
     // Barclays opens April 2022. Inject 4 quarters of income + 4 matching HMRC payments,
@@ -340,5 +569,55 @@ describe('VAT payment matching maps each HMRC payment to exactly one quarter', (
     const paidDates = rows.map(r => r.paid_date);
     const uniqueDates = new Set(paidDates);
     expect(uniqueDates.size).toBe(paidDates.length);
+  });
+});
+
+describe('VAT auto-seeder respects obligation dismissals', () => {
+  it('skips a quarter whose id has been dismissed', async () => {
+    insertIncome('barclays-current', '2025-02-15', 30000);
+    insertIncome('barclays-current', '2025-05-15', 48360);
+
+    const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
+    deriveAndInsertAutoObligations();
+
+    const before = testDb.prepare(
+      `SELECT id FROM financial_obligations WHERE source = 'auto' AND type = 'vat' ORDER BY id`
+    ).all() as Array<{ id: string }>;
+    expect(before.length).toBeGreaterThan(0);
+
+    const toHide = before[0].id;
+    const { addDismissal } = await import('./obligation-dismissals.js');
+    addDismissal({ obligationId: toHide, reason: 'Paid by cheque, no reminder needed' });
+
+    deriveAndInsertAutoObligations();
+
+    const after = testDb.prepare(
+      `SELECT id FROM financial_obligations WHERE source = 'auto' AND type = 'vat'`
+    ).all() as Array<{ id: string }>;
+    expect(after.some(r => r.id === toHide)).toBe(false);
+  });
+
+  it('undismiss restores the quarter on the next run', async () => {
+    insertIncome('barclays-current', '2025-02-15', 30000);
+    insertIncome('barclays-current', '2025-05-15', 48360);
+
+    const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
+    const { addDismissal, removeDismissal } = await import('./obligation-dismissals.js');
+
+    deriveAndInsertAutoObligations();
+    const before = testDb.prepare(
+      `SELECT id FROM financial_obligations WHERE source = 'auto' AND type = 'vat' ORDER BY id`
+    ).all() as Array<{ id: string }>;
+    const id = before[0].id;
+
+    addDismissal({ obligationId: id });
+    deriveAndInsertAutoObligations();
+    removeDismissal(id);
+    deriveAndInsertAutoObligations();
+
+    const after = testDb.prepare(
+      `SELECT id FROM financial_obligations WHERE source = 'auto' AND type = 'vat'`
+    ).all() as Array<{ id: string }>;
+    expect(after.some(r => r.id === id)).toBe(true);
   });
 });

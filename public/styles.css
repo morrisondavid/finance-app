@@ -3171,7 +3171,7 @@ body {
 
 .obligations-upcoming-grid { display: flex; flex-direction: column; gap: 0.5rem; }
 .obligations-upcoming-item {
-  display: grid; grid-template-columns: 1fr auto auto auto auto;
+  display: grid; grid-template-columns: 1fr auto auto auto auto auto;
   align-items: center; gap: 1rem; padding: 0.75rem 1rem; border-radius: 0.5rem; border-left: 4px solid #3b82f6;
   background: #f8fafc;
 }
@@ -3196,6 +3196,32 @@ body {
   letter-spacing: 0.05em;
   color: #94a3b8;
   font-weight: 600;
+}
+
+/* Self Assessment "estimate" affordances — distinguish auto rows from
+   manually-confirmed figures so the user trusts the number only as a
+   rough guide until they enter the accountant's real value. */
+.obligations-est-chip {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.7rem;
+  font-style: italic;
+  color: #475569;
+  background: #e2e8f0;
+  border-radius: 0.25rem;
+  letter-spacing: 0.02em;
+}
+.obligations-upcoming-subtext {
+  display: block;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-style: italic;
+  margin-top: 0.2rem;
+}
+.obligations-sa-addmanual-btn {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.6rem;
 }
 
 .obligations-registry-toolbar {
@@ -3254,6 +3280,23 @@ body {
 }
 
 .obligations-registry-table td:last-child { white-space: nowrap; }
+
+/* Dismissed auto rows: greyed-out, struck-through, kept in-place so the user
+   can see what they hid without leaving the registry. Only rendered when
+   the "Show dismissed" toggle is on (see obligations.ts). */
+.obligations-row-dismissed td {
+  color: #94a3b8;
+  background: #f8fafc;
+  text-decoration: line-through;
+  text-decoration-color: #cbd5e1;
+}
+.obligations-row-dismissed td:last-child {
+  text-decoration: none;
+}
+.obligations-row-dismissed .fixed-expenses-account-pill,
+.obligations-row-dismissed .obligations-status-badge {
+  opacity: 0.6;
+}
 .btn-sm { padding: 0.2em 0.5em; font-size: 0.75rem; }
 .btn-danger { background: #ef4444; color: #fff; border: none; border-radius: 0.25rem; cursor: pointer; }
 .btn-danger:hover { background: #dc2626; }
@@ -3262,6 +3305,51 @@ body {
 
 .obligations-toggle-label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #64748b; cursor: pointer; user-select: none; }
 .obligations-toggle-label input[type="checkbox"] { accent-color: #3b82f6; }
+
+/* Unmatched HMRC Payments panel */
+.obligations-unmatched-hint {
+  margin: 0 0 0.75rem 0;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+.obligations-unmatched-list { display: flex; flex-direction: column; gap: 0.4rem; }
+.obligations-unmatched-item {
+  display: grid;
+  grid-template-columns: 6.5rem 6.5rem 1fr 7rem auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.85rem;
+  border-left: 4px solid #a855f7;
+  background: #faf5ff;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+.obligations-unmatched-vat { border-left-color: #3b82f6; background: #eff6ff; }
+.obligations-unmatched-etmp { border-left-color: #a855f7; background: #faf5ff; }
+.obligations-unmatched-self-assessment { border-left-color: #64748b; background: #f8fafc; }
+.obligations-unmatched-other { border-left-color: #94a3b8; background: #f1f5f9; }
+
+.obligations-unmatched-type {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  text-align: center;
+  color: #ffffff;
+  background: #94a3b8;
+}
+.obligations-unmatched-type[data-type="vat"] { background: #3b82f6; }
+.obligations-unmatched-type[data-type="etmp"] { background: #a855f7; }
+.obligations-unmatched-type[data-type="self-assessment"] { background: #64748b; }
+.obligations-unmatched-type[data-type="other"] { background: #94a3b8; }
+
+.obligations-unmatched-date { color: #475569; font-variant-numeric: tabular-nums; }
+.obligations-unmatched-description { color: #0f172a; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.obligations-unmatched-amount { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; color: #7c3aed; }
+.obligations-unmatched-account { font-size: 0.72rem; }
 
 .modal-overlay {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;

@@ -28,37 +28,45 @@ const VAT_FRACTION = 1 / 6;
 
 describe('reconcileVatQuarter', () => {
   describe('status derivation', () => {
-    it('returns no-income when quarter income is zero', () => {
-      const result = reconcileVatQuarter(makeQuarter(), 0, VAT_FRACTION, null);
-      expect(result.status).toBe('no-income');
-      expect(result.expectedAmount).toBe(0);
-    });
-
-    it('returns paid when payment covers expected amount', () => {
-      const income = 6000;
-      const expected = income * VAT_FRACTION;
+    it('returns paid whenever a match is present (amount is irrelevant)', () => {
       const q = makeQuarter();
       const ref = new Date('2025-07-01');
-      const result = reconcileVatQuarter(q, income, VAT_FRACTION, makePayment({ amount: -1000 }), ref);
+      const result = reconcileVatQuarter(q, 6000, VAT_FRACTION, makePayment({ amount: -1000 }), ref);
       expect(result.status).toBe('paid');
-      expect(result.expectedAmount).toBeCloseTo(expected, 1);
       expect(result.paidAmount).toBe(1000);
     });
 
-    it('returns unpaid when no payment matched and due date passed', () => {
+    it('returns paid even when the payment is far below our estimate', () => {
+      const q = makeQuarter();
+      const ref = new Date('2025-07-01');
+      const result = reconcileVatQuarter(q, 6000, VAT_FRACTION, makePayment({ amount: -10 }), ref);
+      expect(result.status).toBe('paid');
+      expect(result.paidAmount).toBe(10);
+    });
+
+    it('returns paid even when the payment wildly exceeds our estimate', () => {
+      const q = makeQuarter();
+      const ref = new Date('2025-07-01');
+      const result = reconcileVatQuarter(q, 6000, VAT_FRACTION, makePayment({ amount: -9999 }), ref);
+      expect(result.status).toBe('paid');
+      expect(result.paidAmount).toBe(9999);
+    });
+
+    it('returns paid when quarter income is zero but a payment still settled', () => {
+      const q = makeQuarter();
+      const ref = new Date('2025-07-01');
+      const result = reconcileVatQuarter(q, 0, VAT_FRACTION, makePayment({ amount: -500 }), ref);
+      expect(result.status).toBe('paid');
+      expect(result.expectedAmount).toBe(0);
+      expect(result.paidAmount).toBe(500);
+    });
+
+    it('returns unpaid when no match and the due date has passed', () => {
       const q = makeQuarter();
       const ref = new Date('2025-07-01');
       const result = reconcileVatQuarter(q, 6000, VAT_FRACTION, null, ref);
       expect(result.status).toBe('unpaid');
       expect(result.paidAmount).toBe(0);
-    });
-
-    it('returns underpaid when payment is less than 95% of expected', () => {
-      const q = makeQuarter();
-      const ref = new Date('2025-07-01');
-      const result = reconcileVatQuarter(q, 6000, VAT_FRACTION, makePayment({ amount: -500 }), ref);
-      expect(result.status).toBe('underpaid');
-      expect(result.paidAmount).toBe(500);
     });
 
     it('returns not-yet-due when due date is in the future', () => {
@@ -68,11 +76,18 @@ describe('reconcileVatQuarter', () => {
       expect(result.status).toBe('not-yet-due');
     });
 
-    it('returns paid even before due date if payment is sufficient', () => {
+    it('returns paid before the due date if a payment has already arrived', () => {
       const q = makeQuarter({ dueDate: '2025-06-07' });
       const ref = new Date('2025-05-01');
       const result = reconcileVatQuarter(q, 6000, VAT_FRACTION, makePayment({ amount: -1000, date: '2025-04-15' }), ref);
       expect(result.status).toBe('paid');
+    });
+  });
+
+  describe('expectedAmount is informational only', () => {
+    it('clamps negative income to zero so expectedAmount never goes below zero', () => {
+      const result = reconcileVatQuarter(makeQuarter(), -50, VAT_FRACTION, null, new Date('2025-07-01'));
+      expect(result.expectedAmount).toBe(0);
     });
   });
 
@@ -100,30 +115,14 @@ describe('reconcileVatQuarter', () => {
       expect(result.paidFromAccount).toBe('barclays-current');
       expect(result.paidDate).toBe('2025-06-10');
     });
-
-    it('never sums multiple amounts (single physical payment only)', () => {
-      const q = makeQuarter();
-      const ref = new Date('2025-07-01');
-      const result = reconcileVatQuarter(q, 6000, VAT_FRACTION,
-        makePayment({ amount: -1000 }),
-        ref,
-      );
-      expect(result.paidAmount).toBe(1000);
-    });
   });
 
   describe('edge cases', () => {
-    it('treats payment within 5% tolerance as paid', () => {
-      const q = makeQuarter();
-      const ref = new Date('2025-07-01');
-      const result = reconcileVatQuarter(q, 6000, VAT_FRACTION, makePayment({ amount: -960 }), ref);
-      expect(result.status).toBe('paid');
-    });
-
-    it('returns null fields when no match and no income', () => {
-      const result = reconcileVatQuarter(makeQuarter(), 0, VAT_FRACTION, null);
+    it('returns null fields when no match and quarter income is zero', () => {
+      const result = reconcileVatQuarter(makeQuarter(), 0, VAT_FRACTION, null, new Date('2025-07-01'));
       expect(result.paidDate).toBeNull();
       expect(result.paidFromAccount).toBeNull();
+      expect(result.paidAmount).toBe(0);
     });
   });
 

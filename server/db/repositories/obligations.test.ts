@@ -31,6 +31,7 @@ describe('obligations repository', () => {
         paid_date: null,
         paid_from_account: null,
         notes: 'test notes',
+        person_id: null,
         created_at: '2025-01-01',
         updated_at: '2025-01-01',
       };
@@ -42,6 +43,7 @@ describe('obligations repository', () => {
       expect(result.paidAmount).toBeNull();
       expect(result.paidFromAccount).toBeNull();
       expect(result.notes).toBe('test notes');
+      expect(result.personId).toBeNull();
       expect(result.createdAt).toBe('2025-01-01');
     });
 
@@ -60,6 +62,7 @@ describe('obligations repository', () => {
         paid_date: '2025-06-01',
         paid_from_account: 'barclays-current',
         notes: null,
+        person_id: null,
         created_at: '2025-06-15',
         updated_at: '2025-06-15',
       };
@@ -89,6 +92,7 @@ describe('obligations repository', () => {
         paid_date: null,
         paid_from_account: null,
         notes: null,
+        person_id: null,
         created_at: null,
         updated_at: null,
       };
@@ -99,8 +103,33 @@ describe('obligations repository', () => {
       expect(result.paidDate).toBeNull();
       expect(result.paidFromAccount).toBeNull();
       expect(result.notes).toBeNull();
+      expect(result.personId).toBeNull();
       expect(result.createdAt).toBeNull();
       expect(result.updatedAt).toBeNull();
+    });
+
+    it('propagates person_id for Self Assessment rows', () => {
+      const row = {
+        id: 'auto-sa-david-2026-01-31',
+        source: 'auto',
+        type: 'self-assessment',
+        name: 'Self Assessment — David (2025/26)',
+        entity: 'HMRC',
+        recurrence: 'annual',
+        expected_amount: 11430,
+        due_date: '2026-01-31',
+        status: 'pending',
+        paid_amount: null,
+        paid_date: null,
+        paid_from_account: null,
+        notes: null,
+        person_id: 'david',
+        created_at: null,
+        updated_at: null,
+      };
+      const result = toApiObligation(row);
+      expect(result.personId).toBe('david');
+      expect(result.type).toBe('self-assessment');
     });
   });
 });
@@ -126,6 +155,7 @@ function createObligationsSchema(): void {
       paid_date TEXT,
       paid_from_account TEXT,
       notes TEXT,
+      person_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -183,13 +213,13 @@ describe('getOverdueObligations + getAllObligations filters', () => {
       insertObligation({ id: 'o-overdue-pending', dueDate: YESTERDAY, status: 'pending' });
       insertObligation({ id: 'o-overdue-paid', dueDate: YESTERDAY, status: 'paid' });
       insertObligation({ id: 'o-overdue-confirmed', dueDate: YESTERDAY, status: 'confirmed' });
-      insertObligation({ id: 'o-overdue-underpaid', dueDate: YESTERDAY, status: 'underpaid' });
+      insertObligation({ id: 'o-overdue-unpaid', dueDate: YESTERDAY, status: 'unpaid' });
       insertObligation({ id: 'o-future-pending', dueDate: NEXT_WEEK, status: 'pending' });
       insertObligation({ id: 'o-today-pending', dueDate: TODAY, status: 'pending' });
 
       const rows = getOverdueObligations();
       const ids = rows.map(r => r.id).sort();
-      expect(ids).toEqual(['o-overdue-pending', 'o-overdue-underpaid']);
+      expect(ids).toEqual(['o-overdue-pending', 'o-overdue-unpaid']);
     });
 
     it('returns rows ordered by due_date ascending', () => {

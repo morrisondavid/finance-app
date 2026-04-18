@@ -9,6 +9,11 @@ import {
   UpcomingRecurringSchema,
   UpcomingPaymentItemSchema,
   UpcomingPaymentsResponseSchema,
+  UnmatchedHmrcPaymentSchema,
+  UnmatchedHmrcPaymentsResponseSchema,
+  DismissalSchema,
+  CreateDismissalBodySchema,
+  DismissalsListResponseSchema,
 } from './api-contracts.js';
 
 describe('HmrcPaymentMatchSchema', () => {
@@ -378,6 +383,22 @@ describe('UpcomingPaymentItemSchema', () => {
     const result = UpcomingPaymentItemSchema.safeParse({ ...obligationItem, kind: 'recurring' });
     expect(result.success).toBe(false);
   });
+
+  it('accepts obligation with personId set to a known PersonId', () => {
+    const withPerson = { ...obligationItem, type: 'self-assessment', personId: 'david' };
+    expect(UpcomingPaymentItemSchema.safeParse(withPerson).success).toBe(true);
+  });
+
+  it('accepts obligation with personId null or omitted', () => {
+    expect(UpcomingPaymentItemSchema.safeParse({ ...obligationItem, personId: null }).success).toBe(true);
+    const { ...withoutPerson } = obligationItem;
+    expect(UpcomingPaymentItemSchema.safeParse(withoutPerson).success).toBe(true);
+  });
+
+  it('rejects obligation with an unknown personId', () => {
+    const result = UpcomingPaymentItemSchema.safeParse({ ...obligationItem, personId: 'ghost' });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe('UpcomingPaymentsResponseSchema', () => {
@@ -417,5 +438,144 @@ describe('UpcomingPaymentsResponseSchema', () => {
 
   it('rejects when items is missing', () => {
     expect(UpcomingPaymentsResponseSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe('UnmatchedHmrcPaymentSchema', () => {
+  const base = {
+    date: '2024-12-09',
+    amount: -4192.21,
+    account: 'capital-on-tap',
+    description: 'HMRC ETMP - GLASGOW - Card Ending: 8346',
+    hmrcType: 'payment-plan' as const,
+  };
+
+  it('accepts a representative unmatched payment', () => {
+    expect(UnmatchedHmrcPaymentSchema.safeParse(base).success).toBe(true);
+  });
+
+  it('rejects when required fields are missing', () => {
+    const { account: _drop, ...bad } = base;
+    void _drop;
+    expect(UnmatchedHmrcPaymentSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('rejects when hmrcType is missing', () => {
+    const { hmrcType: _drop, ...bad } = base;
+    void _drop;
+    expect(UnmatchedHmrcPaymentSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('rejects unknown hmrcType values', () => {
+    // Both the replaced legacy literal and a made-up value must be rejected so
+    // clients cannot silently read ambiguous chips after the enum tightened.
+    expect(UnmatchedHmrcPaymentSchema.safeParse({ ...base, hmrcType: 'etmp' }).success).toBe(false);
+    expect(UnmatchedHmrcPaymentSchema.safeParse({ ...base, hmrcType: 'paye' }).success).toBe(false);
+  });
+
+  it('accepts each valid hmrcType', () => {
+    for (const t of ['vat', 'self-assessment', 'corporation-tax', 'payment-plan', 'other'] as const) {
+      expect(UnmatchedHmrcPaymentSchema.safeParse({ ...base, hmrcType: t }).success).toBe(true);
+    }
+  });
+});
+
+describe('UnmatchedHmrcPaymentsResponseSchema', () => {
+  it('accepts a well-formed response', () => {
+    const fixture = {
+      payments: [
+        { date: '2022-04-29', amount: -12092.65, account: 'barclays-current', description: 'HMRC VAT SOUTHEND', hmrcType: 'vat' as const },
+        { date: '2024-12-09', amount: -4192.21, account: 'capital-on-tap', description: 'HMRC ETMP - GLASGOW', hmrcType: 'payment-plan' as const },
+      ],
+      total: -16284.86,
+    };
+    expect(UnmatchedHmrcPaymentsResponseSchema.safeParse(fixture).success).toBe(true);
+  });
+
+  it('accepts an empty response', () => {
+    expect(UnmatchedHmrcPaymentsResponseSchema.safeParse({ payments: [], total: 0 }).success).toBe(true);
+  });
+
+  it('rejects when total is missing', () => {
+    expect(UnmatchedHmrcPaymentsResponseSchema.safeParse({ payments: [] }).success).toBe(false);
+  });
+});
+
+describe('DismissalSchema', () => {
+  const base = {
+    obligationId: 'auto-sa-david-2026-01-31',
+    reason: 'Non-resident',
+    dismissedAt: '2026-04-10T12:00:00.000Z',
+  };
+
+  it('accepts a well-formed dismissal', () => {
+    expect(DismissalSchema.safeParse(base).success).toBe(true);
+  });
+
+  it('accepts null reason', () => {
+    expect(DismissalSchema.safeParse({ ...base, reason: null }).success).toBe(true);
+  });
+
+  it('accepts auto-vat ids', () => {
+    expect(DismissalSchema.safeParse({ ...base, obligationId: 'auto-vat-2025-05-01' }).success).toBe(true);
+  });
+
+  it('rejects non-auto obligation ids', () => {
+    expect(DismissalSchema.safeParse({ ...base, obligationId: 'manual-123' }).success).toBe(false);
+    expect(DismissalSchema.safeParse({ ...base, obligationId: 'sa-david-2026-01-31' }).success).toBe(false);
+  });
+
+  it('rejects when dismissedAt is missing', () => {
+    const { dismissedAt: _drop, ...bad } = base;
+    void _drop;
+    expect(DismissalSchema.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe('CreateDismissalBodySchema', () => {
+  it('accepts a minimal body (obligationId only)', () => {
+    expect(CreateDismissalBodySchema.safeParse({ obligationId: 'auto-sa-david-2026-01-31' }).success).toBe(true);
+  });
+
+  it('accepts an optional reason', () => {
+    expect(CreateDismissalBodySchema.safeParse({
+      obligationId: 'auto-vat-2025-05-01',
+      reason: 'Already paid out of band',
+    }).success).toBe(true);
+  });
+
+  it('rejects non-auto ids', () => {
+    expect(CreateDismissalBodySchema.safeParse({ obligationId: 'manual-123' }).success).toBe(false);
+  });
+
+  it('rejects overly long reasons', () => {
+    const big = 'x'.repeat(501);
+    expect(CreateDismissalBodySchema.safeParse({
+      obligationId: 'auto-sa-david-2026-01-31',
+      reason: big,
+    }).success).toBe(false);
+  });
+});
+
+describe('DismissalsListResponseSchema', () => {
+  it('accepts an empty list', () => {
+    expect(DismissalsListResponseSchema.safeParse({ dismissals: [] }).success).toBe(true);
+  });
+
+  it('accepts a list of well-formed dismissals', () => {
+    expect(DismissalsListResponseSchema.safeParse({
+      dismissals: [
+        { obligationId: 'auto-sa-david-2026-01-31', reason: 'Dubai', dismissedAt: '2026-04-10T12:00:00.000Z' },
+        { obligationId: 'auto-vat-2025-05-01', reason: null, dismissedAt: '2026-04-11T09:30:00.000Z' },
+      ],
+    }).success).toBe(true);
+  });
+
+  it('rejects when an entry has a non-auto id', () => {
+    expect(DismissalsListResponseSchema.safeParse({
+      dismissals: [
+        { obligationId: 'manual-1', reason: null, dismissedAt: '2026-04-10T12:00:00.000Z' },
+      ],
+    }).success).toBe(false);
   });
 });

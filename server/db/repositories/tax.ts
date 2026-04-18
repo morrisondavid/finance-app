@@ -9,7 +9,11 @@ import {
   getVatQuarterForDate,
   type VatQuarterRange
 } from '../../config/tax-rates.js';
-import { DIRECTORS, HMRC_PATTERNS } from '../../config/payees.js';
+import {
+  getDirectors,
+  HMRC_PATTERNS,
+  SALARY_MATCH_TOLERANCE,
+} from '../../config/payees.js';
 import { getBusinessPaymentAccounts } from '../../types.js';
 import { round2 } from '../../utils/math.js';
 import { buildVatAccountFilter, buildCorpTaxAccountFilter } from '../utils/tax-account-filter.js';
@@ -40,6 +44,80 @@ export function findHmrcPayments(opts: {
     AND date >= ? AND date <= ?
     ORDER BY date ASC
   `).all(...opts.patterns, ...opts.accounts, opts.startDate, opts.endDate) as HmrcPaymentMatch[];
+}
+
+/**
+ * Narrative category derived from an HMRC payment description. Drives the
+ * coloured chip in the Unmatched HMRC Payments panel so the user can see at
+ * a glance what kind of HMRC debit landed without opening the row.
+ *
+ *   - `vat`              → `HMRC VAT…` (VAT return settlement)
+ *   - `self-assessment`  → `HMRC GOV.UK SA…` (personal tax)
+ *   - `corporation-tax`  → `HMRC CORPORATION T…` or `HMRC GOV.UK COTAX…`
+ *   - `payment-plan`     → `HMRC NDDS…` or `HMRC ETMP…` (Time-To-Pay
+ *     installments, penalty direct debits — mostly picked up by the TTP
+ *     auto-seeder; any residual rows are typically one-off penalties or
+ *     interest charges that haven't yet established a recurring cadence)
+ *   - `other`            → anything else (`HMRC GOV.UK…` with no more
+ *     specific prefix, unknown narratives)
+ */
+export type HmrcNarrativeType =
+  | 'vat'
+  | 'self-assessment'
+  | 'corporation-tax'
+  | 'payment-plan'
+  | 'other';
+
+export interface UnmatchedHmrcPayment extends HmrcPaymentMatch {
+  hmrcType: HmrcNarrativeType;
+}
+
+/**
+ * Return every HMRC-narrative outgoing payment across the supplied accounts
+ * that is NOT currently linked to an obligation. Linkage is identified by
+ * matching the (paid_date, paid_amount, paid_from_account) triple against
+ * `financial_obligations` — VAT, SA, CT, and TTP auto-seeders all populate
+ * those fields from assigned matches, so their corresponding debits drop
+ * off this feed automatically.
+ *
+ * Each row is annotated with an {@link HmrcNarrativeType} so the UI can
+ * label it accurately (CT vs SA vs TTP payment plan vs VAT vs unclassified).
+ */
+export function findUnmatchedHmrcPayments(opts: {
+  patterns: readonly string[];
+  accounts: readonly string[];
+}): UnmatchedHmrcPayment[] {
+  const db = getDb();
+  const patternCondition = opts.patterns.map(() => 't.description LIKE ?').join(' OR ');
+  const accountPlaceholders = opts.accounts.map(() => '?').join(',');
+
+  return db.prepare(`
+    SELECT
+      t.date,
+      t.amount,
+      t.account,
+      t.description,
+      CASE
+        WHEN t.description LIKE 'HMRC VAT%' THEN 'vat'
+        WHEN t.description LIKE 'HMRC GOV.UK SA%' THEN 'self-assessment'
+        WHEN t.description LIKE 'HMRC CORPORATION T%' THEN 'corporation-tax'
+        WHEN t.description LIKE 'HMRC GOV.UK COTAX%' THEN 'corporation-tax'
+        WHEN t.description LIKE 'HMRC NDDS%' THEN 'payment-plan'
+        WHEN t.description LIKE 'HMRC ETMP%' THEN 'payment-plan'
+        ELSE 'other'
+      END AS hmrcType
+    FROM transactions t
+    WHERE t.type = 'expense'
+      AND (${patternCondition})
+      AND t.account IN (${accountPlaceholders})
+      AND NOT EXISTS (
+        SELECT 1 FROM financial_obligations o
+        WHERE o.paid_date = t.date
+          AND ABS(o.paid_amount - ABS(t.amount)) < 0.01
+          AND (o.paid_from_account = t.account OR o.paid_from_account LIKE '%' || t.account || '%')
+      )
+    ORDER BY t.date ASC
+  `).all(...opts.patterns, ...opts.accounts) as UnmatchedHmrcPayment[];
 }
 
 export interface TaxLiabilities {
@@ -92,16 +170,29 @@ export interface TaxLiabilities {
 }
 
 /**
- * Salary and dividend lines paid from the business (outbound expenses).
- * Director payouts are not classified as business-to-business transfers, so they remain `expense`.
+ * Minimal DB shape this module uses for the helper. Narrower than the full
+ * better-sqlite3 Database type so shared callers (e.g. sa-estimator) can
+ * inject an in-memory test double without importing sqlite types.
  */
-function getDirectorPayments(
-  db: ReturnType<typeof getDb>,
+export interface DirectorPaymentsDb {
+  prepare(sql: string): { get(...params: unknown[]): unknown };
+}
+
+/**
+ * Salary and dividend lines paid from the business (outbound expenses) for a
+ * single director, classified by proximity to their configured
+ * `monthlySalary`. Director payouts are not business-to-business transfers,
+ * so they remain `expense` in the ledger.
+ *
+ * Exported so shared modules (e.g. `sa-estimator`) can reuse the same logic
+ * without reimplementing salary vs. dividend classification SQL.
+ */
+export function getDirectorPayments(
+  db: DirectorPaymentsDb,
   namePattern: string,
-  salaryMin: number,
-  salaryMax: number,
+  monthlySalary: number,
   clause: string,
-  params: string[]
+  params: string[],
 ): { salary: number; dividends: number; total: number; annualSalary: number } {
   const outboundExpense = `
     type = 'expense'
@@ -109,30 +200,34 @@ function getDirectorPayments(
     AND description LIKE ?
   `;
 
+  // A debit is "salary-like" when its absolute amount sits within
+  // SALARY_MATCH_TOLERANCE of the configured monthly figure. Anything else
+  // on the same narrative falls into the dividends bucket — covers both
+  // bonus-style payroll top-ups and the usual dividend debits.
   const salaryResult = db.prepare(`
-    SELECT COALESCE(SUM(ABS(amount)), 0) as total 
-    FROM transactions 
+    SELECT COALESCE(SUM(ABS(amount)), 0) as total
+    FROM transactions
     WHERE ${outboundExpense}
-    AND ABS(amount) >= ? AND ABS(amount) <= ?
+    AND ABS(ABS(amount) - ?) <= ?
     ${clause}
-  `).get(namePattern, salaryMin, salaryMax, ...params) as { total: number };
-  
+  `).get(namePattern, monthlySalary, SALARY_MATCH_TOLERANCE, ...params) as { total: number };
+
   const dividendResult = db.prepare(`
-    SELECT COALESCE(SUM(ABS(amount)), 0) as total 
-    FROM transactions 
+    SELECT COALESCE(SUM(ABS(amount)), 0) as total
+    FROM transactions
     WHERE ${outboundExpense}
-    AND (ABS(amount) < ? OR ABS(amount) > ?)
+    AND ABS(ABS(amount) - ?) > ?
     ${clause}
-  `).get(namePattern, salaryMin, salaryMax, ...params) as { total: number };
-  
+  `).get(namePattern, monthlySalary, SALARY_MATCH_TOLERANCE, ...params) as { total: number };
+
   const salary = round2(salaryResult.total);
   const dividends = round2(dividendResult.total);
-  
+
   return {
     salary,
     dividends,
     total: salary + dividends,
-    annualSalary: salaryMin * 12
+    annualSalary: monthlySalary * 12,
   };
 }
 
@@ -211,16 +306,16 @@ export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilitie
     vatPayments.reduce((sum, p) => sum + Math.abs(p.amount), 0),
   );
   
-  // Get director payments
-  const david = DIRECTORS.find(d => d.name === 'David Morrison');
-  const heena = DIRECTORS.find(d => d.name === 'Heena Tailor');
-  
-  const davidPayments = david 
-    ? getDirectorPayments(db, david.namePattern, david.salaryMin, david.salaryMax, clause, params)
+  const directors = getDirectors();
+  const david = directors.find(d => d.id === 'david');
+  const heena = directors.find(d => d.id === 'heena');
+
+  const davidPayments = david
+    ? getDirectorPayments(db, david.namePattern, david.monthlySalary, clause, params)
     : { salary: 0, dividends: 0, total: 0, annualSalary: 0 };
-    
+
   const heenaPayments = heena
-    ? getDirectorPayments(db, heena.namePattern, heena.salaryMin, heena.salaryMax, clause, params)
+    ? getDirectorPayments(db, heena.namePattern, heena.monthlySalary, clause, params)
     : { salary: 0, dividends: 0, total: 0, annualSalary: 0 };
   
   // Corporation Tax calculation

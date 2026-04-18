@@ -30,12 +30,12 @@ describe('obligations-csv', () => {
         {
           id: 'test-1', type: 'vat', name: 'VAT Q1', entity: 'HMRC',
           recurrence: 'quarterly', expectedAmount: 5000, dueDate: '2025-03-07',
-          status: 'pending', notes: null,
+          status: 'pending', notes: null, personId: null,
         },
         {
-          id: 'test-2', type: 'loan', name: 'Bounce Back Loan', entity: 'Barclays',
-          recurrence: 'monthly', expectedAmount: 200, dueDate: '2025-02-01',
-          status: 'paid', notes: 'Auto DD',
+          id: 'test-2', type: 'self-assessment', name: 'SA 2025/26', entity: 'HMRC',
+          recurrence: 'annual', expectedAmount: 11430, dueDate: '2026-01-31',
+          status: 'pending', notes: 'Accountant figure', personId: 'david',
         },
       ];
       const fp = csvPath();
@@ -44,7 +44,9 @@ describe('obligations-csv', () => {
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe('test-1');
       expect(result[0].expectedAmount).toBe(5000);
-      expect(result[1].notes).toBe('Auto DD');
+      expect(result[0].personId).toBeNull();
+      expect(result[1].notes).toBe('Accountant figure');
+      expect(result[1].personId).toBe('david');
     });
   });
 
@@ -66,10 +68,10 @@ describe('obligations-csv', () => {
 
   describe('malformed rows', () => {
     it('skips rows with missing required fields', () => {
-      const content = `id,type,name,entity,recurrence,expected_amount,due_date,status,notes
-good-1,vat,VAT Q1,HMRC,quarterly,1000,2025-03-07,pending,
-,vat,missing id,HMRC,quarterly,500,,pending,
-good-2,loan,Loan,Barclays,monthly,200,,pending,
+      const content = `id,type,name,entity,recurrence,expected_amount,due_date,status,notes,person_id
+good-1,vat,VAT Q1,HMRC,quarterly,1000,2025-03-07,pending,,
+,vat,missing id,HMRC,quarterly,500,,pending,,
+good-2,loan,Loan,Barclays,monthly,200,,pending,,
 `;
       fs.writeFileSync(csvPath(), content, 'utf8');
       const result = readManualObligationsFromCsvFile(csvPath());
@@ -82,7 +84,7 @@ good-2,loan,Loan,Barclays,monthly,200,,pending,
     it('does not leave .tmp file on success', () => {
       const fp = csvPath();
       writeManualObligationsToCsvFile(fp, [
-        { id: 'x', type: 'other', name: 'Test', entity: 'E', recurrence: 'one-off', expectedAmount: null, dueDate: null, status: 'pending', notes: null },
+        { id: 'x', type: 'other', name: 'Test', entity: 'E', recurrence: 'one-off', expectedAmount: null, dueDate: null, status: 'pending', notes: null, personId: null },
       ]);
       expect(fs.existsSync(`${fp}.tmp`)).toBe(false);
       expect(fs.existsSync(fp)).toBe(true);

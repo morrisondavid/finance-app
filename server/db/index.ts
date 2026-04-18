@@ -21,12 +21,17 @@ import {
   migrateCategoryBudgetsBudgetPeriodIfNeeded,
   migrateFixedExpenseSimulationExclusionsIfNeeded,
   migrateObligationsIfNeeded,
+  migrateObligationDismissalsIfNeeded,
 } from './connection.js';
 import { populateFromCSVs } from './repositories/files.js';
 import { detectTransfers } from './repositories/transactions.js';
 import { loadBudgetsFromFileIntoDb } from './repositories/budgets.js';
 import { loadManualObligationsFromCsv } from './repositories/obligations.js';
+import { loadDismissalsFromCsv } from './repositories/obligation-dismissals.js';
 import { deriveAndInsertAutoObligations } from './repositories/vat-auto-seed.js';
+import { deriveAndInsertAutoSaObligations } from './repositories/sa-auto-seed.js';
+import { deriveAndInsertAutoCtObligations } from './repositories/ct-auto-seed.js';
+import { deriveAndInsertAutoTtpObligations } from './repositories/hmrc-ttp-auto-seed.js';
 
 // Re-export from connection
 export { 
@@ -122,8 +127,36 @@ export async function initDatabase(): Promise<void> {
   loadBudgetsFromFileIntoDb();
 
   migrateObligationsIfNeeded();
+  migrateObligationDismissalsIfNeeded();
+  // Load dismissals BEFORE any auto-seeder runs so the first-pass seed
+  // already respects hidden slots (otherwise the dismissed rows flash
+  // into `financial_obligations` until the next mutation triggers a reseed).
+  loadDismissalsFromCsv();
   loadManualObligationsFromCsv();
   deriveAndInsertAutoObligations();
+  // SA seeding runs after VAT. If it throws we log and continue so a bug
+  // in SA never blocks VAT visibility (the original Obligations MVP).
+  try {
+    deriveAndInsertAutoSaObligations();
+  } catch (err) {
+    console.error('[Database] Self Assessment auto-seed failed:', err);
+  }
+  // CT seeding follows SA. Same fault-tolerance contract — a CT bug must
+  // never prevent VAT or SA rows from surfacing.
+  try {
+    deriveAndInsertAutoCtObligations();
+  } catch (err) {
+    console.error('[Database] Corporation Tax auto-seed failed:', err);
+  }
+  // HMRC Time-To-Pay / NDDS detection runs last. It piggybacks on the
+  // recurring-expense pipeline so nothing new is inferred here — it
+  // simply promotes HMRC-narrative monthly recurring groups into proper
+  // obligations that the orphan feed's NOT EXISTS clause can match.
+  try {
+    deriveAndInsertAutoTtpObligations();
+  } catch (err) {
+    console.error('[Database] HMRC TTP auto-seed failed:', err);
+  }
   
   console.log(`[Database] Ready: ${result.files} files, ${result.transactions} transactions (${result.duplicates} duplicates removed, ${transferPairs} transfer pairs detected)`);
 }

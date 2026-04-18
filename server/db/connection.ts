@@ -254,8 +254,33 @@ export function migrateObligationsIfNeeded(): void {
       paid_date TEXT,
       paid_from_account TEXT,
       notes TEXT,
+      person_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Backfill column on databases created before Self Assessment support.
+  const columns = db.prepare("PRAGMA table_info(financial_obligations)").all() as Array<{ name: string }>;
+  if (!columns.some(c => c.name === 'person_id')) {
+    db.exec('ALTER TABLE financial_obligations ADD COLUMN person_id TEXT');
+  }
+}
+
+/**
+ * Ensures the {@link obligation_dismissals} table exists. Keyed by the auto
+ * row id (e.g. `auto-sa-david-2026-01-31`, `auto-vat-2025-05-01`) so the
+ * auto-seeders can consult this set before inserting and skip any slot the
+ * user has hidden. Survives the seeders' DELETE-and-rebuild cycle because
+ * dismissals live in their own table.
+ */
+export function migrateObligationDismissalsIfNeeded(): void {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS obligation_dismissals (
+      obligation_id TEXT PRIMARY KEY,
+      reason TEXT,
+      dismissed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
 }

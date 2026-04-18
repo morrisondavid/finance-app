@@ -561,6 +561,10 @@
             <input type="checkbox" id="obligations-show-completed" />
             Show completed
           </label>
+          <label class="obligations-toggle-label">
+            <input type="checkbox" id="obligations-show-dismissed" />
+            Show dismissed
+          </label>
           <div id="obligations-fy-selector" class="obligations-fy-selector" style="display:none">
             <button type="button" class="btn btn-sm" id="obligations-fy-prev" aria-label="Previous financial year">&larr;</button>
             <span id="obligations-fy-label"></span>
@@ -568,6 +572,18 @@
           </div>
         </div>
         <div id="obligations-registry-list"></div>
+      </div>
+
+      <!-- Unmatched HMRC Payments Panel (hidden when none) -->
+      <div class="card" id="obligations-unmatched-panel" style="display:none">
+        <h3>Unmatched HMRC Payments <span id="obligations-unmatched-count" class="badge"></span></h3>
+        <p class="obligations-unmatched-hint">
+          HMRC payments found in your transactions that aren't linked to any obligation, grouped by narrative type:
+          <strong>VAT</strong> (usually off-cycle VAT corrections),
+          <strong>ETMP</strong> (Corporation Tax or PAYE via HMRC's card gateway), and
+          <strong>SA</strong> (Self Assessment — personal tax, not business).
+        </p>
+        <div id="obligations-unmatched-list"></div>
       </div>
 
       <!-- Add/Edit Modal -->
@@ -601,6 +617,13 @@
             </label>
             <label>Expected Amount <input type="number" name="expectedAmount" step="0.01"></label>
             <label>Due Date <input type="date" name="dueDate"></label>
+            <label>Person (Self Assessment only)
+              <select name="personId">
+                <option value="">—</option>
+                <option value="david">David</option>
+                <option value="heena">Heena</option>
+              </select>
+            </label>
             <label>Notes <textarea name="notes" rows="2"></textarea></label>
             <div class="modal-footer">
               <button type="submit" class="btn btn-primary">Save</button>

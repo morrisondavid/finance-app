@@ -265,6 +265,42 @@ export function calculateCorporationTax(taxableProfit: number): { tax: number; e
 }
 
 /**
+ * Income Tax band widths derived from the headline thresholds. Centralised
+ * so both dividend and non-dividend allocators consume the same figures.
+ */
+function getIncomeTaxBandWidths(): { basic: number; higher: number } {
+  return {
+    basic: INCOME_TAX.BASIC_RATE_LIMIT - INCOME_TAX.PERSONAL_ALLOWANCE,
+    higher: INCOME_TAX.HIGHER_RATE_LIMIT - INCOME_TAX.BASIC_RATE_LIMIT,
+  };
+}
+
+/**
+ * Allocate `amount` across the basic/higher/additional rate bands, given
+ * how much of each band has already been consumed by earlier income (in
+ * HMRC ordering, salary is taxed before dividends).
+ *
+ * Returns the monetary total in each band. Assumes inputs are annual.
+ */
+function allocateAcrossBands(
+  amount: number,
+  consumed: { basic: number; higher: number },
+): { atBasic: number; atHigher: number; atAdditional: number } {
+  const bandWidths = getIncomeTaxBandWidths();
+  const basicLeft = Math.max(0, bandWidths.basic - consumed.basic);
+  const higherLeft = Math.max(0, bandWidths.higher - consumed.higher);
+
+  let remainder = Math.max(0, amount);
+  const atBasic = Math.min(remainder, basicLeft);
+  remainder -= atBasic;
+  const atHigher = Math.min(remainder, higherLeft);
+  remainder -= atHigher;
+  const atAdditional = remainder;
+
+  return { atBasic, atHigher, atAdditional };
+}
+
+/**
  * Estimate income tax on dividends (outside PAYE) for a UK taxpayer.
  *
  * Model (aligned with common HMRC ordering):
@@ -280,32 +316,64 @@ export function calculateDividendTax(dividends: number, salary: number = 0): num
   }
 
   const pa = INCOME_TAX.PERSONAL_ALLOWANCE;
-  const basicBandWidth = INCOME_TAX.BASIC_RATE_LIMIT - pa;
-  const higherBandWidth = INCOME_TAX.HIGHER_RATE_LIMIT - INCOME_TAX.BASIC_RATE_LIMIT;
+  const bandWidths = getIncomeTaxBandWidths();
 
   const taxableSalary = Math.max(0, salary - pa);
-  const salaryInBasic = Math.min(taxableSalary, basicBandWidth);
-  const salaryBeyondBasic = Math.max(0, taxableSalary - basicBandWidth);
-  const salaryInHigher = Math.min(salaryBeyondBasic, higherBandWidth);
+  const salaryInBasic = Math.min(taxableSalary, bandWidths.basic);
+  const salaryBeyondBasic = Math.max(0, taxableSalary - bandWidths.basic);
+  const salaryInHigher = Math.min(salaryBeyondBasic, bandWidths.higher);
 
   const unusedPa = Math.max(0, pa - salary);
 
   const afterDividendAllowance = dividends - DIVIDEND_TAX.ALLOWANCE;
   const taxableDividends = Math.max(0, afterDividendAllowance - unusedPa);
 
-  const basicLeftForDividends = Math.max(0, basicBandWidth - salaryInBasic);
-  const higherLeftForDividends = Math.max(0, higherBandWidth - salaryInHigher);
-
-  let remainder = taxableDividends;
-  const atBasic = Math.min(remainder, basicLeftForDividends);
-  remainder -= atBasic;
-  const atHigher = Math.min(remainder, higherLeftForDividends);
-  remainder -= atHigher;
-  const atAdditional = remainder;
+  const { atBasic, atHigher, atAdditional } = allocateAcrossBands(
+    taxableDividends,
+    { basic: salaryInBasic, higher: salaryInHigher },
+  );
 
   return (
     atBasic * DIVIDEND_TAX.BASIC_RATE +
     atHigher * DIVIDEND_TAX.HIGHER_RATE +
     atAdditional * DIVIDEND_TAX.ADDITIONAL_RATE
+  );
+}
+
+/**
+ * Estimate income tax on a slice of non-dividend, non-PAYE income (e.g. rental
+ * profit) stacking on top of the given `salaryAlreadyTaxed`. Uses the same
+ * band ordering as dividends except dividend allowance/rates do not apply.
+ *
+ * All amounts are treated as annual figures.
+ */
+export function calculateIncomeTaxOnNonDividend(
+  amount: number,
+  salaryAlreadyTaxed: number = 0,
+): number {
+  if (amount <= 0) return 0;
+
+  const pa = INCOME_TAX.PERSONAL_ALLOWANCE;
+  const bandWidths = getIncomeTaxBandWidths();
+
+  const taxableSalary = Math.max(0, salaryAlreadyTaxed - pa);
+  const salaryInBasic = Math.min(taxableSalary, bandWidths.basic);
+  const salaryInHigher = Math.min(
+    Math.max(0, taxableSalary - bandWidths.basic),
+    bandWidths.higher,
+  );
+
+  const unusedPa = Math.max(0, pa - salaryAlreadyTaxed);
+  const taxable = Math.max(0, amount - unusedPa);
+
+  const { atBasic, atHigher, atAdditional } = allocateAcrossBands(
+    taxable,
+    { basic: salaryInBasic, higher: salaryInHigher },
+  );
+
+  return (
+    atBasic * INCOME_TAX.BASIC_RATE +
+    atHigher * INCOME_TAX.HIGHER_RATE +
+    atAdditional * INCOME_TAX.ADDITIONAL_RATE
   );
 }

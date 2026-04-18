@@ -33,6 +33,7 @@ interface ObligationRow {
   paid_date: string | null;
   paid_from_account: string | null;
   notes: string | null;
+  person_id: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -49,12 +50,12 @@ export function loadManualObligationsFromCsv(): void {
 
   const insert = db.prepare(`
     INSERT OR REPLACE INTO financial_obligations
-      (id, source, type, name, entity, recurrence, expected_amount, due_date, status, notes, created_at, updated_at)
-    VALUES (?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      (id, source, type, name, entity, recurrence, expected_amount, due_date, status, notes, person_id, created_at, updated_at)
+    VALUES (?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `);
 
   for (const r of rows) {
-    insert.run(r.id, r.type, r.name, r.entity, r.recurrence, r.expectedAmount, r.dueDate, r.status, r.notes);
+    insert.run(r.id, r.type, r.name, r.entity, r.recurrence, r.expectedAmount, r.dueDate, r.status, r.notes, r.personId);
   }
   if (rows.length > 0) {
     console.log(`[Database] Loaded ${rows.length} manual obligation(s) from CSV`);
@@ -74,18 +75,19 @@ export function insertAutoObligation(obligation: {
   paidDate: string | null;
   paidFromAccount: string | null;
   notes: string | null;
+  personId?: string | null;
 }): void {
   const db = getDb();
   db.prepare(`
     INSERT OR REPLACE INTO financial_obligations
       (id, source, type, name, entity, recurrence, expected_amount, due_date, status,
-       paid_amount, paid_date, paid_from_account, notes, created_at, updated_at)
-    VALUES (?, 'auto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       paid_amount, paid_date, paid_from_account, notes, person_id, created_at, updated_at)
+    VALUES (?, 'auto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `).run(
     obligation.id, obligation.type, obligation.name, obligation.entity,
     obligation.recurrence, obligation.expectedAmount, obligation.dueDate,
     obligation.status, obligation.paidAmount, obligation.paidDate,
-    obligation.paidFromAccount, obligation.notes,
+    obligation.paidFromAccount, obligation.notes, obligation.personId ?? null,
   );
 }
 
@@ -172,6 +174,7 @@ function syncManualToCsv(): void {
     dueDate: r.due_date,
     status: r.status,
     notes: r.notes,
+    personId: r.person_id,
   }));
   writeManualObligationsToCsvFile(csvPath(), csvRows);
 }
@@ -185,15 +188,17 @@ export function createManualObligation(data: {
   dueDate?: string | null;
   status?: string;
   notes?: string | null;
+  personId?: string | null;
 }): ObligationRow {
   const db = getDb();
   const id = `manual-${crypto.randomUUID()}`;
   db.prepare(`
     INSERT INTO financial_obligations
-      (id, source, type, name, entity, recurrence, expected_amount, due_date, status, notes, created_at, updated_at)
-    VALUES (?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      (id, source, type, name, entity, recurrence, expected_amount, due_date, status, notes, person_id, created_at, updated_at)
+    VALUES (?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `).run(id, data.type, data.name, data.entity, data.recurrence,
-    data.expectedAmount ?? null, data.dueDate ?? null, data.status ?? 'pending', data.notes ?? null);
+    data.expectedAmount ?? null, data.dueDate ?? null, data.status ?? 'pending',
+    data.notes ?? null, data.personId ?? null);
   syncManualToCsv();
   return getObligationById(id)!;
 }
@@ -207,7 +212,8 @@ export function updateManualObligation(id: string, data: Record<string, unknown>
 
   const allowed: Record<string, string> = {
     type: 'type', name: 'name', entity: 'entity', recurrence: 'recurrence',
-    expectedAmount: 'expected_amount', dueDate: 'due_date', status: 'status', notes: 'notes',
+    expectedAmount: 'expected_amount', dueDate: 'due_date', status: 'status',
+    notes: 'notes', personId: 'person_id',
   };
   for (const [jsKey, dbCol] of Object.entries(allowed)) {
     if (jsKey in data) {
@@ -250,6 +256,7 @@ export function toApiObligation(row: ObligationRow) {
     paidDate: row.paid_date,
     paidFromAccount: row.paid_from_account,
     notes: row.notes,
+    personId: row.person_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
