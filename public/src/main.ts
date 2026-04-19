@@ -5,7 +5,7 @@
 
 import { setState } from './modules/state';
 import { initTabs } from './modules/tabs';
-import { initDashboard, loadDashboard } from './modules/dashboard';
+import { initDashboard, loadDashboard, populateAccountSelectors } from './modules/dashboard';
 import { initStatements, loadStatements } from './modules/statements';
 import { initUpload } from './modules/upload';
 import { initFixedExpensesSheet, loadFixedExpensesSheet } from './modules/fixed-expenses-sheet';
@@ -30,6 +30,7 @@ async function loadAccountConfig(): Promise<void> {
     });
     
     setState('accountConfig', configMap);
+    populateAccountSelectors();
   } catch (error) {
     console.error('Error loading account config:', error);
     const banner = document.getElementById('config-error-banner');

@@ -118,6 +118,7 @@ export const ACCOUNTS = [
   'capital-on-tap',
   'barclaycard',
   'natwest',
+  'natwest-savings',
   'monzo-joint'
 ] as const;
 
@@ -219,6 +220,15 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     type: 'current',
     category: 'personal',
     canMakeOutgoingPayments: true,
+    excludeTransfersFromIncome: false,
+    showTaxLiabilities: false,
+  },
+  'natwest-savings': {
+    name: 'natwest-savings',
+    label: 'NatWest Savings',
+    type: 'savings',
+    category: 'personal',
+    canMakeOutgoingPayments: false,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
   },

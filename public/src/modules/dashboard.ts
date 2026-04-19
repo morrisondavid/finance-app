@@ -6,7 +6,7 @@ import type { DashboardSummary, AccountSummary } from '../types';
 import { state, setState } from './state';
 import { fetchDashboard, fetchTransactions } from '../utils/api';
 import { formatCurrency } from '../utils/formatting';
-import { escapeHtml } from '../utils/dom';
+import { escapeHtml, escapeAttribute } from '../utils/dom';
 import { loadRecurring } from './recurring.js';
 import { loadAdHocExpenses } from './ad-hoc-expenses.js';
 import { AccountNameSchema } from '../../../shared/api-contracts.js';
@@ -111,6 +111,26 @@ function initFinancialYearFilter(): void {
 }
 
 // ─── Account selector ─────────────────────────────────────────────────────────
+
+export function populateAccountSelectors(): void {
+  const configs = Object.values(state.accountConfig);
+  if (configs.length === 0) return;
+
+  const defaultAccount = state.selectedAccount;
+  const buttonsHtml = configs
+    .map(c => {
+      const active = c.name === defaultAccount ? ' active' : '';
+      return `<button type="button" class="account-btn${active}" data-account="${escapeAttribute(c.name)}">
+  <span class="account-btn-label">${escapeHtml(c.label)}</span>
+  <span class="account-btn-latest"></span>
+</button>`;
+    })
+    .join('\n        ');
+
+  document.querySelectorAll<HTMLElement>('.account-selector').forEach(container => {
+    container.innerHTML = buttonsHtml;
+  });
+}
 
 function setActiveAccountButtons(account: string): void {
   document.querySelectorAll<HTMLElement>('.account-btn').forEach(b => {

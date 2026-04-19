@@ -652,6 +652,10 @@ export function reconcileDebtOpeningDates(): void {
   let shifted = 0;
   for (const debt of debts) {
     if (debt.sourceAccounts.length === 0) continue;
+    // Mortgage payments include interest, so adding historical payment totals
+    // to the opening balance would inflate it. Mortgage opening dates/balances
+    // are managed manually instead.
+    if (debt.kind === 'mortgage') continue;
     const { sql: matchSql, params } = buildDebtMatchClause(debt);
     const row = db
       .prepare(

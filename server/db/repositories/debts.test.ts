@@ -98,6 +98,7 @@ describe('debts repository', () => {
         'bathroom-loan-b',
         'bounce-back-loan',
         'funding-circle',
+        'mortgage-heath-park-road',
         'mortgage-hunters-square',
         'mortgage-thorney-house',
         'novuna',
@@ -136,6 +137,7 @@ describe('debts repository', () => {
         'bathroom-loan-b',
         'bounce-back-loan',
         'funding-circle',
+        'mortgage-heath-park-road',
         'mortgage-hunters-square',
         'mortgage-thorney-house',
         'novuna',
@@ -659,6 +661,49 @@ describe('debts repository', () => {
       expect(b.openingBalance).toBe(250); // 200 + 50
     });
 
+    it('does not cross-match debts sharing a merchant pattern when matchAmounts differ', () => {
+      DebtsRepo.createDebt({
+        id: 'bath-a',
+        name: 'Bath A',
+        merchantPattern: 'SAMECREDITOR',
+        sourceAccounts: ['monzo-joint'],
+        originalLoanAmount: 9000,
+        openingBalance: 4000,
+        openingBalanceDate: '2026-04-19',
+        matchAmounts: [230],
+      });
+      DebtsRepo.createDebt({
+        id: 'bath-b',
+        name: 'Bath B',
+        merchantPattern: 'SAMECREDITOR',
+        sourceAccounts: ['monzo-joint'],
+        originalLoanAmount: 8000,
+        openingBalance: 3500,
+        openingBalanceDate: '2026-04-19',
+        matchAmounts: [190],
+      });
+      for (let m = 1; m <= 6; m++) {
+        const d = `2025-${String(m).padStart(2, '0')}-10`;
+        insertTransaction({ date: d, description: 'SAMECREDITOR pay', amount: -230, account: 'monzo-joint', type: 'expense' });
+        insertTransaction({ date: d, description: 'SAMECREDITOR pay', amount: -190, account: 'monzo-joint', type: 'expense' });
+      }
+
+      DebtsRepo.reconcileDebtOpeningDates();
+
+      const a = DebtsRepo.getDebt('bath-a')!;
+      expect(a.openingBalance).toBe(4000 + 6 * 230);
+      expect(a.openingBalanceDate).toBe('2025-01-09');
+
+      const b = DebtsRepo.getDebt('bath-b')!;
+      expect(b.openingBalance).toBe(3500 + 6 * 190);
+      expect(b.openingBalanceDate).toBe('2025-01-09');
+
+      const summaryA = DebtsRepo.getDebtSummary(a);
+      expect(summaryA.currentBalance).toBe(4000);
+      const summaryB = DebtsRepo.getDebtSummary(b);
+      expect(summaryB.currentBalance).toBe(3500);
+    });
+
     it('ignores income and wrong-account transactions when finding earliest match', () => {
       DebtsRepo.createDebt({
         id: 'filter',
@@ -680,6 +725,32 @@ describe('debts repository', () => {
       const debt = DebtsRepo.getDebt('filter')!;
       expect(debt.openingBalanceDate).toBe('2025-05-09');
       expect(debt.openingBalance).toBe(600);
+    });
+
+    it('skips mortgage debts so their balances are not inflated', () => {
+      DebtsRepo.createDebt({
+        id: 'mtg-skip',
+        name: 'Skip Mortgage',
+        merchantPattern: 'MTGLENDER',
+        sourceAccounts: ['barclays-current'],
+        originalLoanAmount: 200000,
+        openingBalance: 200000,
+        openingBalanceDate: '2026-01-01',
+        matchAmounts: [500],
+        kind: 'mortgage',
+        interestRate: 5.0,
+        fixedRateEndDate: null,
+        repaymentType: 'interest-only',
+        propertyValueEstimate: 300000,
+        propertyId: 'test-prop',
+      });
+      insertTransaction({ date: '2025-06-10', description: 'MTGLENDER Jun', amount: -500, account: 'barclays-current', type: 'expense' });
+
+      DebtsRepo.reconcileDebtOpeningDates();
+
+      const debt = DebtsRepo.getDebt('mtg-skip')!;
+      expect(debt.openingBalanceDate).toBe('2026-01-01');
+      expect(debt.openingBalance).toBe(200000);
     });
   });
 });

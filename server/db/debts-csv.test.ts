@@ -206,12 +206,13 @@ describe('debts CSV', () => {
     ensureDebtsCsvWithDefaults(csvPath);
     expect(fs.existsSync(csvPath)).toBe(true);
     const parsed = readDebtsFromCsvFile(csvPath);
-    expect(parsed).toHaveLength(7);
+    expect(parsed).toHaveLength(8);
     expect(parsed.map(r => r.id).sort()).toEqual([
       'bathroom-loan-a',
       'bathroom-loan-b',
       'bounce-back-loan',
       'funding-circle',
+      'mortgage-heath-park-road',
       'mortgage-hunters-square',
       'mortgage-thorney-house',
       'novuna',
@@ -235,6 +236,14 @@ describe('debts CSV', () => {
     expect(m2.kind).toBe('mortgage');
     expect(m2.interestRate).toBe(6.74);
     expect(m2.fixedRateEndDate).toBeNull();
+    const m3 = parsed.find(r => r.id === 'mortgage-heath-park-road')!;
+    expect(m3.kind).toBe('mortgage');
+    expect(m3.interestRate).toBe(4.4);
+    expect(m3.fixedRateEndDate).toBe('2029-06-30');
+    expect(m3.repaymentType).toBe('repayment');
+    expect(m3.propertyValueEstimate).toBe(630000);
+    expect(m3.propertyId).toBe('heath-park-road-53');
+    expect(m3.matchAmounts).toEqual([2221.63, 3431.96]);
   });
 
   it('ensureDebtsCsvWithDefaults is a no-op when the file already exists', () => {

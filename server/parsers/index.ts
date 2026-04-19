@@ -17,6 +17,7 @@ export const PARSERS: ParserMap = {
   'barclays-current': barclaysParser,
   'barclays-savings': barclaysParser,
   'natwest': natwestParser,
+  'natwest-savings': natwestParser,
   'capital-on-tap': capitalOnTapParser,
   'barclaycard': barclaycardParser,
   'monzo-joint': monzoParser

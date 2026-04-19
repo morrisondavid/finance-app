@@ -36,6 +36,7 @@ export const AccountNameSchema = z.enum([
   'capital-on-tap',
   'barclaycard',
   'natwest',
+  'natwest-savings',
   'monzo-joint'
 ]);
 
