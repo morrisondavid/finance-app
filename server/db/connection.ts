@@ -15,6 +15,8 @@ export const STATEMENTS_DIR = path.join(__dirname, '../../statements');
 export const BUDGETS_DIR = path.join(__dirname, '../../budgets');
 /** Manual obligations CSV lives here (see obligations-csv.ts). */
 export const OBLIGATIONS_DIR = path.join(__dirname, '../../obligations');
+/** Canonical debts CSV lives here (see debts-csv.ts). */
+export const DEBTS_DIR = path.join(__dirname, '../../debts');
 
 let db: Database.Database;
 
@@ -151,6 +153,24 @@ export function initSchema(): void {
 
     CREATE INDEX IF NOT EXISTS idx_category_budgets_account
       ON category_budgets(account);
+
+    -- debts: external creditors (loans, finance agreements) we don't have
+    -- statement feeds for. Canonical source is debts/debts.csv; this table is
+    -- reloaded from CSV on startup and re-exported to CSV on every mutation.
+    CREATE TABLE IF NOT EXISTS debts (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      merchant_pattern TEXT NOT NULL,
+      source_accounts TEXT NOT NULL,
+      original_loan_amount REAL NOT NULL CHECK(original_loan_amount > 0),
+      original_loan_date TEXT,
+      opening_balance REAL NOT NULL DEFAULT 0 CHECK(opening_balance >= 0),
+      opening_balance_date TEXT NOT NULL,
+      archived INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_debts_archived ON debts(archived);
   `);
   
   // Insert default opening balances if they don't exist

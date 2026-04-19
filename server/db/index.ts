@@ -26,6 +26,7 @@ import {
 import { populateFromCSVs } from './repositories/files.js';
 import { detectTransfers } from './repositories/transactions.js';
 import { loadBudgetsFromFileIntoDb } from './repositories/budgets.js';
+import { loadDebtsFromFileIntoDb, reconcileDebtOpeningDates } from './repositories/debts.js';
 import { loadManualObligationsFromCsv } from './repositories/obligations.js';
 import { loadDismissalsFromCsv } from './repositories/obligation-dismissals.js';
 import { deriveAndInsertAutoObligations } from './repositories/vat-auto-seed.js';
@@ -125,6 +126,11 @@ export async function initDatabase(): Promise<void> {
   const transferPairs = detectTransfers();
 
   loadBudgetsFromFileIntoDb();
+  loadDebtsFromFileIntoDb();
+  // Shift each debt's opening-balance date back before its earliest matching
+  // transaction (balance-preserving). Ensures historical payments show up in
+  // the card stats without inflating currentBalance. Idempotent.
+  reconcileDebtOpeningDates();
 
   migrateObligationsIfNeeded();
   migrateObligationDismissalsIfNeeded();

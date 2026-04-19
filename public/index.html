@@ -19,6 +19,7 @@
       <button class="tab" data-tab="fixed-expenses">Fixed Expenses</button>
       <button class="tab" data-tab="budget">Budget</button>
       <button class="tab" data-tab="obligations">Obligations</button>
+      <button class="tab" data-tab="debt">Debt</button>
       <button class="tab" data-tab="statements">Statements</button>
       <button class="tab" data-tab="upload">Upload</button>
     </nav>
@@ -613,6 +614,113 @@
               <button type="button" class="btn" id="obligations-modal-cancel">Cancel</button>
             </div>
           </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- Debt Tab -->
+    <section id="debt" class="tab-content">
+      <div class="debt-header">
+        <div class="debt-hero">
+          <div class="debt-hero-label">Total Outstanding Debt</div>
+          <div class="debt-hero-value" id="debt-hero-total">£0.00</div>
+          <div class="debt-hero-sub" id="debt-hero-sub">0 active creditors</div>
+        </div>
+        <div class="debt-header-actions">
+          <button type="button" class="btn btn-primary" id="debt-add-btn">+ Add debt</button>
+          <label class="obligations-toggle-label">
+            <input type="checkbox" id="debt-show-archived" />
+            Show archived
+          </label>
+        </div>
+      </div>
+
+      <div id="debt-list" class="debt-grid" aria-live="polite"></div>
+      <p class="debt-empty" id="debt-empty" hidden>No debts tracked yet. Click "+ Add debt" to add your first creditor.</p>
+
+      <!-- Create / Edit modal -->
+      <div class="modal-overlay" id="debt-edit-modal" style="display:none">
+        <div class="modal">
+          <div class="modal-header">
+            <h3 id="debt-edit-modal-title">Add Debt</h3>
+            <button type="button" class="modal-close" id="debt-edit-modal-close">&times;</button>
+          </div>
+          <form id="debt-edit-form" class="modal-body">
+            <label>Creditor name <input type="text" name="name" required></label>
+            <label class="debt-field-id-wrap">ID (slug)
+              <input type="text" name="id" pattern="[a-z0-9][a-z0-9-]*" required>
+              <span class="debt-field-hint">lowercase, numbers, hyphens</span>
+            </label>
+            <label>Narrative match (substring)
+              <input type="text" name="merchantPattern" required>
+            </label>
+            <fieldset class="debt-field-accounts">
+              <legend>Source accounts (where payments come from)</legend>
+              <div id="debt-edit-accounts-options" class="debt-accounts-options"></div>
+            </fieldset>
+            <div class="debt-field-row">
+              <label>Original loan amount (£)
+                <input type="number" name="originalLoanAmount" step="0.01" min="0.01" required>
+              </label>
+              <label>Original loan date (optional)
+                <input type="date" name="originalLoanDate">
+              </label>
+            </div>
+            <div class="debt-field-row">
+              <label>Opening balance (£)
+                <input type="number" name="openingBalance" step="0.01" min="0" required>
+              </label>
+              <label>Opening balance date
+                <input type="date" name="openingBalanceDate" required>
+              </label>
+            </div>
+            <div class="modal-footer">
+              <button type="submit" class="btn btn-primary" id="debt-edit-save-btn">Save</button>
+              <button type="button" class="btn" id="debt-edit-cancel-btn">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Opening balance modal (balance-only PATCH) -->
+      <div class="modal-overlay" id="debt-balance-modal" style="display:none">
+        <div class="modal">
+          <div class="modal-header">
+            <h3>Set Opening Balance</h3>
+            <button type="button" class="modal-close" id="debt-balance-modal-close">&times;</button>
+          </div>
+          <form id="debt-balance-form" class="modal-body">
+            <p class="modal-description" id="debt-balance-modal-sub"></p>
+            <label>Opening balance (£)
+              <input type="number" name="balance" step="0.01" min="0" required>
+            </label>
+            <label>Balance date
+              <input type="date" name="date" required>
+            </label>
+            <div class="modal-footer">
+              <button type="submit" class="btn btn-primary">Save</button>
+              <button type="button" class="btn" id="debt-balance-cancel-btn">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Archive confirmation -->
+      <div class="modal-overlay" id="debt-archive-modal" style="display:none">
+        <div class="modal">
+          <div class="modal-header">
+            <h3>Archive debt?</h3>
+            <button type="button" class="modal-close" id="debt-archive-modal-close">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p class="modal-description" id="debt-archive-modal-sub">
+              Archiving hides this debt from the grid but preserves all matched transaction history.
+            </p>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-primary" id="debt-archive-confirm-btn">Archive</button>
+              <button type="button" class="btn" id="debt-archive-cancel-btn">Cancel</button>
+            </div>
+          </div>
         </div>
       </div>
     </section>

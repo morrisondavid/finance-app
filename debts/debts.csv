@@ -1,0 +1,4 @@
+id,name,merchant_pattern,source_accounts,original_loan_amount,original_loan_date,opening_balance,opening_balance_date,archived
+bounce-back-loan,Bounce Back Loan,0520A,barclays-current,50000,,48311.05,2022-05-12,
+funding-circle,Funding Circle,FUNDING CIRCLE,barclays-current,18700,2023-11-09,24723.92,2023-12-03,
+novuna,Novuna Finance,NOVUNA,natwest,13228,,18455.66,2023-07-19,

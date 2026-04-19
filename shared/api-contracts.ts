@@ -685,6 +685,76 @@ export const DismissalsListResponseSchema = z.object({
 });
 
 // ============================================
+// Debts (external creditors — see server/db/debts-csv.ts)
+// ============================================
+
+/** Slug: lowercase letters, digits, hyphens; must start with a letter or digit. */
+export const DebtIdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9][a-z0-9-]*$/);
+
+export const IsoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+export const DebtSchema = z.object({
+  id: DebtIdSchema,
+  name: z.string().min(1),
+  merchantPattern: z.string().min(1),
+  sourceAccounts: z.array(AccountNameSchema).min(1),
+  originalLoanAmount: z.number().positive(),
+  originalLoanDate: IsoDateSchema.nullable(),
+  openingBalance: z.number().min(0),
+  openingBalanceDate: IsoDateSchema,
+  archived: z.boolean(),
+  updatedAt: z.string(),
+});
+
+export const DebtSummarySchema = DebtSchema.extend({
+  currentBalance: z.number(),
+  paidSinceOpening: z.number(),
+  lastPaymentDate: z.string().nullable(),
+  lastPaymentAmount: z.number().nullable(),
+  matchedTransactionCount: z.number().int().nonnegative(),
+  /** 0..1, ratio of the original loan principal that has been paid off. */
+  payoffProgress: z.number().min(0).max(1),
+});
+
+export const DebtSummariesResponseSchema = z.object({
+  debts: z.array(DebtSummarySchema),
+  totalOutstanding: z.number(),
+});
+
+export const DebtCreateBodySchema = z.object({
+  id: DebtIdSchema,
+  name: z.string().min(1),
+  merchantPattern: z.string().min(1),
+  sourceAccounts: z.array(AccountNameSchema).min(1),
+  originalLoanAmount: z.number().positive(),
+  originalLoanDate: IsoDateSchema.nullable().optional(),
+  openingBalance: z.number().min(0),
+  openingBalanceDate: IsoDateSchema,
+});
+
+export const DebtUpdateBodySchema = z.object({
+  name: z.string().min(1).optional(),
+  merchantPattern: z.string().min(1).optional(),
+  sourceAccounts: z.array(AccountNameSchema).min(1).optional(),
+  originalLoanAmount: z.number().positive().optional(),
+  originalLoanDate: IsoDateSchema.nullable().optional(),
+  openingBalance: z.number().min(0).optional(),
+  openingBalanceDate: IsoDateSchema.optional(),
+  archived: z.boolean().optional(),
+});
+
+export const DebtOpeningBalanceBodySchema = z.object({
+  balance: z.number().min(0),
+  date: IsoDateSchema,
+});
+
+export const DebtResponseSchema = z.object({ debt: DebtSchema });
+
+// ============================================
 // Inferred TypeScript Types
 // ============================================
 
@@ -770,6 +840,16 @@ export type UpdateObligationBody = z.infer<typeof UpdateObligationBodySchema>;
 export type Dismissal = z.infer<typeof DismissalSchema>;
 export type CreateDismissalBody = z.infer<typeof CreateDismissalBodySchema>;
 export type DismissalsListResponse = z.infer<typeof DismissalsListResponseSchema>;
+
+// Debts Types
+export type DebtId = z.infer<typeof DebtIdSchema>;
+export type Debt = z.infer<typeof DebtSchema>;
+export type DebtSummary = z.infer<typeof DebtSummarySchema>;
+export type DebtSummariesResponse = z.infer<typeof DebtSummariesResponseSchema>;
+export type DebtCreateBody = z.infer<typeof DebtCreateBodySchema>;
+export type DebtUpdateBody = z.infer<typeof DebtUpdateBodySchema>;
+export type DebtOpeningBalanceBody = z.infer<typeof DebtOpeningBalanceBodySchema>;
+export type DebtResponse = z.infer<typeof DebtResponseSchema>;
 
 // ============================================
 // Validation Helper

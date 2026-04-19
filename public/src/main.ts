@@ -12,6 +12,7 @@ import { initFixedExpensesSheet, loadFixedExpensesSheet } from './modules/fixed-
 import { initAdHocExpenses, loadAdHocExpenses } from './modules/ad-hoc-expenses';
 import { initBudgetSheet, loadBudgetSheet } from './modules/budget-sheet';
 import { initObligations, loadObligations } from './modules/obligations';
+import { initDebt, loadDebt } from './modules/debt';
 import { initRecurring } from './modules/recurring';
 import { fetchAccountConfig } from './utils/api';
 
@@ -62,6 +63,8 @@ function initializeTabNavigation(): void {
         void loadBudgetSheet();
       } else if (target === 'obligations') {
         void loadObligations();
+      } else if (target === 'debt') {
+        void loadDebt();
       } else if (target === 'statements') {
         loadStatements();
       }
@@ -85,6 +88,7 @@ async function initializeApp(): Promise<void> {
   initAdHocExpenses();
   initBudgetSheet();
   initObligations();
+  initDebt();
   initStatements();
   initUpload({
     onUploadSuccess: () => {

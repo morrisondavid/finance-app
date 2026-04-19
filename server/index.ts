@@ -8,6 +8,7 @@ import uploadRouter from './routes/upload.js';
 import taxRouter from './routes/tax.js';
 import expensesRouter from './routes/expenses.js';
 import budgetsRouter from './routes/budgets.js';
+import debtsRouter from './routes/debts.js';
 import obligationsRouter from './routes/obligations.js';
 import { normalizeAllFiles } from './utils/filename-normalizer.js';
 import { initDatabase, closeDatabase } from './db/index.js';
@@ -31,6 +32,7 @@ app.use('/api/upload', uploadRouter);
 app.use('/api/tax', taxRouter);
 app.use('/api/expenses', expensesRouter);
 app.use('/api/budgets', budgetsRouter);
+app.use('/api/debts', debtsRouter);
 app.use('/api/obligations', obligationsRouter);
 
 // Serve index.html for all other routes (SPA support)
