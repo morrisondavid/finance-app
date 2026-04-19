@@ -203,9 +203,9 @@ describe('classifyRecurring – annual', () => {
 
   it('accepts 3 years with varied amounts', () => {
     const txns: TransactionDetail[] = [
-      { date: '2023-10-05', amount: 49.99 },
-      { date: '2024-10-05', amount: 59.99 },
-      { date: '2025-10-07', amount: 59.99 },
+      { date: '2023-10-05', amount: 89.99 },
+      { date: '2024-10-05', amount: 99.99 },
+      { date: '2025-10-07', amount: 99.99 },
     ];
     const c = makeCandidate({ merchant: 'Price Went Up', transactions: txns, monthsActive: 3 });
     const result = classifyRecurring([c], 36, REF_DATE);
@@ -253,12 +253,12 @@ describe('classifyRecurring – annual', () => {
     expect(result.annual[0].billingDayOfMonth).toBeDefined();
   });
 
-  it('rejects annual items under £5', () => {
+  it('rejects annuals whose most recent charge is under £90', () => {
     const txns: TransactionDetail[] = [
-      { date: '2024-10-21', amount: 2.80 },
-      { date: '2025-10-21', amount: 2.80 },
+      { date: '2024-10-21', amount: 59.99 },
+      { date: '2025-10-21', amount: 59.99 },
     ];
-    const c = makeCandidate({ merchant: 'Parking', transactions: txns, monthsActive: 2 });
+    const c = makeCandidate({ merchant: 'Sub-threshold', transactions: txns, monthsActive: 2 });
     const result = classifyRecurring([c], 24, REF_DATE);
 
     expect(result.annual).toHaveLength(0);
@@ -314,8 +314,8 @@ describe('classifyRecurring – annual', () => {
   it('sorts annual by annualTotal descending', () => {
     const items = [
       makeCandidate({ merchant: 'X', transactions: [
-        { date: '2023-06-10', amount: 50 }, { date: '2024-06-10', amount: 50 }, { date: '2025-06-10', amount: 50 },
-      ], monthsActive: 3, annualTotal: 150 }),
+        { date: '2023-06-10', amount: 100 }, { date: '2024-06-10', amount: 100 }, { date: '2025-06-10', amount: 100 },
+      ], monthsActive: 3, annualTotal: 300 }),
       makeCandidate({ merchant: 'Y', transactions: [
         { date: '2023-03-10', amount: 200 }, { date: '2024-03-10', amount: 200 }, { date: '2025-03-10', amount: 200 },
       ], monthsActive: 3, annualTotal: 600 }),
@@ -327,8 +327,8 @@ describe('classifyRecurring – annual', () => {
 
   it('uses most recent year amount for display', () => {
     const txns: TransactionDetail[] = [
-      { date: '2023-10-05', amount: 39.99 },
-      { date: '2024-10-05', amount: 49.99 },
+      { date: '2023-10-05', amount: 89.99 },
+      { date: '2024-10-05', amount: 94.99 },
       { date: '2025-10-07', amount: 99.99 },
     ];
     const c = makeCandidate({ merchant: 'Price Increase', transactions: txns, monthsActive: 3 });
@@ -336,6 +336,32 @@ describe('classifyRecurring – annual', () => {
 
     expect(result.annual).toHaveLength(1);
     expect(result.annual[0].amount).toBe(99.99);
+  });
+
+  it('rejects annual when yearly picks land in different months across years', () => {
+    // Consecutive years, identical amounts, low day-of-month stddev — would
+    // have passed the old independent month/day gates, but the picks are
+    // ~31 days apart on the calendar so the tightened gap check rejects it.
+    const txns: TransactionDetail[] = [
+      { date: '2024-01-10', amount: 120 },
+      { date: '2025-02-10', amount: 120 },
+    ];
+    const c = makeCandidate({ merchant: 'Cross Month', transactions: txns, monthsActive: 2 });
+    const result = classifyRecurring([c], 24, REF_DATE);
+
+    expect(result.annual).toHaveLength(0);
+  });
+
+  it('rejects annual when most recent pick is under £90 even if earlier years were higher', () => {
+    const txns: TransactionDetail[] = [
+      { date: '2023-06-10', amount: 120 },
+      { date: '2024-06-10', amount: 110 },
+      { date: '2025-06-10', amount: 59.99 },
+    ];
+    const c = makeCandidate({ merchant: 'Dropped Below', transactions: txns, monthsActive: 3 });
+    const result = classifyRecurring([c], 36, REF_DATE);
+
+    expect(result.annual).toHaveLength(0);
   });
 });
 

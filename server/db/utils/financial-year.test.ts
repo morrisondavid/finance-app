@@ -8,6 +8,7 @@ import {
   listMonthKeysInFinancialYear,
   listFyMonthKeysThroughDate,
   formatFinancialYearMonthLabel,
+  getObligationsPageWindow,
 } from './financial-year.js';
 
 describe('getFinancialYearRange', () => {
@@ -181,5 +182,45 @@ describe('buildFYWhereClause', () => {
     const result = buildFYWhereClause('2024/25');
     expect(result.clause).toBe(' AND date >= ? AND date <= ?');
     expect(result.params).toEqual(['2024-05-01', '2025-04-30']);
+  });
+});
+
+describe('getObligationsPageWindow', () => {
+  it('returns a ±12 calendar-month window around the anchor date', () => {
+    const anchor = new Date(2026, 3, 16); // 16 Apr 2026 (local)
+    const win = getObligationsPageWindow(anchor);
+    expect(win.today).toBe('2026-04-16');
+    expect(win.startDate).toBe('2025-04-16');
+    expect(win.endDate).toBe('2027-04-16');
+  });
+
+  it('produces a human label with short month + year on both ends', () => {
+    const anchor = new Date(2026, 3, 16);
+    const { label } = getObligationsPageWindow(anchor);
+    expect(label).toMatch(/^Apr 2025\s+.+\s+Apr 2027$/);
+  });
+
+  it('clamps day-of-month when the target month is shorter', () => {
+    // 31 Mar anchored → 12 months back (+/-) must not roll into another month.
+    const anchor = new Date(2025, 2, 31); // 31 Mar 2025
+    const win = getObligationsPageWindow(anchor);
+    expect(win.today).toBe('2025-03-31');
+    expect(win.startDate).toBe('2024-03-31');
+    expect(win.endDate).toBe('2026-03-31');
+  });
+
+  it('handles 29 Feb (leap day) by clamping to 28 Feb on non-leap years', () => {
+    const anchor = new Date(2024, 1, 29); // 29 Feb 2024 (leap)
+    const win = getObligationsPageWindow(anchor);
+    expect(win.today).toBe('2024-02-29');
+    expect(win.startDate).toBe('2023-02-28');
+    expect(win.endDate).toBe('2025-02-28');
+  });
+
+  it('crosses year boundaries cleanly', () => {
+    const anchor = new Date(2026, 0, 5); // 5 Jan 2026
+    const win = getObligationsPageWindow(anchor);
+    expect(win.startDate).toBe('2025-01-05');
+    expect(win.endDate).toBe('2027-01-05');
   });
 });

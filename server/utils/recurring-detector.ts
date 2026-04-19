@@ -41,15 +41,13 @@ function circularDayStddev(days: number[]): number {
   return (circStdRad * period) / (2 * Math.PI);
 }
 
-function circularMonthStddev(months: number[]): number {
-  if (months.length < 2) return 0;
-  const period = 12;
-  const angles = months.map(m => (2 * Math.PI * m) / period);
-  const sinSum = angles.reduce((s, a) => s + Math.sin(a), 0) / angles.length;
-  const cosSum = angles.reduce((s, a) => s + Math.cos(a), 0) / angles.length;
-  const R = Math.sqrt(sinSum ** 2 + cosSum ** 2);
-  const circStdRad = Math.sqrt(-2 * Math.log(Math.max(R, 1e-10)));
-  return (circStdRad * period) / (2 * Math.PI);
+/** Whole-day distance between two ISO date strings (UTC, calendar semantics). */
+function daysBetweenIso(a: string, b: string): number {
+  const [ay, am, ad] = a.split('-').map(Number);
+  const [by, bm, bd] = b.split('-').map(Number);
+  const ams = Date.UTC(ay, am - 1, ad);
+  const bms = Date.UTC(by, bm - 1, bd);
+  return Math.round((bms - ams) / (24 * 60 * 60 * 1000));
 }
 
 /** Circular mean of day-of-month values, returned as an integer day (1-30). */
@@ -115,10 +113,15 @@ const PROPERTY_INCOME_AMOUNT_CV_MAX = 0.60;
 // ─── Annual thresholds ───────────────────────────────────────────────
 const ANNUAL_MIN_YEARS_EXACT = 2;  // enough if amounts are identical
 const ANNUAL_MIN_YEARS_VARIED = 3; // need more evidence when amounts differ
-const ANNUAL_MONTH_STDDEV_MAX = 1.5;
-const ANNUAL_DAY_STDDEV_MAX = 5;
 const ANNUAL_AMOUNT_CV_MAX = 0.50; // picks can vary more than monthly (price changes)
-const ANNUAL_MIN_AMOUNT = 5;
+// Only surface annuals whose most recent yearly charge is >= this. Keeps
+// insurance / AppleCare / domain-bundle renewals; drops ad-hoc shopping
+// coincidences and monthly subs misclassified via CV.
+const ANNUAL_MIN_RECENT_AMOUNT = 90;
+// Every consecutive pair of yearly picks must land within 365 +/- this many
+// days so we only accept genuinely-annual cadences and reject cross-month
+// coincidences (e.g. 5 Jan one year and 3 Feb the next).
+const ANNUAL_GAP_TOLERANCE_DAYS = 14;
 
 function monthsAgo(referenceDate: Date, n: number): string {
   const d = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - n, 1);
@@ -212,9 +215,17 @@ export function classifyRecurring(
     if (classifiedAsMonthly) continue;
 
     // ── Annual test ───────────────────────────────────────────────
-    // Pick the largest charge per year as the likely subscription renewal
-    const annualPicks = pickAnnualCandidates(c.transactions);
-    if (annualPicks.some(t => t.amount < ANNUAL_MIN_AMOUNT)) continue;
+    // Pick the largest charge per year as the likely subscription renewal,
+    // sorted ascending by date so we can both reason about consecutive-year
+    // gaps and identify the most recent pick (used for the amount gate and
+    // for display).
+    const annualPicks = pickAnnualCandidates(c.transactions)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    if (annualPicks.length < 2) continue;
+
+    const mostRecentPick = annualPicks[annualPicks.length - 1];
+    if (mostRecentPick.amount < ANNUAL_MIN_RECENT_AMOUNT) continue;
+
     const pickYears = annualPicks.map(t => parseInt(t.date.slice(0, 4), 10));
     if (!areConsecutiveYears(pickYears)) continue;
 
@@ -227,17 +238,23 @@ export function classifyRecurring(
     const pickCV = pickMean > 0 ? stddev(pickAmounts) / pickMean : Infinity;
     if (pickCV > ANNUAL_AMOUNT_CV_MAX) continue;
 
+    // Require every consecutive pair to be ~365 days apart so we only accept
+    // genuine year-on-year cadences. Naturally accounts for leap years.
+    let gapsOk = true;
+    for (let i = 1; i < annualPicks.length; i++) {
+      const gapDays = daysBetweenIso(annualPicks[i - 1].date, annualPicks[i].date);
+      if (Math.abs(gapDays - 365) > ANNUAL_GAP_TOLERANCE_DAYS) {
+        gapsOk = false;
+        break;
+      }
+    }
+    if (!gapsOk) continue;
+
     const pickMonths = annualPicks.map(t => new Date(t.date).getMonth() + 1);
     const pickDays = annualPicks.map(t => new Date(t.date).getDate());
-    const monthSD = circularMonthStddev(pickMonths);
-    const daySD = circularDayStddev(pickDays);
-
-    if (monthSD <= ANNUAL_MONTH_STDDEV_MAX && daySD <= ANNUAL_DAY_STDDEV_MAX) {
-      const mostRecentPick = annualPicks.sort((a, b) => b.date.localeCompare(a.date))[0];
-      const avgMonth = circularMeanMonth(pickMonths);
-      const avgDay = circularMeanDay(pickDays);
-      annual.push(toExpense(c, 'annual', mostRecentPick.amount, avgDay, avgMonth));
-    }
+    const avgMonth = circularMeanMonth(pickMonths);
+    const avgDay = circularMeanDay(pickDays);
+    annual.push(toExpense(c, 'annual', mostRecentPick.amount, avgDay, avgMonth));
   }
 
   monthly.sort((a, b) => b.amount - a.amount);

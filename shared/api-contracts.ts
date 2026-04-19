@@ -644,32 +644,6 @@ export const UpcomingPaymentsResponseSchema = z.object({
   items: z.array(UpcomingPaymentItemSchema),
 });
 
-/**
- * HMRC payments found in the transaction ledger that are not attached to any
- * known obligation (no VAT quarter, no manual Corp Tax / Self Assessment row).
- * Surfaced on the Obligations page so the user can reconcile them manually.
- */
-export const HmrcNarrativeTypeSchema = z.enum([
-  'vat',
-  'self-assessment',
-  'corporation-tax',
-  'payment-plan',
-  'other',
-]);
-
-export const UnmatchedHmrcPaymentSchema = z.object({
-  date: z.string(),
-  amount: z.number(),
-  account: z.string(),
-  description: z.string(),
-  hmrcType: HmrcNarrativeTypeSchema,
-});
-
-export const UnmatchedHmrcPaymentsResponseSchema = z.object({
-  payments: z.array(UnmatchedHmrcPaymentSchema),
-  total: z.number(),
-});
-
 export const CreateObligationBodySchema = z.object({
   type: ObligationTypeSchema,
   name: z.string().min(1),
@@ -791,9 +765,6 @@ export type OverdueObligationsResponse = z.infer<typeof OverdueObligationsRespon
 export type UpcomingRecurring = z.infer<typeof UpcomingRecurringSchema>;
 export type UpcomingPaymentItem = z.infer<typeof UpcomingPaymentItemSchema>;
 export type UpcomingPaymentsResponse = z.infer<typeof UpcomingPaymentsResponseSchema>;
-export type HmrcNarrativeType = z.infer<typeof HmrcNarrativeTypeSchema>;
-export type UnmatchedHmrcPayment = z.infer<typeof UnmatchedHmrcPaymentSchema>;
-export type UnmatchedHmrcPaymentsResponse = z.infer<typeof UnmatchedHmrcPaymentsResponseSchema>;
 export type CreateObligationBody = z.infer<typeof CreateObligationBodySchema>;
 export type UpdateObligationBody = z.infer<typeof UpdateObligationBodySchema>;
 export type Dismissal = z.infer<typeof DismissalSchema>;

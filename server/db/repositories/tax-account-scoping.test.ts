@@ -484,6 +484,75 @@ describe('findUnmatchedHmrcPayments', () => {
     });
     expect(unmatched).toHaveLength(0);
   });
+
+  it('honours startDate / endDate — settled-history orphans are excluded when scoped', async () => {
+    // Two genuinely-unmatched HMRC debits, one ancient (2023) and one
+    // within the rolling window. Nothing in `financial_obligations`
+    // covers either, so without a date filter both surface. With a
+    // rolling ±12-month scope anchored on 2026-04-16, only the recent
+    // one appears.
+    insertExpense('barclays-current', '2023-11-13', -17000, 'HMRC CORPORATION T');
+    insertExpense('barclays-current', '2025-11-13', -250, 'HMRC GOV.UK SA');
+
+    const { findUnmatchedHmrcPayments } = await import('./tax.js');
+
+    const all = findUnmatchedHmrcPayments({
+      patterns: ['HMRC CORPORATION T%', 'HMRC GOV.UK SA%'],
+      accounts: ['barclays-current'],
+    });
+    expect(all.map(p => p.date)).toEqual(['2023-11-13', '2025-11-13']);
+
+    const scoped = findUnmatchedHmrcPayments({
+      patterns: ['HMRC CORPORATION T%', 'HMRC GOV.UK SA%'],
+      accounts: ['barclays-current'],
+      startDate: '2025-04-16',
+      endDate: '2027-04-16',
+    });
+    expect(scoped).toHaveLength(1);
+    expect(scoped[0].date).toBe('2025-11-13');
+  });
+
+  it('treats the window boundary as inclusive on both ends', async () => {
+    insertExpense('barclays-current', '2025-04-15', -100, 'HMRC GOV.UK SA');  // one day before window start
+    insertExpense('barclays-current', '2025-04-16', -100, 'HMRC GOV.UK SA');  // window start (inclusive)
+    insertExpense('barclays-current', '2027-04-16', -100, 'HMRC GOV.UK SA');  // window end (inclusive)
+    insertExpense('barclays-current', '2027-04-17', -100, 'HMRC GOV.UK SA');  // one day after window end
+
+    const { findUnmatchedHmrcPayments } = await import('./tax.js');
+    const scoped = findUnmatchedHmrcPayments({
+      patterns: ['HMRC GOV.UK SA%'],
+      accounts: ['barclays-current'],
+      startDate: '2025-04-16',
+      endDate: '2027-04-16',
+    });
+
+    expect(scoped.map(p => p.date).sort()).toEqual(['2025-04-16', '2027-04-16']);
+  });
+
+  it('rolling ±12-month window produced by getObligationsPageWindow drives scoping', async () => {
+    // Integration-level sanity check: wiring the shared window utility into
+    // findUnmatchedHmrcPayments produces exactly the boundary semantics the
+    // route now relies on. Anchored on 2026-04-16.
+    insertExpense('barclays-current', '2024-04-15', -100, 'HMRC GOV.UK SA');  // > 24m ago → drop
+    insertExpense('barclays-current', '2025-06-01', -100, 'HMRC GOV.UK SA');  // within window → keep
+    insertExpense('barclays-current', '2027-03-01', -100, 'HMRC GOV.UK SA');  // within forward half → keep
+    insertExpense('barclays-current', '2027-05-01', -100, 'HMRC GOV.UK SA');  // > 12m ahead → drop
+
+    const [{ findUnmatchedHmrcPayments }, { getObligationsPageWindow }] = await Promise.all([
+      import('./tax.js'),
+      import('../utils/financial-year.js'),
+    ]);
+    const window = getObligationsPageWindow(new Date(2026, 3, 16));
+
+    const scoped = findUnmatchedHmrcPayments({
+      patterns: ['HMRC GOV.UK SA%'],
+      accounts: ['barclays-current'],
+      startDate: window.startDate,
+      endDate: window.endDate,
+    });
+
+    expect(scoped.map(p => p.date).sort()).toEqual(['2025-06-01', '2027-03-01']);
+  });
 });
 
 describe('vat-auto-seed implicit coverage (pre-firstVatPaymentDate quarters)', () => {

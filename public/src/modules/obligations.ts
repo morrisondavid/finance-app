@@ -1,6 +1,5 @@
 import { escapeHtml } from '../utils/dom';
-import { formatCurrency } from '../utils/formatting';
-import { getCurrentFinancialYearLabel, shiftFinancialYear } from '../utils/financial-year';
+import { formatCurrency, formatIsoDateUkLong } from '../utils/formatting';
 
 type PersonId = 'david' | 'heena';
 
@@ -53,32 +52,6 @@ function isAutoSaEstimate(item: Extract<UpcomingPaymentItem, { kind: 'obligation
   return item.type === 'self-assessment' && item.source === 'auto';
 }
 
-type HmrcNarrativeType =
-  | 'vat'
-  | 'self-assessment'
-  | 'corporation-tax'
-  | 'payment-plan'
-  | 'other';
-
-interface UnmatchedHmrcPayment {
-  date: string;
-  amount: number;
-  account: string;
-  description: string;
-  hmrcType: HmrcNarrativeType;
-}
-
-const HMRC_TYPE_LABELS: Record<HmrcNarrativeType, string> = {
-  vat: 'VAT',
-  'self-assessment': 'SA (personal)',
-  'corporation-tax': 'Corporation Tax',
-  'payment-plan': 'Payment plan',
-  other: 'Other',
-};
-
-/** Items due within this many days (inclusive) are visually highlighted. */
-const URGENT_WINDOW_DAYS = 14;
-
 interface DismissalItem {
   obligationId: string;
   reason: string | null;
@@ -96,7 +69,6 @@ type RegistryRow = ObligationItem & { dismissed?: true };
 let editingId: string | null = null;
 let showCompleted = false;
 let showDismissed = false;
-let selectedFinancialYear: string = getCurrentFinancialYearLabel();
 
 function statusBadge(status: string): string {
   const colours: Record<string, string> = {
@@ -119,17 +91,13 @@ function daysUntil(dateStr: string): number {
   return Math.ceil((target.getTime() - today.getTime()) / 86400000);
 }
 
-function urgencyClass(days: number): string {
-  if (days < 0) return 'obligations-urgency-overdue';
-  if (days <= URGENT_WINDOW_DAYS) return 'urgent';
-  if (days < 30) return 'obligations-urgency-warning';
-  return 'obligations-urgency-ok';
-}
-
 function daysLabel(days: number): string {
-  if (days < 0) return `${Math.abs(days)}d overdue`;
+  if (days < 0) {
+    const n = Math.abs(days);
+    return `${n} ${n === 1 ? 'day' : 'days'} overdue`;
+  }
   if (days === 0) return 'Today';
-  return `${days}d`;
+  return `${days} ${days === 1 ? 'day' : 'days'}`;
 }
 
 function upcomingItemDate(item: UpcomingPaymentItem): string {
@@ -157,8 +125,8 @@ function renderOverdue(obligations: ObligationItem[]): void {
           <span class="obligations-overdue-entity">${escapeHtml(o.entity)}</span>
         </div>
         <div class="obligations-overdue-amount">${o.expectedAmount !== null ? formatCurrency(o.expectedAmount) : '—'}</div>
-        <div class="obligations-overdue-due">Due ${o.dueDate ?? '—'}</div>
-        <div class="obligations-overdue-days">${days}d overdue</div>
+        <div class="obligations-overdue-due">Due ${o.dueDate ? escapeHtml(formatIsoDateUkLong(o.dueDate)) : '—'}</div>
+        <div class="obligations-overdue-days">${days} ${days === 1 ? 'day' : 'days'} overdue</div>
       </div>`;
   }).join('');
 
@@ -176,10 +144,14 @@ function renderUpcomingPayments(items: UpcomingPaymentItem[]): void {
     return;
   }
 
+  // Uniform 4-column grid (info / amount / due / days) mirroring the
+  // overdue hero. The hero itself is the warning signal — no per-row
+  // urgency colours, status badges, or kind chips, all of which competed
+  // with the amber ground and diluted the "things I need to worry about"
+  // read.
   const rows = items.map(item => {
     const date = upcomingItemDate(item);
     const days = daysUntil(date);
-    const cls = urgencyClass(days);
 
     if (item.kind === 'obligation') {
       const isEstimate = isAutoSaEstimate(item);
@@ -189,24 +161,23 @@ function renderUpcomingPayments(items: UpcomingPaymentItem[]): void {
       const subtext = isEstimate
         ? '<div class="obligations-upcoming-subtext">Your estimate. Add a manual obligation when you know the real figure.</div>'
         : '';
-      const actions = isEstimate
+      const addBtn = isEstimate
         ? `<button type="button" class="btn btn-sm obligations-sa-addmanual-btn"
              data-person-id="${escapeHtml(item.personId ?? '')}"
              data-due-date="${escapeHtml(item.dueDate)}">Add Obligation</button>`
         : '';
 
       return `
-        <div class="obligations-upcoming-item ${cls}">
+        <div class="obligations-upcoming-item">
           <div class="obligations-upcoming-info">
             <strong>${escapeHtml(item.name)}</strong>${estChip}
             <span class="obligations-upcoming-entity">${escapeHtml(item.entity)}</span>
             ${subtext}
+            ${addBtn}
           </div>
           <div class="obligations-upcoming-amount">${item.expectedAmount !== null ? formatCurrency(item.expectedAmount) : '—'}</div>
-          <div class="obligations-upcoming-due">${date}</div>
+          <div class="obligations-upcoming-due">Due ${escapeHtml(formatIsoDateUkLong(date))}</div>
           <div class="obligations-upcoming-days">${daysLabel(days)}</div>
-          ${statusBadge(item.status)}
-          ${actions}
         </div>`;
     }
 
@@ -214,20 +185,19 @@ function renderUpcomingPayments(items: UpcomingPaymentItem[]): void {
       ? `<img class="obligations-upcoming-logo" src="${escapeHtml(item.logoUrl)}" alt="${escapeHtml(item.merchant)} logo" />`
       : '';
     return `
-      <div class="obligations-upcoming-item ${cls}">
+      <div class="obligations-upcoming-item">
         <div class="obligations-upcoming-info">
           ${logo}
           <strong>${escapeHtml(item.merchant)}</strong>
           <span class="obligations-upcoming-entity"><span class="fixed-expenses-account-pill">${escapeHtml(item.sourceAccount)}</span></span>
         </div>
         <div class="obligations-upcoming-amount">${formatCurrency(item.amount)}</div>
-        <div class="obligations-upcoming-due">${date}</div>
+        <div class="obligations-upcoming-due">Due ${escapeHtml(formatIsoDateUkLong(date))}</div>
         <div class="obligations-upcoming-days">${daysLabel(days)}</div>
-        <span class="obligations-upcoming-kind">annual</span>
       </div>`;
   }).join('');
 
-  container.innerHTML = `<div class="obligations-upcoming-grid">${rows}</div>`;
+  container.innerHTML = rows;
 
   container.querySelectorAll<HTMLButtonElement>('.obligations-sa-addmanual-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -259,35 +229,6 @@ function openSaPrefilledModal(personId: string, dueDate: string): void {
   (form.elements.namedItem('expectedAmount') as HTMLInputElement).value = '';
   const personSelect = form.elements.namedItem('personId') as HTMLSelectElement | null;
   if (personSelect) personSelect.value = personId;
-}
-
-function renderUnmatchedHmrcPayments(payments: UnmatchedHmrcPayment[]): void {
-  const panel = document.getElementById('obligations-unmatched-panel');
-  const list = document.getElementById('obligations-unmatched-list');
-  const countBadge = document.getElementById('obligations-unmatched-count');
-  if (!panel || !list) return;
-
-  if (payments.length === 0) {
-    panel.style.display = 'none';
-    list.innerHTML = '';
-    if (countBadge) countBadge.textContent = '';
-    return;
-  }
-
-  panel.style.display = '';
-  if (countBadge) countBadge.textContent = String(payments.length);
-
-  list.innerHTML = payments.map(p => {
-    const label = HMRC_TYPE_LABELS[p.hmrcType] ?? HMRC_TYPE_LABELS.other;
-    return `
-    <div class="obligations-unmatched-item obligations-unmatched-${escapeHtml(p.hmrcType)}">
-      <span class="obligations-unmatched-type" data-type="${escapeHtml(p.hmrcType)}">${escapeHtml(label)}</span>
-      <div class="obligations-unmatched-date">${escapeHtml(p.date)}</div>
-      <div class="obligations-unmatched-description" title="${escapeHtml(p.description)}">${escapeHtml(p.description)}</div>
-      <div class="obligations-unmatched-amount">${formatCurrency(Math.abs(p.amount))}</div>
-      <span class="fixed-expenses-account-pill obligations-unmatched-account">${escapeHtml(p.account)}</span>
-    </div>`;
-  }).join('');
 }
 
 /**
@@ -364,10 +305,15 @@ function renderRegistry(obligations: ObligationItem[], dismissals: DismissalItem
       actions = `<button type="button" class="btn btn-sm obligations-edit-btn" data-id="${escapeHtml(o.id)}">Edit</button>
          <button type="button" class="btn btn-sm btn-danger obligations-delete-btn" data-id="${escapeHtml(o.id)}" data-source="manual">Delete</button>`;
     } else {
-      // Auto row: same Delete button as manual rows; handler below branches
-      // to the dismissal API so the user gets a single mental model ("delete
-      // this reminder") without touching the CSV-backed manual table.
-      actions = `<button type="button" class="btn btn-sm btn-danger obligations-delete-btn" data-id="${escapeHtml(o.id)}" data-source="auto">Delete</button>`;
+      // Auto row: keeps the same red `btn-danger` styling as the manual
+      // Delete button (visual weight matches "this will remove the row")
+      // but the label reads "Dismiss" because the click handler routes
+      // to the dismissal API — the row is hidden with an Undo path, not
+      // destroyed. The CSS selector class (obligations-delete-btn) and
+      // data-source="auto" are intentionally unchanged: the wiring in
+      // the click handler below keys off those, so only the label text
+      // changes here.
+      actions = `<button type="button" class="btn btn-sm btn-danger obligations-delete-btn" data-id="${escapeHtml(o.id)}" data-source="auto">Dismiss</button>`;
     }
 
     const accountPill = o.paidFromAccount
@@ -383,7 +329,7 @@ function renderRegistry(obligations: ObligationItem[], dismissals: DismissalItem
         <td>${escapeHtml(o.type)}</td>
         <td>${escapeHtml(o.recurrence)}</td>
         <td class="obligations-col-amount">${o.expectedAmount !== null ? formatCurrency(o.expectedAmount) : '—'}</td>
-        <td>${o.dueDate ?? '—'}</td>
+        <td>${o.dueDate ? escapeHtml(formatIsoDateUkLong(o.dueDate)) : '—'}</td>
         <td class="obligations-col-amount">${o.paidAmount !== null ? formatCurrency(o.paidAmount) : '—'}</td>
         <td>${accountPill}</td>
         <td>${statusBadge(o.status)}</td>
@@ -488,7 +434,7 @@ async function handleDelete(id: string): Promise<void> {
  * action — the confirm text tells the user that explicitly.
  */
 async function handleDismiss(id: string): Promise<void> {
-  if (!confirm('Hide this reminder? You can bring it back via "Show dismissed".')) return;
+  if (!confirm('Dismiss this reminder? You can bring it back via "Show dismissed".')) return;
   try {
     const resp = await fetch('/api/obligations/dismissals', {
       method: 'POST',
@@ -545,13 +491,6 @@ async function handleFormSubmit(e: Event): Promise<void> {
   }
 }
 
-function updateFySelectorUI(): void {
-  const wrap = document.getElementById('obligations-fy-selector');
-  const label = document.getElementById('obligations-fy-label');
-  if (wrap) wrap.style.display = showCompleted ? '' : 'none';
-  if (label) label.textContent = selectedFinancialYear;
-}
-
 export function initObligations(): void {
   const addBtn = document.getElementById('obligations-add-btn');
   if (addBtn) {
@@ -575,10 +514,6 @@ export function initObligations(): void {
   if (showCompletedToggle) {
     showCompletedToggle.addEventListener('change', () => {
       showCompleted = showCompletedToggle.checked;
-      if (showCompleted && !selectedFinancialYear) {
-        selectedFinancialYear = getCurrentFinancialYearLabel();
-      }
-      updateFySelectorUI();
       void loadRegistry();
     });
   }
@@ -590,34 +525,13 @@ export function initObligations(): void {
       void loadRegistry();
     });
   }
-
-  const fyPrev = document.getElementById('obligations-fy-prev');
-  const fyNext = document.getElementById('obligations-fy-next');
-  if (fyPrev) {
-    fyPrev.addEventListener('click', () => {
-      selectedFinancialYear = shiftFinancialYear(selectedFinancialYear, -1);
-      updateFySelectorUI();
-      void loadRegistry();
-    });
-  }
-  if (fyNext) {
-    fyNext.addEventListener('click', () => {
-      selectedFinancialYear = shiftFinancialYear(selectedFinancialYear, 1);
-      updateFySelectorUI();
-      void loadRegistry();
-    });
-  }
-
-  updateFySelectorUI();
 }
 
 function buildRegistryUrl(): string {
+  // Window filtering is applied server-side on every call to this endpoint,
+  // so the client only needs to pass the completion toggle.
   const params = new URLSearchParams();
-  if (!showCompleted) {
-    params.set('hideCompleted', '1');
-  } else if (selectedFinancialYear) {
-    params.set('financialYear', selectedFinancialYear);
-  }
+  if (!showCompleted) params.set('hideCompleted', '1');
   const qs = params.toString();
   return qs ? `/api/obligations?${qs}` : '/api/obligations';
 }
@@ -647,11 +561,10 @@ async function loadRegistry(): Promise<void> {
 
 export async function loadObligations(): Promise<void> {
   try {
-    const [overdueResp, upcomingResp, registryResp, unmatchedResp, dismissals] = await Promise.all([
+    const [overdueResp, upcomingResp, registryResp, dismissals] = await Promise.all([
       fetch('/api/obligations/overdue'),
       fetch('/api/obligations/upcoming-payments?days=365'),
       fetch(buildRegistryUrl()),
-      fetch('/api/obligations/unmatched-hmrc-payments'),
       fetchDismissalsIfToggled(),
     ]);
 
@@ -666,10 +579,6 @@ export async function loadObligations(): Promise<void> {
     if (registryResp.ok) {
       const registryDataJson = await registryResp.json() as { obligations: ObligationItem[] };
       renderRegistry(registryDataJson.obligations, dismissals);
-    }
-    if (unmatchedResp.ok) {
-      const unmatchedData = await unmatchedResp.json() as { payments: UnmatchedHmrcPayment[]; total: number };
-      renderUnmatchedHmrcPayments(unmatchedData.payments);
     }
   } catch (error) {
     console.error('[Obligations] Error loading data:', error);

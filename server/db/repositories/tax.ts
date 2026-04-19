@@ -47,9 +47,11 @@ export function findHmrcPayments(opts: {
 }
 
 /**
- * Narrative category derived from an HMRC payment description. Drives the
- * coloured chip in the Unmatched HMRC Payments panel so the user can see at
- * a glance what kind of HMRC debit landed without opening the row.
+ * Narrative category derived from an HMRC payment description. Kept as an
+ * internal diagnostic annotation — the Unmatched HMRC Payments UI panel has
+ * been removed, but the test suite asserts that every HMRC debit in the
+ * rolling window is reconciled to an obligation, and the classification is
+ * still useful in the failure message when a seeder regresses.
  *
  *   - `vat`              → `HMRC VAT…` (VAT return settlement)
  *   - `self-assessment`  → `HMRC GOV.UK SA…` (personal tax)
@@ -73,23 +75,53 @@ export interface UnmatchedHmrcPayment extends HmrcPaymentMatch {
 }
 
 /**
- * Return every HMRC-narrative outgoing payment across the supplied accounts
- * that is NOT currently linked to an obligation. Linkage is identified by
- * matching the (paid_date, paid_amount, paid_from_account) triple against
- * `financial_obligations` — VAT, SA, CT, and TTP auto-seeders all populate
- * those fields from assigned matches, so their corresponding debits drop
- * off this feed automatically.
+ * Internal invariant used by the seeder test suite to assert that every
+ * HMRC debit in the rolling window is reconciled to an obligation. NOT
+ * exposed via HTTP — the prior `/api/obligations/unmatched-hmrc-payments`
+ * endpoint and its UI surface were removed once the VAT / SA / CT / TTP
+ * auto-seeders matured to the point where no legitimate orphan should
+ * ever survive a startup reseed. When this query returns rows in tests
+ * it signals one of:
  *
- * Each row is annotated with an {@link HmrcNarrativeType} so the UI can
- * label it accurately (CT vs SA vs TTP payment plan vs VAT vs unclassified).
+ *   - a seeder regressed and is no longer matching a pattern it should
+ *   - a new HMRC narrative appeared that no seeder handles
+ *
+ * Linkage is identified by matching the (paid_date, paid_amount,
+ * paid_from_account) triple against `financial_obligations`. VAT, SA,
+ * CT, and TTP auto-seeders all populate those fields from assigned
+ * matches, so their corresponding debits drop off this feed
+ * automatically.
+ *
+ * Each row is annotated with an {@link HmrcNarrativeType} so the test
+ * failure message (or ad-hoc diagnostic run) can label the offending row
+ * accurately without a second pass over the description.
+ *
+ * Optional `startDate` / `endDate` narrows the feed to a single calendar
+ * window (typically the rolling ±12-month page window). Prior years are
+ * settled history — useful in an audit but pure noise when the goal is
+ * "is the current pipeline clean right now".
  */
 export function findUnmatchedHmrcPayments(opts: {
   patterns: readonly string[];
   accounts: readonly string[];
+  startDate?: string;
+  endDate?: string;
 }): UnmatchedHmrcPayment[] {
   const db = getDb();
   const patternCondition = opts.patterns.map(() => 't.description LIKE ?').join(' OR ');
   const accountPlaceholders = opts.accounts.map(() => '?').join(',');
+
+  const dateClauses: string[] = [];
+  const dateParams: string[] = [];
+  if (opts.startDate) {
+    dateClauses.push('t.date >= ?');
+    dateParams.push(opts.startDate);
+  }
+  if (opts.endDate) {
+    dateClauses.push('t.date <= ?');
+    dateParams.push(opts.endDate);
+  }
+  const dateFilter = dateClauses.length > 0 ? ` AND ${dateClauses.join(' AND ')}` : '';
 
   return db.prepare(`
     SELECT
@@ -109,7 +141,7 @@ export function findUnmatchedHmrcPayments(opts: {
     FROM transactions t
     WHERE t.type = 'expense'
       AND (${patternCondition})
-      AND t.account IN (${accountPlaceholders})
+      AND t.account IN (${accountPlaceholders})${dateFilter}
       AND NOT EXISTS (
         SELECT 1 FROM financial_obligations o
         WHERE o.paid_date = t.date
@@ -117,7 +149,7 @@ export function findUnmatchedHmrcPayments(opts: {
           AND (o.paid_from_account = t.account OR o.paid_from_account LIKE '%' || t.account || '%')
       )
     ORDER BY t.date ASC
-  `).all(...opts.patterns, ...opts.accounts) as UnmatchedHmrcPayment[];
+  `).all(...opts.patterns, ...opts.accounts, ...dateParams) as UnmatchedHmrcPayment[];
 }
 
 export interface TaxLiabilities {

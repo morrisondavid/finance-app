@@ -546,9 +546,9 @@
         <div id="obligations-overdue-list"></div>
       </div>
 
-      <!-- Upcoming Payments Panel -->
-      <div class="card" id="obligations-upcoming-panel">
-        <h3>Upcoming Payments <span id="obligations-upcoming-count" class="badge"></span></h3>
+      <!-- Upcoming Payments Hero (amber warning) -->
+      <div class="card obligations-upcoming-hero" id="obligations-upcoming-panel">
+        <h2 class="obligations-upcoming-title">UPCOMING <span id="obligations-upcoming-count" class="badge"></span></h2>
         <div id="obligations-upcoming-list"></div>
       </div>
 
@@ -565,25 +565,8 @@
             <input type="checkbox" id="obligations-show-dismissed" />
             Show dismissed
           </label>
-          <div id="obligations-fy-selector" class="obligations-fy-selector" style="display:none">
-            <button type="button" class="btn btn-sm" id="obligations-fy-prev" aria-label="Previous financial year">&larr;</button>
-            <span id="obligations-fy-label"></span>
-            <button type="button" class="btn btn-sm" id="obligations-fy-next" aria-label="Next financial year">&rarr;</button>
-          </div>
         </div>
         <div id="obligations-registry-list"></div>
-      </div>
-
-      <!-- Unmatched HMRC Payments Panel (hidden when none) -->
-      <div class="card" id="obligations-unmatched-panel" style="display:none">
-        <h3>Unmatched HMRC Payments <span id="obligations-unmatched-count" class="badge"></span></h3>
-        <p class="obligations-unmatched-hint">
-          HMRC payments found in your transactions that aren't linked to any obligation, grouped by narrative type:
-          <strong>VAT</strong> (usually off-cycle VAT corrections),
-          <strong>ETMP</strong> (Corporation Tax or PAYE via HMRC's card gateway), and
-          <strong>SA</strong> (Self Assessment — personal tax, not business).
-        </p>
-        <div id="obligations-unmatched-list"></div>
       </div>
 
       <!-- Add/Edit Modal -->

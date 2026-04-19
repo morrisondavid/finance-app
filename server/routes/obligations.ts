@@ -1,8 +1,8 @@
 import express, { Request, Response } from 'express';
-import { HMRC_PATTERNS } from '../config/payees.js';
-import { getBusinessAndPersonalPaymentAccounts } from '../types.js';
-import { findUnmatchedHmrcPayments } from '../db/repositories/tax.js';
-import { getFinancialYearRange } from '../db/utils/financial-year.js';
+import {
+  getFinancialYearRange,
+  getObligationsPageWindow,
+} from '../db/utils/financial-year.js';
 import { buildVatReconciliationSet } from '../db/repositories/vat-auto-seed.js';
 import {
   getAllObligations,
@@ -35,7 +35,6 @@ import {
   type OverdueObligationsResponse,
   type UpcomingPaymentsResponse,
   type UpcomingPaymentItem,
-  type UnmatchedHmrcPaymentsResponse,
   type Obligation,
   type Dismissal,
   type DismissalsListResponse,
@@ -102,15 +101,26 @@ function resyncSeederForAutoId(obligationId: string): void {
   }
 }
 
+/**
+ * Registry feed for the Obligations page. Bounded by the shared rolling
+ * ±12-month window so the table stays aligned with every other section
+ * on the page (overdue hero, upcoming list, unmatched HMRC feed). The
+ * legacy `financialYear` query param is still honoured for external /
+ * historical callers (dashboard, tests) — explicit min/max takes
+ * precedence when both are supplied.
+ */
 router.get('/', (req: Request, res: Response<ObligationsListResponse | { error: string }>) => {
   try {
     const { status, type, source, hideCompleted, financialYear } = req.query;
+    const window = getObligationsPageWindow();
     const rows = getAllObligations({
       status: typeof status === 'string' ? status : undefined,
       type: typeof type === 'string' ? type : undefined,
       source: typeof source === 'string' ? source : undefined,
       hideCompleted: parseBooleanQueryParam(hideCompleted),
       financialYear: typeof financialYear === 'string' ? financialYear : undefined,
+      minDueDate: window.startDate,
+      maxDueDate: window.endDate,
     });
     res.json({ obligations: rows.map(toApiObligation) as Obligation[] });
   } catch (error) {
@@ -121,7 +131,8 @@ router.get('/', (req: Request, res: Response<ObligationsListResponse | { error: 
 
 router.get('/overdue', (_req: Request, res: Response<OverdueObligationsResponse | { error: string }>) => {
   try {
-    const rows = getOverdueObligations();
+    const window = getObligationsPageWindow();
+    const rows = getOverdueObligations({ minDueDate: window.startDate });
     res.json({ obligations: rows.map(toApiObligation) as Obligation[] });
   } catch (error) {
     console.error('Error fetching overdue obligations:', error);
@@ -221,29 +232,6 @@ router.get('/upcoming-payments', (req: Request, res: Response<UpcomingPaymentsRe
   } catch (error) {
     console.error('Error fetching upcoming payments:', error);
     res.status(500).json({ error: 'Failed to fetch upcoming payments' });
-  }
-});
-
-/**
- * HMRC payments that aren't linked to any known obligation. Lets the user
- * reconcile Corp Tax / PAYE / off-cycle VAT payments that would otherwise
- * silently leave the books without a paper trail on this page.
- */
-router.get('/unmatched-hmrc-payments', (_req: Request, res: Response<UnmatchedHmrcPaymentsResponse | { error: string }>) => {
-  try {
-    // Scope widened to business + personal payment accounts: SA is personal
-    // tax and is legitimately paid from either; scoping to business-only
-    // silently orphans every personal-account SA debit, which was the bulk
-    // of the historical "orphan" noise.
-    const payments = findUnmatchedHmrcPayments({
-      patterns: HMRC_PATTERNS.ANY,
-      accounts: getBusinessAndPersonalPaymentAccounts(),
-    });
-    const total = payments.reduce((acc, p) => acc + p.amount, 0);
-    res.json({ payments, total });
-  } catch (error) {
-    console.error('Error fetching unmatched HMRC payments:', error);
-    res.status(500).json({ error: 'Failed to fetch unmatched HMRC payments' });
   }
 });
 

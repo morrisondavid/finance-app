@@ -3169,35 +3169,6 @@ body {
   font-size: 0.7rem; font-weight: 600; color: #fff; text-transform: uppercase; letter-spacing: 0.03em;
 }
 
-.obligations-upcoming-grid { display: flex; flex-direction: column; gap: 0.5rem; }
-.obligations-upcoming-item {
-  display: grid; grid-template-columns: 1fr auto auto auto auto auto;
-  align-items: center; gap: 1rem; padding: 0.75rem 1rem; border-radius: 0.5rem; border-left: 4px solid #3b82f6;
-  background: #f8fafc;
-}
-.obligations-urgency-overdue { border-left-color: #ef4444; background: #fef2f2; }
-.obligations-urgency-critical { border-left-color: #ef4444; background: #fff5f5; }
-.obligations-urgency-warning { border-left-color: #f97316; background: #fffbeb; }
-.obligations-urgency-ok { border-left-color: #22c55e; background: #f0fdf4; }
-
-/* Yellow highlight for anything due within the next 14 days (non-overdue) */
-.obligations-upcoming-item.urgent {
-  background: #fef9c3;
-  border-left-color: #eab308;
-  box-shadow: 0 0 0 1px #fde047 inset;
-}
-.obligations-upcoming-item.urgent .obligations-upcoming-days { color: #854d0e; }
-
-.obligations-upcoming-entity { color: #64748b; font-size: 0.8rem; display: block; }
-.obligations-upcoming-days { font-weight: 600; font-size: 0.85rem; min-width: 3rem; text-align: right; }
-.obligations-upcoming-kind {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #94a3b8;
-  font-weight: 600;
-}
-
 /* Self Assessment "estimate" affordances — distinguish auto rows from
    manually-confirmed figures so the user trusts the number only as a
    rough guide until they enter the accountant's real value. */
@@ -3234,16 +3205,13 @@ body {
 }
 .obligations-auto-label { font-size: 0.7rem; color: #94a3b8; font-style: italic; }
 
-.obligations-fy-selector { display: inline-flex; align-items: center; gap: 0.5rem; }
-.obligations-fy-selector .btn-sm { padding: 0.25rem 0.6rem; font-size: 0.85rem; }
-.obligations-fy-selector span { font-weight: 600; min-width: 4rem; text-align: center; }
-
 /* Overdue hero banner — loud, dominates the page when present */
 .obligations-overdue-hero {
   background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
   color: #fff;
-  border: 3px solid #7f1d1d;
+  border: none;
   box-shadow: 0 10px 30px rgba(220, 38, 38, 0.25);
+  margin-bottom: 1.5rem;
 }
 .obligations-overdue-title {
   font-size: 2rem;
@@ -3279,6 +3247,87 @@ body {
   letter-spacing: 0.05em;
 }
 
+/* Upcoming hero banner — amber warning; sibling of the overdue hero.
+   Uniform background, no per-row urgency tints: the hero IS the signal.
+   Layout + typography mirror .obligations-overdue-hero exactly so the two
+   cards read as a matched pair differentiated only by palette. */
+.obligations-upcoming-hero {
+  background: linear-gradient(135deg, #f59e0b 0%, #b45309 100%);
+  color: #fff;
+  border: none;
+  box-shadow: 0 10px 30px rgba(245, 158, 11, 0.25);
+  margin-bottom: 1.5rem;
+}
+.obligations-upcoming-title {
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  margin: 0 0 0.75rem 0;
+  color: #fff;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+.obligations-upcoming-hero .obligations-upcoming-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  margin: 0.5rem 0;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  border-left: 6px solid #fff;
+}
+.obligations-upcoming-hero .obligations-upcoming-item strong { font-size: 1.05rem; font-weight: 800; color: #fff; }
+.obligations-upcoming-hero .obligations-upcoming-entity { display: block; font-weight: 500; opacity: 0.85; font-size: 0.85rem; color: rgba(255, 255, 255, 0.85); }
+.obligations-upcoming-hero .obligations-upcoming-amount { font-weight: 800; font-size: 1.05rem; color: #fff; }
+.obligations-upcoming-hero .obligations-upcoming-due { font-size: 0.9rem; opacity: 0.9; color: #fff; }
+.obligations-upcoming-hero .obligations-upcoming-days {
+  font-weight: 900;
+  font-size: 0.9rem;
+  background: #fff;
+  color: #b45309;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.obligations-upcoming-hero .obligations-upcoming-subtext {
+  display: block;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.75rem;
+  font-style: italic;
+  margin-top: 0.2rem;
+}
+.obligations-upcoming-hero .obligations-est-chip {
+  color: #78350f;
+  background: #fef3c7;
+}
+.obligations-upcoming-hero .obligations-upcoming-logo {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 4px;
+  padding: 2px;
+}
+.obligations-upcoming-hero .obligations-sa-addmanual-btn {
+  background: #fff;
+  color: #b45309;
+  border: none;
+  font-weight: 700;
+  margin-top: 0.4rem;
+}
+.obligations-upcoming-hero .obligations-sa-addmanual-btn:hover { background: #fef3c7; }
+.obligations-upcoming-hero .fixed-expenses-account-pill {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.35);
+}
+.obligations-upcoming-hero .obligations-empty {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin: 0;
+}
+
 .obligations-registry-table td:last-child { white-space: nowrap; }
 
 /* Dismissed auto rows: greyed-out, struck-through, kept in-place so the user
@@ -3305,51 +3354,6 @@ body {
 
 .obligations-toggle-label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #64748b; cursor: pointer; user-select: none; }
 .obligations-toggle-label input[type="checkbox"] { accent-color: #3b82f6; }
-
-/* Unmatched HMRC Payments panel */
-.obligations-unmatched-hint {
-  margin: 0 0 0.75rem 0;
-  color: #64748b;
-  font-size: 0.85rem;
-}
-.obligations-unmatched-list { display: flex; flex-direction: column; gap: 0.4rem; }
-.obligations-unmatched-item {
-  display: grid;
-  grid-template-columns: 6.5rem 6.5rem 1fr 7rem auto;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.55rem 0.85rem;
-  border-left: 4px solid #a855f7;
-  background: #faf5ff;
-  border-radius: 6px;
-  font-size: 0.9rem;
-}
-.obligations-unmatched-vat { border-left-color: #3b82f6; background: #eff6ff; }
-.obligations-unmatched-etmp { border-left-color: #a855f7; background: #faf5ff; }
-.obligations-unmatched-self-assessment { border-left-color: #64748b; background: #f8fafc; }
-.obligations-unmatched-other { border-left-color: #94a3b8; background: #f1f5f9; }
-
-.obligations-unmatched-type {
-  display: inline-block;
-  padding: 0.15rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  text-align: center;
-  color: #ffffff;
-  background: #94a3b8;
-}
-.obligations-unmatched-type[data-type="vat"] { background: #3b82f6; }
-.obligations-unmatched-type[data-type="etmp"] { background: #a855f7; }
-.obligations-unmatched-type[data-type="self-assessment"] { background: #64748b; }
-.obligations-unmatched-type[data-type="other"] { background: #94a3b8; }
-
-.obligations-unmatched-date { color: #475569; font-variant-numeric: tabular-nums; }
-.obligations-unmatched-description { color: #0f172a; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.obligations-unmatched-amount { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; color: #7c3aed; }
-.obligations-unmatched-account { font-size: 0.72rem; }
 
 .modal-overlay {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;

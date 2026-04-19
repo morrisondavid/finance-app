@@ -9,8 +9,6 @@ import {
   UpcomingRecurringSchema,
   UpcomingPaymentItemSchema,
   UpcomingPaymentsResponseSchema,
-  UnmatchedHmrcPaymentSchema,
-  UnmatchedHmrcPaymentsResponseSchema,
   DismissalSchema,
   CreateDismissalBodySchema,
   DismissalsListResponseSchema,
@@ -438,66 +436,6 @@ describe('UpcomingPaymentsResponseSchema', () => {
 
   it('rejects when items is missing', () => {
     expect(UpcomingPaymentsResponseSchema.safeParse({}).success).toBe(false);
-  });
-});
-
-describe('UnmatchedHmrcPaymentSchema', () => {
-  const base = {
-    date: '2024-12-09',
-    amount: -4192.21,
-    account: 'capital-on-tap',
-    description: 'HMRC ETMP - GLASGOW - Card Ending: 8346',
-    hmrcType: 'payment-plan' as const,
-  };
-
-  it('accepts a representative unmatched payment', () => {
-    expect(UnmatchedHmrcPaymentSchema.safeParse(base).success).toBe(true);
-  });
-
-  it('rejects when required fields are missing', () => {
-    const { account: _drop, ...bad } = base;
-    void _drop;
-    expect(UnmatchedHmrcPaymentSchema.safeParse(bad).success).toBe(false);
-  });
-
-  it('rejects when hmrcType is missing', () => {
-    const { hmrcType: _drop, ...bad } = base;
-    void _drop;
-    expect(UnmatchedHmrcPaymentSchema.safeParse(bad).success).toBe(false);
-  });
-
-  it('rejects unknown hmrcType values', () => {
-    // Both the replaced legacy literal and a made-up value must be rejected so
-    // clients cannot silently read ambiguous chips after the enum tightened.
-    expect(UnmatchedHmrcPaymentSchema.safeParse({ ...base, hmrcType: 'etmp' }).success).toBe(false);
-    expect(UnmatchedHmrcPaymentSchema.safeParse({ ...base, hmrcType: 'paye' }).success).toBe(false);
-  });
-
-  it('accepts each valid hmrcType', () => {
-    for (const t of ['vat', 'self-assessment', 'corporation-tax', 'payment-plan', 'other'] as const) {
-      expect(UnmatchedHmrcPaymentSchema.safeParse({ ...base, hmrcType: t }).success).toBe(true);
-    }
-  });
-});
-
-describe('UnmatchedHmrcPaymentsResponseSchema', () => {
-  it('accepts a well-formed response', () => {
-    const fixture = {
-      payments: [
-        { date: '2022-04-29', amount: -12092.65, account: 'barclays-current', description: 'HMRC VAT SOUTHEND', hmrcType: 'vat' as const },
-        { date: '2024-12-09', amount: -4192.21, account: 'capital-on-tap', description: 'HMRC ETMP - GLASGOW', hmrcType: 'payment-plan' as const },
-      ],
-      total: -16284.86,
-    };
-    expect(UnmatchedHmrcPaymentsResponseSchema.safeParse(fixture).success).toBe(true);
-  });
-
-  it('accepts an empty response', () => {
-    expect(UnmatchedHmrcPaymentsResponseSchema.safeParse({ payments: [], total: 0 }).success).toBe(true);
-  });
-
-  it('rejects when total is missing', () => {
-    expect(UnmatchedHmrcPaymentsResponseSchema.safeParse({ payments: [] }).success).toBe(false);
   });
 });
 

@@ -97,6 +97,10 @@ export interface ObligationFilters {
   source?: string;
   hideCompleted?: boolean;
   financialYear?: string;
+  /** Inclusive lower bound on `due_date`. Takes precedence over `financialYear` when both are supplied. */
+  minDueDate?: string;
+  /** Inclusive upper bound on `due_date`. Takes precedence over `financialYear` when both are supplied. */
+  maxDueDate?: string;
 }
 
 export function getAllObligations(filters?: ObligationFilters): ObligationRow[] {
@@ -112,8 +116,24 @@ export function getAllObligations(filters?: ObligationFilters): ObligationRow[] 
     params.push(...COMPLETED_STATUSES);
   }
 
+  const hasExplicitRange = filters?.minDueDate !== undefined || filters?.maxDueDate !== undefined;
+  if (hasExplicitRange) {
+    if (filters?.minDueDate !== undefined) {
+      conditions.push('due_date >= ?');
+      params.push(filters.minDueDate);
+    }
+    if (filters?.maxDueDate !== undefined) {
+      conditions.push('due_date <= ?');
+      params.push(filters.maxDueDate);
+    }
+  }
+
   let where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  if (filters?.financialYear) {
+  // Explicit min/max takes precedence: the FY branch only runs when no
+  // explicit range was supplied. Keeps existing `financialYear` callers
+  // (dashboard/tests) working while the Obligations page moves to
+  // rolling-window filtering.
+  if (!hasExplicitRange && filters?.financialYear) {
     const fy = buildFyWhereClauseForColumn(filters.financialYear, 'due_date');
     if (fy.clause) {
       where = where ? `${where}${fy.clause}` : `WHERE 1=1${fy.clause}`;
@@ -124,16 +144,27 @@ export function getAllObligations(filters?: ObligationFilters): ObligationRow[] 
   return db.prepare(`SELECT * FROM financial_obligations ${where} ORDER BY due_date ASC`).all(...params) as ObligationRow[];
 }
 
-export function getOverdueObligations(): ObligationRow[] {
+export interface OverdueObligationsFilters {
+  /** Inclusive lower bound on `due_date`. Used to drop settled-history rows from the overdue hero. */
+  minDueDate?: string;
+}
+
+export function getOverdueObligations(filters?: OverdueObligationsFilters): ObligationRow[] {
   const db = getDb();
   const todayStr = new Date().toISOString().slice(0, 10);
+  const conditions: string[] = ['due_date IS NOT NULL', 'due_date < ?'];
+  const params: unknown[] = [todayStr];
+  if (filters?.minDueDate !== undefined) {
+    conditions.push('due_date >= ?');
+    params.push(filters.minDueDate);
+  }
+  conditions.push(`status NOT IN (${COMPLETED_PLACEHOLDERS})`);
+  params.push(...COMPLETED_STATUSES);
   return db.prepare(`
     SELECT * FROM financial_obligations
-    WHERE due_date IS NOT NULL
-      AND due_date < ?
-      AND status NOT IN (${COMPLETED_PLACEHOLDERS})
+    WHERE ${conditions.join(' AND ')}
     ORDER BY due_date ASC
-  `).all(todayStr, ...COMPLETED_STATUSES) as ObligationRow[];
+  `).all(...params) as ObligationRow[];
 }
 
 export function getUpcomingObligations(days: number): ObligationRow[] {

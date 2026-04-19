@@ -129,6 +129,65 @@ export function getFinancialYearForDate(date: Date = new Date()): string {
 }
 
 /**
+ * Rolling window used by the Obligations page to bound every section
+ * (overdue, upcoming, registry, unmatched HMRC payments) to a single
+ * shared horizon anchored on today.
+ *
+ * Dates older than `startDate` are settled history (muted from the
+ * overdue / unmatched feeds); items due after `endDate` are beyond the
+ * 12-month planning horizon (hidden from upcoming / registry). The
+ * symmetric ±12-month shape guarantees that upcoming bills due just
+ * after the calendar-year flip remain visible in late December.
+ */
+export interface ObligationsPageWindow {
+  /** Inclusive lower bound, YYYY-MM-DD (today minus 12 calendar months). */
+  startDate: string;
+  /** Inclusive upper bound, YYYY-MM-DD (today plus 12 calendar months). */
+  endDate: string;
+  /** Anchor date, YYYY-MM-DD. */
+  today: string;
+  /** Human-friendly label e.g. "Apr 2025 – Apr 2027". */
+  label: string;
+}
+
+/**
+ * Shift a date by ±N calendar months without drifting into a different
+ * day-of-month when the target month is shorter. Mirrors what a user
+ * expects "12 months from today" to mean (31 Mar + 12m → 31 Mar, not 31 Apr
+ * → rollover into May).
+ */
+function shiftMonths(date: Date, months: number): Date {
+  const y = date.getFullYear();
+  const m = date.getMonth();
+  const d = date.getDate();
+  const targetMonthIndex = m + months;
+  const targetYear = y + Math.floor(targetMonthIndex / 12);
+  const targetMonth = ((targetMonthIndex % 12) + 12) % 12;
+  const daysInTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const clampedDay = Math.min(d, daysInTargetMonth);
+  return new Date(targetYear, targetMonth, clampedDay);
+}
+
+function shortMonthYearLabel(d: Date): string {
+  return d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
+}
+
+/**
+ * Returns the rolling ±12-month window anchored on `now` that the
+ * Obligations page uses to scope every section consistently.
+ */
+export function getObligationsPageWindow(now: Date = new Date()): ObligationsPageWindow {
+  const start = shiftMonths(now, -12);
+  const end = shiftMonths(now, 12);
+  return {
+    startDate: formatCalendarDateLocal(start),
+    endDate: formatCalendarDateLocal(end),
+    today: formatCalendarDateLocal(now),
+    label: `${shortMonthYearLabel(start)} – ${shortMonthYearLabel(end)}`,
+  };
+}
+
+/**
  * Returns the start date of the previous financial year relative to `date`.
  * Used as the data-coverage cutoff: quarters ending before this are treated
  * as having insufficient transaction data.

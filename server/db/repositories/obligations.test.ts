@@ -239,6 +239,23 @@ describe('getOverdueObligations + getAllObligations filters', () => {
       const rows = getOverdueObligations();
       expect(rows).toHaveLength(0);
     });
+
+    it('applies an inclusive minDueDate lower bound to drop settled-history rows', () => {
+      const recent = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+      const ancient = '2020-01-01';
+      insertObligation({ id: 'ancient', dueDate: ancient, status: 'pending' });
+      insertObligation({ id: 'recent', dueDate: recent, status: 'pending' });
+
+      const rows = getOverdueObligations({ minDueDate: recent });
+      expect(rows.map(r => r.id)).toEqual(['recent']);
+    });
+
+    it('minDueDate is inclusive (equal dates pass through)', () => {
+      const boundary = '2024-04-16';
+      insertObligation({ id: 'on-boundary', dueDate: boundary, status: 'pending' });
+      const rows = getOverdueObligations({ minDueDate: boundary });
+      expect(rows.map(r => r.id)).toEqual(['on-boundary']);
+    });
   });
 
   describe('getAllObligations with hideCompleted', () => {
@@ -281,6 +298,66 @@ describe('getOverdueObligations + getAllObligations filters', () => {
 
       const rows = getAllObligations({ hideCompleted: true, financialYear: '2025/26' });
       expect(rows.map(r => r.id)).toEqual(['pending-fy']);
+    });
+  });
+
+  describe('getAllObligations with minDueDate / maxDueDate', () => {
+    it('applies an explicit range on due_date', () => {
+      insertObligation({ id: 'before', dueDate: '2025-04-15', status: 'pending' });
+      insertObligation({ id: 'in-start', dueDate: '2025-04-16', status: 'pending' });
+      insertObligation({ id: 'in-mid', dueDate: '2026-01-01', status: 'pending' });
+      insertObligation({ id: 'in-end', dueDate: '2027-04-16', status: 'pending' });
+      insertObligation({ id: 'after', dueDate: '2027-04-17', status: 'pending' });
+
+      const rows = getAllObligations({
+        minDueDate: '2025-04-16',
+        maxDueDate: '2027-04-16',
+      });
+      expect(rows.map(r => r.id)).toEqual(['in-start', 'in-mid', 'in-end']);
+    });
+
+    it('minDueDate alone acts as an open-ended lower bound', () => {
+      insertObligation({ id: 'before', dueDate: '2024-12-31', status: 'pending' });
+      insertObligation({ id: 'at', dueDate: '2025-01-01', status: 'pending' });
+      insertObligation({ id: 'after', dueDate: '2025-06-01', status: 'pending' });
+
+      const rows = getAllObligations({ minDueDate: '2025-01-01' });
+      expect(rows.map(r => r.id).sort()).toEqual(['after', 'at']);
+    });
+
+    it('maxDueDate alone acts as an open-ended upper bound', () => {
+      insertObligation({ id: 'before', dueDate: '2024-12-31', status: 'pending' });
+      insertObligation({ id: 'at', dueDate: '2025-01-01', status: 'pending' });
+      insertObligation({ id: 'after', dueDate: '2025-06-01', status: 'pending' });
+
+      const rows = getAllObligations({ maxDueDate: '2025-01-01' });
+      expect(rows.map(r => r.id).sort()).toEqual(['at', 'before']);
+    });
+
+    it('explicit range overrides financialYear when both are supplied', () => {
+      insertObligation({ id: 'in-fy', dueDate: '2025-06-01', status: 'pending' });
+      insertObligation({ id: 'outside-fy-in-range', dueDate: '2027-03-01', status: 'pending' });
+
+      const rows = getAllObligations({
+        financialYear: '2025/26',
+        minDueDate: '2026-06-01',
+        maxDueDate: '2027-06-01',
+      });
+      // If the FY branch ran, we'd see `in-fy`. Explicit range wins.
+      expect(rows.map(r => r.id)).toEqual(['outside-fy-in-range']);
+    });
+
+    it('combines with hideCompleted', () => {
+      insertObligation({ id: 'pending-in', dueDate: '2025-06-01', status: 'pending' });
+      insertObligation({ id: 'paid-in', dueDate: '2025-06-01', status: 'paid' });
+      insertObligation({ id: 'pending-out', dueDate: '2022-01-01', status: 'pending' });
+
+      const rows = getAllObligations({
+        hideCompleted: true,
+        minDueDate: '2025-01-01',
+        maxDueDate: '2026-01-01',
+      });
+      expect(rows.map(r => r.id)).toEqual(['pending-in']);
     });
   });
 });

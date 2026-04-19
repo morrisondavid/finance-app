@@ -55,6 +55,24 @@ export function formatIsoDateUk(isoDate: string): string {
 }
 
 /**
+ * Format an ISO calendar date (YYYY-MM-DD) for UK display in long form
+ * (`DD Mmm YYYY`, e.g. `07 Jun 2026`). Preferred over the numeric variant
+ * on dashboards / obligation surfaces where the extra readability offsets
+ * the small width cost (month abbreviation eliminates the `DD/MM` vs
+ * `MM/DD` ambiguity US-raised readers bring to a numeric date).
+ */
+export function formatIsoDateUkLong(isoDate: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!m) return isoDate;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const da = Number(m[3]);
+  const d = new Date(y, mo - 1, da);
+  if (d.getFullYear() !== y || d.getMonth() !== mo - 1 || d.getDate() !== da) return isoDate;
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+/**
  * Format a quarter string for display in ZIP filenames
  * @example "Q1-2025" => "VAT-Q1-Nov-Jan-2024-25"
  */
