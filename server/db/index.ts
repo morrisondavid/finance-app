@@ -19,6 +19,8 @@ import {
   initSchema,
   migrateCategoryBudgetsIfNeeded,
   migrateCategoryBudgetsBudgetPeriodIfNeeded,
+  migrateDebtsMatchAmountsIfNeeded,
+  migrateDebtsMortgageFieldsIfNeeded,
   migrateFixedExpenseSimulationExclusionsIfNeeded,
   migrateObligationsIfNeeded,
   migrateObligationDismissalsIfNeeded,
@@ -117,6 +119,8 @@ export async function initDatabase(): Promise<void> {
 
   migrateCategoryBudgetsIfNeeded();
   migrateCategoryBudgetsBudgetPeriodIfNeeded();
+  migrateDebtsMatchAmountsIfNeeded();
+  migrateDebtsMortgageFieldsIfNeeded();
   migrateFixedExpenseSimulationExclusionsIfNeeded();
 
   // Populate from CSV files

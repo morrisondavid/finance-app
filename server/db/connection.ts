@@ -166,6 +166,13 @@ export function initSchema(): void {
       original_loan_date TEXT,
       opening_balance REAL NOT NULL DEFAULT 0 CHECK(opening_balance >= 0),
       opening_balance_date TEXT NOT NULL,
+      match_amounts TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'consumer' CHECK(kind IN ('consumer', 'mortgage')),
+      interest_rate REAL,
+      fixed_rate_end_date TEXT,
+      repayment_type TEXT CHECK(repayment_type IS NULL OR repayment_type IN ('repayment', 'interest-only')),
+      property_value_estimate REAL,
+      property_id TEXT,
       archived INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -235,6 +242,50 @@ export function migrateCategoryBudgetsIfNeeded(): void {
     CREATE INDEX IF NOT EXISTS idx_category_budgets_account ON category_budgets(account);
   `);
   console.log('[Database] Migrated category_budgets to permanent (account, category) rows');
+}
+
+/**
+ * Convenience migration for developers who don't nuke their DB on pull. The
+ * authoritative source for debts is `debts/debts.csv`; `rm data/transactions.db`
+ * followed by a restart fully rebuilds the table with the updated schema.
+ */
+export function migrateDebtsMatchAmountsIfNeeded(): void {
+  const db = getDb();
+  const cols = db.prepare(`PRAGMA table_info('debts')`).all() as Array<{ name: string }>;
+  if (cols.length === 0) return;
+  const colNames = new Set(cols.map(c => c.name));
+  if (colNames.has('match_amounts')) return;
+  if (colNames.has('match_amount')) {
+    db.exec(`ALTER TABLE debts ADD COLUMN match_amounts TEXT NOT NULL DEFAULT ''`);
+    db.exec(`UPDATE debts SET match_amounts = CAST(match_amount AS TEXT) WHERE match_amount IS NOT NULL AND match_amount != ''`);
+    console.log('[Database] Migrated debts.match_amount → debts.match_amounts');
+  } else {
+    db.exec(`ALTER TABLE debts ADD COLUMN match_amounts TEXT NOT NULL DEFAULT ''`);
+    console.log('[Database] Added debts.match_amounts');
+  }
+}
+
+/**
+ * Convenience migration for existing DBs: adds the six mortgage-related columns
+ * (kind, interest_rate, fixed_rate_end_date, repayment_type,
+ * property_value_estimate, property_id) to the debts table. Safe to call
+ * repeatedly — skips if the columns already exist.
+ */
+export function migrateDebtsMortgageFieldsIfNeeded(): void {
+  const db = getDb();
+  const cols = db.prepare(`PRAGMA table_info('debts')`).all() as Array<{ name: string }>;
+  if (cols.length === 0) return;
+  const colNames = new Set(cols.map(c => c.name));
+  if (colNames.has('kind')) return;
+  db.exec(`
+    ALTER TABLE debts ADD COLUMN kind TEXT NOT NULL DEFAULT 'consumer' CHECK(kind IN ('consumer', 'mortgage'));
+    ALTER TABLE debts ADD COLUMN interest_rate REAL;
+    ALTER TABLE debts ADD COLUMN fixed_rate_end_date TEXT;
+    ALTER TABLE debts ADD COLUMN repayment_type TEXT CHECK(repayment_type IS NULL OR repayment_type IN ('repayment', 'interest-only'));
+    ALTER TABLE debts ADD COLUMN property_value_estimate REAL;
+    ALTER TABLE debts ADD COLUMN property_id TEXT;
+  `);
+  console.log('[Database] Added mortgage fields to debts table');
 }
 
 /** Add budget_period column for DBs created before monthly/yearly budgets. */

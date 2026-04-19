@@ -1,4 +1,8 @@
-id,name,merchant_pattern,source_accounts,original_loan_amount,original_loan_date,opening_balance,opening_balance_date,archived
-bounce-back-loan,Bounce Back Loan,0520A,barclays-current,50000,,48311.05,2022-05-12,
-funding-circle,Funding Circle,FUNDING CIRCLE,barclays-current,18700,2023-11-09,24723.92,2023-12-03,
-novuna,Novuna Finance,NOVUNA,natwest,13228,,18455.66,2023-07-19,
+id,name,merchant_pattern,source_accounts,original_loan_amount,original_loan_date,opening_balance,opening_balance_date,archived,match_amounts,kind,interest_rate,fixed_rate_end_date,repayment_type,property_value_estimate,property_id
+bathroom-loan-a,Bathroom Loan (A),Barclays Partner Finance,monzo-joint,9191.26,,13429.78,2024-06-03,,232.22,,,,,,
+bathroom-loan-b,Bathroom Loan (B),Barclays Partner Finance,monzo-joint,7917.04,,13258.1,2024-06-03,,192.66,,,,,,
+bounce-back-loan,Bounce Back Loan,0520A,barclays-current,50000,,48311.05,2022-05-12,,,,,,,,
+funding-circle,Funding Circle,FUNDING CIRCLE,barclays-current,18700,2023-11-09,24723.92,2023-12-03,,,,,,,,
+mortgage-hunters-square,78 Hunters Square Mortgage,NatWest,monzo-joint,214757.15,,249583.25,2021-11-30,,801.35;1054.64;306.35,mortgage,4.48,2028-04-30,interest-only,315553.21,hunters-square-78
+mortgage-thorney-house,56 Thorney House Mortgage,NatWest,monzo-joint,121785.99,,142605.12,2021-11-30,,683.38;630.99;174.44,mortgage,6.74,,interest-only,188085.56,thorney-house-56
+novuna,Novuna Finance,NOVUNA,natwest,13228,,18455.66,2023-07-19,,,,,,,,

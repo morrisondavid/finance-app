@@ -12,6 +12,8 @@ import {
   DismissalSchema,
   CreateDismissalBodySchema,
   DismissalsListResponseSchema,
+  DebtCreateBodySchema,
+  DebtUpdateBodySchema,
 } from './api-contracts.js';
 
 describe('HmrcPaymentMatchSchema', () => {
@@ -515,5 +517,110 @@ describe('DismissalsListResponseSchema', () => {
         { obligationId: 'manual-1', reason: null, dismissedAt: '2026-04-10T12:00:00.000Z' },
       ],
     }).success).toBe(false);
+  });
+});
+
+describe('DebtCreateBodySchema matchAmounts', () => {
+  const base = {
+    id: 'my-loan',
+    name: 'My Loan',
+    merchantPattern: 'LOAN',
+    sourceAccounts: ['barclays-current'],
+    originalLoanAmount: 1000,
+    openingBalance: 500,
+    openingBalanceDate: '2026-04-19',
+  };
+
+  it('accepts a single-element matchAmounts', () => {
+    expect(DebtCreateBodySchema.safeParse({ ...base, matchAmounts: [232.22] }).success).toBe(true);
+  });
+
+  it('accepts a multi-element matchAmounts', () => {
+    expect(DebtCreateBodySchema.safeParse({ ...base, matchAmounts: [801.35, 1054.64, 306.35] }).success).toBe(true);
+  });
+
+  it('accepts an empty matchAmounts array', () => {
+    expect(DebtCreateBodySchema.safeParse({ ...base, matchAmounts: [] }).success).toBe(true);
+  });
+
+  it('accepts omitted matchAmounts (optional)', () => {
+    expect(DebtCreateBodySchema.safeParse(base).success).toBe(true);
+  });
+
+  it('rejects matchAmounts with a zero value', () => {
+    expect(DebtCreateBodySchema.safeParse({ ...base, matchAmounts: [0] }).success).toBe(false);
+  });
+
+  it('rejects matchAmounts with a negative value', () => {
+    expect(DebtCreateBodySchema.safeParse({ ...base, matchAmounts: [-1] }).success).toBe(false);
+  });
+});
+
+describe('DebtUpdateBodySchema matchAmounts', () => {
+  it('accepts a patch that clears matchAmounts to empty', () => {
+    expect(DebtUpdateBodySchema.safeParse({ matchAmounts: [] }).success).toBe(true);
+  });
+
+  it('accepts a patch that sets matchAmounts to a single value', () => {
+    expect(DebtUpdateBodySchema.safeParse({ matchAmounts: [192.66] }).success).toBe(true);
+  });
+
+  it('rejects a patch with a non-positive matchAmounts entry', () => {
+    expect(DebtUpdateBodySchema.safeParse({ matchAmounts: [0] }).success).toBe(false);
+  });
+});
+
+describe('DebtCreateBodySchema mortgage fields', () => {
+  const base = {
+    id: 'mtg',
+    name: 'Mortgage',
+    merchantPattern: 'MORTGAGE',
+    sourceAccounts: ['natwest'],
+    originalLoanAmount: 200000,
+    openingBalance: 200000,
+    openingBalanceDate: '2026-04-19',
+  };
+
+  it('accepts mortgage with all fields', () => {
+    const result = DebtCreateBodySchema.safeParse({
+      ...base,
+      kind: 'mortgage',
+      interestRate: 4.48,
+      fixedRateEndDate: '2028-04-30',
+      repaymentType: 'interest-only',
+      propertyValueEstimate: 315553.21,
+      propertyId: 'hunters-square-78',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('defaults kind to consumer when omitted', () => {
+    const result = DebtCreateBodySchema.safeParse(base);
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects invalid kind', () => {
+    expect(DebtCreateBodySchema.safeParse({ ...base, kind: 'invalid' }).success).toBe(false);
+  });
+
+  it('rejects negative interestRate', () => {
+    expect(DebtCreateBodySchema.safeParse({ ...base, interestRate: -1 }).success).toBe(false);
+  });
+
+  it('rejects invalid repaymentType', () => {
+    expect(DebtCreateBodySchema.safeParse({ ...base, repaymentType: 'balloon' }).success).toBe(false);
+  });
+
+  it('accepts null for optional mortgage fields', () => {
+    const result = DebtCreateBodySchema.safeParse({
+      ...base,
+      kind: 'mortgage',
+      interestRate: null,
+      fixedRateEndDate: null,
+      repaymentType: null,
+      propertyValueEstimate: null,
+      propertyId: null,
+    });
+    expect(result.success).toBe(true);
   });
 });

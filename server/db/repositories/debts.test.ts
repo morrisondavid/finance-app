@@ -34,6 +34,13 @@ function createSchema(): void {
       original_loan_date TEXT,
       opening_balance REAL NOT NULL DEFAULT 0 CHECK(opening_balance >= 0),
       opening_balance_date TEXT NOT NULL,
+      match_amounts TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'consumer' CHECK(kind IN ('consumer', 'mortgage')),
+      interest_rate REAL,
+      fixed_rate_end_date TEXT,
+      repayment_type TEXT CHECK(repayment_type IS NULL OR repayment_type IN ('repayment', 'interest-only')),
+      property_value_estimate REAL,
+      property_id TEXT,
       archived INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -86,7 +93,20 @@ describe('debts repository', () => {
       const csvPath = path.join(hoisted.debtsDir, DEBTS_CSV_FILENAME);
       expect(fs.existsSync(csvPath)).toBe(true);
       const rows = DebtsRepo.listDebts({ includeArchived: true });
-      expect(rows.map(r => r.id).sort()).toEqual(['bounce-back-loan', 'funding-circle', 'novuna']);
+      expect(rows.map(r => r.id).sort()).toEqual([
+        'bathroom-loan-a',
+        'bathroom-loan-b',
+        'bounce-back-loan',
+        'funding-circle',
+        'mortgage-hunters-square',
+        'mortgage-thorney-house',
+        'novuna',
+      ]);
+      const a = rows.find(r => r.id === 'bathroom-loan-a')!;
+      expect(a.matchAmounts).toEqual([232.22]);
+      const m = rows.find(r => r.id === 'mortgage-hunters-square')!;
+      expect(m.kind).toBe('mortgage');
+      expect(m.interestRate).toBe(4.48);
     });
 
     it('DELETEs existing rows and reloads from CSV', () => {
@@ -99,6 +119,81 @@ describe('debts repository', () => {
       DebtsRepo.loadDebtsFromFileIntoDb();
       const rows = DebtsRepo.listDebts({ includeArchived: true });
       expect(rows.find(r => r.id === 'extra')).toBeUndefined();
+    });
+
+    it('tops up missing defaults when CSV is pre-seeded with only a subset', () => {
+      const csvPath = path.join(hoisted.debtsDir, DEBTS_CSV_FILENAME);
+      fs.writeFileSync(
+        csvPath,
+        'id,name,merchant_pattern,source_accounts,original_loan_amount,original_loan_date,opening_balance,opening_balance_date,archived,match_amounts\n'
+          + 'funding-circle,Funding Circle,FUNDING CIRCLE,barclays-current,18700,2023-11-09,13138.71,2026-04-19,,\n',
+        'utf8',
+      );
+      DebtsRepo.loadDebtsFromFileIntoDb();
+      const rows = DebtsRepo.listDebts({ includeArchived: true });
+      expect(rows.map(r => r.id).sort()).toEqual([
+        'bathroom-loan-a',
+        'bathroom-loan-b',
+        'bounce-back-loan',
+        'funding-circle',
+        'mortgage-hunters-square',
+        'mortgage-thorney-house',
+        'novuna',
+      ]);
+      const reread = readDebtsFromCsvFile(csvPath);
+      const a = reread.find(r => r.id === 'bathroom-loan-a')!;
+      expect(a.matchAmounts).toEqual([232.22]);
+    });
+
+    it('does not re-add a default whose id is already present as archived (soft-delete semantics)', () => {
+      const csvPath = path.join(hoisted.debtsDir, DEBTS_CSV_FILENAME);
+      fs.writeFileSync(
+        csvPath,
+        'id,name,merchant_pattern,source_accounts,original_loan_amount,original_loan_date,opening_balance,opening_balance_date,archived,match_amounts\n'
+          + 'bathroom-loan-a,Bathroom Loan (A),Barclays Partner Finance,monzo-joint,9191.26,,3850.20,2026-04-19,true,232.22\n',
+        'utf8',
+      );
+      DebtsRepo.loadDebtsFromFileIntoDb();
+      const rows = DebtsRepo.listDebts({ includeArchived: true });
+      const a = rows.find(r => r.id === 'bathroom-loan-a')!;
+      expect(a.archived).toBe(true);
+      // Exactly one row for that id — top-up did not duplicate it.
+      expect(rows.filter(r => r.id === 'bathroom-loan-a')).toHaveLength(1);
+    });
+
+    it('round-trips matchAmounts when the DB row is dropped and reloaded from CSV', () => {
+      DebtsRepo.loadDebtsFromFileIntoDb();
+      hoisted.db!.prepare('DELETE FROM debts WHERE id = ?').run('bathroom-loan-a');
+      DebtsRepo.loadDebtsFromFileIntoDb();
+      const a = DebtsRepo.getDebt('bathroom-loan-a')!;
+      expect(a.matchAmounts).toEqual([232.22]);
+      expect(a.openingBalance).toBe(3850.2);
+    });
+
+    it('nuke-and-rebuild: reconciled state survives a full DB wipe via the CSV', () => {
+      DebtsRepo.loadDebtsFromFileIntoDb();
+      // Insert a matching payment so reconciliation shifts bathroom-loan-a.
+      insertTransaction({
+        date: '2025-06-03',
+        description: 'Barclays Partner Finance',
+        amount: -232.22,
+        account: 'monzo-joint',
+        type: 'expense',
+      });
+      DebtsRepo.reconcileDebtOpeningDates();
+
+      const before = DebtsRepo.getDebt('bathroom-loan-a')!;
+      expect(before.openingBalanceDate).toBe('2025-06-02');
+      expect(before.openingBalance).toBe(4082.42); // 3850.20 + 232.22
+      expect(before.matchAmounts).toEqual([232.22]);
+
+      hoisted.db!.exec('DELETE FROM debts');
+      DebtsRepo.loadDebtsFromFileIntoDb();
+
+      const after = DebtsRepo.getDebt('bathroom-loan-a')!;
+      expect(after.matchAmounts).toEqual([232.22]);
+      expect(after.openingBalance).toBe(before.openingBalance);
+      expect(after.openingBalanceDate).toBe(before.openingBalanceDate);
     });
   });
 
@@ -303,6 +398,42 @@ describe('debts repository', () => {
       expect(summary.matchedTransactionCount).toBe(3);
     });
 
+    it('matchAmounts disambiguates two debts that share a merchant pattern', () => {
+      DebtsRepo.createDebt({
+        id: 'loan-a',
+        name: 'A',
+        merchantPattern: 'PARTNERFIN',
+        sourceAccounts: ['monzo-joint'],
+        originalLoanAmount: 1000,
+        openingBalance: 800,
+        openingBalanceDate: '2026-01-01',
+        matchAmounts: [232.22],
+      });
+      DebtsRepo.createDebt({
+        id: 'loan-b',
+        name: 'B',
+        merchantPattern: 'PARTNERFIN',
+        sourceAccounts: ['monzo-joint'],
+        originalLoanAmount: 1000,
+        openingBalance: 900,
+        openingBalanceDate: '2026-01-01',
+        matchAmounts: [192.66],
+      });
+      insertTransaction({ date: '2026-02-01', description: 'PARTNERFIN feb', amount: -232.22, account: 'monzo-joint', type: 'expense' });
+      insertTransaction({ date: '2026-03-01', description: 'PARTNERFIN mar', amount: -232.22, account: 'monzo-joint', type: 'expense' });
+      insertTransaction({ date: '2026-02-15', description: 'PARTNERFIN feb2', amount: -192.66, account: 'monzo-joint', type: 'expense' });
+
+      const a = DebtsRepo.getDebtSummary(DebtsRepo.getDebt('loan-a')!);
+      expect(a.matchedTransactionCount).toBe(2);
+      expect(a.paidSinceOpening).toBeCloseTo(464.44, 5);
+      expect(a.lastPaymentAmount).toBeCloseTo(232.22, 5);
+
+      const b = DebtsRepo.getDebtSummary(DebtsRepo.getDebt('loan-b')!);
+      expect(b.matchedTransactionCount).toBe(1);
+      expect(b.paidSinceOpening).toBeCloseTo(192.66, 5);
+      expect(b.lastPaymentAmount).toBeCloseTo(192.66, 5);
+    });
+
     it('getAllDebtSummaries sums currentBalance across active debts only', () => {
       DebtsRepo.createDebt({
         id: 'other',
@@ -329,6 +460,54 @@ describe('debts repository', () => {
       expect(debts.find(d => d.id === 'test')).toBeDefined();
       expect(debts.find(d => d.id === 'zombie')).toBeUndefined();
       expect(totalOutstanding).toBe(600);
+    });
+
+    it('mortgage balance is static: matched transactions do not reduce currentBalance', () => {
+      DebtsRepo.createDebt({
+        id: 'mtg',
+        name: 'Mortgage',
+        merchantPattern: 'MORTGAGE',
+        sourceAccounts: ['natwest'],
+        originalLoanAmount: 200000,
+        openingBalance: 200000,
+        openingBalanceDate: '2026-01-01',
+        kind: 'mortgage',
+        repaymentType: 'interest-only',
+        interestRate: 4.48,
+        propertyValueEstimate: 300000,
+        propertyId: 'test-property',
+      });
+      insertTransaction({ date: '2026-02-01', description: 'MORTGAGE feb', amount: -800, account: 'natwest', type: 'expense' });
+      insertTransaction({ date: '2026-03-01', description: 'MORTGAGE mar', amount: -800, account: 'natwest', type: 'expense' });
+
+      const debt = DebtsRepo.getDebt('mtg')!;
+      expect(debt.kind).toBe('mortgage');
+      const summary = DebtsRepo.getDebtSummary(debt);
+      expect(summary.currentBalance).toBe(200000);
+      expect(summary.paidSinceOpening).toBe(1600);
+      expect(summary.matchedTransactionCount).toBe(2);
+    });
+
+    it('getAllDebtSummaries returns split totals for consumer vs mortgage', () => {
+      DebtsRepo.createDebt({
+        id: 'mtg2',
+        name: 'Mortgage 2',
+        merchantPattern: 'MTG2',
+        sourceAccounts: ['natwest'],
+        originalLoanAmount: 100000,
+        openingBalance: 100000,
+        openingBalanceDate: '2026-01-01',
+        kind: 'mortgage',
+        repaymentType: 'interest-only',
+        propertyValueEstimate: 150000,
+      });
+      const result = DebtsRepo.getAllDebtSummaries();
+      // test (consumer, 500) + mtg2 (mortgage, 100000)
+      expect(result.consumerTotal).toBe(500);
+      expect(result.mortgageTotal).toBe(100000);
+      expect(result.totalOutstanding).toBe(100500);
+      expect(result.totalPropertyValue).toBe(150000);
+      expect(result.netEquity).toBe(50000);
     });
   });
 
@@ -442,6 +621,42 @@ describe('debts repository', () => {
       expect(row).toBeDefined();
       expect(row!.openingBalanceDate).toBe('2025-07-19');
       expect(row!.openingBalance).toBe(650);
+    });
+
+    it('respects matchAmounts: shifts each same-pattern debt independently', () => {
+      DebtsRepo.createDebt({
+        id: 'loan-a',
+        name: 'Loan A',
+        merchantPattern: 'SHARED',
+        sourceAccounts: ['monzo-joint'],
+        originalLoanAmount: 1000,
+        openingBalance: 500,
+        openingBalanceDate: '2026-04-19',
+        matchAmounts: [100],
+      });
+      DebtsRepo.createDebt({
+        id: 'loan-b',
+        name: 'Loan B',
+        merchantPattern: 'SHARED',
+        sourceAccounts: ['monzo-joint'],
+        originalLoanAmount: 500,
+        openingBalance: 200,
+        openingBalanceDate: '2026-04-19',
+        matchAmounts: [50],
+      });
+      // Loan A gets the earlier payment (Feb), Loan B gets the later (March).
+      insertTransaction({ date: '2025-02-10', description: 'SHARED Feb', amount: -100, account: 'monzo-joint', type: 'expense' });
+      insertTransaction({ date: '2025-03-15', description: 'SHARED Mar', amount: -50, account: 'monzo-joint', type: 'expense' });
+
+      DebtsRepo.reconcileDebtOpeningDates();
+
+      const a = DebtsRepo.getDebt('loan-a')!;
+      expect(a.openingBalanceDate).toBe('2025-02-09');
+      expect(a.openingBalance).toBe(600); // 500 + 100
+
+      const b = DebtsRepo.getDebt('loan-b')!;
+      expect(b.openingBalanceDate).toBe('2025-03-14');
+      expect(b.openingBalance).toBe(250); // 200 + 50
     });
 
     it('ignores income and wrong-account transactions when finding earliest match', () => {

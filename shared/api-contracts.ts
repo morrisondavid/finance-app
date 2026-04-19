@@ -697,6 +697,9 @@ export const DebtIdSchema = z
 
 export const IsoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
+export const DebtKindSchema = z.enum(['consumer', 'mortgage']);
+export const RepaymentTypeSchema = z.enum(['repayment', 'interest-only']);
+
 export const DebtSchema = z.object({
   id: DebtIdSchema,
   name: z.string().min(1),
@@ -707,6 +710,17 @@ export const DebtSchema = z.object({
   openingBalance: z.number().min(0),
   openingBalanceDate: IsoDateSchema,
   archived: z.boolean(),
+  /**
+   * Payment amounts used to disambiguate debts that share the same merchant
+   * pattern. Empty array = no amount filter.
+   */
+  matchAmounts: z.array(z.number().positive()),
+  kind: DebtKindSchema,
+  interestRate: z.number().positive().nullable(),
+  fixedRateEndDate: IsoDateSchema.nullable(),
+  repaymentType: RepaymentTypeSchema.nullable(),
+  propertyValueEstimate: z.number().positive().nullable(),
+  propertyId: z.string().nullable(),
   updatedAt: z.string(),
 });
 
@@ -722,7 +736,11 @@ export const DebtSummarySchema = DebtSchema.extend({
 
 export const DebtSummariesResponseSchema = z.object({
   debts: z.array(DebtSummarySchema),
+  consumerTotal: z.number(),
+  mortgageTotal: z.number(),
   totalOutstanding: z.number(),
+  totalPropertyValue: z.number(),
+  netEquity: z.number(),
 });
 
 export const DebtCreateBodySchema = z.object({
@@ -734,6 +752,13 @@ export const DebtCreateBodySchema = z.object({
   originalLoanDate: IsoDateSchema.nullable().optional(),
   openingBalance: z.number().min(0),
   openingBalanceDate: IsoDateSchema,
+  matchAmounts: z.array(z.number().positive()).optional(),
+  kind: DebtKindSchema.optional(),
+  interestRate: z.number().positive().nullable().optional(),
+  fixedRateEndDate: IsoDateSchema.nullable().optional(),
+  repaymentType: RepaymentTypeSchema.nullable().optional(),
+  propertyValueEstimate: z.number().positive().nullable().optional(),
+  propertyId: z.string().nullable().optional(),
 });
 
 export const DebtUpdateBodySchema = z.object({
@@ -745,6 +770,13 @@ export const DebtUpdateBodySchema = z.object({
   openingBalance: z.number().min(0).optional(),
   openingBalanceDate: IsoDateSchema.optional(),
   archived: z.boolean().optional(),
+  matchAmounts: z.array(z.number().positive()).optional(),
+  kind: DebtKindSchema.optional(),
+  interestRate: z.number().positive().nullable().optional(),
+  fixedRateEndDate: IsoDateSchema.nullable().optional(),
+  repaymentType: RepaymentTypeSchema.nullable().optional(),
+  propertyValueEstimate: z.number().positive().nullable().optional(),
+  propertyId: z.string().nullable().optional(),
 });
 
 export const DebtOpeningBalanceBodySchema = z.object({
@@ -842,6 +874,8 @@ export type CreateDismissalBody = z.infer<typeof CreateDismissalBodySchema>;
 export type DismissalsListResponse = z.infer<typeof DismissalsListResponseSchema>;
 
 // Debts Types
+export type DebtKind = z.infer<typeof DebtKindSchema>;
+export type RepaymentType = z.infer<typeof RepaymentTypeSchema>;
 export type DebtId = z.infer<typeof DebtIdSchema>;
 export type Debt = z.infer<typeof DebtSchema>;
 export type DebtSummary = z.infer<typeof DebtSummarySchema>;

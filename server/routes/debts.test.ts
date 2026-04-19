@@ -37,6 +37,13 @@ function createSchema(): void {
       original_loan_date TEXT,
       opening_balance REAL NOT NULL DEFAULT 0 CHECK(opening_balance >= 0),
       opening_balance_date TEXT NOT NULL,
+      match_amounts TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'consumer' CHECK(kind IN ('consumer', 'mortgage')),
+      interest_rate REAL,
+      fixed_rate_end_date TEXT,
+      repayment_type TEXT CHECK(repayment_type IS NULL OR repayment_type IN ('repayment', 'interest-only')),
+      property_value_estimate REAL,
+      property_id TEXT,
       archived INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -185,6 +192,47 @@ describe('/api/debts routes', () => {
       expect(res.status).toBe(400);
     });
 
+    it('round-trips matchAmounts into the created debt and the CSV', async () => {
+      const res = await fetch(`${baseUrl}/api/debts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'shared-a',
+          name: 'Shared A',
+          merchantPattern: 'SHARED',
+          sourceAccounts: ['monzo-joint'],
+          originalLoanAmount: 1000,
+          openingBalance: 500,
+          openingBalanceDate: '2026-04-19',
+          matchAmounts: [232.22],
+        }),
+      });
+      expect(res.status).toBe(201);
+      const body = await res.json() as { debt: { matchAmounts: number[] } };
+      expect(body.debt.matchAmounts).toEqual([232.22]);
+
+      const csvRows = readDebtsFromCsvFile(path.join(hoisted.debtsDir, DEBTS_CSV_FILENAME));
+      expect(csvRows.find(r => r.id === 'shared-a')?.matchAmounts).toEqual([232.22]);
+    });
+
+    it('400 on matchAmounts with non-positive value', async () => {
+      const res = await fetch(`${baseUrl}/api/debts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'bad-ma',
+          name: 'Bad',
+          merchantPattern: 'X',
+          sourceAccounts: ['barclays-current'],
+          originalLoanAmount: 100,
+          openingBalance: 50,
+          openingBalanceDate: '2026-04-19',
+          matchAmounts: [0],
+        }),
+      });
+      expect(res.status).toBe(400);
+    });
+
     it('400 on duplicate id', async () => {
       seedDebt({ id: 'dup' });
       const res = await fetch(`${baseUrl}/api/debts`, {
@@ -227,6 +275,30 @@ describe('/api/debts routes', () => {
         body: JSON.stringify({ name: 'X' }),
       });
       expect(res.status).toBe(404);
+    });
+
+    it('can set matchAmounts to a new value and clear it back to empty', async () => {
+      const id = seedDebt();
+      const res1 = await fetch(`${baseUrl}/api/debts/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchAmounts: [192.66] }),
+      });
+      expect(res1.status).toBe(200);
+      const body1 = await res1.json() as { debt: { matchAmounts: number[] } };
+      expect(body1.debt.matchAmounts).toEqual([192.66]);
+
+      const res2 = await fetch(`${baseUrl}/api/debts/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchAmounts: [] }),
+      });
+      expect(res2.status).toBe(200);
+      const body2 = await res2.json() as { debt: { matchAmounts: number[] } };
+      expect(body2.debt.matchAmounts).toEqual([]);
+
+      const csvRows = readDebtsFromCsvFile(path.join(hoisted.debtsDir, DEBTS_CSV_FILENAME));
+      expect(csvRows.find(r => r.id === id)?.matchAmounts).toEqual([]);
     });
   });
 
@@ -311,6 +383,47 @@ describe('/api/debts routes', () => {
       expect(debt.paidSinceOpening).toBe(200);
       expect(debt.currentBalance).toBe(300);
       expect(debt.matchedTransactionCount).toBe(2);
+    });
+
+    it('POST creates a mortgage and GET returns split totals', async () => {
+      seedDebt({ id: 'consumer1', openingBalance: 500, originalLoanAmount: 1000 });
+      const mtgRes = await fetch(`${baseUrl}/api/debts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'mtg1',
+          name: 'Mortgage',
+          merchantPattern: 'MORTGAGE',
+          sourceAccounts: ['natwest'],
+          originalLoanAmount: 200000,
+          openingBalance: 200000,
+          openingBalanceDate: '2026-01-01',
+          kind: 'mortgage',
+          interestRate: 4.48,
+          fixedRateEndDate: '2028-04-30',
+          repaymentType: 'interest-only',
+          propertyValueEstimate: 300000,
+          propertyId: 'test-prop',
+        }),
+      });
+      expect(mtgRes.status).toBe(201);
+      const mtgBody = await mtgRes.json() as { debt: { kind: string; interestRate: number } };
+      expect(mtgBody.debt.kind).toBe('mortgage');
+      expect(mtgBody.debt.interestRate).toBe(4.48);
+
+      const listRes = await fetch(`${baseUrl}/api/debts`);
+      const listBody = await listRes.json() as {
+        consumerTotal: number;
+        mortgageTotal: number;
+        totalOutstanding: number;
+        totalPropertyValue: number;
+        netEquity: number;
+      };
+      expect(listBody.consumerTotal).toBe(500);
+      expect(listBody.mortgageTotal).toBe(200000);
+      expect(listBody.totalOutstanding).toBe(200500);
+      expect(listBody.totalPropertyValue).toBe(300000);
+      expect(listBody.netEquity).toBe(100000);
     });
   });
 });

@@ -3406,33 +3406,145 @@ body {
   margin-bottom: 24px;
 }
 
-.debt-hero {
+.debt-pods-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 820px) {
+  .debt-pods-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .debt-pods-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.debt-pod {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 20px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  background: var(--color-surface);
+  border-top: 3px solid var(--color-border);
+}
+
+.debt-pod--consumer {
+  border-top-color: #ef4444;
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.debt-pod--mortgage {
+  border-top-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.debt-pod--total {
+  border-top-color: #1f2937;
   background: linear-gradient(135deg, #1f2937, #111827);
   color: #fff;
-  border-radius: var(--radius);
-  padding: 20px 28px;
-  min-width: 280px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
-.debt-hero-label {
-  font-size: 0.85rem;
+.debt-pod-label {
+  font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  opacity: 0.75;
+  font-weight: 600;
+  color: var(--color-text-muted);
 }
 
-.debt-hero-value {
-  font-size: 2.2rem;
+.debt-pod--total .debt-pod-label {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.debt-pod-value {
+  font-size: 1.6rem;
   font-weight: 700;
-  margin-top: 4px;
-  color: #fca5a5;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+  margin-top: 2px;
 }
 
-.debt-hero-sub {
-  font-size: 0.9rem;
-  opacity: 0.75;
+.debt-pod--consumer .debt-pod-value {
+  color: #dc2626;
+}
+
+.debt-pod--mortgage .debt-pod-value {
+  color: #2563eb;
+}
+
+.debt-pod--total .debt-pod-value {
+  color: #fca5a5;
+  font-size: 1.8rem;
+}
+
+.debt-pod-sub {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.debt-pod--total .debt-pod-sub {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.debt-section-heading {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 36px 0 18px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.debt-card--mortgage {
+  border-left: 3px solid #3b82f6;
+}
+
+.debt-card-rate-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
   margin-top: 4px;
+}
+
+.debt-rate-badge {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.debt-rate-badge--fixed {
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+}
+
+.debt-rate-badge--variable {
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+}
+
+.debt-card-monthly {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.debt-card-repayment-type {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  text-transform: capitalize;
 }
 
 .debt-header-actions {

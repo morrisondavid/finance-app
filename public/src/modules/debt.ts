@@ -19,7 +19,11 @@ import type {
 
 interface DebtTabState {
   summaries: DebtSummary[];
+  consumerTotal: number;
+  mortgageTotal: number;
   totalOutstanding: number;
+  totalPropertyValue: number;
+  netEquity: number;
   includeArchived: boolean;
   editingId: string | null;
   balanceEditingId: string | null;
@@ -28,7 +32,11 @@ interface DebtTabState {
 
 const tabState: DebtTabState = {
   summaries: [],
+  consumerTotal: 0,
+  mortgageTotal: 0,
   totalOutstanding: 0,
+  totalPropertyValue: 0,
+  netEquity: 0,
   includeArchived: false,
   editingId: null,
   balanceEditingId: null,
@@ -68,58 +76,90 @@ async function fetchDebts(): Promise<void> {
   }
   const json = (await res.json()) as DebtSummariesResponse;
   tabState.summaries = json.debts;
+  tabState.consumerTotal = json.consumerTotal;
+  tabState.mortgageTotal = json.mortgageTotal;
   tabState.totalOutstanding = json.totalOutstanding;
+  tabState.totalPropertyValue = json.totalPropertyValue;
+  tabState.netEquity = json.netEquity;
 }
 
-function renderHero(): void {
-  const totalEl = document.getElementById('debt-hero-total');
-  const subEl = document.getElementById('debt-hero-sub');
-  if (totalEl) totalEl.textContent = formatCurrency(tabState.totalOutstanding);
-  const activeCount = tabState.summaries.filter(d => !d.archived).length;
-  if (subEl) {
-    subEl.textContent = `${activeCount} active creditor${activeCount === 1 ? '' : 's'}`;
+function renderPods(): void {
+  const active = tabState.summaries.filter(d => !d.archived);
+  const consumerCount = active.filter(d => d.kind === 'consumer').length;
+  const mortgageCount = active.filter(d => d.kind === 'mortgage').length;
+
+  const consumerVal = document.getElementById('debt-pod-consumer');
+  const consumerSub = document.getElementById('debt-pod-consumer-sub');
+  if (consumerVal) consumerVal.textContent = formatCurrency(tabState.consumerTotal);
+  if (consumerSub) consumerSub.textContent = `${consumerCount} creditor${consumerCount === 1 ? '' : 's'}`;
+
+  const mortgageVal = document.getElementById('debt-pod-mortgage');
+  const mortgageSub = document.getElementById('debt-pod-mortgage-sub');
+  if (mortgageVal) mortgageVal.textContent = formatCurrency(tabState.mortgageTotal);
+  if (mortgageSub) {
+    mortgageSub.textContent = `${mortgageCount} propert${mortgageCount === 1 ? 'y' : 'ies'}`;
   }
+
+  const totalVal = document.getElementById('debt-pod-total');
+  const totalSub = document.getElementById('debt-pod-total-sub');
+  if (totalVal) totalVal.textContent = formatCurrency(tabState.totalOutstanding);
+  if (totalSub) {
+    if (tabState.totalPropertyValue > 0) {
+      totalSub.textContent = `Net equity ${formatCurrency(tabState.netEquity)}`;
+    } else {
+      totalSub.textContent = '';
+    }
+  }
+}
+
+function renderCardHeader(debt: DebtSummary): string {
+  const archivedBadge = debt.archived
+    ? '<span class="debt-archived-badge">Archived</span>'
+    : '';
+  return `
+    <header class="debt-card-header">
+      <div class="debt-card-title">
+        <h3>${escapeHtml(debt.name)}</h3>
+        ${archivedBadge}
+      </div>
+      <div class="debt-card-actions">
+        <button type="button" class="btn-small" data-debt-action="edit">Edit</button>
+        <button type="button" class="btn-small btn-secondary" data-debt-action="archive">
+          ${debt.archived ? 'Unarchive' : 'Archive'}
+        </button>
+      </div>
+    </header>`;
+}
+
+function renderCardBalance(debt: DebtSummary): string {
+  const originalLoanDateLine = debt.originalLoanDate
+    ? ` · opened ${formatIsoDateUkLong(debt.originalLoanDate)}`
+    : '';
+  return `
+    <div class="debt-card-balance">
+      <span class="debt-card-balance-label">Current balance</span>
+      <span class="debt-card-balance-value">${formatCurrency(debt.currentBalance)}</span>
+      <span class="debt-card-balance-note">
+        of ${formatCurrency(debt.originalLoanAmount)} original${originalLoanDateLine}
+      </span>
+    </div>`;
 }
 
 function renderCard(debt: DebtSummary): string {
   const pct = Math.round(debt.payoffProgress * 100);
   const paidTotal = Math.max(0, debt.originalLoanAmount - debt.currentBalance);
-  const archivedBadge = debt.archived
-    ? '<span class="debt-archived-badge">Archived</span>'
-    : '';
   const lastPaymentLine =
     debt.lastPaymentDate && debt.lastPaymentAmount !== null
       ? `${formatCurrency(debt.lastPaymentAmount)} · ${formatIsoDateUkLong(debt.lastPaymentDate)}`
       : 'No payments matched yet';
-  const originalLoanDateLine = debt.originalLoanDate
-    ? ` · opened ${formatIsoDateUkLong(debt.originalLoanDate)}`
-    : '';
   const accountsLine = debt.sourceAccounts
     .map(a => escapeHtml(formatAccountName(a)))
     .join(', ');
 
   return `
     <article class="debt-card ${debt.archived ? 'debt-card-archived' : ''}" data-debt-id="${escapeAttribute(debt.id)}">
-      <header class="debt-card-header">
-        <div class="debt-card-title">
-          <h3>${escapeHtml(debt.name)}</h3>
-          ${archivedBadge}
-        </div>
-        <div class="debt-card-actions">
-          <button type="button" class="btn-small" data-debt-action="edit">Edit</button>
-          <button type="button" class="btn-small btn-secondary" data-debt-action="archive">
-            ${debt.archived ? 'Unarchive' : 'Archive'}
-          </button>
-        </div>
-      </header>
-
-      <div class="debt-card-balance">
-        <span class="debt-card-balance-label">Current balance</span>
-        <span class="debt-card-balance-value">${formatCurrency(debt.currentBalance)}</span>
-        <span class="debt-card-balance-note">
-          of ${formatCurrency(debt.originalLoanAmount)} original${originalLoanDateLine}
-        </span>
-      </div>
+      ${renderCardHeader(debt)}
+      ${renderCardBalance(debt)}
 
       <div class="debt-card-progress">
         <div class="debt-card-progress-bar">
@@ -157,19 +197,81 @@ function renderCard(debt: DebtSummary): string {
   `;
 }
 
-function renderCards(): void {
-  const listEl = document.getElementById('debt-list');
-  const emptyEl = document.getElementById('debt-empty');
-  if (!listEl) return;
-  if (tabState.summaries.length === 0) {
-    listEl.innerHTML = '';
-    if (emptyEl) emptyEl.hidden = false;
-    return;
-  }
-  if (emptyEl) emptyEl.hidden = true;
-  listEl.innerHTML = tabState.summaries.map(renderCard).join('');
+function formatRateBadge(debt: DebtSummary): string {
+  if (debt.interestRate == null) return '';
+  const rateType = debt.fixedRateEndDate ? 'Fixed' : 'Variable';
+  const cls = debt.fixedRateEndDate ? 'debt-rate-badge--fixed' : 'debt-rate-badge--variable';
+  return `<span class="debt-rate-badge ${cls}">${debt.interestRate}% ${rateType}</span>`;
+}
 
-  listEl.querySelectorAll<HTMLElement>('[data-debt-action]').forEach(btn => {
+function formatFixedRateCountdown(debt: DebtSummary): string {
+  if (!debt.fixedRateEndDate) return '';
+  const endDate = new Date(debt.fixedRateEndDate);
+  const now = new Date();
+  const diffMs = endDate.getTime() - now.getTime();
+  if (diffMs <= 0) return '<span class="debt-card-fact-note">Expired</span>';
+  const months = Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 30.44));
+  return `<span class="debt-card-fact-note">ends in ${months} month${months === 1 ? '' : 's'}</span>`;
+}
+
+function renderMortgageCard(debt: DebtSummary): string {
+  const lastPaymentLine =
+    debt.lastPaymentDate && debt.lastPaymentAmount !== null
+      ? `${formatCurrency(debt.lastPaymentAmount)} · ${formatIsoDateUkLong(debt.lastPaymentDate)}`
+      : 'No payments matched yet';
+  const accountsLine = debt.sourceAccounts
+    .map(a => escapeHtml(formatAccountName(a)))
+    .join(', ');
+
+  const ltv = debt.propertyValueEstimate && debt.propertyValueEstimate > 0
+    ? Math.round((debt.currentBalance / debt.propertyValueEstimate) * 100)
+    : null;
+
+  return `
+    <article class="debt-card debt-card--mortgage ${debt.archived ? 'debt-card-archived' : ''}" data-debt-id="${escapeAttribute(debt.id)}">
+      ${renderCardHeader(debt)}
+      ${renderCardBalance(debt)}
+
+      <div class="debt-card-rate-row">
+        ${formatRateBadge(debt)}
+        ${debt.matchAmounts.length > 0 ? `<span class="debt-card-monthly">${formatCurrency(debt.matchAmounts[0])}/mo</span>` : ''}
+        ${debt.repaymentType ? `<span class="debt-card-repayment-type">${escapeHtml(debt.repaymentType)}</span>` : ''}
+      </div>
+
+      <dl class="debt-card-facts">
+        ${debt.fixedRateEndDate ? `
+          <div class="debt-card-fact">
+            <dt>Fixed rate ends</dt>
+            <dd>${formatIsoDateUkLong(debt.fixedRateEndDate)} ${formatFixedRateCountdown(debt)}</dd>
+          </div>` : ''}
+        ${debt.propertyValueEstimate != null ? `
+          <div class="debt-card-fact">
+            <dt>Property value (HPI)</dt>
+            <dd>${formatCurrency(debt.propertyValueEstimate)}${ltv != null ? ` <span class="debt-card-fact-note">${ltv}% LTV</span>` : ''}</dd>
+          </div>` : ''}
+        <div class="debt-card-fact debt-card-fact-clickable" data-debt-action="balance" title="Edit opening balance">
+          <dt>Outstanding balance</dt>
+          <dd>${formatCurrency(debt.openingBalance)} <span class="debt-card-fact-note">on ${formatIsoDateUkLong(debt.openingBalanceDate)}</span></dd>
+        </div>
+        <div class="debt-card-fact">
+          <dt>Last payment</dt>
+          <dd>${escapeHtml(lastPaymentLine)}</dd>
+        </div>
+        <div class="debt-card-fact">
+          <dt>From</dt>
+          <dd>${accountsLine}</dd>
+        </div>
+        <div class="debt-card-fact">
+          <dt>Matches</dt>
+          <dd><code>${escapeHtml(debt.merchantPattern)}</code></dd>
+        </div>
+      </dl>
+    </article>
+  `;
+}
+
+function wireCardActions(container: HTMLElement): void {
+  container.querySelectorAll<HTMLElement>('[data-debt-action]').forEach(btn => {
     btn.addEventListener('click', event => {
       event.stopPropagation();
       const card = btn.closest<HTMLElement>('[data-debt-id]');
@@ -182,6 +284,37 @@ function renderCards(): void {
       else if (action === 'balance') openDebtBalanceModal(id);
     });
   });
+}
+
+function renderCards(): void {
+  const listEl = document.getElementById('debt-list');
+  const emptyEl = document.getElementById('debt-empty');
+  const mortgageSection = document.getElementById('debt-mortgage-section');
+  const mortgageListEl = document.getElementById('debt-mortgage-list');
+
+  const consumers = tabState.summaries.filter(d => d.kind === 'consumer');
+  const mortgages = tabState.summaries.filter(d => d.kind === 'mortgage');
+
+  if (listEl) {
+    if (consumers.length === 0) {
+      listEl.innerHTML = '';
+      if (emptyEl) emptyEl.hidden = mortgages.length > 0 ? true : tabState.summaries.length > 0;
+    } else {
+      if (emptyEl) emptyEl.hidden = true;
+      listEl.innerHTML = consumers.map(renderCard).join('');
+      wireCardActions(listEl);
+    }
+  }
+
+  if (mortgageListEl && mortgageSection) {
+    if (mortgages.length === 0) {
+      mortgageSection.hidden = true;
+    } else {
+      mortgageSection.hidden = false;
+      mortgageListEl.innerHTML = mortgages.map(renderMortgageCard).join('');
+      wireCardActions(mortgageListEl);
+    }
+  }
 }
 
 function findDebt(id: string): DebtSummary | undefined {
@@ -441,7 +574,7 @@ async function confirmArchive(): Promise<void> {
 async function refresh(): Promise<void> {
   try {
     await fetchDebts();
-    renderHero();
+    renderPods();
     renderCards();
   } catch (err) {
     console.error('[Debt] load failed', err);

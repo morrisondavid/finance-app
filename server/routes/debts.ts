@@ -33,8 +33,8 @@ function errorMessage(e: unknown): string {
 router.get('/', (req: Request, res: Response) => {
   try {
     const includeArchived = req.query.includeArchived === '1' || req.query.includeArchived === 'true';
-    const { debts, totalOutstanding } = getAllDebtSummaries({ includeArchived });
-    res.json({ debts, totalOutstanding });
+    const result = getAllDebtSummaries({ includeArchived });
+    res.json(result);
   } catch (error) {
     console.error('[Debts] GET error:', error);
     res.status(500).json({ error: 'Failed to list debts' });
@@ -67,6 +67,13 @@ router.post('/', (req: Request, res: Response) => {
       originalLoanDate: body.originalLoanDate ?? null,
       openingBalance: body.openingBalance,
       openingBalanceDate: body.openingBalanceDate,
+      matchAmounts: body.matchAmounts,
+      kind: body.kind,
+      interestRate: body.interestRate,
+      fixedRateEndDate: body.fixedRateEndDate,
+      repaymentType: body.repaymentType,
+      propertyValueEstimate: body.propertyValueEstimate,
+      propertyId: body.propertyId,
     });
     res.status(201).json({ debt: getDebtSummary(debt) });
   } catch (error) {
@@ -102,6 +109,13 @@ router.put('/:id', (req: Request<{ id: string }>, res: Response) => {
       openingBalance: body.openingBalance,
       openingBalanceDate: body.openingBalanceDate,
       archived: body.archived,
+      matchAmounts: body.matchAmounts,
+      kind: body.kind,
+      interestRate: body.interestRate,
+      fixedRateEndDate: body.fixedRateEndDate,
+      repaymentType: body.repaymentType,
+      propertyValueEstimate: body.propertyValueEstimate,
+      propertyId: body.propertyId,
     });
     res.json({ debt: getDebtSummary(debt) });
   } catch (error) {

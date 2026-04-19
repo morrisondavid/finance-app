@@ -621,10 +621,22 @@
     <!-- Debt Tab -->
     <section id="debt" class="tab-content">
       <div class="debt-header">
-        <div class="debt-hero">
-          <div class="debt-hero-label">Total Outstanding Debt</div>
-          <div class="debt-hero-value" id="debt-hero-total">£0.00</div>
-          <div class="debt-hero-sub" id="debt-hero-sub">0 active creditors</div>
+        <div class="debt-pods-grid">
+          <div class="debt-pod debt-pod--consumer">
+            <div class="debt-pod-label">Consumer Debt</div>
+            <div class="debt-pod-value" id="debt-pod-consumer">£0.00</div>
+            <div class="debt-pod-sub" id="debt-pod-consumer-sub">0 creditors</div>
+          </div>
+          <div class="debt-pod debt-pod--mortgage">
+            <div class="debt-pod-label">Mortgage Debt</div>
+            <div class="debt-pod-value" id="debt-pod-mortgage">£0.00</div>
+            <div class="debt-pod-sub" id="debt-pod-mortgage-sub">0 properties</div>
+          </div>
+          <div class="debt-pod debt-pod--total">
+            <div class="debt-pod-label">Total Debt</div>
+            <div class="debt-pod-value" id="debt-pod-total">£0.00</div>
+            <div class="debt-pod-sub" id="debt-pod-total-sub"></div>
+          </div>
         </div>
         <div class="debt-header-actions">
           <button type="button" class="btn btn-primary" id="debt-add-btn">+ Add debt</button>
@@ -637,6 +649,11 @@
 
       <div id="debt-list" class="debt-grid" aria-live="polite"></div>
       <p class="debt-empty" id="debt-empty" hidden>No debts tracked yet. Click "+ Add debt" to add your first creditor.</p>
+
+      <div id="debt-mortgage-section" hidden>
+        <h3 class="debt-section-heading">Mortgages</h3>
+        <div id="debt-mortgage-list" class="debt-grid" aria-live="polite"></div>
+      </div>
 
       <!-- Create / Edit modal -->
       <div class="modal-overlay" id="debt-edit-modal" style="display:none">
