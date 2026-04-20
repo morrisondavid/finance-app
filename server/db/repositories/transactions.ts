@@ -1,5 +1,6 @@
 import type { Transaction, TransactionType, AccountName } from '../../types.js';
-import { isCreditCard, isCrossAccountBusinessToBusinessTransfer } from '../../types.js';
+import { isCreditCard, isCrossAccountBusinessToBusinessTransfer, getAccountConfig, isValidAccountName } from '../../types.js';
+import type { CurrencyCode } from '../../types.js';
 import { getDb, generateTransactionHash } from '../connection.js';
 import { formatDateISO } from '../../../shared/date-format.js';
 import { getFinancialYearRange, buildDashboardFilters, type DashboardFilters } from '../utils/financial-year.js';
@@ -13,6 +14,14 @@ import {
   getIncomeCondition,
   getExpenseCondition 
 } from '../utils/query-builders.js';
+import { convertAmountSync } from '../../config/exchange-rates.js';
+
+function accountCurrency(account: string): CurrencyCode {
+  if (!isValidAccountName(account)) return 'GBP';
+  return getAccountConfig(account as AccountName).currency;
+}
+
+const CROSS_CURRENCY_TOLERANCE = 0.20;
 import {
   expenseTxnMatchesMerchantModal,
   merchantDrillSearchSql,
@@ -177,9 +186,18 @@ export function detectTransfers(): number {
       const expenseDate = new Date(expense.date);
       const expenseAmount = Math.abs(expense.amount);
       const expenseIsTransferLike = isTransferLikeDescription(expense.description);
-      
-      // Check if amounts match (within 1 penny for floating point)
-      if (Math.abs(incomeAmount - expenseAmount) > 0.01) continue;
+
+      const incomeCur = accountCurrency(income.account);
+      const expenseCur = accountCurrency(expense.account);
+      const crossCurrency = incomeCur !== expenseCur;
+
+      if (crossCurrency) {
+        const convertedExpense = convertAmountSync(expenseAmount, expenseCur, incomeCur);
+        const diff = Math.abs(incomeAmount - convertedExpense);
+        if (diff / Math.max(incomeAmount, 1) > CROSS_CURRENCY_TOLERANCE) continue;
+      } else {
+        if (Math.abs(incomeAmount - expenseAmount) > 0.01) continue;
+      }
       
       // Check if dates are within tolerance
       const daysDiff = Math.abs((incomeDate.getTime() - expenseDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -217,8 +235,8 @@ export function detectTransfers(): number {
       
       const transferType = expense.account === income.account 
         ? (incomeIsBounce ? 'bounce' : 'internal')
-        : 'cross-account';
-      console.log(`[Database] Transfer pair (${transferType}): £${incomeAmount.toFixed(2)} (${income.date})`);
+        : crossCurrency ? 'cross-currency' : 'cross-account';
+      console.log(`[Database] Transfer pair (${transferType}): ${incomeAmount.toFixed(2)} ${incomeCur} (${income.date})`);
       break;
     }
   }

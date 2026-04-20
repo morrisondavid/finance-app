@@ -4,9 +4,9 @@
 
 import { Chart } from 'chart.js/auto';
 import type { MonthlySummary } from '../types';
-import { state, setState } from './state';
+import { state, setState, getSelectedCurrency } from './state';
 import { fetchCategories } from '../utils/api';
-import { formatCurrency } from '../utils/formatting';
+import { formatCurrency, currencySymbol } from '../utils/formatting';
 import { showTransactionsModal, showCategoryTransactionsModal } from './dashboard-modals';
 
 let currentMonthlyData: MonthlySummary[] = [];
@@ -69,7 +69,8 @@ export function renderMonthlyChart(monthlyData: MonthlySummary[]): void {
           callbacks: {
             label: (context: unknown) => {
               const tip = context as { raw: number; dataset: { label?: string } };
-              return `${tip.dataset.label}: £${tip.raw.toLocaleString()}`;
+              const sym = currencySymbol(getSelectedCurrency());
+              return `${tip.dataset.label}: ${sym}${tip.raw.toLocaleString()}`;
             }
           }
         }
@@ -78,7 +79,7 @@ export function renderMonthlyChart(monthlyData: MonthlySummary[]): void {
         y: {
           beginAtZero: true,
           ticks: {
-            callback: (value: unknown) => '£' + (value as number).toLocaleString()
+            callback: (value: unknown) => currencySymbol(getSelectedCurrency()) + (value as number).toLocaleString()
           }
         }
       },
@@ -181,7 +182,8 @@ export async function renderCategoryChart(): Promise<void> {
               label: (context: unknown) => {
                 const tip = context as { label: string; raw: number };
                 const cat = visible.find(c => c.name === tip.label);
-                return `${tip.label}: ${formatCurrency(tip.raw)} (${cat?.percentage ?? 0}%)`;
+                const cur = getSelectedCurrency();
+                return `${tip.label}: ${formatCurrency(tip.raw, cur)} (${cat?.percentage ?? 0}%)`;
               },
             },
           },
@@ -206,7 +208,7 @@ export async function renderCategoryChart(): Promise<void> {
 
           drawCtx.font = '700 18px -apple-system, BlinkMacSystemFont, sans-serif';
           drawCtx.fillStyle = '#1e293b';
-          drawCtx.fillText(formatCurrency(data.totalExpenses), centerX, centerY + 10);
+          drawCtx.fillText(formatCurrency(data.totalExpenses, getSelectedCurrency()), centerX, centerY + 10);
 
           drawCtx.restore();
         },
@@ -219,7 +221,7 @@ export async function renderCategoryChart(): Promise<void> {
           <div class="category-legend-item">
             <span class="category-swatch" style="background:${c.colour}"></span>
             <span class="category-name">${c.name}</span>
-            <span class="category-amount">${formatCurrency(c.total)}</span>
+            <span class="category-amount">${formatCurrency(c.total, getSelectedCurrency())}</span>
             <span class="category-pct">${c.percentage}%</span>
           </div>
         `)
@@ -253,15 +255,16 @@ export function renderMonthlyTable(monthlyData: MonthlySummary[]): void {
       </thead>
       <tbody>
         ${monthlyData.map(m => {
+          const cur = getSelectedCurrency();
           const [y, mo] = m.month.split('-');
           const label = new Date(parseInt(y), parseInt(mo) - 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
           return `
           <tr>
             <td>${label}</td>
-            <td class="income">${formatCurrency(m.income)}</td>
-            <td class="expense">${formatCurrency(m.expenses)}</td>
-            <td class="${m.net >= 0 ? 'income' : 'expense'}">${formatCurrency(m.net)}</td>
-            <td>${formatCurrency(m.vat)}</td>
+            <td class="income">${formatCurrency(m.income, cur)}</td>
+            <td class="expense">${formatCurrency(m.expenses, cur)}</td>
+            <td class="${m.net >= 0 ? 'income' : 'expense'}">${formatCurrency(m.net, cur)}</td>
+            <td>${formatCurrency(m.vat, cur)}</td>
           </tr>`;
         }).join('')}
       </tbody>

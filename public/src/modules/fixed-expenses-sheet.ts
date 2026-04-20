@@ -281,6 +281,17 @@ function renderFlatTable(sections: ExpensesSection[], suffix: string, excluded: 
   `;
 }
 
+/**
+ * Render the amount cell as "£882.00" for GBP bills or
+ * "£882.00 (AED 4,200.00)" for non-GBP bills so the user sees both
+ * the GBP figure used in totals and the native invoice amount.
+ */
+function formatAmountWithNative(item: ExpensesLineItem): string {
+  const primary = formatCurrency(item.amount);
+  if (item.nativeAmount === undefined || item.nativeCurrency === undefined) return primary;
+  return `${primary} (${formatCurrency(item.nativeAmount, item.nativeCurrency)})`;
+}
+
 function renderIncomeRow(item: ExpensesLineItem, amountSuffix: string, excluded: ReadonlySet<string>): string {
   const freq = item.frequency === 'annual' ? '/yr' : '/mo';
   const suffix = amountSuffix || freq;
@@ -305,7 +316,7 @@ function renderIncomeRow(item: ExpensesLineItem, amountSuffix: string, excluded:
         ${billing}
       </td>
       <td><span class="fixed-expenses-account-pill">${escapeHtml(item.sourceAccount)}</span></td>
-      <td class="fixed-expenses-col-amount">${formatCurrency(item.amount)}${suffix}</td>
+      <td class="fixed-expenses-col-amount">${formatAmountWithNative(item)}${suffix}</td>
       ${excludeCell}
       <td class="fixed-expenses-col-info">${infoBtn}</td>
     </tr>
@@ -350,7 +361,7 @@ function renderRow(
         ${billing}
       </td>
       <td><span class="fixed-expenses-account-pill">${escapeHtml(item.sourceAccount)}</span></td>
-      <td class="fixed-expenses-col-amount">${formatCurrency(item.amount)}${suffix}</td>
+      <td class="fixed-expenses-col-amount">${formatAmountWithNative(item)}${suffix}</td>
       ${excludeCell}
       <td class="fixed-expenses-col-info">${infoBtn}</td>
     </tr>

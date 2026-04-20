@@ -11,8 +11,9 @@ import {
   createBudget,
   deleteBudget,
 } from '../utils/api';
-import { formatCurrency } from '../utils/formatting';
+import { formatCurrency, currencySymbol } from '../utils/formatting';
 import { escapeHtml } from '../utils/dom';
+import { getSelectedCurrency } from './state';
 import { loadDashboard } from './dashboard';
 import { eligibleCategoriesForPeriod } from './budget-sheet-utils';
 import type { BudgetPeriod, BudgetRow } from '../../../shared/api-contracts.js';
@@ -157,7 +158,7 @@ export async function loadBudgetSheet(): Promise<void> {
             <th>Account</th>
             <th>Category</th>
             <th>Period</th>
-            <th>Cap (£)</th>
+            <th>Cap (${currencySymbol(getSelectedCurrency())})</th>
             <th>FY implied (12× monthly)</th>
             <th></th>
           </tr>

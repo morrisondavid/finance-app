@@ -5,6 +5,7 @@ import natwestParser from './natwest.js';
 import capitalOnTapParser from './capital-on-tap.js';
 import barclaycardParser from './barclaycard.js';
 import monzoParser from './monzo.js';
+import emiratesIslamicParser from './emirates-islamic.js';
 import type { BankParser, ParserMap, Transaction, CSVRow } from '../types.js';
 import { isCreditCard, isValidAccountName } from '../types.js';
 import { normalizeDescription } from '../db/connection.js';
@@ -20,7 +21,8 @@ export const PARSERS: ParserMap = {
   'natwest-savings': natwestParser,
   'capital-on-tap': capitalOnTapParser,
   'barclaycard': barclaycardParser,
-  'monzo-joint': monzoParser
+  'monzo-joint': monzoParser,
+  'emirates-islamic': emiratesIslamicParser
 };
 
 /**

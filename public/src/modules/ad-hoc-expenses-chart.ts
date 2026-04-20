@@ -4,6 +4,8 @@
 
 import { Chart } from 'chart.js/auto';
 import type { AdHocMerchantSeriesResponse } from '../../../shared/api-contracts.js';
+import { currencySymbol } from '../utils/formatting';
+import { getSelectedCurrency } from './state';
 
 let currentChart: Chart<'line'> | null = null;
 
@@ -52,7 +54,7 @@ export function renderAdHocMerchantLineChart(data: AdHocMerchantSeriesResponse):
       labels,
       datasets: [
         {
-          label: 'Spend (£)',
+          label: `Spend (${currencySymbol(getSelectedCurrency())})`,
           data: totals,
           borderColor: 'rgba(239, 68, 68, 0.95)',
           backgroundColor: 'rgba(239, 68, 68, 0.12)',
@@ -84,7 +86,7 @@ export function renderAdHocMerchantLineChart(data: AdHocMerchantSeriesResponse):
           beginAtZero: true,
           ticks: {
             callback: (value: string | number) =>
-              typeof value === 'number' ? `£${value.toLocaleString('en-GB')}` : value,
+              typeof value === 'number' ? `${currencySymbol(getSelectedCurrency())}${value.toLocaleString('en-GB')}` : value,
           },
         },
       },

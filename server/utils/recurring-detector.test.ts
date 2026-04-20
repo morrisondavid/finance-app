@@ -515,3 +515,112 @@ describe('classifyRecurring – Property income (rental)', () => {
     expect(result.monthly).toHaveLength(0);
   });
 });
+
+// ===========================================================================
+// Declared fixed bills (FIXED_BILL_OVERRIDES with relaxedMinMonths)
+// ===========================================================================
+
+describe('classifyRecurring – declared fixed bills', () => {
+  it('classifies a declared-fixed expense as monthly after only 1 transaction (config is the signal)', () => {
+    const c = makeCandidate({
+      merchant: 'MCE Advisory',
+      category: 'Business',
+      transactions: [{ date: '2026-04-01', amount: 4200 }],
+      monthsActive: 1,
+      isDeclaredFixed: true,
+    });
+    const result = classifyRecurring([c], 1, REF_DATE);
+
+    expect(result.monthly).toHaveLength(1);
+    expect(result.monthly[0].merchant).toBe('MCE Advisory');
+    expect(result.monthly[0].frequency).toBe('monthly');
+  });
+
+  it('a non-declared candidate with only 1 transaction is NOT classified (no regression)', () => {
+    const c = makeCandidate({
+      merchant: 'One-off Vendor',
+      transactions: [{ date: '2026-04-01', amount: 4200 }],
+      monthsActive: 1,
+    });
+    const result = classifyRecurring([c], 1, REF_DATE);
+
+    expect(result.monthly).toHaveLength(0);
+  });
+
+  it('classifies a declared-fixed expense as monthly after only 2 transactions over 24 months', () => {
+    const c = makeCandidate({
+      merchant: 'MCE Advisory',
+      category: 'Business',
+      transactions: [
+        { date: '2026-02-27', amount: 4200 },
+        { date: '2026-03-28', amount: 4200 },
+      ],
+      monthsActive: 2,
+      isDeclaredFixed: true,
+    });
+    const result = classifyRecurring([c], 24, REF_DATE);
+
+    expect(result.monthly).toHaveLength(1);
+    expect(result.monthly[0].merchant).toBe('MCE Advisory');
+    expect(result.monthly[0].frequency).toBe('monthly');
+  });
+
+  it('a non-declared candidate with only 2 months in 24 is NOT classified (no regression)', () => {
+    const c = makeCandidate({
+      merchant: 'Some Vendor',
+      category: 'Business',
+      transactions: [
+        { date: '2026-02-27', amount: 4200 },
+        { date: '2026-03-28', amount: 4200 },
+      ],
+      monthsActive: 2,
+    });
+    const result = classifyRecurring([c], 24, REF_DATE);
+
+    expect(result.monthly).toHaveLength(0);
+  });
+
+  it('declared-fixed candidates skip the day-of-month stddev gate (invoice timing drifts)', () => {
+    // Day-of-month stddev here would normally fail MONTHLY_DAY_STDDEV_MAX.
+    // Dates span Jul 2025–Apr 2026 so the most recent month is within the
+    // staleness window relative to REF_DATE (2026-04-12).
+    const days = [2, 9, 17, 24, 5, 12, 20, 27, 8, 3];
+    const txns = days.map((d, i) => {
+      const totalMonths = 2026 * 12 + 3 - (days.length - 1 - i);
+      const y = Math.floor(totalMonths / 12);
+      const m = (totalMonths % 12) + 1;
+      return {
+        date: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
+        amount: 4200,
+      };
+    });
+    const c = makeCandidate({
+      merchant: 'MCE Advisory',
+      category: 'Business',
+      transactions: txns,
+      monthsActive: 10,
+      isDeclaredFixed: true,
+    });
+    const result = classifyRecurring([c], 12, REF_DATE);
+
+    expect(result.monthly).toHaveLength(1);
+  });
+
+  it('declared-fixed tolerates wider amount variance than standard monthly', () => {
+    // Amounts vary ~15% (invoice + VAT rounding); standard CV gate is tight.
+    const txns: TransactionDetail[] = [
+      { date: '2026-02-27', amount: 4000 },
+      { date: '2026-03-28', amount: 4600 },
+    ];
+    const c = makeCandidate({
+      merchant: 'MCE Advisory',
+      category: 'Business',
+      transactions: txns,
+      monthsActive: 2,
+      isDeclaredFixed: true,
+    });
+    const result = classifyRecurring([c], 24, REF_DATE);
+
+    expect(result.monthly).toHaveLength(1);
+  });
+});

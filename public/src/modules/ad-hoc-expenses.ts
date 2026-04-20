@@ -5,8 +5,8 @@
 
 import { fetchAdHocExpenses, fetchAdHocMerchantSeries } from '../utils/api';
 import { escapeAttribute, escapeHtml } from '../utils/dom';
-import { formatCurrency, formatIsoDateUk } from '../utils/formatting';
-import { getAccountConfig, getState } from './state';
+import { formatCurrency, currencySymbol, formatIsoDateUk } from '../utils/formatting';
+import { getAccountConfig, getState, getSelectedCurrency } from './state';
 import {
   destroyAdHocMerchantChart,
   renderAdHocMerchantLineChart,
@@ -123,7 +123,7 @@ export async function loadAdHocExpenses(): Promise<void> {
       min: minTotal,
       limit,
     });
-    meta.textContent = `Account: ${accountLabel} · ${data.periodDescription} · ${data.items.length} row(s) (min £${data.minTotal}, max ${data.limit} rows).`;
+    meta.textContent = `Account: ${accountLabel} · ${data.periodDescription} · ${data.items.length} row(s) (min ${currencySymbol(getSelectedCurrency())}${data.minTotal}, max ${data.limit} rows).`;
 
     if (data.items.length === 0) {
       wrap.innerHTML = '<p class="ad-hoc-expenses-empty">No groups matched. Try another financial year, lowering the minimum total, or raising the row limit.</p>';
@@ -136,7 +136,7 @@ export async function loadAdHocExpenses(): Promise<void> {
       <tr>
         <td>${escapeHtml(item.category)}</td>
         <td class="ad-hoc-expenses-col-merchant">${escapeHtml(item.merchant)}</td>
-        <td class="ad-hoc-expenses-col-num">${formatCurrency(item.total)}</td>
+        <td class="ad-hoc-expenses-col-num">${formatCurrency(item.total, getSelectedCurrency())}</td>
         <td class="ad-hoc-expenses-col-num">${item.count}</td>
         <td class="ad-hoc-expenses-col-num">${escapeHtml(formatIsoDateUk(item.lastDate))}</td>
         <td class="ad-hoc-expenses-col-sample">${escapeHtml(item.sampleDescription)}</td>

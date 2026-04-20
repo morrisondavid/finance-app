@@ -3,8 +3,7 @@
  * balance modal, VAT payments/liability modals, summary card handlers.
  */
 
-import { state } from './state';
-import { getAccountConfig } from './state';
+import { state, getAccountConfig, getSelectedCurrency } from './state';
 import { fetchTransactions, fetchVATPayments } from '../utils/api';
 import { formatCurrency } from '../utils/formatting';
 import { escapeHtml } from '../utils/dom';
@@ -100,8 +99,9 @@ function renderTransactionList(
   const displayTotal =
     type === 'income' && passThrough > 0 ? Math.max(0, grossTotal - passThrough) : grossTotal;
 
+  const cur = getSelectedCurrency();
   countEl.textContent = `${transactions.length} transaction${transactions.length !== 1 ? 's' : ''}`;
-  totalEl.textContent = formatCurrency(displayTotal);
+  totalEl.textContent = formatCurrency(displayTotal, cur);
   totalEl.className = 'modal-total ' + type;
 
   if (transactions.length === 0) {
@@ -114,7 +114,7 @@ function renderTransactionList(
           <div class="transaction-meta">${escapeHtml(t.date)}</div>
         </div>
         <div class="transaction-amount ${t.type}">
-          ${t.type === 'income' ? '+' : ''}${formatCurrency(t.amount)}
+          ${t.type === 'income' ? '+' : ''}${formatCurrency(t.amount, cur)}
         </div>
       </div>
     `).join('');
@@ -377,8 +377,9 @@ async function showVatPaymentsModal(): Promise<void> {
     const vatPayments = data.payments;
     const total = vatPayments.reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
+    const cur = getSelectedCurrency();
     countEl.textContent = `${vatPayments.length} payment${vatPayments.length !== 1 ? 's' : ''}`;
-    totalEl.textContent = formatCurrency(total);
+    totalEl.textContent = formatCurrency(total, cur);
     totalEl.className = 'modal-total income';
 
     if (vatPayments.length === 0) {
@@ -393,7 +394,7 @@ async function showVatPaymentsModal(): Promise<void> {
               <div class="transaction-desc">${escapeHtml(t.description || 'HMRC VAT Payment')}</div>
               <div class="transaction-meta">${escapeHtml(date)} &bull; ${escapeHtml(accountLabel)}</div>
             </div>
-            <div class="transaction-amount income">${formatCurrency(Math.abs(t.amount))}</div>
+            <div class="transaction-amount income">${formatCurrency(Math.abs(t.amount), cur)}</div>
           </div>
         `;
       }).join('');
@@ -428,8 +429,9 @@ async function showVatLiabilityModal(): Promise<void> {
     const totalIncome = sorted.reduce((sum, t) => sum + t.amount, 0);
     const totalVat = totalIncome / 6;
 
+    const cur = getSelectedCurrency();
     countEl.textContent = `${sorted.length} transaction${sorted.length !== 1 ? 's' : ''}`;
-    totalEl.innerHTML = `${formatCurrency(totalIncome)} <span style="color: var(--color-text-muted); font-size: 0.875rem;">(VAT: ${formatCurrency(totalVat)})</span>`;
+    totalEl.innerHTML = `${formatCurrency(totalIncome, cur)} <span style="color: var(--color-text-muted); font-size: 0.875rem;">(VAT: ${formatCurrency(totalVat, cur)})</span>`;
     totalEl.className = 'modal-total income';
 
     if (sorted.length === 0) {
@@ -445,7 +447,7 @@ async function showVatLiabilityModal(): Promise<void> {
               <div class="transaction-meta">${escapeHtml(date)}</div>
             </div>
             <div class="transaction-amount income">
-              ${formatCurrency(t.amount)} <span style="color: var(--color-text-muted); font-size: 0.75rem;">(VAT: ${formatCurrency(vat)})</span>
+              ${formatCurrency(t.amount, cur)} <span style="color: var(--color-text-muted); font-size: 0.75rem;">(VAT: ${formatCurrency(vat, cur)})</span>
             </div>
           </div>
         `;

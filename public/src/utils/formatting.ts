@@ -3,20 +3,35 @@
  */
 
 import { ordinal } from '../../../shared/formatting.js';
+import type { CurrencyCode } from '../../../shared/api-contracts.js';
 
 /** Round to 2 decimal places (banker-safe). */
 export function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+const CURRENCY_LOCALE: Record<CurrencyCode, string> = {
+  GBP: 'en-GB',
+  AED: 'en-AE',
+};
+
 /**
- * Format a number as GBP currency
+ * Format a number as currency.
+ * Defaults to GBP when no currency code is supplied.
  */
-export function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-GB', {
+export function formatCurrency(amount: number, currency: CurrencyCode = 'GBP'): string {
+  return new Intl.NumberFormat(CURRENCY_LOCALE[currency] ?? 'en-GB', {
     style: 'currency',
-    currency: 'GBP'
+    currency,
   }).format(amount);
+}
+
+/**
+ * Return the narrow symbol for a supported currency code.
+ */
+export function currencySymbol(currency: CurrencyCode = 'GBP'): string {
+  const symbols: Record<CurrencyCode, string> = { GBP: '£', AED: 'AED' };
+  return symbols[currency] ?? currency;
 }
 
 /**

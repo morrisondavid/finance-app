@@ -45,3 +45,11 @@ export function getAccountConfig(account: string) {
   }
   return config;
 }
+
+/**
+ * Return the currency code for the currently selected account.
+ */
+export function getSelectedCurrency(): 'GBP' | 'AED' {
+  const cfg = state.accountConfig[state.selectedAccount];
+  return (cfg?.currency ?? 'GBP') as 'GBP' | 'AED';
+}

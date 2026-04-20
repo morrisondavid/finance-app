@@ -653,6 +653,91 @@ describe('buildRecurringPipeline', () => {
     expect(ee!.amount).toBe(180);
   });
 
+  // =========================================================================
+  // Config-driven fixed bill overrides — non-GBP currency (MCE Advisory AED)
+  // =========================================================================
+
+  it('MCE Advisory surfaces after a single AED payment (declared fixed via config)', () => {
+    // Only one historical payment — mirrors the user's real-world first-month
+    // scenario. The FIXED_BILL_OVERRIDES entry is the recurrence signal, so the
+    // detector should not require additional history.
+    const txns: RawTransaction[] = [
+      makeTxn({
+        date: '2026-04-01',
+        description: 'DFT-DTB TT REF EPH MCE ADVISORY FZ LLC PMS INV 0673 DTD 270326',
+        amount: -4200,
+        account: 'emirates-islamic',
+      }),
+    ];
+    const result = buildRecurringPipeline({
+      scopedTransactions: txns,
+      allTimeTransactions: txns,
+      includeIncome: false,
+    });
+    const mce = result.monthlyExpenseRecurring.find(e => e.merchant === 'MCE Advisory');
+    expect(mce).toBeDefined();
+    expect(mce!.amount).toBe(882); // 4200 AED * 0.21
+    expect(mce!.nativeAmount).toBe(4200);
+    expect(mce!.nativeCurrency).toBe('AED');
+  });
+
+  it('MCE Advisory AED payments convert to GBP on `amount` and preserve native fields', () => {
+    // Two payments over a 24-month covered window — would not normally pass the
+    // monthly detector gate, but the FIXED_BILL_OVERRIDES entry with
+    // relaxedMinMonths: 2 and isDeclaredFixed unlocks classification.
+    const txns: RawTransaction[] = [
+      makeTxn({
+        date: '2026-02-27',
+        description: 'DFT-DTB TT REF EPH MCE ADVISORY FZ LLC PMS INV 0672',
+        amount: -4200,
+        account: 'emirates-islamic',
+      }),
+      makeTxn({
+        date: '2026-03-28',
+        description: 'DFT-DTB TT REF EPH MCE ADVISORY FZ LLC PMS INV 0673',
+        amount: -4200,
+        account: 'emirates-islamic',
+      }),
+    ];
+    const result = buildRecurringPipeline({
+      scopedTransactions: txns,
+      allTimeTransactions: txns,
+      includeIncome: false,
+    });
+    const mce = result.monthlyExpenseRecurring.find(e => e.merchant === 'MCE Advisory');
+    expect(mce).toBeDefined();
+    // 4200 AED * 0.21 (AED/GBP) = 882 GBP
+    expect(mce!.amount).toBe(882);
+    expect(mce!.nativeAmount).toBe(4200);
+    expect(mce!.nativeCurrency).toBe('AED');
+    expect(mce!.sourceAccount).toBe('emirates-islamic');
+  });
+
+  it('EE override (no currency configured) keeps amount in GBP and omits native fields', () => {
+    const amounts = [158.68, 122.19, 172.99, 105.97, 92.95, 105.95, 135.94, 85.95, 83.95, 88.95, 76.0, 118.68];
+    const txns: RawTransaction[] = amounts.map((amt, i) => {
+      const totalMonth = 2026 * 12 + 3 - i;
+      const year = Math.floor(totalMonth / 12);
+      const month = (totalMonth % 12) + 1;
+      return makeTxn({
+        date: `${year}-${String(month).padStart(2, '0')}-23`,
+        description: 'EE LIMITED Q0447 DD',
+        amount: -amt,
+        account: 'barclays-current',
+      });
+    });
+    const result = buildRecurringPipeline({
+      scopedTransactions: txns,
+      allTimeTransactions: txns,
+      includeIncome: false,
+    });
+    const ee = result.monthlyExpenseRecurring.find(e => e.merchant === 'EE');
+    expect(ee).toBeDefined();
+    expect(ee!.amount).toBe(180);
+    expect(ee!.nativeAmount).toBeUndefined();
+    expect(ee!.nativeCurrency).toBeUndefined();
+  });
+
   it('non-Property expense amounts still stay separate (no regression)', () => {
     const txns: RawTransaction[] = [];
     for (let i = 0; i < 10; i++) {

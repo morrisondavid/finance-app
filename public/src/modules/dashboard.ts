@@ -3,7 +3,7 @@
  */
 
 import type { DashboardSummary, AccountSummary } from '../types';
-import { state, setState } from './state';
+import { state, setState, getSelectedCurrency } from './state';
 import { fetchDashboard, fetchTransactions } from '../utils/api';
 import { formatCurrency } from '../utils/formatting';
 import { escapeHtml, escapeAttribute } from '../utils/dom';
@@ -199,14 +199,15 @@ function renderSummaryCards(data: DashboardSummary): void {
   const totalExpensesEl = document.getElementById('total-expenses');
   const netEl = document.getElementById('net-position');
 
+  const cur = getSelectedCurrency();
   const passThrough = data.totals.passThroughIncome ?? 0;
   const adjustedIncome = data.totals.income - passThrough;
   const adjustedNet = data.totals.net - passThrough;
 
-  if (totalIncomeEl) totalIncomeEl.textContent = formatCurrency(adjustedIncome);
-  if (totalExpensesEl) totalExpensesEl.textContent = formatCurrency(data.totals.expenses);
+  if (totalIncomeEl) totalIncomeEl.textContent = formatCurrency(adjustedIncome, cur);
+  if (totalExpensesEl) totalExpensesEl.textContent = formatCurrency(data.totals.expenses, cur);
   if (netEl) {
-    netEl.textContent = formatCurrency(adjustedNet);
+    netEl.textContent = formatCurrency(adjustedNet, cur);
     netEl.className = 'card-value ' + (adjustedNet >= 0 ? 'income' : 'expense');
   }
 
@@ -216,7 +217,7 @@ function renderSummaryCards(data: DashboardSummary): void {
       transferInfo.style.display = 'block';
       const transferAmountEl = document.getElementById('transfer-amount');
       const transferCountEl = document.getElementById('transfer-count');
-      if (transferAmountEl) transferAmountEl.textContent = formatCurrency(data.totals.transfersIn || 0);
+      if (transferAmountEl) transferAmountEl.textContent = formatCurrency(data.totals.transfersIn || 0, cur);
       if (transferCountEl) transferCountEl.textContent = data.transferCount.toString();
     } else {
       transferInfo.style.display = 'none';
@@ -235,10 +236,11 @@ function renderSummaryCards(data: DashboardSummary): void {
 function renderBalancePanel(balance: DashboardSummary['currentAccountBalance']): void {
   if (!balance) return;
 
+  const cur = getSelectedCurrency();
   const openingBalanceEl = document.getElementById('opening-balance');
   const openingDateEl = document.getElementById('opening-balance-date');
 
-  if (openingBalanceEl) openingBalanceEl.textContent = formatCurrency(balance.openingBalance);
+  if (openingBalanceEl) openingBalanceEl.textContent = formatCurrency(balance.openingBalance, cur);
   if (openingDateEl) {
     if (balance.openingBalanceDate) {
       openingDateEl.textContent = `as of ${balance.openingBalanceDate}`;
@@ -253,7 +255,7 @@ function renderBalancePanel(balance: DashboardSummary['currentAccountBalance']):
   const transactionRangeEl = document.getElementById('transaction-date-range');
 
   if (transactionTotalEl) {
-    transactionTotalEl.textContent = formatCurrency(balance.transactionTotal);
+    transactionTotalEl.textContent = formatCurrency(balance.transactionTotal, cur);
     transactionTotalEl.className = 'balance-value ' + (balance.transactionTotal >= 0 ? '' : 'expense');
   }
 
@@ -268,7 +270,7 @@ function renderBalancePanel(balance: DashboardSummary['currentAccountBalance']):
   }
 
   const currentBalanceEl = document.getElementById('current-balance');
-  if (currentBalanceEl) currentBalanceEl.textContent = formatCurrency(balance.currentBalance);
+  if (currentBalanceEl) currentBalanceEl.textContent = formatCurrency(balance.currentBalance, cur);
 }
 
 // ─── Recent transactions ──────────────────────────────────────────────────────
@@ -285,6 +287,7 @@ async function loadRecentTransactions(): Promise<void> {
       return;
     }
 
+    const cur = getSelectedCurrency();
     container.innerHTML = data.map(t => `
       <div class="transaction-item">
         <div class="transaction-info">
@@ -292,7 +295,7 @@ async function loadRecentTransactions(): Promise<void> {
           <div class="transaction-meta">${escapeHtml(t.date)}</div>
         </div>
         <div class="transaction-amount ${t.type}">
-          ${t.type === 'income' ? '+' : ''}${formatCurrency(t.amount)}
+          ${t.type === 'income' ? '+' : ''}${formatCurrency(t.amount, cur)}
         </div>
       </div>
     `).join('');

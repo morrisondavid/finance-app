@@ -18,8 +18,10 @@ import type { RecurringExpense } from '../../shared/api-contracts.js';
 import { round2, monthKeyFromIsoDate } from './math.js';
 import { SPECIAL_CATEGORY } from './category-constants.js';
 import { matchRentalProperty, RENTAL_PROPERTIES } from './rental-properties.js';
-import { matchFixedBillOverride, FIXED_BILL_OVERRIDES } from './fixed-bill-overrides.js';
+import { matchFixedBillOverride } from './fixed-bill-overrides.js';
 import { resolveExpenseCategoryWithPayroll, type PayrollEntry } from '../config/payroll.js';
+import { convertAmountSync } from '../config/exchange-rates.js';
+import type { CurrencyCode } from '../types.js';
 
 export interface RawTransaction {
   id: number;
@@ -157,7 +159,10 @@ export function accumulatorKeyForTxn(txn: RawTransaction, side: 'expense' | 'inc
   return accumulationFromTxn(txn, side)?.key ?? null;
 }
 
-function accumulatorsToCandidates(map: Map<string, Accumulator>): RecurringCandidate[] {
+function accumulatorsToCandidates(
+  map: Map<string, Accumulator>,
+  side: 'expense' | 'income',
+): RecurringCandidate[] {
   const candidates: RecurringCandidate[] = [];
   for (const acc of map.values()) {
     const monthlyValues = Array.from(acc.monthlyTotals.values());
@@ -165,6 +170,14 @@ function accumulatorsToCandidates(map: Map<string, Accumulator>): RecurringCandi
     const monthlyAvg = monthlyValues.length > 0
       ? monthlyValues.reduce((s, v) => s + v, 0) / monthlyValues.length
       : 0;
+
+    // Declared fixed bills (FIXED_BILL_OVERRIDES with relaxedMinMonths) get a
+    // relaxed detector branch so they surface after 1–2 payments rather than
+    // waiting for ~12 months of history. Applies to expense side only.
+    const override = side === 'expense'
+      ? matchFixedBillOverride(acc.merchant, acc.sourceAccount)
+      : null;
+    const isDeclaredFixed = override?.relaxedMinMonths !== undefined;
 
     candidates.push({
       merchant: acc.merchant,
@@ -176,6 +189,7 @@ function accumulatorsToCandidates(map: Map<string, Accumulator>): RecurringCandi
       sourceAccount: acc.sourceAccount,
       accountCategory: acc.accountCategory,
       transactions: acc.transactions,
+      isDeclaredFixed,
     });
   }
   return candidates;
@@ -251,8 +265,10 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
 
   const monthsCovered = allMonths.size || 1;
 
-  const expenseCandidates = accumulatorsToCandidates(expenseAccumulators);
-  const incomeCandidates = includeIncome ? accumulatorsToCandidates(incomeAccumulators) : [];
+  const expenseCandidates = accumulatorsToCandidates(expenseAccumulators, 'expense');
+  const incomeCandidates = includeIncome
+    ? accumulatorsToCandidates(incomeAccumulators, 'income')
+    : [];
 
   const { monthly: monthlyExpenseRecurring, annual: annualExpenseRecurring } =
     classifyRecurring(expenseCandidates, monthsCovered);
@@ -267,12 +283,7 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
     }
   }
 
-  for (const e of monthlyExpenseRecurring) {
-    const override = FIXED_BILL_OVERRIDES.find(
-      o => o.merchant === e.merchant && o.account === e.sourceAccount,
-    );
-    if (override) e.amount = round2(override.monthlyAmount);
-  }
+  applyFixedBillOverrides(monthlyExpenseRecurring);
 
   return {
     expenseCandidates,
@@ -285,4 +296,26 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
     annualIncomeRecurring,
     monthsCovered,
   };
+}
+
+/**
+ * Stamp the config-declared monthly amount onto matching expenses. For
+ * non-GBP bills the config amount is in the native currency (e.g. AED):
+ * we convert to GBP for `amount` and preserve the native figure on
+ * `nativeAmount` / `nativeCurrency` so the UI can render "£882 (AED 4,200)".
+ */
+function applyFixedBillOverrides(monthly: RecurringExpense[]): void {
+  for (const e of monthly) {
+    const override = matchFixedBillOverride(e.merchant, e.sourceAccount);
+    if (!override) continue;
+    const currency: CurrencyCode = override.currency ?? 'GBP';
+    const gbpAmount = currency === 'GBP'
+      ? override.monthlyAmount
+      : convertAmountSync(override.monthlyAmount, currency, 'GBP');
+    e.amount = round2(gbpAmount);
+    if (currency !== 'GBP') {
+      e.nativeAmount = round2(override.monthlyAmount);
+      e.nativeCurrency = currency;
+    }
+  }
 }

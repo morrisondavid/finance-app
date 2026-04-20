@@ -119,10 +119,17 @@ export const ACCOUNTS = [
   'barclaycard',
   'natwest',
   'natwest-savings',
-  'monzo-joint'
+  'monzo-joint',
+  'emirates-islamic'
 ] as const;
 
 export type AccountName = typeof ACCOUNTS[number];
+
+/**
+ * ISO 4217 currency codes supported by the app.
+ * Extend this union as new currencies are onboarded.
+ */
+export type CurrencyCode = 'GBP' | 'AED';
 
 /**
  * Account type classification
@@ -152,6 +159,7 @@ interface BaseAccountConfig {
   name: AccountName;
   label: string;
   type: AccountType;
+  currency: CurrencyCode;
   canMakeOutgoingPayments: boolean;
   excludeTransfersFromIncome: boolean;
   showTaxLiabilities: boolean;
@@ -177,6 +185,7 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     name: 'barclays-current',
     label: 'Barclays Current',
     type: 'current',
+    currency: 'GBP',
     category: 'business',
     business: { vatApplicable: true, corpTaxApplicable: true },
     canMakeOutgoingPayments: true,
@@ -187,6 +196,7 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     name: 'barclays-savings',
     label: 'Barclays Savings',
     type: 'savings',
+    currency: 'GBP',
     category: 'business',
     business: { vatApplicable: false, corpTaxApplicable: false },
     canMakeOutgoingPayments: false,
@@ -197,6 +207,7 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     name: 'capital-on-tap',
     label: 'Capital on Tap',
     type: 'credit-card',
+    currency: 'GBP',
     category: 'business',
     business: { vatApplicable: false, corpTaxApplicable: false },
     canMakeOutgoingPayments: true,
@@ -208,6 +219,7 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     name: 'barclaycard',
     label: 'Barclaycard',
     type: 'credit-card',
+    currency: 'GBP',
     category: 'business',
     business: { vatApplicable: false, corpTaxApplicable: false },
     canMakeOutgoingPayments: true,
@@ -218,6 +230,7 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     name: 'natwest',
     label: 'NatWest',
     type: 'current',
+    currency: 'GBP',
     category: 'personal',
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
@@ -227,6 +240,7 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     name: 'natwest-savings',
     label: 'NatWest Savings',
     type: 'savings',
+    currency: 'GBP',
     category: 'personal',
     canMakeOutgoingPayments: false,
     excludeTransfersFromIncome: false,
@@ -236,7 +250,19 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     name: 'monzo-joint',
     label: 'Monzo Joint',
     type: 'current',
+    currency: 'GBP',
     category: 'personal',
+    canMakeOutgoingPayments: true,
+    excludeTransfersFromIncome: false,
+    showTaxLiabilities: false,
+  },
+  'emirates-islamic': {
+    name: 'emirates-islamic',
+    label: 'Emirates Islamic',
+    type: 'savings',
+    currency: 'AED',
+    category: 'business',
+    business: { vatApplicable: false, corpTaxApplicable: false },
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,

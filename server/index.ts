@@ -18,12 +18,17 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const isProduction = process.env.NODE_ENV === 'production';
 
 // Middleware
 app.use(express.json());
 
-// Serve static files from public directory
-app.use(express.static(path.join(__dirname, '../public')));
+// In production, Express serves the built frontend from dist/.
+// In dev, Vite serves the frontend on :5173 and proxies /api to this server,
+// so we skip the static/SPA handlers to avoid serving a broken page at :3000.
+if (isProduction) {
+  app.use(express.static(path.join(__dirname, '../dist')));
+}
 
 // API routes
 app.use('/api/statements', statementsRouter);
@@ -35,10 +40,22 @@ app.use('/api/budgets', budgetsRouter);
 app.use('/api/debts', debtsRouter);
 app.use('/api/obligations', obligationsRouter);
 
-// Serve index.html for all other routes (SPA support)
-app.get('*', (_req: Request, res: Response) => {
-  res.sendFile(path.join(__dirname, '../public/index.html'));
-});
+if (isProduction) {
+  // SPA fallback — serve index.html for non-API routes
+  app.get('*', (_req: Request, res: Response) => {
+    res.sendFile(path.join(__dirname, '../dist/index.html'));
+  });
+} else {
+  // Dev: make it obvious this server is API-only and point at Vite
+  app.get('/', (_req: Request, res: Response) => {
+    res
+      .status(404)
+      .type('text/plain')
+      .send(
+        'This is the API server (dev mode). Open the frontend at http://localhost:5173'
+      );
+  });
+}
 
 let httpServer: HttpServer | undefined;
 let shutdownStarted = false;
@@ -86,7 +103,13 @@ async function start(): Promise<void> {
   await initDatabase();
   
   httpServer = app.listen(PORT, () => {
-    console.log(`Bank Statements Dashboard running at http://localhost:${PORT}`);
+    if (isProduction) {
+      console.log(`Bank Statements Dashboard running at http://localhost:${PORT}`);
+    } else {
+      console.log(
+        `Bank Statements API running at http://localhost:${PORT} — open the app at http://localhost:5173`
+      );
+    }
   });
 
   process.once('SIGINT', () => gracefulShutdown('SIGINT'));

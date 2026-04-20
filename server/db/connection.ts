@@ -205,7 +205,11 @@ export function initSchema(): void {
     INSERT OR IGNORE INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
     VALUES ('natwest-savings', 0.32, '2025-06-12', CURRENT_TIMESTAMP)
   `).run();
-  
+  db.prepare(`
+    INSERT OR IGNORE INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
+    VALUES ('emirates-islamic', 0.00, '2026-02-22', CURRENT_TIMESTAMP)
+  `).run();
+
   console.log('[Database] Schema initialized');
 }
 

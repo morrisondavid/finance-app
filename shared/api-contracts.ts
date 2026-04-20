@@ -37,13 +37,18 @@ export const AccountNameSchema = z.enum([
   'barclaycard',
   'natwest',
   'natwest-savings',
-  'monzo-joint'
+  'monzo-joint',
+  'emirates-islamic'
 ]);
+
+export const CurrencyCodeSchema = z.enum(['GBP', 'AED']);
+export type CurrencyCode = z.infer<typeof CurrencyCodeSchema>;
 
 export const AccountConfigSchema = z.object({
   name: AccountNameSchema,
   label: z.string(),
   type: AccountTypeSchema,
+  currency: CurrencyCodeSchema,
   category: AccountCategorySchema,
   canMakeOutgoingPayments: z.boolean(),
   excludeTransfersFromIncome: z.boolean(),
@@ -300,6 +305,9 @@ export const ExpensesLineItemSchema = z.object({
   billingDayOfMonth: z.number().nullable(),
   billingMonth: z.number().nullable(),
   variance: z.array(ExpensesVariancePointSchema),
+  /** Native-currency figure for non-GBP bills (e.g. AED). `amount` is always GBP. */
+  nativeAmount: z.number().optional(),
+  nativeCurrency: CurrencyCodeSchema.optional(),
 });
 
 export const ExpensesSectionSchema = z.object({
@@ -459,6 +467,9 @@ export const RecurringExpenseSchema = z.object({
   sourceAccount: z.string(),
   billingDayOfMonth: z.number().nullable(),
   billingMonth: z.number().nullable(),
+  /** Native-currency figure for non-GBP bills (e.g. AED). `amount` is always GBP. */
+  nativeAmount: z.number().optional(),
+  nativeCurrency: CurrencyCodeSchema.optional(),
 });
 
 export const RecurringExpensesResponseSchema = z.object({

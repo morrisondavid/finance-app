@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   round2,
   formatCurrency,
+  currencySymbol,
   formatAccountName,
   formatMonthYear,
   formatQuarterName,
@@ -61,6 +62,30 @@ describe('formatCurrency', () => {
 
   it('formats large values with grouping separators', () => {
     expect(formatCurrency(1_000_000.01)).toBe('£1,000,000.01');
+  });
+
+  it('formats AED amounts when currency is AED', () => {
+    const result = formatCurrency(4200, 'AED');
+    expect(result).toContain('4,200');
+    expect(result).toContain('AED');
+  });
+
+  it('defaults to GBP when no currency is specified', () => {
+    expect(formatCurrency(100)).toBe('£100.00');
+  });
+});
+
+describe('currencySymbol', () => {
+  it('returns £ for GBP', () => {
+    expect(currencySymbol('GBP')).toBe('£');
+  });
+
+  it('returns AED for AED', () => {
+    expect(currencySymbol('AED')).toBe('AED');
+  });
+
+  it('defaults to £ when no argument is provided', () => {
+    expect(currencySymbol()).toBe('£');
   });
 });
 

@@ -55,6 +55,16 @@ describe('Transfer Pattern Detection', () => {
       expect(isTransferDescription('Business Premium transfer')).toBe(true);
     });
 
+    it('should detect inward remittance (Emirates Islamic)', () => {
+      expect(isTransferDescription('INWARD REMITTANCETT REF: AE1RCXT2609003HP AED 4824.33')).toBe(true);
+      expect(isTransferDescription('inward remittance')).toBe(true);
+    });
+
+    it('should detect Wise / TransferWise transfers', () => {
+      expect(isTransferDescription('WISE PAYMENT 12345')).toBe(true);
+      expect(isTransferDescription('TransferWise Ltd')).toBe(true);
+    });
+
     it('should NOT detect regular payments', () => {
       expect(isTransferDescription('Amazon purchase')).toBe(false);
       expect(isTransferDescription('SALARY PAYMENT')).toBe(false);

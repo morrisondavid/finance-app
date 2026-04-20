@@ -122,6 +122,8 @@ function toLineItem(
     billingDayOfMonth: e.billingDayOfMonth ?? null,
     billingMonth: e.billingMonth ?? null,
     variance,
+    nativeAmount: e.nativeAmount,
+    nativeCurrency: e.nativeCurrency,
   };
 }
 

@@ -21,6 +21,9 @@ export const TRANSFER_PATTERNS: RegExp[] = [
   /draw down/i,             // Credit line draws
   /business premium sto/i,  // Barclays Savings account transfers
   /business premium/i,      // Barclays Savings (standing orders)
+  /inward remittance/i,     // Emirates Islamic incoming wire transfers
+  /wise/i,                  // Wise (TransferWise) cross-border transfers
+  /transferwise/i,          // Legacy TransferWise name
 ];
 
 /**

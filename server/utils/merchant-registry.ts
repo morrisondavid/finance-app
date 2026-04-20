@@ -459,7 +459,7 @@ export const MERCHANT_REGISTRY: readonly MerchantEntry[] = [
   { pattern: /GITHUB/i, category: 'Business', displayName: 'GitHub' },
   { pattern: /GODADDY/i, category: 'Business', displayName: 'GoDaddy' },
   { pattern: /SWELL/i, category: 'Business', displayName: 'Swell' },
-  { pattern: /MCE ADVISO/i, category: 'Business', displayName: 'MCE Advisors' },
+  { pattern: /MCE ADVISO/i, category: 'Business', displayName: 'MCE Advisory' },
   { pattern: /PROTON/i, category: 'Business', displayName: 'Proton' },
   { pattern: /OPENAI|CHATGPT/i, category: 'Business', displayName: 'OpenAI' },
   { pattern: /CLOUDFLARE/i, category: 'Business', displayName: 'Cloudflare' },

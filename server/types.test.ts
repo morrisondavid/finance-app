@@ -17,6 +17,7 @@ describe('isBusinessAccount', () => {
     expect(isBusinessAccount('barclays-savings')).toBe(true);
     expect(isBusinessAccount('capital-on-tap')).toBe(true);
     expect(isBusinessAccount('barclaycard')).toBe(true);
+    expect(isBusinessAccount('emirates-islamic')).toBe(true);
   });
 
   it('returns false for personal accounts', () => {
@@ -96,6 +97,11 @@ describe('getVatApplicableAccounts', () => {
       }
     }
   });
+
+  it('excludes emirates-islamic (UAE jurisdiction)', () => {
+    const vatAccounts = getVatApplicableAccounts();
+    expect(vatAccounts).not.toContain('emirates-islamic');
+  });
 });
 
 describe('getCorpTaxApplicableAccounts', () => {
@@ -127,6 +133,11 @@ describe('getCorpTaxApplicableAccounts', () => {
         expect(corpTaxAccounts).not.toContain(name);
       }
     }
+  });
+
+  it('excludes emirates-islamic (UAE jurisdiction)', () => {
+    const corpTaxAccounts = getCorpTaxApplicableAccounts();
+    expect(corpTaxAccounts).not.toContain('emirates-islamic');
   });
 });
 
@@ -164,6 +175,15 @@ describe('isCrossAccountBusinessToBusinessTransfer', () => {
       true,
     );
     expect(isCrossAccountBusinessToBusinessTransfer('barclays-current', 'capital-on-tap')).toBe(
+      true,
+    );
+  });
+
+  it('returns true for cross-currency business-to-business transfers (UK ↔ UAE)', () => {
+    expect(isCrossAccountBusinessToBusinessTransfer('barclays-current', 'emirates-islamic')).toBe(
+      true,
+    );
+    expect(isCrossAccountBusinessToBusinessTransfer('emirates-islamic', 'barclays-current')).toBe(
       true,
     );
   });
