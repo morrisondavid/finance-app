@@ -90,11 +90,16 @@ export interface RecurringCandidate {
   annualTotal: number;
   transactions: TransactionDetail[];
   /**
-   * Set by the pipeline when this candidate matches a FIXED_BILL_OVERRIDES
-   * entry with `relaxedMinMonths`. Unlocks the declared-fixed relaxation
-   * branch in {@link classifyRecurring}.
+   * Declared cadence when this candidate matches a `DeclaredOutgoing` in the
+   * commitments registry. `'monthly'` or `'annual'` unlocks the relaxed
+   * branch of {@link classifyRecurring} (a single historical payment, or
+   * even zero payments for synthesised candidates, is enough to surface —
+   * the declaration itself is the recurrence signal). `undefined` means
+   * the heuristic path runs as normal.
    */
-  isDeclaredFixed?: boolean;
+  declaredCadence?: 'monthly' | 'annual';
+  /** Commitments-registry row id, set when {@link declaredCadence} is set. */
+  declaredCommitmentId?: string;
 }
 
 export interface RecurringClassification {
@@ -116,15 +121,17 @@ const SEASONAL_BILLING_EXCEPTIONS = [
 const PROPERTY_INCOME_MIN_MONTHS = 2;
 const PROPERTY_INCOME_AMOUNT_CV_MAX = 0.60;
 
-// ─── Declared fixed bills (FIXED_BILL_OVERRIDES) — relaxed thresholds ─
-// A candidate explicitly declared as a fixed monthly bill in config is the
-// single source of truth that it's recurring — the detector should not
-// gatekeep on history length. We surface it after the first payment
-// (the config itself is the signal), tolerate wider amount variance
-// (e.g. VAT-inclusive accountant fees), and skip the day-of-month spread
-// check since invoice-driven payment dates commonly drift by a week or two.
-const DECLARED_FIXED_MIN_MONTHS = 1;
-const DECLARED_FIXED_AMOUNT_CV_MAX = 0.60;
+// ─── Declared recurring outgoings — relaxed thresholds ──────────────
+// A candidate explicitly declared in the commitments registry (any
+// `DeclaredOutgoing` with a monthly or annual cadence) is the single
+// source of truth that it recurs — the detector should not gatekeep on
+// history length. We surface it after the first payment (the declaration
+// itself is the signal), tolerate wider amount variance (e.g. VAT-inclusive
+// accountant fees, insurance premium increases), and skip the day/gap
+// spread checks since invoice-driven payment dates commonly drift by a
+// week or two.
+const DECLARED_MONTHLY_MIN_MONTHS = 1;
+const DECLARED_AMOUNT_CV_MAX = 0.60;
 
 // ─── Annual thresholds ───────────────────────────────────────────────
 const ANNUAL_MIN_YEARS_EXACT = 2;  // enough if amounts are identical
@@ -189,64 +196,102 @@ export function classifyRecurring(
 
   for (const c of candidates) {
     const isPropertyIncome = isIncome && c.category === SPECIAL_CATEGORY.property;
-    const isDeclaredFixed = c.isDeclaredFixed === true;
+    const isDeclaredMonthly = c.declaredCadence === 'monthly';
+    const isDeclaredAnnual = c.declaredCadence === 'annual';
+    const isDeclared = isDeclaredMonthly || isDeclaredAnnual;
 
-    // Declared fixed bills are config-driven: one payment is enough to
+    // Declared candidates are registry-driven: a single payment (or even
+    // zero, for synthesised candidates populated upstream) is enough to
     // surface them because the declaration itself is the recurrence signal.
     // All other candidates still need ≥2 transactions to be considered
-    // recurring at all.
-    if (!isDeclaredFixed && c.transactions.length < 2) continue;
-    if (c.transactions.length < 1) continue;
+    // recurring at all. Purely heuristic candidates with zero transactions
+    // are always skipped.
+    if (!isDeclared && c.transactions.length < 2) continue;
+    if (!isDeclared && c.transactions.length < 1) continue;
 
     const amounts = c.transactions.map(t => t.amount);
     const days = c.transactions.map(t => new Date(t.date).getDate());
-    const mean = amounts.reduce((s, v) => s + v, 0) / amounts.length;
+    const mean = amounts.length > 0
+      ? amounts.reduce((s, v) => s + v, 0) / amounts.length
+      : 0;
     const amountCV = mean > 0 ? stddev(amounts) / mean : Infinity;
 
     // Property income uses max (gross rent before agent deductions); everything else uses median
-    const typicalAmount = isPropertyIncome ? Math.max(...amounts) : median(amounts);
+    const typicalAmount = amounts.length === 0
+      ? 0
+      : (isPropertyIncome ? Math.max(...amounts) : median(amounts));
 
-    // ── Monthly test ──────────────────────────────────────────────
-    let classifiedAsMonthly = false;
+    // Annual-declared candidates jump straight to the annual branch so a
+    // year's worth of monthly-gate history can't accidentally reclassify them.
+    if (!isDeclaredAnnual) {
+      // ── Monthly test ──────────────────────────────────────────────
+      let classifiedAsMonthly = false;
 
-    let minMonths = monthlyThreshold;
-    let maxCV = MONTHLY_AMOUNT_CV_MAX;
-    if (isPropertyIncome) {
-      minMonths = PROPERTY_INCOME_MIN_MONTHS;
-      maxCV = PROPERTY_INCOME_AMOUNT_CV_MAX;
-    } else if (isDeclaredFixed) {
-      minMonths = DECLARED_FIXED_MIN_MONTHS;
-      maxCV = DECLARED_FIXED_AMOUNT_CV_MAX;
-    }
+      let minMonths = monthlyThreshold;
+      let maxCV = MONTHLY_AMOUNT_CV_MAX;
+      if (isPropertyIncome) {
+        minMonths = PROPERTY_INCOME_MIN_MONTHS;
+        maxCV = PROPERTY_INCOME_AMOUNT_CV_MAX;
+      } else if (isDeclaredMonthly) {
+        minMonths = DECLARED_MONTHLY_MIN_MONTHS;
+        maxCV = DECLARED_AMOUNT_CV_MAX;
+      }
 
-    if (c.monthsActive >= minMonths) {
-      const daySD = circularDayStddev(days);
-      // Declared fixed bills skip the day-of-month spread gate (invoice-driven
-      // payments can legitimately land a week or two apart month to month).
-      const dayOk = isDeclaredFixed || daySD <= MONTHLY_DAY_STDDEV_MAX;
-      if (amountCV <= maxCV && dayOk) {
-        let stale = false;
-        // Property income skips staleness check
-        if (!isPropertyIncome) {
-          const isSeasonalException = SEASONAL_BILLING_EXCEPTIONS.some(p => p.test(c.merchant));
-          if (!isSeasonalException) {
-            const lastTxMonth = c.transactions
-              .map(t => t.date.slice(0, 7))
-              .sort()
-              .pop()!;
-            stale = lastTxMonth < staleAfter;
+      if (c.monthsActive >= minMonths) {
+        const daySD = circularDayStddev(days);
+        // Declared candidates skip the day-of-month spread gate (invoice-driven
+        // payments can legitimately land a week or two apart month to month).
+        const dayOk = isDeclaredMonthly || daySD <= MONTHLY_DAY_STDDEV_MAX;
+        if (amountCV <= maxCV && dayOk) {
+          let stale = false;
+          // Property income + declared monthly both skip staleness check —
+          // a declared bill that hasn't hit yet this month is still valid.
+          if (!isPropertyIncome && !isDeclaredMonthly) {
+            const isSeasonalException = SEASONAL_BILLING_EXCEPTIONS.some(p => p.test(c.merchant));
+            if (!isSeasonalException) {
+              const lastTxMonth = c.transactions
+                .map(t => t.date.slice(0, 7))
+                .sort()
+                .pop()!;
+              stale = lastTxMonth < staleAfter;
+            }
+          }
+          if (!stale) {
+            const avgDay = circularMeanDay(days);
+            monthly.push(toExpense(c, 'monthly', typicalAmount, avgDay, null));
+            classifiedAsMonthly = true;
           }
         }
-        if (!stale) {
-          const avgDay = circularMeanDay(days);
-          monthly.push(toExpense(c, 'monthly', typicalAmount, avgDay, null));
-          classifiedAsMonthly = true;
-        }
       }
+      if (classifiedAsMonthly) continue;
     }
-    if (classifiedAsMonthly) continue;
 
     // ── Annual test ───────────────────────────────────────────────
+    // Declared-annual candidates bypass the heuristic gates entirely: one
+    // historical payment is enough (the declaration is the recurrence
+    // signal), billing month/day is taken from the single pick, and zero
+    // historical payments are acceptable — the pipeline's declared-outgoing
+    // pass synthesises those from the commitment itself.
+    if (isDeclaredAnnual) {
+      if (c.transactions.length === 0) {
+        // Pipeline synthesiser will supply amount + billing date from the
+        // commitment. Emit a placeholder here so downstream override sees it.
+        annual.push(toExpense(c, 'annual', 0, null, null));
+      } else {
+        const sorted = [...c.transactions].sort((a, b) => a.date.localeCompare(b.date));
+        const mostRecent = sorted[sorted.length - 1];
+        const recentDate = new Date(mostRecent.date);
+        annual.push(toExpense(
+          c,
+          'annual',
+          mostRecent.amount,
+          recentDate.getDate(),
+          recentDate.getMonth() + 1,
+        ));
+      }
+      continue;
+    }
+
     // Pick the largest charge per year as the likely subscription renewal,
     // sorted ascending by date so we can both reason about consecutive-year
     // gaps and identify the most recent pick (used for the amount gate and
@@ -302,7 +347,7 @@ function toExpense(
   billingDayOfMonth: number | null,
   billingMonth: number | null,
 ): RecurringExpense {
-  return {
+  const expense: RecurringExpense = {
     merchant: c.merchant,
     category: c.category,
     colour: categoryColour(c.category),
@@ -315,4 +360,8 @@ function toExpense(
     billingDayOfMonth,
     billingMonth,
   };
+  if (c.declaredCommitmentId !== undefined) {
+    expense.declaredCommitmentId = c.declaredCommitmentId;
+  }
+  return expense;
 }

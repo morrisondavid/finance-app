@@ -9,22 +9,24 @@
 
 import { ACCOUNT_CONFIG } from '../types.js';
 import type { AccountName } from '../types.js';
-import { categorizeTransaction } from './categorizer.js';
+import { categorizeTransaction, categoryColour } from './categorizer.js';
 import type { CategoryName } from './categorizer.js';
 import { normalizeMerchant } from './merchant-normalizer.js';
 import { classifyRecurring } from './recurring-detector.js';
 import type { RecurringCandidate, TransactionDetail } from './recurring-detector.js';
+import { getMerchantLogoUrl } from './merchant-logos.js';
 import type { RecurringExpense } from '../../shared/api-contracts.js';
 import { round2, monthKeyFromIsoDate } from './math.js';
 import { SPECIAL_CATEGORY } from './category-constants.js';
 import { resolveExpenseCategoryWithPayroll, type PayrollEntry } from '../config/payroll.js';
 import { convertAmountSync } from '../config/exchange-rates.js';
 import type { CurrencyCode } from '../types.js';
-import { getDeclaredCommitmentRegistry } from '../domain/commitments/registry.js';
+import { getDeclaredCommitmentRegistry, type DeclaredCommitmentRegistry } from '../domain/commitments/registry.js';
 import {
   matchFixedBillCommitment,
   matchRentalCommitmentByAmount,
 } from '../domain/commitments/lookups.js';
+import type { DeclaredOutgoing } from '../../shared/api-contracts.js';
 
 export interface RawTransaction {
   id: number;
@@ -162,10 +164,32 @@ export function accumulatorKeyForTxn(txn: RawTransaction, side: 'expense' | 'inc
   return accumulationFromTxn(txn, side)?.key ?? null;
 }
 
+/**
+ * Return a matching registry outgoing whose declaration should relax the
+ * detector's gates for this accumulator. Scope: expenses only (income has
+ * its own rental-income relaxation in {@link classifyRecurring}), outgoings
+ * with a monthly or annual cadence, and we exclude `tax-manual` — tax
+ * obligations live on the Obligations tab, never on Fixed Expenses, even
+ * when declared with a yearly cadence.
+ */
+function declaredOutgoingFor(
+  registry: DeclaredCommitmentRegistry,
+  merchant: string,
+  account: string,
+): DeclaredOutgoing | null {
+  const hit = registry.matchByMerchantAccount(merchant, account);
+  if (hit === null) return null;
+  if (hit.category === 'rental-income') return null;
+  if (hit.category === 'tax-manual') return null;
+  if (hit.cadence !== 'monthly' && hit.cadence !== 'annual') return null;
+  return hit;
+}
+
 function accumulatorsToCandidates(
   map: Map<string, Accumulator>,
   side: 'expense' | 'income',
 ): RecurringCandidate[] {
+  const registry = getDeclaredCommitmentRegistry();
   const candidates: RecurringCandidate[] = [];
   for (const acc of map.values()) {
     const monthlyValues = Array.from(acc.monthlyTotals.values());
@@ -174,14 +198,11 @@ function accumulatorsToCandidates(
       ? monthlyValues.reduce((s, v) => s + v, 0) / monthlyValues.length
       : 0;
 
-    // Any `fixed-bill` commitment declared in the registry is the recurrence
-    // signal in its own right — unlock the relaxed detector branch so the
-    // bill surfaces after as little as one historical payment rather than
-    // waiting for ~12 months of evidence. Applies to expense side only.
-    const isDeclaredFixed = side === 'expense'
-      && matchFixedBillCommitment(getDeclaredCommitmentRegistry(), acc.merchant, acc.sourceAccount) !== null;
+    const declared = side === 'expense'
+      ? declaredOutgoingFor(registry, acc.merchant, acc.sourceAccount)
+      : null;
 
-    candidates.push({
+    const candidate: RecurringCandidate = {
       merchant: acc.merchant,
       category: acc.category,
       monthlyMax: round2(monthlyMax),
@@ -191,8 +212,12 @@ function accumulatorsToCandidates(
       sourceAccount: acc.sourceAccount,
       accountCategory: acc.accountCategory,
       transactions: acc.transactions,
-      isDeclaredFixed,
-    });
+    };
+    if (declared !== null) {
+      candidate.declaredCadence = declared.cadence === 'monthly' ? 'monthly' : 'annual';
+      candidate.declaredCommitmentId = declared.id;
+    }
+    candidates.push(candidate);
   }
   return candidates;
 }
@@ -287,7 +312,9 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
     }
   }
 
-  applyFixedBillOverrides(monthlyExpenseRecurring);
+  applyDeclaredOutgoingOverrides(monthlyExpenseRecurring, registry);
+  applyDeclaredOutgoingOverrides(annualExpenseRecurring, registry);
+  synthesiseMissingDeclaredOutgoings(monthlyExpenseRecurring, annualExpenseRecurring, registry);
 
   return {
     expenseCandidates,
@@ -303,24 +330,139 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
 }
 
 /**
- * Stamp the declared-commitment amount onto every matching recurring
- * expense. Non-GBP commitments are converted to GBP for `amount` and keep
- * their native figure on `nativeAmount` / `nativeCurrency` so the UI can
- * render "£882 (AED 4,200)".
+ * Stamp the declared-commitment amount / currency onto every matching
+ * recurring expense (both monthly and annual lists). Non-GBP commitments
+ * are converted to GBP for `amount` and keep their native figure on
+ * `nativeAmount` / `nativeCurrency` so the UI can render "£882 (AED 4,200)".
+ *
+ * Also sets `declaredCommitmentId` in case the detector produced a row via
+ * the heuristic path (no declaredCadence) that happens to coincide with a
+ * declared commitment — Upcoming Payments dedup keys off that id.
  */
-function applyFixedBillOverrides(monthly: RecurringExpense[]): void {
-  const registry = getDeclaredCommitmentRegistry();
-  for (const e of monthly) {
-    const commitment = matchFixedBillCommitment(registry, e.merchant, e.sourceAccount);
-    if (!commitment) continue;
-    const currency: CurrencyCode = commitment.currency;
-    const gbpAmount = currency === 'GBP'
-      ? commitment.amount
-      : convertAmountSync(commitment.amount, currency, 'GBP');
-    e.amount = round2(gbpAmount);
-    if (currency !== 'GBP') {
-      e.nativeAmount = round2(commitment.amount);
-      e.nativeCurrency = currency;
+function applyDeclaredOutgoingOverrides(
+  list: RecurringExpense[],
+  registry: DeclaredCommitmentRegistry,
+): void {
+  for (const e of list) {
+    const commitment = declaredOutgoingFor(registry, e.merchant, e.sourceAccount);
+    if (commitment === null) continue;
+    stampFromCommitment(e, commitment);
+  }
+}
+
+function stampFromCommitment(e: RecurringExpense, commitment: DeclaredOutgoing): void {
+  const currency: CurrencyCode = commitment.currency;
+  const gbpAmount = currency === 'GBP'
+    ? commitment.amount
+    : convertAmountSync(commitment.amount, currency, 'GBP');
+  e.amount = round2(gbpAmount);
+  if (currency !== 'GBP') {
+    e.nativeAmount = round2(commitment.amount);
+    e.nativeCurrency = currency;
+  } else {
+    delete e.nativeAmount;
+    delete e.nativeCurrency;
+  }
+  e.declaredCommitmentId = commitment.id;
+}
+
+/**
+ * Emit synthetic recurring rows for every declared outgoing (monthly or
+ * annual) that the detector did not produce a row for — typically because
+ * the user has declared a bill but no matching transaction has landed yet,
+ * or the account/merchant pair never matched during accumulation.
+ *
+ * This is the "one source of truth" side of the declaration-as-truth
+ * contract: a declared commitment is always surfaced on Fixed Expenses,
+ * with or without transaction evidence.
+ */
+function synthesiseMissingDeclaredOutgoings(
+  monthly: RecurringExpense[],
+  annual: RecurringExpense[],
+  registry: DeclaredCommitmentRegistry,
+): void {
+  const existingIds = new Set<string>();
+  for (const e of monthly) if (e.declaredCommitmentId) existingIds.add(e.declaredCommitmentId);
+  for (const e of annual) if (e.declaredCommitmentId) existingIds.add(e.declaredCommitmentId);
+
+  for (const commitment of registry.outgoing) {
+    if (commitment.category === 'tax-manual') continue;
+    if (commitment.account === undefined) continue;
+    if (commitment.cadence !== 'monthly' && commitment.cadence !== 'annual') continue;
+    if (existingIds.has(commitment.id)) continue;
+
+    const row = buildSyntheticRecurring(commitment);
+    if (commitment.cadence === 'monthly') {
+      monthly.push(row);
+    } else {
+      annual.push(row);
     }
+  }
+}
+
+function buildSyntheticRecurring(commitment: DeclaredOutgoing): RecurringExpense {
+  const currency: CurrencyCode = commitment.currency;
+  const gbpAmount = currency === 'GBP'
+    ? commitment.amount
+    : convertAmountSync(commitment.amount, currency, 'GBP');
+  const category = commitmentToCategory(commitment);
+  const merchantLabel = commitment.displayName ?? commitment.merchant;
+  const dueDate = 'dueDate' in commitment ? commitment.dueDate : undefined;
+
+  const { billingDayOfMonth, billingMonth } = dueDate !== undefined
+    ? parseDueDate(dueDate, commitment.cadence)
+    : { billingDayOfMonth: null, billingMonth: null };
+
+  const expense: RecurringExpense = {
+    merchant: merchantLabel,
+    category,
+    colour: categoryColour(category),
+    amount: round2(gbpAmount),
+    frequency: commitment.cadence === 'monthly' ? 'monthly' : 'annual',
+    monthsActive: 0,
+    annualTotal: round2(commitment.cadence === 'annual' ? gbpAmount : gbpAmount * 12),
+    logoUrl: getMerchantLogoUrl(merchantLabel),
+    // For no-transaction synthesised rows, `sourceAccount` is the declared
+    // payment account so the row groups with its sibling transactions once
+    // they start arriving and UI pills render correctly.
+    sourceAccount: commitment.account ?? '',
+    billingDayOfMonth,
+    billingMonth,
+    declaredCommitmentId: commitment.id,
+  };
+  if (currency !== 'GBP') {
+    expense.nativeAmount = round2(commitment.amount);
+    expense.nativeCurrency = currency;
+  }
+  return expense;
+}
+
+function parseDueDate(
+  dueDate: string,
+  cadence: 'monthly' | 'quarterly' | 'annual' | 'one-off',
+): { billingDayOfMonth: number | null; billingMonth: number | null } {
+  // Accept strict YYYY-MM-DD (insurance/tax-manual variants); anything else
+  // falls back to null so the UI skips the "next due" prediction.
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dueDate);
+  if (!match) return { billingDayOfMonth: null, billingMonth: null };
+  const month = parseInt(match[2], 10);
+  const day = parseInt(match[3], 10);
+  return {
+    billingDayOfMonth: day,
+    billingMonth: cadence === 'annual' ? month : null,
+  };
+}
+
+function commitmentToCategory(commitment: DeclaredOutgoing): CategoryName {
+  switch (commitment.category) {
+    case 'insurance': return 'Insurance';
+    case 'payroll': return 'Payroll';
+    // 'fixed-bill' and 'subscription' deliberately fall through to 'Other'.
+    // The synthesised row is only used until the first real transaction
+    // arrives; once one does, the detector path populates the category from
+    // `categorizeTransaction(description)` via the merchant registry.
+    case 'fixed-bill':
+    case 'subscription': return 'Other';
+    case 'tax-manual': return 'Other';
   }
 }

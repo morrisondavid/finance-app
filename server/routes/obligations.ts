@@ -211,16 +211,26 @@ router.get('/upcoming-payments', (req: Request, res: Response<UpcomingPaymentsRe
 
     const pipeline = runExpensesOverviewPipeline();
     const recurring = buildUpcomingRecurring(pipeline, new Date()).thisYear;
-    const recurringItems: UpcomingPaymentItem[] = recurring.map(r => ({
-      kind: 'recurring',
-      merchant: r.merchant,
-      category: r.category,
-      colour: r.colour,
-      logoUrl: r.logoUrl,
-      amount: r.amount,
-      sourceAccount: r.sourceAccount,
-      nextExpectedDate: r.nextExpectedDate,
-    }));
+    // Dedup: a declared commitment that produces an `UpcomingRecurring`
+    // also projects to a `financial_obligations` row when its category is
+    // surfaced on the Obligations tab (insurance, tax-manual). Without
+    // this filter the user sees each commitment twice. Obligations win
+    // because they carry richer state (due date, paid status, person).
+    const obligationIds = new Set(
+      obligationItems.flatMap(o => o.kind === 'obligation' ? [o.id] : []),
+    );
+    const recurringItems: UpcomingPaymentItem[] = recurring
+      .filter(r => r.declaredCommitmentId === undefined || !obligationIds.has(r.declaredCommitmentId))
+      .map(r => ({
+        kind: 'recurring',
+        merchant: r.merchant,
+        category: r.category,
+        colour: r.colour,
+        logoUrl: r.logoUrl,
+        amount: r.amount,
+        sourceAccount: r.sourceAccount,
+        nextExpectedDate: r.nextExpectedDate,
+      }));
 
     const items = [...obligationItems, ...recurringItems].sort((a, b) => {
       const dateA = a.kind === 'obligation' ? a.dueDate : a.nextExpectedDate;

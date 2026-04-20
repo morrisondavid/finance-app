@@ -114,13 +114,20 @@ describe('recurringKey', () => {
 });
 
 describe('buildRecurringPipeline', () => {
-  it('returns empty results when given no transactions', () => {
+  it('returns empty transaction-driven results when given no transactions', () => {
     const result = buildRecurringPipeline({
       scopedTransactions: [],
       allTimeTransactions: [],
       includeIncome: true,
     });
-    expect(result.monthlyExpenseRecurring).toHaveLength(0);
+    // With zero transactions the pipeline's synthesised-declaration pass
+    // still emits a row for every declared outgoing (so Fixed Expenses shows
+    // bills that the user has declared but not yet paid). Those rows all
+    // carry `declaredCommitmentId`; any transaction-driven row would not.
+    const transactionDriven = result.monthlyExpenseRecurring.filter(
+      e => e.declaredCommitmentId === undefined,
+    );
+    expect(transactionDriven).toHaveLength(0);
     expect(result.monthlyIncomeRecurring).toHaveLength(0);
     expect(result.monthsCovered).toBe(1);
   });
@@ -683,8 +690,9 @@ describe('buildRecurringPipeline', () => {
 
   it('MCE Advisory AED payments convert to GBP on `amount` and preserve native fields', () => {
     // Two payments over a 24-month covered window — would not normally pass the
-    // monthly detector gate, but the FIXED_BILL_OVERRIDES entry with
-    // relaxedMinMonths: 2 and isDeclaredFixed unlocks classification.
+    // monthly detector gate, but the commitments-registry `fixed-bill` entry
+    // sets `declaredCadence: 'monthly'` on the candidate and unlocks the
+    // relaxed classification branch.
     const txns: RawTransaction[] = [
       makeTxn({
         date: '2026-02-27',
@@ -736,6 +744,83 @@ describe('buildRecurringPipeline', () => {
     expect(ee!.amount).toBe(180);
     expect(ee!.nativeAmount).toBeUndefined();
     expect(ee!.nativeCurrency).toBeUndefined();
+  });
+
+  // =========================================================================
+  // Declared-annual outgoings (insurance, etc.) — surface on Fixed Expenses
+  // annual tab with GBP primary + native-currency brackets, regardless of
+  // whether the user has any matching historical transactions yet.
+  // =========================================================================
+
+  it('annual-declared insurance with zero matching transactions surfaces on annualExpenseRecurring', () => {
+    // No transactions at all — exercises the `synthesiseMissingDeclaredOutgoings`
+    // pass. commitments.csv declares two Orient Insurance policies billed
+    // annually against the emirates-islamic account.
+    const result = buildRecurringPipeline({
+      scopedTransactions: [],
+      allTimeTransactions: [],
+      includeIncome: false,
+    });
+    const orientRows = result.annualExpenseRecurring.filter(
+      e => e.merchant === 'Professional Indemnity' || e.merchant === 'Public Liability',
+    );
+    expect(orientRows).toHaveLength(2);
+    for (const row of orientRows) {
+      expect(row.nativeCurrency).toBe('AED');
+      expect(row.sourceAccount).toBe('emirates-islamic');
+      expect(row.declaredCommitmentId).toMatch(/^manual-/);
+      // GBP primary = native AED * exchange rate; verify both directions.
+      expect(row.amount).toBeGreaterThan(0);
+      expect(row.amount).not.toBe(row.nativeAmount);
+    }
+    const profIndemnity = orientRows.find(r => r.merchant === 'Professional Indemnity');
+    expect(profIndemnity!.nativeAmount).toBe(25200);
+    const publicLiability = orientRows.find(r => r.merchant === 'Public Liability');
+    expect(publicLiability!.nativeAmount).toBe(3150);
+  });
+
+  it('annual-declared insurance with one matching transaction surfaces once, not duplicated', () => {
+    // Single matching transaction → detector emits a row; synthesiser must
+    // NOT emit a second. The dedup keys off `declaredCommitmentId`.
+    const txns: RawTransaction[] = [
+      makeTxn({
+        date: '2026-03-27',
+        description: 'DFT-DTB TT ORIENT INSURANCE PJSC INS PAYMENT FOR PROFESSIONAL',
+        amount: -25200,
+        account: 'emirates-islamic',
+      }),
+    ];
+    const result = buildRecurringPipeline({
+      scopedTransactions: txns,
+      allTimeTransactions: txns,
+      includeIncome: false,
+    });
+    const profIndemnity = result.annualExpenseRecurring.filter(
+      e => e.declaredCommitmentId === 'manual-665c8ca2-3383-47a8-8889-122435f74b3a',
+    );
+    expect(profIndemnity).toHaveLength(1);
+    expect(profIndemnity[0].nativeAmount).toBe(25200);
+    expect(profIndemnity[0].nativeCurrency).toBe('AED');
+    // Public liability still comes through synthesis (no txn yet).
+    const publicLiability = result.annualExpenseRecurring.filter(
+      e => e.declaredCommitmentId === 'manual-0a2cda18-eb22-4526-bcba-711e802ffb2b',
+    );
+    expect(publicLiability).toHaveLength(1);
+  });
+
+  it('tax-manual declared commitments never surface on Fixed Expenses', () => {
+    // commitments.csv has a `tax-manual` self-assessment row; regardless of
+    // cadence it must not leak into monthly/annual expense lists.
+    const result = buildRecurringPipeline({
+      scopedTransactions: [],
+      allTimeTransactions: [],
+      includeIncome: false,
+    });
+    const taxRows = [
+      ...result.monthlyExpenseRecurring,
+      ...result.annualExpenseRecurring,
+    ].filter(e => e.merchant === 'Self Assessment Tax' || e.merchant === 'HMRC');
+    expect(taxRows).toHaveLength(0);
   });
 
   it('non-Property expense amounts still stay separate (no regression)', () => {

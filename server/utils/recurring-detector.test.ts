@@ -527,7 +527,7 @@ describe('classifyRecurring – declared fixed bills', () => {
       category: 'Business',
       transactions: [{ date: '2026-04-01', amount: 4200 }],
       monthsActive: 1,
-      isDeclaredFixed: true,
+      declaredCadence: 'monthly',
     });
     const result = classifyRecurring([c], 1, REF_DATE);
 
@@ -556,7 +556,7 @@ describe('classifyRecurring – declared fixed bills', () => {
         { date: '2026-03-28', amount: 4200 },
       ],
       monthsActive: 2,
-      isDeclaredFixed: true,
+      declaredCadence: 'monthly',
     });
     const result = classifyRecurring([c], 24, REF_DATE);
 
@@ -599,7 +599,7 @@ describe('classifyRecurring – declared fixed bills', () => {
       category: 'Business',
       transactions: txns,
       monthsActive: 10,
-      isDeclaredFixed: true,
+      declaredCadence: 'monthly',
     });
     const result = classifyRecurring([c], 12, REF_DATE);
 
@@ -617,7 +617,7 @@ describe('classifyRecurring – declared fixed bills', () => {
       category: 'Business',
       transactions: txns,
       monthsActive: 2,
-      isDeclaredFixed: true,
+      declaredCadence: 'monthly',
     });
     const result = classifyRecurring([c], 24, REF_DATE);
 

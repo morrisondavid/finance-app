@@ -470,6 +470,16 @@ export const RecurringExpenseSchema = z.object({
   /** Native-currency figure for non-GBP bills (e.g. AED). `amount` is always GBP. */
   nativeAmount: z.number().optional(),
   nativeCurrency: CurrencyCodeSchema.optional(),
+  /**
+   * Back-reference to the declared-commitment row that produced this entry,
+   * when the recurring expense was driven by the commitments registry
+   * (either by relaxing the detector with declared evidence, or by being
+   * synthesised whole from a zero-transaction declaration). Downstream
+   * surfaces that also read the commitments registry (e.g. the Obligations
+   * tab) use this id to dedupe against their own projection of the same
+   * commitment.
+   */
+  declaredCommitmentId: z.string().optional(),
 });
 
 export const RecurringExpensesResponseSchema = z.object({
@@ -695,6 +705,8 @@ export const UpcomingRecurringSchema = z.object({
   sourceAccount: z.string(),
   nextExpectedDate: z.string(),
   lastChargeDate: z.string().nullable(),
+  /** See {@link RecurringExpenseSchema.declaredCommitmentId}. */
+  declaredCommitmentId: z.string().optional(),
 });
 
 /**
