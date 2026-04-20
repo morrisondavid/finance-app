@@ -27,9 +27,11 @@ export function commitmentProjectsToObligation(c: DeclaredCommitment): c is
 
 /**
  * Map a commitment's declared category to the `ObligationType` string used by
- * the existing obligations API + DB column. `tax-manual` has no unique
- * obligation type, so we default it to 'self-assessment' (the only manual
- * tax category the app surfaces today).
+ * the existing obligations API + DB column. `tax-manual` carries its specific
+ * subtype on `taxType` (vat / corporation-tax / self-assessment / hmrc-ttp)
+ * so the projection is lossless. Older rows without `taxType` fall back to
+ * 'self-assessment' — the only manual tax category the app originally
+ * surfaced.
  */
 export function obligationTypeForCommitment(
   c: Extract<DeclaredOutgoing, { category: 'insurance' | 'subscription' | 'tax-manual' }>,
@@ -37,7 +39,7 @@ export function obligationTypeForCommitment(
   switch (c.category) {
     case 'insurance': return 'insurance';
     case 'subscription': return 'subscription';
-    case 'tax-manual': return 'self-assessment';
+    case 'tax-manual': return c.taxType ?? 'self-assessment';
   }
 }
 

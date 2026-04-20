@@ -31,6 +31,9 @@ function hasAmountTolerance(c: DeclaredCommitment): c is Extract<DeclaredOutgoin
 function hasDueDate(c: DeclaredCommitment): c is Extract<DeclaredOutgoing, { category: 'insurance' | 'tax-manual' }> {
   return c.category === 'insurance' || c.category === 'tax-manual';
 }
+function hasTaxType(c: DeclaredCommitment): c is Extract<DeclaredOutgoing, { category: 'tax-manual' }> {
+  return c.category === 'tax-manual';
+}
 
 function ownershipAt(c: DeclaredCommitment, key: PersonId): string {
   if (!hasOwnership(c)) return '';
@@ -54,6 +57,7 @@ function commitmentToCsvRow(c: DeclaredCommitment): string {
     hasPersonId(c) ? escapeCsvField(c.personId ?? '') : '',
     hasAmountTolerance(c) && c.amountTolerance !== undefined ? String(c.amountTolerance) : '',
     hasDueDate(c) ? escapeCsvField(c.dueDate ?? '') : '',
+    hasTaxType(c) ? escapeCsvField(c.taxType ?? '') : '',
   ];
   return cells.join(',');
 }

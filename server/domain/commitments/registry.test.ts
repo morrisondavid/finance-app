@@ -89,6 +89,36 @@ describe('parseCommitmentRow', () => {
     expect(result.cadence).toBe('annual');
   });
 
+  it('parses a tax-manual row and preserves the taxType subtype', () => {
+    const result = parseCommitmentRow({
+      id: 'u-vat-2026q1', category: 'tax-manual', cadence: 'quarterly',
+      merchant: 'HMRC', display_name: 'VAT Q1 2026',
+      account: '', amount: '1500', currency: 'GBP',
+      notes: '', ownership_david: '', ownership_heena: '',
+      person_id: '', amount_tolerance: '', due_date: '2026-05-07',
+      tax_type: 'vat',
+    });
+    expect(result.category).toBe('tax-manual');
+    if (result.category === 'tax-manual') {
+      expect(result.taxType).toBe('vat');
+    }
+  });
+
+  it('parses a tax-manual row without taxType (backwards compatibility)', () => {
+    const result = parseCommitmentRow({
+      id: 'u-legacy-sa', category: 'tax-manual', cadence: 'annual',
+      merchant: 'HMRC', display_name: 'Self Assessment',
+      account: '', amount: '2083.54', currency: 'GBP',
+      notes: '', ownership_david: '', ownership_heena: '',
+      person_id: '', amount_tolerance: '', due_date: '2026-01-31',
+      tax_type: '',
+    });
+    expect(result.category).toBe('tax-manual');
+    if (result.category === 'tax-manual') {
+      expect(result.taxType).toBeUndefined();
+    }
+  });
+
   it('rejects an unknown category', () => {
     expect(() =>
       parseCommitmentRow({

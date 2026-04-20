@@ -226,11 +226,14 @@ export function getObligationById(id: string): ObligationRow | undefined {
   return db.prepare('SELECT * FROM financial_obligations WHERE id = ?').get(id) as ObligationRow | undefined;
 }
 
+type TaxObligationType = 'vat' | 'corporation-tax' | 'self-assessment' | 'hmrc-ttp';
+
 /**
  * Translate the obligations API `type` enum into a declared commitment
- * category. The API currently exposes historical types that also appear in
- * the auto-seed pipelines (vat, corporation-tax, self-assessment, hmrc-ttp)
- * — any of those posted manually collapse to `tax-manual`. `loan` and
+ * category. The API currently exposes four historical tax subtypes
+ * (vat, corporation-tax, self-assessment, hmrc-ttp) that all map to the
+ * single `tax-manual` category — the specific subtype is preserved on the
+ * commitment's `taxType` field so round-trips stay lossless. `loan` and
  * `other` don't map yet; future categories should be added to
  * DeclaredOutgoingSchema first.
  */
@@ -249,6 +252,11 @@ function obligationTypeToCategory(type: string): DeclaredOutgoing['category'] {
         `Add a category to DeclaredOutgoingSchema first.`,
       );
   }
+}
+
+function isTaxObligationType(type: string): type is TaxObligationType {
+  return type === 'vat' || type === 'corporation-tax'
+    || type === 'self-assessment' || type === 'hmrc-ttp';
 }
 
 const VALID_CADENCES: readonly Cadence[] = ['monthly', 'quarterly', 'annual', 'one-off'];
@@ -294,6 +302,10 @@ function buildCommitmentFromObligationInput(input: ObligationInputWithId): Decla
         category,
         personId: input.personId ?? undefined,
         dueDate: input.dueDate ?? undefined,
+        // Preserve which tax subtype the user picked. The API `type` is
+        // guaranteed to be one of the four tax values here because that's
+        // how `obligationTypeToCategory` routed us into this branch.
+        taxType: isTaxObligationType(input.type) ? input.type : undefined,
       }
       : { category };
   return DeclaredOutgoingSchema.parse({ ...base, ...extra });
@@ -342,7 +354,9 @@ function inputFromCommitment(
   const obligationType: CreateObligationBody['type'] =
     c.category === 'insurance' ? 'insurance' :
     c.category === 'subscription' ? 'subscription' :
-    'self-assessment'; // tax-manual projects to self-assessment
+    // tax-manual carries the specific subtype; fall back to self-assessment
+    // for pre-existing rows that never had the field set.
+    (c.taxType ?? 'self-assessment');
   return {
     id: c.id,
     type: obligationType,

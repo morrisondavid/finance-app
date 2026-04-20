@@ -690,6 +690,15 @@ export const DeclaredOutgoingSchema = z.discriminatedUnion('category', [
   commitmentCategory('tax-manual', {
     personId: PersonIdSchema.optional(),
     dueDate: z.string().optional(),
+    /**
+     * Subtype of the tax obligation — mirrors the historical API `type` enum
+     * values that all project down to the `tax-manual` commitment category.
+     * Preserved so a `vat` obligation round-trips through
+     * commitments.csv back to the Obligations tab as `type='vat'` (not
+     * silently collapsed to `self-assessment`). Optional for backwards-
+     * compatibility with rows written before this field existed.
+     */
+    taxType: z.enum(['vat', 'corporation-tax', 'self-assessment', 'hmrc-ttp']).optional(),
   }),
 ]);
 

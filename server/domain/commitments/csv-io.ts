@@ -42,6 +42,7 @@ export const COMMITMENT_CSV_HEADERS = [
   'person_id',
   'amount_tolerance',
   'due_date',
+  'tax_type',
 ] as const;
 
 export function getCommitmentsSeedCsvPath(commitmentsDir: string): string {
@@ -150,6 +151,7 @@ export function parseCommitmentRow(row: Record<string, string>): DeclaredCommitm
           category,
           personId: nonEmpty(row.person_id),
           dueDate: nonEmpty(row.due_date),
+          taxType: nonEmpty(row.tax_type),
         });
     }
   }
