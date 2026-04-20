@@ -1,9 +1,9 @@
 /**
  * Per-obligation mutable state store.
  *
- * Declarations live in `commitments/commitments.csv` (pure config).
+ * Declarations live in `obligations/obligations.csv` (pure config).
  * The obligation *instance* state — whether it's been paid, the payment
- * amount/date/account — lives here, keyed by commitment id. Splitting the
+ * amount/date/account — lives here, keyed by obligation id. Splitting the
  * two concerns keeps the declaration file readable and git-trackable while
  * giving the Obligations API a durable place to record payments.
  *

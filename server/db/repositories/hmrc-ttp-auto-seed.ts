@@ -7,7 +7,7 @@
  * the same amount hitting the same account — exactly what the existing
  * recurring-expense pipeline already surfaces.
  *
- * Rather than re-implement cadence detection, this seeder sits on top of
+ * Rather than re-implement frequency detection, this seeder sits on top of
  * {@link runExpensesOverviewPipeline} (shared with the /overview endpoint)
  * and filters its `monthlyExpenseRecurring` output down to HMRC-narrative
  * groups. Every historical debit attached to a qualifying accumulator is
@@ -21,7 +21,7 @@
  *    now represented by an obligation (the existing NOT EXISTS clause in
  *    `findUnmatchedHmrcPayments` matches on
  *    `(paid_date, paid_amount, paid_from_account)`).
- * 2. No new cadence logic — the seeder imports `predictNextChargeDate`
+ * 2. No new frequency logic — the seeder imports `predictNextChargeDate`
  *    and `resolveLastChargeDate` verbatim from the recurring pipeline.
  */
 
@@ -132,7 +132,7 @@ function emitHistoricalInstalments(
       type: 'hmrc-ttp',
       name: ttpObligationName(expense),
       entity: 'HMRC',
-      recurrence: 'monthly',
+      frequency: 'monthly',
       expectedAmount: expense.amount,
       dueDate: txn.date,
       status: 'paid',
@@ -205,7 +205,7 @@ function emitUpcomingInstalment(
     type: 'hmrc-ttp',
     name: ttpObligationName(expense),
     entity: 'HMRC',
-    recurrence: 'monthly',
+    frequency: 'monthly',
     expectedAmount: expense.amount,
     dueDate: nextDue,
     status: 'not-yet-due',

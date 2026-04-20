@@ -1,5 +1,5 @@
 /**
- * Rental-income helpers backed by the declared commitments registry.
+ * Rental-income helpers backed by the obligations registry.
  *
  * Replaces the old `server/utils/rental-properties.ts` constant + helpers.
  * Every function in this file reads from the registry so there is one —
@@ -8,9 +8,11 @@
 
 import type { PersonId } from '../../../shared/api-contracts.js';
 import {
-  getDeclaredCommitmentRegistry,
-  type DeclaredCommitmentRegistry,
+  getObligationRegistry,
+  type ObligationRegistry,
 } from './registry.js';
+import { categorizeTransaction } from '../../utils/categorizer.js';
+import { SPECIAL_CATEGORY } from '../../utils/category-constants.js';
 
 /** Tolerance for floating-point sum drift when validating ownership splits. */
 const OWNERSHIP_SUM_EPSILON = 0.0001;
@@ -27,12 +29,12 @@ interface PreparableDb {
 }
 
 /**
- * Fail at boot if any rental-income commitment has an ownership split that
+ * Fail at boot if any rental-income obligation has an ownership split that
  * doesn't sum to ~1. Mirrors the legacy `assertOwnershipIntegrity` check
  * but reads from the registry.
  */
 export function assertRentalOwnershipIntegrity(
-  registry: DeclaredCommitmentRegistry = getDeclaredCommitmentRegistry(),
+  registry: ObligationRegistry = getObligationRegistry(),
 ): void {
   const rentals = registry.listByCategory('rental-income');
   for (const property of rentals) {
@@ -42,7 +44,31 @@ export function assertRentalOwnershipIntegrity(
     );
     if (Math.abs(sum - 1) > OWNERSHIP_SUM_EPSILON) {
       throw new Error(
-        `Rental commitment ${property.id} ownership must sum to 1, got ${sum.toFixed(4)}`,
+        `Rental obligation ${property.id} ownership must sum to 1, got ${sum.toFixed(4)}`,
+      );
+    }
+  }
+}
+
+/**
+ * Fail at boot if any rental-income obligation's merchant does not
+ * classify to {@link SPECIAL_CATEGORY.property} via the string-heuristic
+ * categorizer. The recurring pipeline now lets the registry drive the
+ * category (inverted lookup), but other surfaces — dashboard charts,
+ * budgeting, ad-hoc expense classification — still call
+ * {@link categorizeTransaction} directly. This invariant guarantees the
+ * two sources agree on every declared rental, so a mis-configured
+ * merchant-registry entry surfaces loudly at boot rather than silently
+ * bucketing rental income under `Other` on those surfaces.
+ */
+export function assertRentalMerchantsClassify(
+  registry: ObligationRegistry = getObligationRegistry(),
+): void {
+  for (const property of registry.listByCategory('rental-income')) {
+    const category = categorizeTransaction(property.merchant);
+    if (category !== SPECIAL_CATEGORY.property) {
+      throw new Error(
+        `Rental obligation ${property.id} merchant "${property.merchant}" classifies as "${category}", expected "${SPECIAL_CATEGORY.property}". Add a matching entry to server/utils/merchant-registry.ts.`,
       );
     }
   }
@@ -50,7 +76,7 @@ export function assertRentalOwnershipIntegrity(
 
 /**
  * Sum rental income attributable to a single person over a date range
- * (inclusive). Iterates every `rental-income` commitment and applies its
+ * (inclusive). Iterates every `rental-income` obligation and applies its
  * ownership share to matched inbound transactions on the configured
  * account + payee.
  */
@@ -59,7 +85,7 @@ export function sumRentalIncomeForPerson(
   personId: PersonId,
   startDate: string,
   endDate: string,
-  registry: DeclaredCommitmentRegistry = getDeclaredCommitmentRegistry(),
+  registry: ObligationRegistry = getObligationRegistry(),
 ): number {
   let total = 0;
   for (const property of registry.listByCategory('rental-income')) {

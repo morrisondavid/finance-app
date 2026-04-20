@@ -7,6 +7,7 @@ import {
   personNamePattern,
   isPersonId,
   allPersonIds,
+  matchPersonInDescription,
   type PersonId,
 } from './people.js';
 
@@ -72,6 +73,25 @@ describe('people config', () => {
 
     it('personNamePattern is an UPPERCASE LIKE pattern', () => {
       expect(personNamePattern(getPerson('david'))).toBe('%DAVID MORRISON%');
+    });
+  });
+
+  describe('matchPersonInDescription', () => {
+    it('matches David by full name', () => {
+      expect(matchPersonInDescription('STO SALARY DAVID MORRISON')?.id).toBe('david');
+    });
+
+    it('matches David by short-form alias', () => {
+      expect(matchPersonInDescription('BACS D MORRISON REF 123')?.id).toBe('david');
+    });
+
+    it('matches Heena by both married and maiden aliases', () => {
+      expect(matchPersonInDescription('STO SALARY HEENA TAILOR')?.id).toBe('heena');
+      expect(matchPersonInDescription('STO PAYROLL HEENA MORRISON')?.id).toBe('heena');
+    });
+
+    it('returns null when no alias matches', () => {
+      expect(matchPersonInDescription('TESCO STORES 2345')).toBeNull();
     });
   });
 });

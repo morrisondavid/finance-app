@@ -54,7 +54,7 @@ function createSchema(): void {
       type TEXT NOT NULL,
       name TEXT NOT NULL,
       entity TEXT NOT NULL,
-      recurrence TEXT NOT NULL,
+      frequency TEXT NOT NULL,
       expected_amount REAL,
       due_date TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
@@ -105,7 +105,7 @@ function insertManualSaObligation(opts: {
 }): void {
   testDb.prepare(`
     INSERT INTO financial_obligations
-      (id, source, type, name, entity, recurrence, expected_amount, due_date, status, person_id)
+      (id, source, type, name, entity, frequency, expected_amount, due_date, status, person_id)
     VALUES (?, 'manual', 'self-assessment', 'SA manual', 'HMRC', 'annual', ?, ?, 'pending', ?)
   `).run(opts.id, opts.expectedAmount ?? 1000, opts.dueDate, opts.personId);
 }

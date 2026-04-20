@@ -1,28 +1,33 @@
 import crypto from 'crypto';
-import { getDb, OBLIGATIONS_DIR, COMMITMENTS_DIR } from '../connection.js';
+import { getDb, OBLIGATIONS_DIR } from '../connection.js';
 import { buildFyWhereClauseForColumn } from '../utils/financial-year.js';
 import {
-  buildDeclaredCommitmentRegistry,
-  __resetDeclaredCommitmentRegistryForTests,
-} from '../../domain/commitments/registry.js';
-import { buildCommitmentsWriter } from '../../domain/commitments/csv-writer.js';
+  buildObligationRegistry,
+  __resetObligationRegistryForTests,
+} from '../../domain/obligations/registry.js';
+import { buildObligationsWriter } from '../../domain/obligations/csv-writer.js';
 import {
   getObligationStateCsvPath,
   readObligationStateFromFile,
   upsertObligationState,
   deleteObligationState,
   type ObligationStateRow,
-} from '../../domain/commitments/obligation-state.js';
+} from '../../domain/obligations/obligation-state.js';
 import {
-  commitmentProjectsToObligation,
-  projectCommitmentToObligationRow,
-} from '../../domain/commitments/obligation-projection.js';
+  obligationProjectsToRow,
+  projectObligationToRow,
+} from '../../domain/obligations/obligation-projection.js';
 import {
-  DeclaredOutgoingSchema,
-  type DeclaredOutgoing,
-  type Cadence,
+  OutgoingObligationSchema,
+  ObligationSourceSchema,
+  ObligationTypeSchema,
+  ObligationFrequencySchema,
+  ObligationStatusSchema,
+  PersonIdSchema,
+  type OutgoingObligation,
   type CreateObligationBody,
   type UpdateObligationBody,
+  type ObligationRow,
 } from '../../../shared/api-contracts.js';
 
 /**
@@ -34,13 +39,18 @@ export const COMPLETED_STATUSES = ['paid', 'confirmed'] as const;
 
 const COMPLETED_PLACEHOLDERS = COMPLETED_STATUSES.map(() => '?').join(',');
 
-interface ObligationRow {
+/**
+ * Raw SQLite row shape (snake_case) for the `financial_obligations` table.
+ * Converted to the camelCase {@link ObligationRow} API shape via
+ * {@link toApiObligation} before it leaves this module.
+ */
+interface ObligationDbRow {
   id: string;
   source: string;
   type: string;
   name: string;
   entity: string;
-  recurrence: string;
+  frequency: string;
   expected_amount: number | null;
   due_date: string | null;
   status: string;
@@ -57,22 +67,25 @@ function obligationStateCsvPath(): string {
   return getObligationStateCsvPath(OBLIGATIONS_DIR);
 }
 
-function commitmentsWriter() {
-  return buildCommitmentsWriter(COMMITMENTS_DIR);
+function obligationsWriter() {
+  return buildObligationsWriter(OBLIGATIONS_DIR);
 }
 
 function freshRegistry() {
   // Always build a fresh registry on the mutation path: we want the write we
   // just made to be visible to downstream reads (projector + seeders) in the
   // same request.
-  __resetDeclaredCommitmentRegistryForTests();
-  return buildDeclaredCommitmentRegistry(COMMITMENTS_DIR);
+  __resetObligationRegistryForTests();
+  return buildObligationRegistry(OBLIGATIONS_DIR);
 }
 
 /**
- * Load every manual obligation from the declared-commitments registry and
- * upsert it into `financial_obligations`. Runs at boot in place of the old
- * `manual-obligations.csv` reader.
+ * Rebuild the `financial_obligations` read-model rows from the obligations
+ * registry and per-occurrence state. Runs at boot and after every mutation
+ * so the DB table is always a pure projection — never a source of truth.
+ *
+ * Exported under its legacy name for one caller (sa-estimator tests) plus
+ * the alias `rebuildObligationsTable` that the repository uses internally.
  */
 export function loadManualObligationsFromCsv(): void {
   const db = getDb();
@@ -80,35 +93,38 @@ export function loadManualObligationsFromCsv(): void {
   const state = readObligationStateFromFile(obligationStateCsvPath());
 
   const projected = registry.outgoing
-    .filter(commitmentProjectsToObligation)
-    .map(c => projectCommitmentToObligationRow(c, state.get(c.id)));
+    .filter(obligationProjectsToRow)
+    .map(c => projectObligationToRow(c, state.get(c.id)));
 
   const insert = db.prepare(`
     INSERT OR REPLACE INTO financial_obligations
-      (id, source, type, name, entity, recurrence, expected_amount, due_date, status,
+      (id, source, type, name, entity, frequency, expected_amount, due_date, status,
        paid_amount, paid_date, paid_from_account, notes, person_id, created_at, updated_at)
     VALUES (?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `);
 
   for (const r of projected) {
     insert.run(
-      r.id, r.type, r.name, r.entity, r.recurrence,
+      r.id, r.type, r.name, r.entity, r.frequency,
       r.expectedAmount, r.dueDate, r.status,
       r.paidAmount, r.paidDate, r.paidFromAccount, r.notes, r.personId,
     );
   }
 
   if (projected.length > 0) {
-    console.log(`[Database] Loaded ${projected.length} manual obligation(s) from commitments registry`);
+    console.log(`[Database] Loaded ${projected.length} manual obligation(s) from obligations registry`);
   }
 }
+
+/** Canonical alias used by all internal mutation paths in this module. */
+const rebuildObligationsTable = loadManualObligationsFromCsv;
 
 export function insertAutoObligation(obligation: {
   id: string;
   type: string;
   name: string;
   entity: string;
-  recurrence: string;
+  frequency: string;
   expectedAmount: number | null;
   dueDate: string | null;
   status: string;
@@ -121,12 +137,12 @@ export function insertAutoObligation(obligation: {
   const db = getDb();
   db.prepare(`
     INSERT OR REPLACE INTO financial_obligations
-      (id, source, type, name, entity, recurrence, expected_amount, due_date, status,
+      (id, source, type, name, entity, frequency, expected_amount, due_date, status,
        paid_amount, paid_date, paid_from_account, notes, person_id, created_at, updated_at)
     VALUES (?, 'auto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `).run(
     obligation.id, obligation.type, obligation.name, obligation.entity,
-    obligation.recurrence, obligation.expectedAmount, obligation.dueDate,
+    obligation.frequency, obligation.expectedAmount, obligation.dueDate,
     obligation.status, obligation.paidAmount, obligation.paidDate,
     obligation.paidFromAccount, obligation.notes, obligation.personId ?? null,
   );
@@ -144,7 +160,7 @@ export interface ObligationFilters {
   maxDueDate?: string;
 }
 
-export function getAllObligations(filters?: ObligationFilters): ObligationRow[] {
+export function getAllObligations(filters?: ObligationFilters): ObligationDbRow[] {
   const db = getDb();
   const conditions: string[] = [];
   const params: unknown[] = [];
@@ -178,7 +194,7 @@ export function getAllObligations(filters?: ObligationFilters): ObligationRow[] 
     }
   }
 
-  return db.prepare(`SELECT * FROM financial_obligations ${where} ORDER BY due_date ASC`).all(...params) as ObligationRow[];
+  return db.prepare(`SELECT * FROM financial_obligations ${where} ORDER BY due_date ASC`).all(...params) as ObligationDbRow[];
 }
 
 export interface OverdueObligationsFilters {
@@ -186,7 +202,7 @@ export interface OverdueObligationsFilters {
   minDueDate?: string;
 }
 
-export function getOverdueObligations(filters?: OverdueObligationsFilters): ObligationRow[] {
+export function getOverdueObligations(filters?: OverdueObligationsFilters): ObligationDbRow[] {
   const db = getDb();
   const todayStr = new Date().toISOString().slice(0, 10);
   const conditions: string[] = ['due_date IS NOT NULL', 'due_date < ?'];
@@ -201,10 +217,10 @@ export function getOverdueObligations(filters?: OverdueObligationsFilters): Obli
     SELECT * FROM financial_obligations
     WHERE ${conditions.join(' AND ')}
     ORDER BY due_date ASC
-  `).all(...params) as ObligationRow[];
+  `).all(...params) as ObligationDbRow[];
 }
 
-export function getUpcomingObligations(days: number): ObligationRow[] {
+export function getUpcomingObligations(days: number): ObligationDbRow[] {
   const db = getDb();
   const today = new Date();
   const future = new Date(today);
@@ -218,97 +234,76 @@ export function getUpcomingObligations(days: number): ObligationRow[] {
       AND due_date >= ? AND due_date <= ?
       AND status NOT IN (${COMPLETED_PLACEHOLDERS})
     ORDER BY due_date ASC
-  `).all(todayStr, futureStr, ...COMPLETED_STATUSES) as ObligationRow[];
+  `).all(todayStr, futureStr, ...COMPLETED_STATUSES) as ObligationDbRow[];
 }
 
-export function getObligationById(id: string): ObligationRow | undefined {
+export function getObligationById(id: string): ObligationDbRow | undefined {
   const db = getDb();
-  return db.prepare('SELECT * FROM financial_obligations WHERE id = ?').get(id) as ObligationRow | undefined;
+  return db.prepare('SELECT * FROM financial_obligations WHERE id = ?').get(id) as ObligationDbRow | undefined;
 }
 
 type TaxObligationType = 'vat' | 'corporation-tax' | 'self-assessment' | 'hmrc-ttp';
+type ManualApiType = CreateObligationBody['type'];
 
-/**
- * Translate the obligations API `type` enum into a declared commitment
- * category. The API currently exposes four historical tax subtypes
- * (vat, corporation-tax, self-assessment, hmrc-ttp) that all map to the
- * single `tax-manual` category — the specific subtype is preserved on the
- * commitment's `taxType` field so round-trips stay lossless. `loan` and
- * `other` don't map yet; future categories should be added to
- * DeclaredOutgoingSchema first.
- */
-function obligationTypeToCategory(type: string): DeclaredOutgoing['category'] {
-  switch (type) {
-    case 'insurance': return 'insurance';
-    case 'subscription': return 'subscription';
-    case 'vat':
-    case 'corporation-tax':
-    case 'self-assessment':
-    case 'hmrc-ttp':
-      return 'tax-manual';
-    default:
-      throw new Error(
-        `Manual obligations of type '${type}' are not supported by the declared-commitments registry. ` +
-        `Add a category to DeclaredOutgoingSchema first.`,
-      );
-  }
-}
-
-function isTaxObligationType(type: string): type is TaxObligationType {
+function isTaxObligationType(type: ManualApiType): type is TaxObligationType {
   return type === 'vat' || type === 'corporation-tax'
     || type === 'self-assessment' || type === 'hmrc-ttp';
 }
 
-const VALID_CADENCES: readonly Cadence[] = ['monthly', 'quarterly', 'annual', 'one-off'];
-function isCadence(r: string): r is Cadence {
-  return (VALID_CADENCES as readonly string[]).includes(r);
-}
-
 /**
- * Fields shared by Create + Update payloads. We require `id` because this
- * helper is the single writer for both paths; the route layer generates
- * an id for creates and passes the existing id for updates.
+ * Parse a CRUD API body into a validated {@link OutgoingObligation}.
+ *
+ * The legacy API `type` enum exposes four tax subtypes (vat,
+ * corporation-tax, self-assessment, hmrc-ttp) that all fold into the single
+ * `tax-manual` obligation category — the specific subtype is preserved on
+ * `taxType` so round-trips stay lossless. `insurance` and `subscription`
+ * map 1:1. `loan` / `other` are not yet supported; add a category to
+ * {@link OutgoingObligationSchema} before wiring them up.
+ *
+ * The Zod `.parse()` at the bottom is the sole validation boundary — no
+ * manual type guards needed because every field that flows in has already
+ * been narrowed by the Zod-parsed request body schema.
  */
-interface ObligationInputWithId {
-  id: string;
-  type: CreateObligationBody['type'];
-  name: string;
-  entity: string;
-  recurrence: CreateObligationBody['recurrence'];
-  expectedAmount?: number | null;
-  dueDate?: string | null;
-  notes?: string | null;
-  personId?: CreateObligationBody['personId'];
-}
-
-function buildCommitmentFromObligationInput(input: ObligationInputWithId): DeclaredOutgoing {
-  const category = obligationTypeToCategory(input.type);
-  if (!isCadence(input.recurrence)) {
-    throw new Error(`Invalid recurrence '${input.recurrence}' for manual obligation`);
-  }
+function obligationFromApiBody(
+  id: string,
+  body: Pick<CreateObligationBody,
+    'type' | 'name' | 'entity' | 'frequency' |
+    'expectedAmount' | 'dueDate' | 'notes' | 'personId'>,
+): OutgoingObligation {
   const base = {
-    id: input.id,
-    cadence: input.recurrence,
-    merchant: input.entity,
-    displayName: input.name,
-    amount: input.expectedAmount ?? 0,
+    id,
+    frequency: body.frequency,
+    merchant: body.entity,
+    displayName: body.name,
+    amount: body.expectedAmount ?? 0,
     currency: 'GBP' as const,
-    notes: input.notes ?? undefined,
+    notes: body.notes ?? undefined,
   };
-  const extra = category === 'insurance'
-    ? { category, dueDate: input.dueDate ?? undefined }
-    : category === 'tax-manual'
-      ? {
-        category,
-        personId: input.personId ?? undefined,
-        dueDate: input.dueDate ?? undefined,
-        // Preserve which tax subtype the user picked. The API `type` is
-        // guaranteed to be one of the four tax values here because that's
-        // how `obligationTypeToCategory` routed us into this branch.
-        taxType: isTaxObligationType(input.type) ? input.type : undefined,
-      }
-      : { category };
-  return DeclaredOutgoingSchema.parse({ ...base, ...extra });
+  switch (body.type) {
+    case 'insurance':
+      return OutgoingObligationSchema.parse({
+        ...base, category: 'insurance', dueDate: body.dueDate ?? undefined,
+      });
+    case 'subscription':
+      return OutgoingObligationSchema.parse({ ...base, category: 'subscription' });
+    case 'vat':
+    case 'corporation-tax':
+    case 'self-assessment':
+    case 'hmrc-ttp':
+      return OutgoingObligationSchema.parse({
+        ...base,
+        category: 'tax-manual',
+        personId: body.personId ?? undefined,
+        dueDate: body.dueDate ?? undefined,
+        taxType: isTaxObligationType(body.type) ? body.type : undefined,
+      });
+    case 'loan':
+    case 'other':
+      throw new Error(
+        `Manual obligations of type '${body.type}' are not supported yet. ` +
+        `Add a category to OutgoingObligationSchema first.`,
+      );
+  }
 }
 
 function writeStateFromInput(id: string, data: {
@@ -327,63 +322,64 @@ function writeStateFromInput(id: string, data: {
   upsertObligationState(obligationStateCsvPath(), row);
 }
 
-export function createManualObligation(data: CreateObligationBody): ObligationRow {
+export function createManualObligation(data: CreateObligationBody): ObligationDbRow {
   const id = `manual-${crypto.randomUUID()}`;
-  const commitment = buildCommitmentFromObligationInput({ ...data, id });
-  commitmentsWriter().upsert(commitment);
+  obligationsWriter().upsert(obligationFromApiBody(id, data));
   if (data.status && data.status !== 'pending') {
     writeStateFromInput(id, { status: data.status });
   }
-  // Rebuild + reload so the DB reflects the write.
-  loadManualObligationsFromCsv();
+  rebuildObligationsTable();
   const row = getObligationById(id);
   if (!row) {
-    throw new Error(`createManualObligation: row ${id} missing after reload — check commitments/commitments.csv is writable`);
+    throw new Error(`createManualObligation: row ${id} missing after reload — check obligations/obligations.csv is writable`);
   }
   return row;
 }
 
 /**
- * Reconstruct the obligation-shaped input from an existing commitment so the
- * update path can start from known-good, schema-narrowed fields rather than
- * the DB row (whose `type`/`recurrence` columns are bare strings).
+ * Recover an API-body-shaped payload from an existing obligation so the
+ * update path can merge a partial patch against known-good fields. The
+ * obligation is the source of truth; we project it through the legacy
+ * `type` enum via {@link OutgoingToManualApiType} so the merged result
+ * round-trips cleanly back through {@link obligationFromApiBody}.
  */
-function inputFromCommitment(
-  c: Extract<DeclaredOutgoing, { category: 'insurance' | 'subscription' | 'tax-manual' }>,
-): ObligationInputWithId {
-  const obligationType: CreateObligationBody['type'] =
-    c.category === 'insurance' ? 'insurance' :
-    c.category === 'subscription' ? 'subscription' :
+function apiBodyFromObligation(
+  o: Extract<OutgoingObligation, { category: 'insurance' | 'subscription' | 'tax-manual' }>,
+): Pick<CreateObligationBody,
+  'type' | 'name' | 'entity' | 'frequency' |
+  'expectedAmount' | 'dueDate' | 'notes' | 'personId'> {
+  const type: CreateObligationBody['type'] =
+    o.category === 'insurance' ? 'insurance' :
+    o.category === 'subscription' ? 'subscription' :
     // tax-manual carries the specific subtype; fall back to self-assessment
-    // for pre-existing rows that never had the field set.
-    (c.taxType ?? 'self-assessment');
+    // for pre-existing rows written before `taxType` was introduced.
+    (o.taxType ?? 'self-assessment');
   return {
-    id: c.id,
-    type: obligationType,
-    name: c.displayName ?? c.merchant,
-    entity: c.merchant,
-    recurrence: c.cadence,
-    expectedAmount: c.amount,
-    dueDate: c.category === 'insurance' || c.category === 'tax-manual' ? c.dueDate ?? null : null,
-    notes: c.notes ?? null,
-    personId: c.category === 'tax-manual' ? c.personId ?? null : null,
+    type,
+    name: o.displayName ?? o.merchant,
+    entity: o.merchant,
+    frequency: o.frequency,
+    expectedAmount: o.amount,
+    dueDate: o.category === 'insurance' || o.category === 'tax-manual' ? o.dueDate ?? null : null,
+    notes: o.notes ?? null,
+    personId: o.category === 'tax-manual' ? o.personId ?? null : null,
   };
 }
 
-export function updateManualObligation(id: string, patch: UpdateObligationBody): ObligationRow | null {
+export function updateManualObligation(id: string, patch: UpdateObligationBody): ObligationDbRow | null {
   const existing = getObligationById(id);
   if (!existing || existing.source !== 'manual') return null;
 
   const registry = freshRegistry();
-  const existingCommitment = registry.all.find(c => c.id === id);
-  if (!existingCommitment || !commitmentProjectsToObligation(existingCommitment)) return null;
+  const existingObligation = registry.all.find(c => c.id === id);
+  if (!existingObligation || !obligationProjectsToRow(existingObligation)) return null;
 
-  // Declaration fields go to commitments.csv; state fields (status + paidX)
+  // Declaration fields go to obligations.csv; state fields (status + paidX)
   // go to obligation-state.csv. Splitting the two writes at the field level
   // keeps declarations pristine and mutation history isolated.
   const touchDeclaration =
     patch.type !== undefined || patch.name !== undefined || patch.entity !== undefined ||
-    patch.recurrence !== undefined || patch.expectedAmount !== undefined ||
+    patch.frequency !== undefined || patch.expectedAmount !== undefined ||
     patch.dueDate !== undefined || patch.notes !== undefined || patch.personId !== undefined;
 
   // NOTE: paidAmount/paidDate/paidFromAccount are not part of
@@ -392,19 +388,17 @@ export function updateManualObligation(id: string, patch: UpdateObligationBody):
   const touchState = patch.status !== undefined;
 
   if (touchDeclaration) {
-    const base = inputFromCommitment(existingCommitment);
-    const merged: ObligationInputWithId = {
-      ...base,
+    const base = apiBodyFromObligation(existingObligation);
+    obligationsWriter().upsert(obligationFromApiBody(id, {
       type: patch.type ?? base.type,
       name: patch.name ?? base.name,
       entity: patch.entity ?? base.entity,
-      recurrence: patch.recurrence ?? base.recurrence,
+      frequency: patch.frequency ?? base.frequency,
       expectedAmount: patch.expectedAmount !== undefined ? patch.expectedAmount : base.expectedAmount,
       dueDate: patch.dueDate !== undefined ? patch.dueDate : base.dueDate,
       notes: patch.notes !== undefined ? patch.notes : base.notes,
       personId: patch.personId !== undefined ? patch.personId : base.personId,
-    };
-    commitmentsWriter().upsert(buildCommitmentFromObligationInput(merged));
+    }));
   }
 
   if (touchState) {
@@ -419,7 +413,7 @@ export function updateManualObligation(id: string, patch: UpdateObligationBody):
     upsertObligationState(obligationStateCsvPath(), next);
   }
 
-  loadManualObligationsFromCsv();
+  rebuildObligationsTable();
   return getObligationById(id) ?? null;
 }
 
@@ -427,28 +421,38 @@ export function deleteManualObligation(id: string): boolean {
   const existing = getObligationById(id);
   if (!existing || existing.source !== 'manual') return false;
   const db = getDb();
-  const removed = commitmentsWriter().remove(id);
+  const removed = obligationsWriter().remove(id);
   deleteObligationState(obligationStateCsvPath(), id);
   db.prepare('DELETE FROM financial_obligations WHERE id = ? AND source = ?').run(id, 'manual');
   return removed;
 }
 
-export function toApiObligation(row: ObligationRow) {
+/**
+ * Map a raw DB row (snake_case) to the shared camelCase API shape. Return
+ * type is explicit so route handlers never need a downstream cast — the
+ * compiler verifies every field on {@link ObligationRow} is produced here.
+ */
+export function toApiObligation(row: ObligationDbRow): ObligationRow {
+  const source = ObligationSourceSchema.parse(row.source);
+  const type = ObligationTypeSchema.parse(row.type);
+  const frequency = ObligationFrequencySchema.parse(row.frequency);
+  const status = ObligationStatusSchema.parse(row.status);
+  const personId = row.person_id === null ? null : PersonIdSchema.parse(row.person_id);
   return {
     id: row.id,
-    source: row.source,
-    type: row.type,
+    source,
+    type,
     name: row.name,
     entity: row.entity,
-    recurrence: row.recurrence,
+    frequency,
     expectedAmount: row.expected_amount,
     dueDate: row.due_date,
-    status: row.status,
+    status,
     paidAmount: row.paid_amount,
     paidDate: row.paid_date,
     paidFromAccount: row.paid_from_account,
     notes: row.notes,
-    personId: row.person_id,
+    personId,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -118,8 +118,8 @@ export function buildUpcomingRecurring(
       nextExpectedDate,
       lastChargeDate,
     };
-    if (expense.declaredCommitmentId !== undefined) {
-      item.declaredCommitmentId = expense.declaredCommitmentId;
+    if (expense.declaredObligationId !== undefined) {
+      item.declaredObligationId = expense.declaredObligationId;
     }
 
     const next = parseIsoDate(nextExpectedDate);

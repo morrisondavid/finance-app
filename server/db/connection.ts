@@ -13,12 +13,19 @@ export const DB_PATH = path.join(__dirname, '../../data/transactions.db');
 export const STATEMENTS_DIR = path.join(__dirname, '../../statements');
 /** Canonical category budgets CSV lives here (see budgets-csv.ts). */
 export const BUDGETS_DIR = path.join(__dirname, '../../budgets');
-/** Obligation state CSV + dismissal log live here (see domain/commitments/obligation-state.ts). */
+/**
+ * Single source of truth for every obligations artefact:
+ *  - `obligations-seed.csv` — bootstrap rows committed to git.
+ *  - `obligations.csv` — user-editable rows (merged with seed at registry build).
+ *  - `obligation-state.csv` — per-occurrence paid/confirmed state.
+ *  - `obligation-dismissals.csv` — hidden auto-seeded slots.
+ *
+ * See {@link server/domain/obligations/registry.ts} +
+ * {@link server/domain/obligations/obligation-state.ts}.
+ */
 export const OBLIGATIONS_DIR = path.join(__dirname, '../../obligations');
 /** Canonical debts CSV lives here (see debts-csv.ts). */
 export const DEBTS_DIR = path.join(__dirname, '../../debts');
-/** Declared-commitments registry (seed.csv + commitments.csv) lives here. */
-export const COMMITMENTS_DIR = path.join(__dirname, '../../commitments');
 
 let db: Database.Database;
 
@@ -327,7 +334,7 @@ export function migrateObligationsIfNeeded(): void {
       type TEXT NOT NULL,
       name TEXT NOT NULL,
       entity TEXT NOT NULL,
-      recurrence TEXT NOT NULL,
+      frequency TEXT NOT NULL,
       expected_amount REAL,
       due_date TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
@@ -341,10 +348,18 @@ export function migrateObligationsIfNeeded(): void {
     );
   `);
 
-  // Backfill column on databases created before Self Assessment support.
   const columns = db.prepare("PRAGMA table_info(financial_obligations)").all() as Array<{ name: string }>;
+  // Backfill column on databases created before Self Assessment support.
   if (!columns.some(c => c.name === 'person_id')) {
     db.exec('ALTER TABLE financial_obligations ADD COLUMN person_id TEXT');
+  }
+  // Rename the pre-existing `recurrence` column to `frequency`. The canonical
+  // term for how often something repeats is `frequency` across the entire
+  // domain (obligations registry, UpcomingRecurring, RecurringExpense) — the
+  // obligations table was the one holdout and the duplication caused real
+  // bugs during the refactor. SQLite 3.25+ supports RENAME COLUMN directly.
+  if (columns.some(c => c.name === 'recurrence') && !columns.some(c => c.name === 'frequency')) {
+    db.exec('ALTER TABLE financial_obligations RENAME COLUMN recurrence TO frequency');
   }
 }
 

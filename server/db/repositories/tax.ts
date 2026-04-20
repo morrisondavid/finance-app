@@ -12,7 +12,8 @@ import {
 import {
   getDirectors,
   HMRC_PATTERNS,
-  SALARY_MATCH_TOLERANCE,
+  buildHmrcNarrativeCaseSql,
+  type HmrcNarrativeKey,
 } from '../../config/payees.js';
 import { getBusinessPaymentAccounts } from '../../types.js';
 import { round2 } from '../../utils/math.js';
@@ -59,16 +60,12 @@ export function findHmrcPayments(opts: {
  *   - `payment-plan`     → `HMRC NDDS…` or `HMRC ETMP…` (Time-To-Pay
  *     installments, penalty direct debits — mostly picked up by the TTP
  *     auto-seeder; any residual rows are typically one-off penalties or
- *     interest charges that haven't yet established a recurring cadence)
+ *     interest charges that haven't yet established a recurring frequency)
  *   - `other`            → anything else (`HMRC GOV.UK…` with no more
  *     specific prefix, unknown narratives)
  */
-export type HmrcNarrativeType =
-  | 'vat'
-  | 'self-assessment'
-  | 'corporation-tax'
-  | 'payment-plan'
-  | 'other';
+/** Alias for {@link HmrcNarrativeKey} kept for call-site clarity. */
+export type HmrcNarrativeType = HmrcNarrativeKey;
 
 export interface UnmatchedHmrcPayment extends HmrcPaymentMatch {
   hmrcType: HmrcNarrativeType;
@@ -129,15 +126,7 @@ export function findUnmatchedHmrcPayments(opts: {
       t.amount,
       t.account,
       t.description,
-      CASE
-        WHEN t.description LIKE 'HMRC VAT%' THEN 'vat'
-        WHEN t.description LIKE 'HMRC GOV.UK SA%' THEN 'self-assessment'
-        WHEN t.description LIKE 'HMRC CORPORATION T%' THEN 'corporation-tax'
-        WHEN t.description LIKE 'HMRC GOV.UK COTAX%' THEN 'corporation-tax'
-        WHEN t.description LIKE 'HMRC NDDS%' THEN 'payment-plan'
-        WHEN t.description LIKE 'HMRC ETMP%' THEN 'payment-plan'
-        ELSE 'other'
-      END AS hmrcType
+      ${buildHmrcNarrativeCaseSql('t.description')} AS hmrcType
     FROM transactions t
     WHERE t.type = 'expense'
       AND (${patternCondition})
@@ -223,6 +212,7 @@ export function getDirectorPayments(
   db: DirectorPaymentsDb,
   namePattern: string,
   monthlySalary: number,
+  tolerance: number,
   clause: string,
   params: string[],
 ): { salary: number; dividends: number; total: number; annualSalary: number } {
@@ -233,8 +223,8 @@ export function getDirectorPayments(
   `;
 
   // A debit is "salary-like" when its absolute amount sits within
-  // SALARY_MATCH_TOLERANCE of the configured monthly figure. Anything else
-  // on the same narrative falls into the dividends bucket — covers both
+  // `tolerance` of the configured monthly figure. Anything else on the
+  // same narrative falls into the dividends bucket — covers both
   // bonus-style payroll top-ups and the usual dividend debits.
   const salaryResult = db.prepare(`
     SELECT COALESCE(SUM(ABS(amount)), 0) as total
@@ -242,7 +232,7 @@ export function getDirectorPayments(
     WHERE ${outboundExpense}
     AND ABS(ABS(amount) - ?) <= ?
     ${clause}
-  `).get(namePattern, monthlySalary, SALARY_MATCH_TOLERANCE, ...params) as { total: number };
+  `).get(namePattern, monthlySalary, tolerance, ...params) as { total: number };
 
   const dividendResult = db.prepare(`
     SELECT COALESCE(SUM(ABS(amount)), 0) as total
@@ -250,7 +240,7 @@ export function getDirectorPayments(
     WHERE ${outboundExpense}
     AND ABS(ABS(amount) - ?) > ?
     ${clause}
-  `).get(namePattern, monthlySalary, SALARY_MATCH_TOLERANCE, ...params) as { total: number };
+  `).get(namePattern, monthlySalary, tolerance, ...params) as { total: number };
 
   const salary = round2(salaryResult.total);
   const dividends = round2(dividendResult.total);
@@ -343,11 +333,11 @@ export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilitie
   const heena = directors.find(d => d.id === 'heena');
 
   const davidPayments = david
-    ? getDirectorPayments(db, david.namePattern, david.monthlySalary, clause, params)
+    ? getDirectorPayments(db, david.namePattern, david.monthlySalary, david.tolerance, clause, params)
     : { salary: 0, dividends: 0, total: 0, annualSalary: 0 };
 
   const heenaPayments = heena
-    ? getDirectorPayments(db, heena.namePattern, heena.monthlySalary, clause, params)
+    ? getDirectorPayments(db, heena.namePattern, heena.monthlySalary, heena.tolerance, clause, params)
     : { salary: 0, dividends: 0, total: 0, annualSalary: 0 };
   
   // Corporation Tax calculation

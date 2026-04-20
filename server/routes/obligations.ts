@@ -35,7 +35,7 @@ import {
   type OverdueObligationsResponse,
   type UpcomingPaymentsResponse,
   type UpcomingPaymentItem,
-  type Obligation,
+  type ObligationRow,
   type Dismissal,
   type DismissalsListResponse,
 } from '../../shared/api-contracts.js';
@@ -122,7 +122,7 @@ router.get('/', (req: Request, res: Response<ObligationsListResponse | { error: 
       minDueDate: window.startDate,
       maxDueDate: window.endDate,
     });
-    res.json({ obligations: rows.map(toApiObligation) as Obligation[] });
+    res.json({ obligations: rows.map(toApiObligation) });
   } catch (error) {
     console.error('Error fetching obligations:', error);
     res.status(500).json({ error: 'Failed to fetch obligations' });
@@ -133,7 +133,7 @@ router.get('/overdue', (_req: Request, res: Response<OverdueObligationsResponse 
   try {
     const window = getObligationsPageWindow();
     const rows = getOverdueObligations({ minDueDate: window.startDate });
-    res.json({ obligations: rows.map(toApiObligation) as Obligation[] });
+    res.json({ obligations: rows.map(toApiObligation) });
   } catch (error) {
     console.error('Error fetching overdue obligations:', error);
     res.status(500).json({ error: 'Failed to fetch overdue obligations' });
@@ -179,7 +179,7 @@ router.get('/upcoming', (req: Request, res: Response<UpcomingObligationsResponse
   try {
     const days = parseInt(String(req.query.days ?? '90'), 10) || 90;
     const rows = getUpcomingObligations(days);
-    res.json({ obligations: rows.map(toApiObligation) as Obligation[] });
+    res.json({ obligations: rows.map(toApiObligation) });
   } catch (error) {
     console.error('Error fetching upcoming obligations:', error);
     res.status(500).json({ error: 'Failed to fetch upcoming obligations' });
@@ -211,16 +211,16 @@ router.get('/upcoming-payments', (req: Request, res: Response<UpcomingPaymentsRe
 
     const pipeline = runExpensesOverviewPipeline();
     const recurring = buildUpcomingRecurring(pipeline, new Date()).thisYear;
-    // Dedup: a declared commitment that produces an `UpcomingRecurring`
+    // Dedup: a obligation that produces an `UpcomingRecurring`
     // also projects to a `financial_obligations` row when its category is
     // surfaced on the Obligations tab (insurance, tax-manual). Without
-    // this filter the user sees each commitment twice. Obligations win
+    // this filter the user sees each obligation twice. Obligations win
     // because they carry richer state (due date, paid status, person).
     const obligationIds = new Set(
       obligationItems.flatMap(o => o.kind === 'obligation' ? [o.id] : []),
     );
     const recurringItems: UpcomingPaymentItem[] = recurring
-      .filter(r => r.declaredCommitmentId === undefined || !obligationIds.has(r.declaredCommitmentId))
+      .filter(r => r.declaredObligationId === undefined || !obligationIds.has(r.declaredObligationId))
       .map(r => ({
         kind: 'recurring',
         merchant: r.merchant,
@@ -316,7 +316,7 @@ router.delete('/dismissals/:id', (req: Request, res: Response<{ success: boolean
   }
 });
 
-router.post('/', (req: Request, res: Response<Obligation | { error: string }>) => {
+router.post('/', (req: Request, res: Response<ObligationRow | { error: string }>) => {
   try {
     const parsed = CreateObligationBodySchema.safeParse(req.body);
     if (!parsed.success) {
@@ -325,14 +325,14 @@ router.post('/', (req: Request, res: Response<Obligation | { error: string }>) =
     }
     const row = createManualObligation(parsed.data);
     resyncAutoSeedersForTypes([row.type]);
-    res.status(201).json(toApiObligation(row) as Obligation);
+    res.status(201).json(toApiObligation(row));
   } catch (error) {
     console.error('Error creating obligation:', error);
     res.status(500).json({ error: 'Failed to create obligation' });
   }
 });
 
-router.put('/:id', (req: Request, res: Response<Obligation | { error: string }>) => {
+router.put('/:id', (req: Request<{ id: string }>, res: Response<ObligationRow | { error: string }>) => {
   try {
     const existing = getObligationById(req.params.id);
     if (!existing) { res.status(404).json({ error: 'Obligation not found' }); return; }
@@ -346,14 +346,14 @@ router.put('/:id', (req: Request, res: Response<Obligation | { error: string }>)
     const updated = updateManualObligation(req.params.id, parsed.data);
     if (!updated) { res.status(404).json({ error: 'Obligation not found' }); return; }
     resyncAutoSeedersForTypes([existing.type, updated.type]);
-    res.json(toApiObligation(updated) as Obligation);
+    res.json(toApiObligation(updated));
   } catch (error) {
     console.error('Error updating obligation:', error);
     res.status(500).json({ error: 'Failed to update obligation' });
   }
 });
 
-router.delete('/:id', (req: Request, res: Response<{ success: boolean } | { error: string }>) => {
+router.delete('/:id', (req: Request<{ id: string }>, res: Response<{ success: boolean } | { error: string }>) => {
   try {
     const existing = getObligationById(req.params.id);
     if (!existing) { res.status(404).json({ error: 'Obligation not found' }); return; }

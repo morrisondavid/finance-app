@@ -1,11 +1,11 @@
 /**
  * Payee Configuration
  *
- * Defines director-level payroll brackets (keyed on PersonId) and the HMRC
- * payment narratives used to match settlement payments. Director identity
- * (name, display label, etc.) is derived from `people.ts` — this file only
- * adds the business-specific fields each person carries in their role as a
- * company director (monthly salary figure, short code).
+ * Derives director records from the obligations registry (the single source
+ * of truth for salary figures) and defines the HMRC payment narratives used
+ * to match settlement payments. Director identity (name, display label,
+ * aliases) comes from `people.ts` — this file only glues the two together
+ * for consumers that need "the people with a monthly salary obligation".
  */
 
 import {
@@ -15,78 +15,61 @@ import {
   type Person,
   type PersonId,
 } from './people.js';
+import { getObligationRegistry } from '../domain/obligations/registry.js';
 
 /**
- * Pence-level drift tolerance when classifying a payee debit as salary vs.
- * dividend. Real payroll rarely moves by more than a pound or two (pension
- * rounding, PAYE adjustments) so £10 is more than enough to absorb noise
- * without swallowing genuinely dividend-sized payments.
+ * Fallback pence-level drift tolerance when a payroll obligation omits its
+ * own. Real payroll rarely moves by more than a pound or two so £10 absorbs
+ * rounding noise without swallowing dividend-sized payments.
  */
-export const SALARY_MATCH_TOLERANCE = 10;
+const DEFAULT_SALARY_TOLERANCE = 10;
 
 /**
- * Per-director payroll config. Keyed on PersonId so additions/removals
- * flow from the slim people config without double-entry here.
+ * Fully-hydrated director record. Merges Person identity with salary
+ * obligation data and derives the pattern / label / code fields that were
+ * previously hand-written. Adding a new director is a one-line change in
+ * people.ts plus a payroll row in `obligations/obligations-seed.csv`, never
+ * six separate configs.
  */
-export interface DirectorPayrollConfig {
+export interface Director extends Person {
   readonly personId: PersonId;
-  /** Set monthly salary figure (the tax-optimal amount paid via PAYE). Single value, not a range. */
+  /** Monthly salary figure (the tax-optimal amount paid via PAYE). */
   readonly monthlySalary: number;
+  /** Pence drift tolerance from the payroll obligation (or the fallback). */
+  readonly tolerance: number;
+  /** SQL LIKE pattern derived from Person.name. */
+  readonly namePattern: string;
+  /** Human label for the dashboard personal-tax card. */
+  readonly label: string;
+  /** Short UI badge code (e.g. "DA", "HE"). */
+  readonly code: string;
 }
-
-export const DIRECTOR_PAYROLL: readonly DirectorPayrollConfig[] = [
-  { personId: 'david', monthlySalary: 764 },
-  { personId: 'heena', monthlySalary: 764 },
-] as const;
 
 /**
- * Fully-hydrated director record. Merges Person identity with payroll config
- * and derives the pattern / label / code fields that were previously
- * hand-written — so adding a new director is a one-line change in people.ts
- * plus one salary entry here, never six.
+ * Every person with a payroll obligation on file. Sourced from the
+ * obligations registry so the salary figure lives in exactly one place —
+ * `obligations/obligations-seed.csv`.
+ *
+ * If two payroll obligations exist for the same person (e.g. multiple
+ * accounts) the first one wins; SA estimation only cares about the salary
+ * figure, which is the same across accounts in practice.
  */
-export interface Director extends Person, DirectorPayrollConfig {
-  /** SQL LIKE pattern derived from Person.name. */
-  namePattern: string;
-  /** Human label for the dashboard personal-tax card. */
-  label: string;
-  /** Short UI badge code (e.g. "DA", "HE"). */
-  code: string;
-}
-
 export function getDirectors(): readonly Director[] {
-  return DIRECTOR_PAYROLL.map(cfg => {
-    const person = getPerson(cfg.personId);
-    return {
+  const byPerson = new Map<PersonId, Director>();
+  for (const o of getObligationRegistry().listByCategory('payroll')) {
+    if (byPerson.has(o.personId)) continue;
+    const person = getPerson(o.personId);
+    byPerson.set(o.personId, {
       ...person,
-      ...cfg,
+      personId: o.personId,
+      monthlySalary: o.amount,
+      tolerance: o.amountTolerance ?? DEFAULT_SALARY_TOLERANCE,
       namePattern: personNamePattern(person),
       label: `${personShortName(person)}'s Tax`,
-      code: cfg.personId.toUpperCase().slice(0, 2),
-    };
-  });
-}
-
-/**
- * Get a director by Person name. Legacy callers that still look up by literal
- * name keep working; new code should use `getDirectors()` or PersonId directly.
- */
-export function getDirectorByName(name: string): Director | undefined {
-  const lower = name.toLowerCase();
-  return getDirectors().find(d =>
-    lower.includes(d.name.toLowerCase().split(' ')[0]),
-  );
-}
-
-/**
- * True if an absolute transaction amount looks like a salary payment for any
- * configured director, within SALARY_MATCH_TOLERANCE of their monthly figure.
- */
-export function isSalaryAmount(amount: number): boolean {
-  const abs = Math.abs(amount);
-  return DIRECTOR_PAYROLL.some(
-    cfg => Math.abs(abs - cfg.monthlySalary) <= SALARY_MATCH_TOLERANCE,
-  );
+      code: o.personId.toUpperCase().slice(0, 2),
+    });
+  }
+  return [...byPerson.values()];
 }
 
 /**
@@ -101,13 +84,17 @@ export function isSalaryAmount(amount: number): boolean {
  *
  * Patterns are SQL LIKE strings.
  */
-export const HMRC_PATTERNS = {
-  /** VAT settlement payments. Only ever "HMRC VAT…". */
-  VAT: ['HMRC VAT%'] as const,
 
-  /** Self Assessment (personal tax) payments. */
-  SELF_ASSESSMENT: ['HMRC GOV.UK SA%'] as const,
-
+/**
+ * Canonical narrative → LIKE-pattern map. Single source of truth for both
+ * the seeder-facing {@link HMRC_PATTERNS} groups and the narrative-
+ * classification SQL emitted by {@link buildHmrcNarrativeCaseSql}. Adding
+ * a new narrative here surfaces everywhere (feeds, classifier, tests) in
+ * one change — no parallel literal lists to keep in sync.
+ */
+export const HMRC_NARRATIVE_PATTERNS = {
+  'vat': ['HMRC VAT%'],
+  'self-assessment': ['HMRC GOV.UK SA%'],
   /**
    * Corporation Tax — two distinct narratives observed in the wild:
    *   - "HMRC CORPORATION T…" for Bacs / faster-payments settlement
@@ -118,22 +105,65 @@ export const HMRC_PATTERNS = {
    * Corp Tax settlements in the user's ledger. Conflating them would
    * over-attribute CT to payments that aren't CT at all.
    */
-  CORPORATION_TAX: ['HMRC CORPORATION T%', 'HMRC GOV.UK COTAX%'] as const,
-
-  /** ETMP gateway — Corporation Tax, PAYE, and anything HMRC bills via card. */
-  ETMP: ['HMRC ETMP%'] as const,
-
+  'corporation-tax': ['HMRC CORPORATION T%', 'HMRC GOV.UK COTAX%'],
   /**
-   * Union of every known HMRC narrative. Used by the unmatched-payments feed so
-   * that a payment failing to dock onto a VAT quarter (or any other known
-   * obligation) still surfaces somewhere the user can see it.
+   * Payment-plan / installment narratives. NDDS is HMRC's direct-debit
+   * service for Time-To-Pay arrangements; ETMP is the generic gateway used
+   * for PAYE and miscellaneous penalty / interest direct debits.
+   */
+  'payment-plan': ['HMRC NDDS%', 'HMRC ETMP%'],
+} as const satisfies Record<string, readonly string[]>;
+
+/**
+ * Narrative key derived from {@link HMRC_NARRATIVE_PATTERNS}. `'other'` is the
+ * SQL `ELSE` branch fallback — any HMRC line that doesn't match a specific
+ * narrative lands here.
+ */
+export type HmrcNarrativeKey = keyof typeof HMRC_NARRATIVE_PATTERNS | 'other';
+
+/**
+ * SQL LIKE-pattern groups keyed by call-site intent. Each value is derived
+ * from {@link HMRC_NARRATIVE_PATTERNS} so seeder patterns and the
+ * classifier CASE expression can never drift.
+ */
+export const HMRC_PATTERNS = {
+  VAT: HMRC_NARRATIVE_PATTERNS['vat'],
+  SELF_ASSESSMENT: HMRC_NARRATIVE_PATTERNS['self-assessment'],
+  CORPORATION_TAX: HMRC_NARRATIVE_PATTERNS['corporation-tax'],
+  /** ETMP gateway — Corporation Tax, PAYE, and anything HMRC bills via card. */
+  ETMP: ['HMRC ETMP%'],
+  /**
+   * Union of every known HMRC narrative, plus the generic `HMRC GOV.UK%`
+   * catch-all for payments that don't fit a more-specific prefix. Used by
+   * the unmatched-payments feed so that a payment failing to dock onto any
+   * known obligation still surfaces somewhere the user can see it.
    */
   ANY: [
-    'HMRC VAT%',
-    'HMRC ETMP%',
-    'HMRC GOV.UK SA%',
-    'HMRC GOV.UK%',
-    'HMRC CORPORATION T%',
-    'HMRC NDDS%',
-  ] as const,
-} as const;
+    ...new Set([
+      ...HMRC_NARRATIVE_PATTERNS['vat'],
+      ...HMRC_NARRATIVE_PATTERNS['self-assessment'],
+      ...HMRC_NARRATIVE_PATTERNS['corporation-tax'],
+      ...HMRC_NARRATIVE_PATTERNS['payment-plan'],
+      'HMRC GOV.UK%',
+    ]),
+  ],
+} as const satisfies Record<string, readonly string[]>;
+
+/**
+ * SQL CASE clause that classifies a description column into an
+ * {@link HmrcNarrativeKey}. Derived from {@link HMRC_NARRATIVE_PATTERNS}
+ * so the classifier can never drift from the seeder-facing pattern groups.
+ *
+ * Only the caller-supplied `columnExpression` is interpolated — every
+ * pattern literal originates from this module, so the result is free of
+ * user-controlled input and safe to splice into a prepared statement.
+ */
+export function buildHmrcNarrativeCaseSql(columnExpression: string): string {
+  const clauses: string[] = [];
+  for (const [narrative, patterns] of Object.entries(HMRC_NARRATIVE_PATTERNS)) {
+    for (const pattern of patterns) {
+      clauses.push(`WHEN ${columnExpression} LIKE '${pattern}' THEN '${narrative}'`);
+    }
+  }
+  return `CASE\n        ${clauses.join('\n        ')}\n        ELSE 'other'\n      END`;
+}

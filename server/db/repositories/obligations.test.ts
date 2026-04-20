@@ -23,7 +23,7 @@ describe('obligations repository', () => {
         type: 'vat',
         name: 'VAT Q1',
         entity: 'HMRC',
-        recurrence: 'quarterly',
+        frequency: 'quarterly',
         expected_amount: 5000,
         due_date: '2025-03-07',
         status: 'pending',
@@ -54,7 +54,7 @@ describe('obligations repository', () => {
         type: 'vat',
         name: 'VAT Feb-Apr 2025',
         entity: 'HMRC',
-        recurrence: 'quarterly',
+        frequency: 'quarterly',
         expected_amount: 1000,
         due_date: '2025-06-07',
         status: 'paid',
@@ -84,7 +84,7 @@ describe('obligations repository', () => {
         type: 'other',
         name: 'Test',
         entity: 'Entity',
-        recurrence: 'one-off',
+        frequency: 'one-off',
         expected_amount: null,
         due_date: null,
         status: 'pending',
@@ -115,7 +115,7 @@ describe('obligations repository', () => {
         type: 'self-assessment',
         name: 'Self Assessment — David (2025/26)',
         entity: 'HMRC',
-        recurrence: 'annual',
+        frequency: 'annual',
         expected_amount: 11430,
         due_date: '2026-01-31',
         status: 'pending',
@@ -147,7 +147,7 @@ function createObligationsSchema(): void {
       type TEXT NOT NULL,
       name TEXT NOT NULL,
       entity TEXT NOT NULL,
-      recurrence TEXT NOT NULL,
+      frequency TEXT NOT NULL,
       expected_amount REAL,
       due_date TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
@@ -168,14 +168,14 @@ function insertObligation(o: {
   type?: string;
   name?: string;
   entity?: string;
-  recurrence?: string;
+  frequency?: string;
   dueDate: string | null;
   status: string;
   expectedAmount?: number;
 }): void {
   testDb.prepare(`
     INSERT INTO financial_obligations
-      (id, source, type, name, entity, recurrence, expected_amount, due_date, status)
+      (id, source, type, name, entity, frequency, expected_amount, due_date, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     o.id,
@@ -183,7 +183,7 @@ function insertObligation(o: {
     o.type ?? 'other',
     o.name ?? o.id,
     o.entity ?? 'HMRC',
-    o.recurrence ?? 'one-off',
+    o.frequency ?? 'one-off',
     o.expectedAmount ?? 100,
     o.dueDate,
     o.status,

@@ -100,7 +100,7 @@ describe('computeBudgetNudges', () => {
 
   it('excludes payroll and transfer transactions', () => {
     const transactions = [
-      txn({ id: 1, description: 'David Morrison', amount: -765, account: 'barclays-current' }),
+      txn({ id: 1, description: 'David Morrison', amount: -758, account: 'barclays-current' }),
       txn({ id: 2, description: 'DAVID MORRISON TFR', amount: -500, type: 'transfer' }),
     ];
 

@@ -2,7 +2,7 @@
  * Centralized application state management
  */
 
-import type { AppState } from '../types';
+import type { AppState, CurrencyCode } from '../types';
 
 /**
  * Global application state
@@ -49,7 +49,7 @@ export function getAccountConfig(account: string) {
 /**
  * Return the currency code for the currently selected account.
  */
-export function getSelectedCurrency(): 'GBP' | 'AED' {
+export function getSelectedCurrency(): CurrencyCode {
   const cfg = state.accountConfig[state.selectedAccount];
-  return (cfg?.currency ?? 'GBP') as 'GBP' | 'AED';
+  return cfg?.currency ?? 'GBP';
 }

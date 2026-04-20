@@ -1,34 +1,53 @@
 /**
  * Director / payroll debits classifier.
  *
- * Thin adapter over the declared-commitments registry — the actual payroll
- * rows live in `commitments/seed.csv` as `category: payroll` commitments.
- * This module keeps the category-resolution API stable for the many call
- * sites that classify transactions as Payroll vs Dividends vs Business.
+ * Thin adapter over the obligations registry — the actual payroll rows live
+ * in `obligations/obligations-seed.csv` with `category: payroll`. Matching is
+ * person-driven: the raw description is tested against
+ * `PEOPLE[personId].matchAliases`, not against the `merchant` field. This
+ * lets "STO SALARY DAVID MORRISON", "D MORRISON", and "MORRISON DD" all
+ * resolve to the same person even though they normalise to different
+ * merchant strings.
  */
 
 import type { CategoryName } from '../utils/merchant-registry.js';
 import { categorizeTransaction } from '../utils/categorizer.js';
-import { normalizeMerchant } from '../utils/merchant-normalizer.js';
-import { getDeclaredCommitmentRegistry } from '../domain/commitments/registry.js';
-import {
-  matchPayrollCommitment,
-  type Payroll,
-} from '../domain/commitments/lookups.js';
+import { matchPersonInDescription } from './people.js';
+import { getObligationRegistry } from '../domain/obligations/registry.js';
+import type { OutgoingObligation } from '../../shared/api-contracts.js';
 
-export type PayrollEntry = Payroll;
+export type PayrollEntry = Extract<OutgoingObligation, { category: 'payroll' }>;
 
 /**
- * Match a configured payroll debit. Returns null for dividends or non-matching rows.
+ * Match a configured payroll debit. Returns null for dividends, for rows
+ * that don't reference a known person, and for amounts outside the
+ * obligation's declared tolerance. When multiple payroll obligations
+ * exist for the same (person, account), the closest absolute amount wins —
+ * enabling a single account to host several scheduled payroll runs.
  */
 export function matchPayrollEntry(
-  merchant: string,
   account: string,
   absAmount: number,
   description: string,
 ): PayrollEntry | null {
   if (/\bDIVIDEND\b/i.test(description)) return null;
-  return matchPayrollCommitment(getDeclaredCommitmentRegistry(), merchant, account, absAmount);
+  const person = matchPersonInDescription(description);
+  if (person === null) return null;
+  const candidates = getObligationRegistry()
+    .listByCategory('payroll')
+    .filter(c => c.personId === person.id && c.account === account);
+  if (candidates.length === 0) return null;
+  let best = candidates[0];
+  let bestDiff = Math.abs(absAmount - best.amount);
+  for (let i = 1; i < candidates.length; i++) {
+    const diff = Math.abs(absAmount - candidates[i].amount);
+    if (diff < bestDiff) {
+      best = candidates[i];
+      bestDiff = diff;
+    }
+  }
+  const tolerance = best.amountTolerance ?? Infinity;
+  return bestDiff > tolerance ? null : best;
 }
 
 function isOutgoingExpense(type: string, amount: number): boolean {
@@ -43,20 +62,26 @@ export interface ResolvePayrollCategoryResult {
 }
 
 /**
- * Registry can label salary-like text as Payroll before payee-specific rules
- * run. Only commitments-registry `payroll` matches (amount within tolerance)
- * stay Payroll; other registry Payroll rows become Dividends (if DIVIDEND in
- * description) or Business (director drawings / non-matching amounts — not
- * Transfers, which are omitted from expense buckets).
+ * Resolve the final expense category when payroll obligations are in play:
+ *
+ *   - Matching payroll obligation → Payroll.
+ *   - Registry said "Payroll" but no obligation matches:
+ *       - description contains DIVIDEND → Dividends.
+ *       - else → Transfers (salary-worded debit on an account that has no
+ *         declared payroll obligation for this person, or whose amount
+ *         falls outside the declared tolerance). These are treated as
+ *         internal movements and excluded from Fixed Expenses / expense
+ *         totals; declaring the missing obligation is how the user
+ *         promotes them back to Payroll.
+ *   - Otherwise → the registry category unchanged.
  */
 export function resolveExpenseCategoryWithPayroll(
   description: string,
-  merchant: string,
   account: string,
   absAmount: number,
   registryCategory: CategoryName,
 ): ResolvePayrollCategoryResult {
-  const payrollHit = matchPayrollEntry(merchant, account, absAmount, description);
+  const payrollHit = matchPayrollEntry(account, absAmount, description);
   if (payrollHit !== null) {
     return { category: 'Payroll', payrollHit };
   }
@@ -64,12 +89,12 @@ export function resolveExpenseCategoryWithPayroll(
     if (/\bDIVIDEND\b/i.test(description)) {
       return { category: 'Dividends', payrollHit: null };
     }
-    return { category: 'Business', payrollHit: null };
+    return { category: 'Transfers', payrollHit: null };
   }
   return { category: registryCategory, payrollHit: null };
 }
 
-/** Category for API / charts: Payroll when a commitment matches an outgoing transfer/expense, else registry. */
+/** Category for API / charts: Payroll when an obligation matches an outgoing transfer/expense, else registry. */
 export function transactionCategoryWithPayroll(
   description: string,
   amount: number,
@@ -78,10 +103,8 @@ export function transactionCategoryWithPayroll(
 ): CategoryName {
   const base = categorizeTransaction(description);
   if (!isOutgoingExpense(type, amount)) return base;
-  const merchant = normalizeMerchant(description);
   const { category } = resolveExpenseCategoryWithPayroll(
     description,
-    merchant,
     account,
     Math.abs(amount),
     base,

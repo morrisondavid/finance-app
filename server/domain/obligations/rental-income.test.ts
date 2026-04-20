@@ -1,14 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
-import { buildDeclaredCommitmentRegistry } from './registry.js';
+import { buildObligationRegistry } from './registry.js';
 import {
   assertRentalOwnershipIntegrity,
+  assertRentalMerchantsClassify,
   sumRentalIncomeForPerson,
 } from './rental-income.js';
-import {
-  matchRentalCommitment,
-  matchRentalCommitmentByAmount,
-} from './lookups.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -16,12 +13,12 @@ import path from 'path';
 function mkRegistry(rows: string[]) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rental-'));
   const header = [
-    'id', 'category', 'cadence', 'merchant', 'display_name', 'account', 'amount',
+    'id', 'category', 'frequency', 'merchant', 'display_name', 'account', 'amount',
     'currency', 'notes', 'ownership_david', 'ownership_heena', 'person_id',
     'amount_tolerance', 'due_date',
   ].join(',');
-  fs.writeFileSync(path.join(tmpDir, 'seed.csv'), [header, ...rows].join('\n'));
-  return { registry: buildDeclaredCommitmentRegistry(tmpDir), cleanup: () => fs.rmSync(tmpDir, { recursive: true, force: true }) };
+  fs.writeFileSync(path.join(tmpDir, 'obligations-seed.csv'), [header, ...rows].join('\n'));
+  return { registry: buildObligationRegistry(tmpDir), cleanup: () => fs.rmSync(tmpDir, { recursive: true, force: true }) };
 }
 
 function makeDb(): Database.Database {
@@ -49,49 +46,6 @@ function insert(db: Database.Database, date: string, desc: string, amount: numbe
   `).run(`h-${hashSeq}`, date, desc, amount, account);
 }
 
-describe('matchRentalCommitment', () => {
-  it('returns the rental commitment for a matching merchant+account', () => {
-    const { registry, cleanup } = mkRegistry([
-      'r1,rental-income,monthly,Stoneshaw Estates,78 HS,monzo-joint,1292.72,GBP,,0.5,0.5,,,',
-    ]);
-    try {
-      const hit = matchRentalCommitment(registry, 'Stoneshaw Estates', 'monzo-joint');
-      expect(hit?.displayName).toBe('78 HS');
-    } finally { cleanup(); }
-  });
-
-  it('returns null for non-rental matches', () => {
-    const { registry, cleanup } = mkRegistry([
-      'f1,fixed-bill,monthly,EE,,barclays-current,180,GBP,,,,,,',
-    ]);
-    try {
-      expect(matchRentalCommitment(registry, 'EE', 'barclays-current')).toBeNull();
-    } finally { cleanup(); }
-  });
-});
-
-describe('matchRentalCommitmentByAmount', () => {
-  it('picks the rental commitment closest to the transaction amount', () => {
-    const { registry, cleanup } = mkRegistry([
-      'r1,rental-income,monthly,Agent,Property A,monzo-joint,1000,GBP,,0.5,0.5,,,',
-      'r2,rental-income,monthly,Agent,Property B,monzo-joint,500,GBP,,0.5,0.5,,,',
-    ]);
-    try {
-      expect(matchRentalCommitmentByAmount(registry, 'Agent', 'monzo-joint', 520)?.displayName).toBe('Property B');
-      expect(matchRentalCommitmentByAmount(registry, 'Agent', 'monzo-joint', 950)?.displayName).toBe('Property A');
-    } finally { cleanup(); }
-  });
-
-  it('returns null when no candidate matches merchant+account', () => {
-    const { registry, cleanup } = mkRegistry([
-      'r1,rental-income,monthly,Agent,Property A,monzo-joint,1000,GBP,,0.5,0.5,,,',
-    ]);
-    try {
-      expect(matchRentalCommitmentByAmount(registry, 'Other', 'monzo-joint', 1000)).toBeNull();
-    } finally { cleanup(); }
-  });
-});
-
 describe('assertRentalOwnershipIntegrity', () => {
   it('passes on the real registry', () => {
     expect(() => assertRentalOwnershipIntegrity()).not.toThrow();
@@ -103,6 +57,21 @@ describe('assertRentalOwnershipIntegrity', () => {
     ]);
     try {
       expect(() => assertRentalOwnershipIntegrity(registry)).toThrow(/must sum to 1/);
+    } finally { cleanup(); }
+  });
+});
+
+describe('assertRentalMerchantsClassify', () => {
+  it('passes on the real registry (every rental merchant is in merchant-registry)', () => {
+    expect(() => assertRentalMerchantsClassify()).not.toThrow();
+  });
+
+  it('throws when a rental merchant does not classify as Property', () => {
+    const { registry, cleanup } = mkRegistry([
+      'orphan,rental-income,monthly,Zzz Unmapped Merchant,,monzo-joint,1000,GBP,,0.5,0.5,,,',
+    ]);
+    try {
+      expect(() => assertRentalMerchantsClassify(registry)).toThrow(/classifies as/);
     } finally { cleanup(); }
   });
 });

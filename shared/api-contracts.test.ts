@@ -268,7 +268,7 @@ describe('OverdueObligationsResponseSchema', () => {
           type: 'self-assessment',
           name: 'Self Assessment 2024/25',
           entity: 'HMRC',
-          recurrence: 'annual',
+          frequency: 'annual',
           expectedAmount: 12500,
           dueDate: '2026-01-31',
           status: 'pending',

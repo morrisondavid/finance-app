@@ -111,10 +111,14 @@ export {
 export async function initDatabase(): Promise<void> {
   console.log('[Database] Initializing...');
 
-  // Validate the declared-commitments registry ownership splits early —
+  // Validate the declared-obligations registry ownership splits early —
   // misconfigured rental shares would otherwise silently skew SA estimates.
-  const { assertRentalOwnershipIntegrity } = await import('../domain/commitments/rental-income.js');
+  const {
+    assertRentalOwnershipIntegrity,
+    assertRentalMerchantsClassify,
+  } = await import('../domain/obligations/rental-income.js');
   assertRentalOwnershipIntegrity();
+  assertRentalMerchantsClassify();
 
   // Initialize connection
   initConnection();

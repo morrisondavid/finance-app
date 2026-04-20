@@ -253,7 +253,7 @@ export function deriveAndInsertAutoSaObligations(): void {
       type: 'self-assessment',
       name: payload.name,
       entity: 'HMRC',
-      recurrence: 'annual',
+      frequency: 'annual',
       expectedAmount: payload.expectedAmount,
       dueDate: slot.dueDate,
       status: match ? 'paid' : 'pending',

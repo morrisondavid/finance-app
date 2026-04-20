@@ -21,12 +21,38 @@ import { SPECIAL_CATEGORY } from './category-constants.js';
 import { resolveExpenseCategoryWithPayroll, type PayrollEntry } from '../config/payroll.js';
 import { convertAmountSync } from '../config/exchange-rates.js';
 import type { CurrencyCode } from '../types.js';
-import { getDeclaredCommitmentRegistry, type DeclaredCommitmentRegistry } from '../domain/commitments/registry.js';
-import {
-  matchFixedBillCommitment,
-  matchRentalCommitmentByAmount,
-} from '../domain/commitments/lookups.js';
-import type { DeclaredOutgoing } from '../../shared/api-contracts.js';
+import { getObligationRegistry, type ObligationRegistry } from '../domain/obligations/registry.js';
+import type { OutgoingObligation, IncomingObligation } from '../../shared/api-contracts.js';
+import { assertNever } from './assert-never.js';
+
+/**
+ * Amount-aware rental selector: a single (merchant, account) pair can host
+ * multiple rental properties (multi-unit portfolios), so we pick the one
+ * whose declared amount is closest to the observed transaction. Narrow to
+ * `rental-income` at the call site rather than routing through a generic
+ * lookup helper — the branch is both short and the only caller.
+ */
+function closestRentalIncome(
+  registry: ObligationRegistry,
+  merchant: string,
+  account: string,
+  amount: number,
+): Extract<IncomingObligation, { category: 'rental-income' }> | null {
+  const candidates = registry
+    .listByCategory('rental-income')
+    .filter(c => c.merchant === merchant && c.account !== undefined && c.account === account);
+  if (candidates.length === 0) return null;
+  let best = candidates[0];
+  let bestDiff = Math.abs(amount - best.amount);
+  for (let i = 1; i < candidates.length; i++) {
+    const diff = Math.abs(amount - candidates[i].amount);
+    if (diff < bestDiff) {
+      best = candidates[i];
+      bestDiff = diff;
+    }
+  }
+  return best;
+}
 
 export interface RawTransaction {
   id: number;
@@ -45,6 +71,15 @@ export interface Accumulator {
   monthlyTotals: Map<string, number>;
   annualTotal: number;
   transactions: TransactionDetail[];
+  /**
+   * Declared obligation id linked at accumulation time. Payroll matching
+   * is person-driven (via description aliases, not merchant equality), so
+   * the accumulator's display merchant ("Director salary — David") does
+   * not equal the obligation's merchant ("David Morrison"). Stashing the
+   * id directly here lets {@link partitionExpenseAccumulators} recognise
+   * the accumulator as already declared without a second fuzzy lookup.
+   */
+  obligationId?: string;
 }
 
 export interface PipelineResult {
@@ -64,6 +99,15 @@ export interface PipelineConfig {
   allTimeTransactions: RawTransaction[];
   passThroughIds?: Set<number>;
   includeIncome: boolean;
+  /**
+   * Restrict declared-outgoing emission to these accounts. When undefined
+   * (all-accounts overview mode), every declared outgoing obligation is
+   * surfaced. When provided (single-account view), only obligations whose
+   * `account` is in this list appear on Fixed Expenses. Prevents cross-
+   * account leakage (e.g. Orient Insurance on emirates-islamic appearing
+   * on a Barclays-only view).
+   */
+  accountScope?: readonly string[];
 }
 
 export function amountBucket(amount: number): number {
@@ -92,6 +136,8 @@ interface AccumulationRow {
   category: CategoryName;
   displayMerchant: string;
   keyAmount: number;
+  /** Obligation id when the transaction maps to a declared outgoing obligation. */
+  obligationId?: string;
 }
 
 /** Registry category + payroll config override + rental display (same loop as Pass 1 / Pass 2). */
@@ -105,7 +151,6 @@ function rowForAccumulation(txn: RawTransaction, side: 'expense' | 'income'): Ac
   if (side === 'expense') {
     const resolved = resolveExpenseCategoryWithPayroll(
       txn.description,
-      merchant,
       account,
       absAmount,
       category,
@@ -117,25 +162,40 @@ function rowForAccumulation(txn: RawTransaction, side: 'expense' | 'income'): Ac
 
   let displayMerchant = merchant;
   let keyAmount = absAmount;
+  let obligationId: string | undefined;
   if (payrollHit) {
     displayMerchant = payrollHit.displayName ?? payrollHit.merchant;
     keyAmount = 0;
+    obligationId = payrollHit.id;
   }
 
-  const isPropertyIncome = side === 'income' && category === SPECIAL_CATEGORY.property;
-  if (isPropertyIncome) {
-    const prop = matchRentalCommitmentByAmount(getDeclaredCommitmentRegistry(), merchant, account, absAmount);
+  // Registry-first rental-income resolution: a matching `rental-income`
+  // obligation drives both the category and display, even when the
+  // string heuristic missed. The heuristic remains a fallback for
+  // undeclared rentals. Boot-time {@link assertRentalMerchantsClassify}
+  // keeps the two sources from diverging silently.
+  if (side === 'income') {
+    const prop = closestRentalIncome(getObligationRegistry(), merchant, account, absAmount);
     if (prop) {
+      category = SPECIAL_CATEGORY.property;
       displayMerchant = prop.displayName ?? prop.merchant;
       keyAmount = 0;
     }
   }
 
-  if (side === 'expense' && matchFixedBillCommitment(getDeclaredCommitmentRegistry(), merchant, account)) {
-    keyAmount = 0;
+  if (side === 'expense' && obligationId === undefined) {
+    // Amount-aware lookup so two obligations sharing a (merchant, account)
+    // pair (e.g. two Orient Insurance policies) route to the right one.
+    const declared = getObligationRegistry().matchByMerchantAccount(merchant, account, absAmount);
+    if (declared !== null && declared.category !== 'rental-income' && showOnFixedExpenses(declared)) {
+      obligationId = declared.id;
+      if (declared.category === 'fixed-bill') {
+        keyAmount = 0;
+      }
+    }
   }
 
-  return { category, displayMerchant, keyAmount };
+  return { category, displayMerchant, keyAmount, obligationId };
 }
 
 export interface AccumulationBucket {
@@ -143,6 +203,7 @@ export interface AccumulationBucket {
   category: CategoryName;
   displayMerchant: string;
   keyAmount: number;
+  obligationId?: string;
 }
 
 /** Same bucketing as Pass 1 / Pass 2; use for tooling that must stay aligned with the pipeline. */
@@ -157,6 +218,7 @@ export function accumulationFromTxn(
     category: row.category,
     displayMerchant: row.displayMerchant,
     keyAmount: row.keyAmount,
+    obligationId: row.obligationId,
   };
 }
 
@@ -165,31 +227,54 @@ export function accumulatorKeyForTxn(txn: RawTransaction, side: 'expense' | 'inc
 }
 
 /**
- * Return a matching registry outgoing whose declaration should relax the
- * detector's gates for this accumulator. Scope: expenses only (income has
- * its own rental-income relaxation in {@link classifyRecurring}), outgoings
- * with a monthly or annual cadence, and we exclude `tax-manual` — tax
- * obligations live on the Obligations tab, never on Fixed Expenses, even
- * when declared with a yearly cadence.
+ * Named routing filter for Fixed Expenses. Every outgoing category is
+ * enumerated so adding a new category forces a routing decision at
+ * compile time (see ADR 0001 §5). The sibling filter
+ * {@link showOnObligationsTab} lives in `obligation-projection.ts`.
+ *
+ * Subscriptions and insurance surface on both views by design.
  */
-function declaredOutgoingFor(
-  registry: DeclaredCommitmentRegistry,
-  merchant: string,
-  account: string,
-): DeclaredOutgoing | null {
-  const hit = registry.matchByMerchantAccount(merchant, account);
-  if (hit === null) return null;
-  if (hit.category === 'rental-income') return null;
-  if (hit.category === 'tax-manual') return null;
-  if (hit.cadence !== 'monthly' && hit.cadence !== 'annual') return null;
-  return hit;
+export function showOnFixedExpenses(c: OutgoingObligation): boolean {
+  switch (c.category) {
+    case 'fixed-bill': return true;
+    case 'subscription': return true;
+    case 'insurance': return true;
+    case 'payroll': return true;
+    case 'tax-manual': return false;
+    default: return assertNever(c);
+  }
+}
+
+/**
+ * Split expense accumulators into those satisfying a declared outgoing
+ * obligation (so the declaration pass emits their row, enriched with
+ * observed transaction context) and residual ones (passed to the detector
+ * as unseen merchants). The link is established at accumulation time via
+ * `Accumulator.obligationId` — no fuzzy re-matching here. An obligation is
+ * claimed by at most one accumulator; when multiple map to the same id,
+ * the first wins (deterministic by Map insertion order).
+ */
+function partitionExpenseAccumulators(
+  accumulators: Map<string, Accumulator>,
+): {
+  declaredByObligationId: Map<string, Accumulator>;
+  residual: Map<string, Accumulator>;
+} {
+  const declaredByObligationId = new Map<string, Accumulator>();
+  const residual = new Map<string, Accumulator>();
+  for (const [key, acc] of accumulators) {
+    if (acc.obligationId !== undefined && !declaredByObligationId.has(acc.obligationId)) {
+      declaredByObligationId.set(acc.obligationId, acc);
+    } else {
+      residual.set(key, acc);
+    }
+  }
+  return { declaredByObligationId, residual };
 }
 
 function accumulatorsToCandidates(
   map: Map<string, Accumulator>,
-  side: 'expense' | 'income',
 ): RecurringCandidate[] {
-  const registry = getDeclaredCommitmentRegistry();
   const candidates: RecurringCandidate[] = [];
   for (const acc of map.values()) {
     const monthlyValues = Array.from(acc.monthlyTotals.values());
@@ -198,11 +283,7 @@ function accumulatorsToCandidates(
       ? monthlyValues.reduce((s, v) => s + v, 0) / monthlyValues.length
       : 0;
 
-    const declared = side === 'expense'
-      ? declaredOutgoingFor(registry, acc.merchant, acc.sourceAccount)
-      : null;
-
-    const candidate: RecurringCandidate = {
+    candidates.push({
       merchant: acc.merchant,
       category: acc.category,
       monthlyMax: round2(monthlyMax),
@@ -212,12 +293,7 @@ function accumulatorsToCandidates(
       sourceAccount: acc.sourceAccount,
       accountCategory: acc.accountCategory,
       transactions: acc.transactions,
-    };
-    if (declared !== null) {
-      candidate.declaredCadence = declared.cadence === 'monthly' ? 'monthly' : 'annual';
-      candidate.declaredCommitmentId = declared.id;
-    }
-    candidates.push(candidate);
+    });
   }
   return candidates;
 }
@@ -230,7 +306,7 @@ function accumulatorsToCandidates(
  * Then classify via `classifyRecurring`.
  */
 export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
-  const { scopedTransactions, allTimeTransactions, passThroughIds, includeIncome } = config;
+  const { scopedTransactions, allTimeTransactions, passThroughIds, includeIncome, accountScope } = config;
 
   const expenseAccumulators = new Map<string, Accumulator>();
   const incomeAccumulators = new Map<string, Accumulator>();
@@ -247,7 +323,7 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
     const bucket = accumulationFromTxn(txn, side);
     if (!bucket) continue;
 
-    const { key, category, displayMerchant } = bucket;
+    const { key, category, displayMerchant, obligationId } = bucket;
     const account = txn.account;
     const accountCategory = ACCOUNT_CONFIG[account as AccountName]?.category ?? 'personal';
     const absAmount = Math.abs(txn.amount);
@@ -266,6 +342,7 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
         annualTotal: 0,
         transactions: [],
       };
+      if (obligationId !== undefined) acc.obligationId = obligationId;
       map.set(key, acc);
     }
 
@@ -292,18 +369,27 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
 
   const monthsCovered = allMonths.size || 1;
 
-  const expenseCandidates = accumulatorsToCandidates(expenseAccumulators, 'expense');
+  const registry = getObligationRegistry();
+
+  // Declaration-first routing: a declared outgoing obligation always owns
+  // its row on Fixed Expenses, emitted exactly once by
+  // `buildDeclaredOutgoingRows`. The detector sees only residual accumulators
+  // (merchants with no matching declaration), so it cannot emit a duplicate
+  // row for the same underlying bill.
+  const { declaredByObligationId, residual: residualExpenseAccumulators } =
+    partitionExpenseAccumulators(expenseAccumulators);
+
+  const expenseCandidates = accumulatorsToCandidates(residualExpenseAccumulators);
   const incomeCandidates = includeIncome
-    ? accumulatorsToCandidates(incomeAccumulators, 'income')
+    ? accumulatorsToCandidates(incomeAccumulators)
     : [];
 
-  const { monthly: monthlyExpenseRecurring, annual: annualExpenseRecurring } =
+  const { monthly: detectedMonthlyExpense, annual: detectedAnnualExpense } =
     classifyRecurring(expenseCandidates, monthsCovered);
   const { monthly: monthlyIncomeRecurring, annual: annualIncomeRecurring } = includeIncome
     ? classifyRecurring(incomeCandidates, monthsCovered, new Date(), true)
     : { monthly: [], annual: [] };
 
-  const registry = getDeclaredCommitmentRegistry();
   const rentals = registry.listByCategory('rental-income');
   for (const e of monthlyIncomeRecurring) {
     if (e.category === SPECIAL_CATEGORY.property) {
@@ -312,9 +398,17 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
     }
   }
 
-  applyDeclaredOutgoingOverrides(monthlyExpenseRecurring, registry);
-  applyDeclaredOutgoingOverrides(annualExpenseRecurring, registry);
-  synthesiseMissingDeclaredOutgoings(monthlyExpenseRecurring, annualExpenseRecurring, registry);
+  const { monthly: declaredMonthlyExpense, annual: declaredAnnualExpense } =
+    buildDeclaredOutgoingRows(registry, declaredByObligationId, accountScope);
+
+  const monthlyExpenseRecurring: RecurringExpense[] = [
+    ...declaredMonthlyExpense,
+    ...detectedMonthlyExpense,
+  ];
+  const annualExpenseRecurring: RecurringExpense[] = [
+    ...declaredAnnualExpense,
+    ...detectedAnnualExpense,
+  ];
 
   return {
     expenseCandidates,
@@ -330,137 +424,114 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
 }
 
 /**
- * Stamp the declared-commitment amount / currency onto every matching
- * recurring expense (both monthly and annual lists). Non-GBP commitments
- * are converted to GBP for `amount` and keep their native figure on
- * `nativeAmount` / `nativeCurrency` so the UI can render "£882 (AED 4,200)".
+ * Declaration-first emission: one row per declared outgoing obligation that
+ * routes to Fixed Expenses. When an accumulator satisfies the obligation,
+ * the row is enriched from observed transactions (monthsActive, billing
+ * date, category from the merchant registry). Otherwise the row is
+ * synthesised from the obligation alone so the user sees what they have
+ * declared before any matching transaction lands.
  *
- * Also sets `declaredCommitmentId` in case the detector produced a row via
- * the heuristic path (no declaredCadence) that happens to coincide with a
- * declared commitment — Upcoming Payments dedup keys off that id.
+ * Scope is honoured: when `accountScope` is defined, obligations on other
+ * accounts are skipped (prevents cross-account leakage on single-account
+ * views like the dashboard).
  */
-function applyDeclaredOutgoingOverrides(
-  list: RecurringExpense[],
-  registry: DeclaredCommitmentRegistry,
-): void {
-  for (const e of list) {
-    const commitment = declaredOutgoingFor(registry, e.merchant, e.sourceAccount);
-    if (commitment === null) continue;
-    stampFromCommitment(e, commitment);
-  }
-}
+function buildDeclaredOutgoingRows(
+  registry: ObligationRegistry,
+  declaredByObligationId: Map<string, Accumulator>,
+  accountScope: readonly string[] | undefined,
+): { monthly: RecurringExpense[]; annual: RecurringExpense[] } {
+  const monthly: RecurringExpense[] = [];
+  const annual: RecurringExpense[] = [];
 
-function stampFromCommitment(e: RecurringExpense, commitment: DeclaredOutgoing): void {
-  const currency: CurrencyCode = commitment.currency;
-  const gbpAmount = currency === 'GBP'
-    ? commitment.amount
-    : convertAmountSync(commitment.amount, currency, 'GBP');
-  e.amount = round2(gbpAmount);
-  if (currency !== 'GBP') {
-    e.nativeAmount = round2(commitment.amount);
-    e.nativeCurrency = currency;
-  } else {
-    delete e.nativeAmount;
-    delete e.nativeCurrency;
-  }
-  e.declaredCommitmentId = commitment.id;
-}
+  for (const obligation of registry.outgoing) {
+    if (!showOnFixedExpenses(obligation)) continue;
+    if (obligation.account === undefined) continue;
+    if (obligation.frequency !== 'monthly' && obligation.frequency !== 'annual') continue;
+    if (accountScope !== undefined && !accountScope.includes(obligation.account)) continue;
 
-/**
- * Emit synthetic recurring rows for every declared outgoing (monthly or
- * annual) that the detector did not produce a row for — typically because
- * the user has declared a bill but no matching transaction has landed yet,
- * or the account/merchant pair never matched during accumulation.
- *
- * This is the "one source of truth" side of the declaration-as-truth
- * contract: a declared commitment is always surfaced on Fixed Expenses,
- * with or without transaction evidence.
- */
-function synthesiseMissingDeclaredOutgoings(
-  monthly: RecurringExpense[],
-  annual: RecurringExpense[],
-  registry: DeclaredCommitmentRegistry,
-): void {
-  const existingIds = new Set<string>();
-  for (const e of monthly) if (e.declaredCommitmentId) existingIds.add(e.declaredCommitmentId);
-  for (const e of annual) if (e.declaredCommitmentId) existingIds.add(e.declaredCommitmentId);
-
-  for (const commitment of registry.outgoing) {
-    if (commitment.category === 'tax-manual') continue;
-    if (commitment.account === undefined) continue;
-    if (commitment.cadence !== 'monthly' && commitment.cadence !== 'annual') continue;
-    if (existingIds.has(commitment.id)) continue;
-
-    const row = buildSyntheticRecurring(commitment);
-    if (commitment.cadence === 'monthly') {
+    const accumulator = declaredByObligationId.get(obligation.id) ?? null;
+    const row = buildDeclaredOutgoingRow(obligation, accumulator);
+    if (obligation.frequency === 'monthly') {
       monthly.push(row);
     } else {
       annual.push(row);
     }
   }
+
+  return { monthly, annual };
 }
 
-function buildSyntheticRecurring(commitment: DeclaredOutgoing): RecurringExpense {
-  const currency: CurrencyCode = commitment.currency;
+function buildDeclaredOutgoingRow(
+  obligation: OutgoingObligation,
+  accumulator: Accumulator | null,
+): RecurringExpense {
+  const currency: CurrencyCode = obligation.currency;
   const gbpAmount = currency === 'GBP'
-    ? commitment.amount
-    : convertAmountSync(commitment.amount, currency, 'GBP');
-  const category = commitmentToCategory(commitment);
-  const merchantLabel = commitment.displayName ?? commitment.merchant;
-  const dueDate = 'dueDate' in commitment ? commitment.dueDate : undefined;
+    ? obligation.amount
+    : convertAmountSync(obligation.amount, currency, 'GBP');
+  const category = accumulator?.category ?? obligationToCategory(obligation);
+  const merchantLabel = obligation.displayName ?? obligation.merchant;
 
-  const { billingDayOfMonth, billingMonth } = dueDate !== undefined
-    ? parseDueDate(dueDate, commitment.cadence)
-    : { billingDayOfMonth: null, billingMonth: null };
+  const { billingDayOfMonth, billingMonth } = resolveBillingPattern(obligation, accumulator);
 
   const expense: RecurringExpense = {
     merchant: merchantLabel,
     category,
     colour: categoryColour(category),
     amount: round2(gbpAmount),
-    frequency: commitment.cadence === 'monthly' ? 'monthly' : 'annual',
-    monthsActive: 0,
-    annualTotal: round2(commitment.cadence === 'annual' ? gbpAmount : gbpAmount * 12),
+    frequency: obligation.frequency === 'monthly' ? 'monthly' : 'annual',
+    monthsActive: accumulator?.monthlyTotals.size ?? 0,
+    annualTotal: round2(obligation.frequency === 'annual' ? gbpAmount : gbpAmount * 12),
     logoUrl: getMerchantLogoUrl(merchantLabel),
-    // For no-transaction synthesised rows, `sourceAccount` is the declared
-    // payment account so the row groups with its sibling transactions once
-    // they start arriving and UI pills render correctly.
-    sourceAccount: commitment.account ?? '',
+    sourceAccount: obligation.account ?? '',
     billingDayOfMonth,
     billingMonth,
-    declaredCommitmentId: commitment.id,
+    declaredObligationId: obligation.id,
   };
   if (currency !== 'GBP') {
-    expense.nativeAmount = round2(commitment.amount);
+    expense.nativeAmount = round2(obligation.amount);
     expense.nativeCurrency = currency;
   }
   return expense;
 }
 
-function parseDueDate(
-  dueDate: string,
-  cadence: 'monthly' | 'quarterly' | 'annual' | 'one-off',
+function resolveBillingPattern(
+  obligation: OutgoingObligation,
+  accumulator: Accumulator | null,
 ): { billingDayOfMonth: number | null; billingMonth: number | null } {
-  // Accept strict YYYY-MM-DD (insurance/tax-manual variants); anything else
-  // falls back to null so the UI skips the "next due" prediction.
+  // Prefer observed transactions when available — the most recent one wins.
+  if (accumulator && accumulator.transactions.length > 0) {
+    const mostRecent = accumulator.transactions.reduce((a, b) => (a.date > b.date ? a : b));
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(mostRecent.date);
+    if (match) {
+      const month = parseInt(match[2], 10);
+      const day = parseInt(match[3], 10);
+      return {
+        billingDayOfMonth: day,
+        billingMonth: obligation.frequency === 'annual' ? month : null,
+      };
+    }
+  }
+  // No observed transactions — fall back to the obligation's declared due date.
+  const dueDate = 'dueDate' in obligation ? obligation.dueDate : undefined;
+  if (dueDate === undefined) return { billingDayOfMonth: null, billingMonth: null };
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dueDate);
   if (!match) return { billingDayOfMonth: null, billingMonth: null };
   const month = parseInt(match[2], 10);
   const day = parseInt(match[3], 10);
   return {
     billingDayOfMonth: day,
-    billingMonth: cadence === 'annual' ? month : null,
+    billingMonth: obligation.frequency === 'annual' ? month : null,
   };
 }
 
-function commitmentToCategory(commitment: DeclaredOutgoing): CategoryName {
-  switch (commitment.category) {
+function obligationToCategory(obligation: OutgoingObligation): CategoryName {
+  switch (obligation.category) {
     case 'insurance': return 'Insurance';
     case 'payroll': return 'Payroll';
     // 'fixed-bill' and 'subscription' deliberately fall through to 'Other'.
-    // The synthesised row is only used until the first real transaction
-    // arrives; once one does, the detector path populates the category from
-    // `categorizeTransaction(description)` via the merchant registry.
+    // These values are only used when no matching transaction exists yet;
+    // with an accumulator present, the registry-derived category wins.
     case 'fixed-bill':
     case 'subscription': return 'Other';
     case 'tax-manual': return 'Other';

@@ -2,12 +2,12 @@
  * Compile-time exhaustiveness helper for discriminated-union switches.
  *
  * Used at the `default` branch of every view-level filter that switches on
- * `DeclaredCommitment.category` (and any other discriminator). When a new
+ * `Obligation.category` (and any other discriminator). When a new
  * variant is added to the union, TypeScript widens `x` beyond `never` at
  * every call site, producing a compile error that points the developer at
  * each place the new case must be handled.
  *
- * See docs/adr/0001-declared-commitments.md §5.
+ * See docs/adr/0001-obligations.md §5.
  *
  * @example
  * switch (c.category) {

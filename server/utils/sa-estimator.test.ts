@@ -6,14 +6,14 @@ import {
   getSaTaxYearForDate,
 } from './sa-estimator.js';
 import { getDirectors } from '../config/payees.js';
-import { getDeclaredCommitmentRegistry } from '../domain/commitments/registry.js';
+import { getObligationRegistry } from '../domain/obligations/registry.js';
 
-const registry = getDeclaredCommitmentRegistry();
+const registry = getObligationRegistry();
 const rentals = registry.listByCategory('rental-income');
-if (rentals.length === 0) throw new Error('Expected at least one rental-income commitment in registry fixture');
+if (rentals.length === 0) throw new Error('Expected at least one rental-income obligation in registry fixture');
 const huntersSquareRaw = rentals[0];
 if (huntersSquareRaw.account === undefined) {
-  throw new Error(`Expected rental commitment ${huntersSquareRaw.id} to have an account in the registry fixture`);
+  throw new Error(`Expected rental obligation ${huntersSquareRaw.id} to have an account in the registry fixture`);
 }
 const huntersSquare = { ...huntersSquareRaw, account: huntersSquareRaw.account };
 import {

@@ -45,7 +45,7 @@ function createSchema(): void {
       type TEXT NOT NULL,
       name TEXT NOT NULL,
       entity TEXT NOT NULL,
-      recurrence TEXT NOT NULL,
+      frequency TEXT NOT NULL,
       expected_amount REAL,
       due_date TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
@@ -284,7 +284,7 @@ describe('deriveAndInsertAutoObligations stale cleanup', () => {
   it('deletes pre-existing auto-derived obligations before re-deriving', async () => {
     testDb.prepare(`
       INSERT INTO financial_obligations
-        (id, source, type, name, entity, recurrence, expected_amount, due_date, status)
+        (id, source, type, name, entity, frequency, expected_amount, due_date, status)
       VALUES
         ('auto-vat-2019-08-01', 'auto', 'vat', 'VAT Aug-Oct 2019', 'HMRC', 'quarterly', 1234, '2019-12-07', 'paid'),
         ('auto-vat-2020-02-01', 'auto', 'vat', 'VAT Feb-Apr 2020', 'HMRC', 'quarterly', 5678, '2020-06-07', 'paid')
@@ -304,7 +304,7 @@ describe('deriveAndInsertAutoObligations stale cleanup', () => {
   it('preserves manual obligations when re-deriving auto obligations', async () => {
     testDb.prepare(`
       INSERT INTO financial_obligations
-        (id, source, type, name, entity, recurrence, expected_amount, due_date, status)
+        (id, source, type, name, entity, frequency, expected_amount, due_date, status)
       VALUES
         ('manual-vat-backdated', 'manual', 'vat', 'Old VAT payment', 'HMRC', 'one-off', 500, '2020-01-01', 'paid'),
         ('auto-vat-stale', 'auto', 'vat', 'Stale auto', 'HMRC', 'quarterly', 999, '2019-06-07', 'paid')
@@ -334,7 +334,7 @@ describe('findUnmatchedHmrcPayments', () => {
 
     testDb.prepare(`
       INSERT INTO financial_obligations
-        (id, source, type, name, entity, recurrence, expected_amount, due_date,
+        (id, source, type, name, entity, frequency, expected_amount, due_date,
          status, paid_amount, paid_date, paid_from_account)
       VALUES
         ('auto-vat-matched', 'auto', 'vat', 'VAT', 'HMRC', 'quarterly',
@@ -390,7 +390,7 @@ describe('findUnmatchedHmrcPayments', () => {
 
     testDb.prepare(`
       INSERT INTO financial_obligations
-        (id, source, type, name, entity, recurrence, expected_amount, due_date,
+        (id, source, type, name, entity, frequency, expected_amount, due_date,
          status, paid_amount, paid_date, paid_from_account)
       VALUES
         ('auto-vat-card', 'auto', 'vat', 'VAT', 'HMRC', 'quarterly',
@@ -423,7 +423,7 @@ describe('findUnmatchedHmrcPayments', () => {
     // Simulate the auto CT seeder having written an attributed row.
     testDb.prepare(`
       INSERT INTO financial_obligations
-        (id, source, type, name, entity, recurrence, expected_amount, due_date,
+        (id, source, type, name, entity, frequency, expected_amount, due_date,
          status, paid_amount, paid_date, paid_from_account)
       VALUES
         ('auto-ct-2024-04-30', 'auto', 'corporation-tax',
@@ -444,7 +444,7 @@ describe('findUnmatchedHmrcPayments', () => {
 
     testDb.prepare(`
       INSERT INTO financial_obligations
-        (id, source, type, name, entity, recurrence, expected_amount, due_date,
+        (id, source, type, name, entity, frequency, expected_amount, due_date,
          status, paid_amount, paid_date, paid_from_account, person_id)
       VALUES
         ('auto-sa-david-2026-01-31', 'auto', 'self-assessment',
@@ -466,7 +466,7 @@ describe('findUnmatchedHmrcPayments', () => {
 
     testDb.prepare(`
       INSERT INTO financial_obligations
-        (id, source, type, name, entity, recurrence, expected_amount, due_date,
+        (id, source, type, name, entity, frequency, expected_amount, due_date,
          status, paid_amount, paid_date, paid_from_account)
       VALUES
         ('auto-ttp-barclays-current-64369-2025-03-09', 'auto', 'hmrc-ttp',

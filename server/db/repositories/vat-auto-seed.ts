@@ -175,7 +175,7 @@ export function deriveAndInsertAutoObligations(): void {
       type: 'vat',
       name: `VAT ${q.label}`,
       entity: 'HMRC',
-      recurrence: 'quarterly',
+      frequency: 'quarterly',
       expectedAmount: recon.expectedAmount,
       dueDate: q.dueDate,
       status: recon.status,

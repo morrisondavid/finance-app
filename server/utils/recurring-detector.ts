@@ -90,16 +90,16 @@ export interface RecurringCandidate {
   annualTotal: number;
   transactions: TransactionDetail[];
   /**
-   * Declared cadence when this candidate matches a `DeclaredOutgoing` in the
-   * commitments registry. `'monthly'` or `'annual'` unlocks the relaxed
+   * Declared frequency when this candidate matches a `OutgoingObligation` in the
+   * obligations registry. `'monthly'` or `'annual'` unlocks the relaxed
    * branch of {@link classifyRecurring} (a single historical payment, or
    * even zero payments for synthesised candidates, is enough to surface —
-   * the declaration itself is the recurrence signal). `undefined` means
+   * the declaration itself is the frequency signal). `undefined` means
    * the heuristic path runs as normal.
    */
-  declaredCadence?: 'monthly' | 'annual';
-  /** Commitments-registry row id, set when {@link declaredCadence} is set. */
-  declaredCommitmentId?: string;
+  declaredFrequency?: 'monthly' | 'annual';
+  /** Obligation-registry row id, set when {@link declaredFrequency} is set. */
+  declaredObligationId?: string;
 }
 
 export interface RecurringClassification {
@@ -122,8 +122,8 @@ const PROPERTY_INCOME_MIN_MONTHS = 2;
 const PROPERTY_INCOME_AMOUNT_CV_MAX = 0.60;
 
 // ─── Declared recurring outgoings — relaxed thresholds ──────────────
-// A candidate explicitly declared in the commitments registry (any
-// `DeclaredOutgoing` with a monthly or annual cadence) is the single
+// A candidate explicitly declared in the obligations registry (any
+// `OutgoingObligation` with a monthly or annual frequency) is the single
 // source of truth that it recurs — the detector should not gatekeep on
 // history length. We surface it after the first payment (the declaration
 // itself is the signal), tolerate wider amount variance (e.g. VAT-inclusive
@@ -196,13 +196,13 @@ export function classifyRecurring(
 
   for (const c of candidates) {
     const isPropertyIncome = isIncome && c.category === SPECIAL_CATEGORY.property;
-    const isDeclaredMonthly = c.declaredCadence === 'monthly';
-    const isDeclaredAnnual = c.declaredCadence === 'annual';
+    const isDeclaredMonthly = c.declaredFrequency === 'monthly';
+    const isDeclaredAnnual = c.declaredFrequency === 'annual';
     const isDeclared = isDeclaredMonthly || isDeclaredAnnual;
 
     // Declared candidates are registry-driven: a single payment (or even
     // zero, for synthesised candidates populated upstream) is enough to
-    // surface them because the declaration itself is the recurrence signal.
+    // surface them because the declaration itself is the frequency signal.
     // All other candidates still need ≥2 transactions to be considered
     // recurring at all. Purely heuristic candidates with zero transactions
     // are always skipped.
@@ -268,14 +268,14 @@ export function classifyRecurring(
 
     // ── Annual test ───────────────────────────────────────────────
     // Declared-annual candidates bypass the heuristic gates entirely: one
-    // historical payment is enough (the declaration is the recurrence
+    // historical payment is enough (the declaration is the frequency
     // signal), billing month/day is taken from the single pick, and zero
     // historical payments are acceptable — the pipeline's declared-outgoing
-    // pass synthesises those from the commitment itself.
+    // pass synthesises those from the obligation itself.
     if (isDeclaredAnnual) {
       if (c.transactions.length === 0) {
         // Pipeline synthesiser will supply amount + billing date from the
-        // commitment. Emit a placeholder here so downstream override sees it.
+        // obligation. Emit a placeholder here so downstream override sees it.
         annual.push(toExpense(c, 'annual', 0, null, null));
       } else {
         const sorted = [...c.transactions].sort((a, b) => a.date.localeCompare(b.date));
@@ -360,8 +360,8 @@ function toExpense(
     billingDayOfMonth,
     billingMonth,
   };
-  if (c.declaredCommitmentId !== undefined) {
-    expense.declaredCommitmentId = c.declaredCommitmentId;
+  if (c.declaredObligationId !== undefined) {
+    expense.declaredObligationId = c.declaredObligationId;
   }
   return expense;
 }

@@ -34,6 +34,7 @@ export function buildExpensePipelineForAccount(
     scopedTransactions: scopedRows.map(transactionRowToRaw),
     allTimeTransactions: allTimeRows.map(transactionRowToRaw),
     includeIncome: false,
+    accountScope: [account],
   });
 }
 

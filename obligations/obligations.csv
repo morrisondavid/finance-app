@@ -1,4 +1,4 @@
-id,category,cadence,merchant,display_name,account,amount,currency,notes,ownership_david,ownership_heena,person_id,amount_tolerance,due_date,tax_type
+id,category,frequency,merchant,display_name,account,amount,currency,notes,ownership_david,ownership_heena,person_id,amount_tolerance,due_date,tax_type
 manual-ed2f2cf3-8f8b-45d2-8ede-bf3bb94df495,tax-manual,one-off,HMRC,Self Assessment Tax,,2083.54,GBP,,,,,,2026-01-31,self-assessment
 manual-665c8ca2-3383-47a8-8889-122435f74b3a,insurance,annual,Orient Insurance PJSC,Professional Indemnity,emirates-islamic,25200,AED,"25200 AED (annual professional indemnity)",,,,,2027-03-27,
 manual-0a2cda18-eb22-4526-bcba-711e802ffb2b,insurance,annual,Orient Insurance PJSC,Public Liability,emirates-islamic,3150,AED,"3150 AED (annual public liability)",,,,,2027-03-27,

@@ -99,14 +99,14 @@ describe('recurringKey', () => {
     const item: RecurringExpense = {
       merchant: 'Director salary — David',
       category: 'Payroll',
-      amount: 765,
+      amount: 758,
       frequency: 'monthly',
       sourceAccount: 'barclays-current',
       billingDayOfMonth: 1,
       billingMonth: null,
       colour: '#0D9488',
       monthsActive: 12,
-      annualTotal: 9180,
+      annualTotal: 9096,
       logoUrl: null,
     };
     expect(recurringKey(item)).toBe(accKey('Payroll', 'Director salary — David', 'barclays-current', 0));
@@ -123,9 +123,9 @@ describe('buildRecurringPipeline', () => {
     // With zero transactions the pipeline's synthesised-declaration pass
     // still emits a row for every declared outgoing (so Fixed Expenses shows
     // bills that the user has declared but not yet paid). Those rows all
-    // carry `declaredCommitmentId`; any transaction-driven row would not.
+    // carry `declaredObligationId`; any transaction-driven row would not.
     const transactionDriven = result.monthlyExpenseRecurring.filter(
-      e => e.declaredCommitmentId === undefined,
+      e => e.declaredObligationId === undefined,
     );
     expect(transactionDriven).toHaveLength(0);
     expect(result.monthlyIncomeRecurring).toHaveLength(0);
@@ -152,7 +152,7 @@ describe('buildRecurringPipeline', () => {
       txns.push(makeTxn({
         date: `${y}-${m}-15`,
         description: 'STO SALARY DAVID MORRISON',
-        amount: -765,
+        amount: -758,
         type: 'transfer',
         account: 'barclays-current',
       }));
@@ -666,7 +666,7 @@ describe('buildRecurringPipeline', () => {
 
   it('MCE Advisory surfaces after a single AED payment (declared fixed via config)', () => {
     // Only one historical payment — mirrors the user's real-world first-month
-    // scenario. The FIXED_BILL_OVERRIDES entry is the recurrence signal, so the
+    // scenario. The FIXED_BILL_OVERRIDES entry is the frequency signal, so the
     // detector should not require additional history.
     const txns: RawTransaction[] = [
       makeTxn({
@@ -690,8 +690,8 @@ describe('buildRecurringPipeline', () => {
 
   it('MCE Advisory AED payments convert to GBP on `amount` and preserve native fields', () => {
     // Two payments over a 24-month covered window — would not normally pass the
-    // monthly detector gate, but the commitments-registry `fixed-bill` entry
-    // sets `declaredCadence: 'monthly'` on the candidate and unlocks the
+    // monthly detector gate, but the obligations-registry `fixed-bill` entry
+    // sets `declaredFrequency: 'monthly'` on the candidate and unlocks the
     // relaxed classification branch.
     const txns: RawTransaction[] = [
       makeTxn({
@@ -753,8 +753,8 @@ describe('buildRecurringPipeline', () => {
   // =========================================================================
 
   it('annual-declared insurance with zero matching transactions surfaces on annualExpenseRecurring', () => {
-    // No transactions at all — exercises the `synthesiseMissingDeclaredOutgoings`
-    // pass. commitments.csv declares two Orient Insurance policies billed
+    // No transactions at all — exercises the `synthesiseMissingOutgoingObligations`
+    // pass. obligations.csv declares two Orient Insurance policies billed
     // annually against the emirates-islamic account.
     const result = buildRecurringPipeline({
       scopedTransactions: [],
@@ -768,7 +768,7 @@ describe('buildRecurringPipeline', () => {
     for (const row of orientRows) {
       expect(row.nativeCurrency).toBe('AED');
       expect(row.sourceAccount).toBe('emirates-islamic');
-      expect(row.declaredCommitmentId).toMatch(/^manual-/);
+      expect(row.declaredObligationId).toMatch(/^manual-/);
       // GBP primary = native AED * exchange rate; verify both directions.
       expect(row.amount).toBeGreaterThan(0);
       expect(row.amount).not.toBe(row.nativeAmount);
@@ -781,7 +781,7 @@ describe('buildRecurringPipeline', () => {
 
   it('annual-declared insurance with one matching transaction surfaces once, not duplicated', () => {
     // Single matching transaction → detector emits a row; synthesiser must
-    // NOT emit a second. The dedup keys off `declaredCommitmentId`.
+    // NOT emit a second. The dedup keys off `declaredObligationId`.
     const txns: RawTransaction[] = [
       makeTxn({
         date: '2026-03-27',
@@ -796,21 +796,21 @@ describe('buildRecurringPipeline', () => {
       includeIncome: false,
     });
     const profIndemnity = result.annualExpenseRecurring.filter(
-      e => e.declaredCommitmentId === 'manual-665c8ca2-3383-47a8-8889-122435f74b3a',
+      e => e.declaredObligationId === 'manual-665c8ca2-3383-47a8-8889-122435f74b3a',
     );
     expect(profIndemnity).toHaveLength(1);
     expect(profIndemnity[0].nativeAmount).toBe(25200);
     expect(profIndemnity[0].nativeCurrency).toBe('AED');
     // Public liability still comes through synthesis (no txn yet).
     const publicLiability = result.annualExpenseRecurring.filter(
-      e => e.declaredCommitmentId === 'manual-0a2cda18-eb22-4526-bcba-711e802ffb2b',
+      e => e.declaredObligationId === 'manual-0a2cda18-eb22-4526-bcba-711e802ffb2b',
     );
     expect(publicLiability).toHaveLength(1);
   });
 
-  it('tax-manual declared commitments never surface on Fixed Expenses', () => {
-    // commitments.csv has a `tax-manual` self-assessment row; regardless of
-    // cadence it must not leak into monthly/annual expense lists.
+  it('tax-manual obligations never surface on Fixed Expenses', () => {
+    // obligations.csv has a `tax-manual` self-assessment row; regardless of
+    // frequency it must not leak into monthly/annual expense lists.
     const result = buildRecurringPipeline({
       scopedTransactions: [],
       allTimeTransactions: [],
@@ -842,5 +842,181 @@ describe('buildRecurringPipeline', () => {
       a => a.merchant === 'Apple',
     );
     expect(appleAccumulators).toHaveLength(2);
+  });
+
+  // =========================================================================
+  // Declaration-first Fixed Expenses — regression tests for the architecture
+  // replacing applyOutgoingObligationOverrides + synthesiseMissingOutgoingObligations.
+  // =========================================================================
+
+  it('declared outgoing obligations on other accounts do not leak into a scoped view', () => {
+    // Orient Insurance is declared on emirates-islamic. A barclays-current
+    // scoped view must not surface it — this was the cross-account bug.
+    const result = buildRecurringPipeline({
+      scopedTransactions: [],
+      allTimeTransactions: [],
+      includeIncome: false,
+      accountScope: ['barclays-current'],
+    });
+    const orientRows = [
+      ...result.monthlyExpenseRecurring,
+      ...result.annualExpenseRecurring,
+    ].filter(e => e.merchant === 'Professional Indemnity' || e.merchant === 'Public Liability');
+    expect(orientRows).toHaveLength(0);
+    // MCE Advisory is also on emirates-islamic — also filtered out.
+    const mce = result.monthlyExpenseRecurring.find(e => e.merchant === 'MCE Advisory');
+    expect(mce).toBeUndefined();
+  });
+
+  it('declared outgoing obligations appear exactly once, even when the detector would match', () => {
+    // MCE Advisory has both a declared obligation (4200 AED monthly) and
+    // two historical transactions. The declaration-first pass must own the
+    // row; the detector must not emit a duplicate.
+    const txns: RawTransaction[] = [
+      makeTxn({
+        date: '2026-02-27',
+        description: 'DFT-DTB TT REF EPH MCE ADVISORY FZ LLC PMS INV 0672',
+        amount: -4200,
+        account: 'emirates-islamic',
+      }),
+      makeTxn({
+        date: '2026-03-28',
+        description: 'DFT-DTB TT REF EPH MCE ADVISORY FZ LLC PMS INV 0673',
+        amount: -4200,
+        account: 'emirates-islamic',
+      }),
+    ];
+    const result = buildRecurringPipeline({
+      scopedTransactions: txns,
+      allTimeTransactions: txns,
+      includeIncome: false,
+    });
+    const mceRows = result.monthlyExpenseRecurring.filter(e => e.merchant === 'MCE Advisory');
+    expect(mceRows).toHaveLength(1);
+    expect(mceRows[0].declaredObligationId).toBe('seed-mce-advisory-emirates-islamic');
+  });
+
+  it('director salary is emitted once per payroll obligation, not duplicated at seed amount', () => {
+    // Regression test: the old synthesiser emitted a second payroll row
+    // whenever the detector-produced row's merchant label did not collide
+    // with the obligation id. Under declaration-first there is a single
+    // source (the registry) so exactly one row appears per obligation.
+    const txns: RawTransaction[] = [];
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(2026, 2 - i, 15);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      txns.push(makeTxn({
+        date: `${y}-${m}-15`,
+        description: 'STO SALARY DAVID MORRISON',
+        amount: -758,
+        type: 'transfer',
+        account: 'barclays-current',
+      }));
+    }
+    const result = buildRecurringPipeline({
+      scopedTransactions: txns,
+      allTimeTransactions: txns,
+      includeIncome: false,
+      accountScope: ['barclays-current'],
+    });
+    const davidPayroll = result.monthlyExpenseRecurring.filter(
+      e => e.merchant === 'Director salary — David',
+    );
+    expect(davidPayroll).toHaveLength(1);
+    expect(davidPayroll[0].declaredObligationId).toBe('seed-payroll-david');
+    expect(davidPayroll[0].amount).toBe(758);
+  });
+
+  it('amount-aware matching routes two same-merchant same-account obligations to the right one', () => {
+    // Two Orient Insurance policies on emirates-islamic, 25,200 AED and
+    // 3,150 AED. Each transaction must match its own obligation by amount.
+    const txns: RawTransaction[] = [
+      makeTxn({
+        date: '2026-03-27',
+        description: 'DFT-DTB TT ORIENT INSURANCE PJSC INS PAYMENT FOR PROFESSIONAL',
+        amount: -25200,
+        account: 'emirates-islamic',
+      }),
+      makeTxn({
+        date: '2026-03-27',
+        description: 'DFT-DTB TT ORIENT INSURANCE PJSC INS PAYMENT FOR PUBLIC LIABILITY',
+        amount: -3150,
+        account: 'emirates-islamic',
+      }),
+    ];
+    const result = buildRecurringPipeline({
+      scopedTransactions: txns,
+      allTimeTransactions: txns,
+      includeIncome: false,
+    });
+    const profIndemnity = result.annualExpenseRecurring.find(
+      e => e.declaredObligationId === 'manual-665c8ca2-3383-47a8-8889-122435f74b3a',
+    );
+    expect(profIndemnity).toBeDefined();
+    expect(profIndemnity!.nativeAmount).toBe(25200);
+    const publicLiability = result.annualExpenseRecurring.find(
+      e => e.declaredObligationId === 'manual-0a2cda18-eb22-4526-bcba-711e802ffb2b',
+    );
+    expect(publicLiability).toBeDefined();
+    expect(publicLiability!.nativeAmount).toBe(3150);
+  });
+
+  it('undeclared recurring merchants still flow through the detector', () => {
+    // Scottish Power is not a declared obligation — the detector must
+    // still surface it on Fixed Expenses based on transaction evidence.
+    // Use current-relative dates so the detector's 2-month staleness gate
+    // doesn't filter them out.
+    const txns: RawTransaction[] = [];
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 15);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      txns.push(makeTxn({
+        date: `${y}-${m}-15`,
+        description: 'SCOTTISH POWER',
+        amount: -85,
+      }));
+    }
+    const result = buildRecurringPipeline({
+      scopedTransactions: txns,
+      allTimeTransactions: txns,
+      includeIncome: false,
+    });
+    const scottishPower = result.monthlyExpenseRecurring.find(
+      e => e.merchant === 'Scottish Power',
+    );
+    expect(scottishPower).toBeDefined();
+    expect(scottishPower!.declaredObligationId).toBeUndefined();
+  });
+
+  it('declared outgoing row is enriched from an accumulator when transactions exist', () => {
+    // When a matching accumulator exists, the declared row picks up the
+    // observed billing day + category rather than the synthesised defaults.
+    const txns: RawTransaction[] = [
+      makeTxn({
+        date: '2026-02-27',
+        description: 'DFT-DTB TT REF EPH MCE ADVISORY FZ LLC',
+        amount: -4200,
+        account: 'emirates-islamic',
+      }),
+      makeTxn({
+        date: '2026-03-27',
+        description: 'DFT-DTB TT REF EPH MCE ADVISORY FZ LLC',
+        amount: -4200,
+        account: 'emirates-islamic',
+      }),
+    ];
+    const result = buildRecurringPipeline({
+      scopedTransactions: txns,
+      allTimeTransactions: txns,
+      includeIncome: false,
+    });
+    const mce = result.monthlyExpenseRecurring.find(e => e.merchant === 'MCE Advisory');
+    expect(mce).toBeDefined();
+    expect(mce!.monthsActive).toBeGreaterThan(0);
+    expect(mce!.billingDayOfMonth).toBe(27);
+    expect(mce!.category).toBe('Business');
   });
 });

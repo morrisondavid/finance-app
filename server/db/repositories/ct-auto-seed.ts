@@ -209,7 +209,7 @@ export function deriveAndInsertAutoCtObligations(referenceDate: Date = new Date(
       type: 'corporation-tax',
       name: `Corporation Tax — FY ${slot.fyLabel}`,
       entity: 'HMRC',
-      recurrence: 'annual',
+      frequency: 'annual',
       expectedAmount,
       dueDate: slot.dueDate,
       status,

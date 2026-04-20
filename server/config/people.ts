@@ -20,11 +20,37 @@ export interface Person {
   readonly displayName?: string;
   /** Whether this person files UK Self Assessment (drives SA auto-seed). */
   readonly filesSelfAssessment?: boolean;
+  /**
+   * Regex source strings (case-insensitive) used to match this person against
+   * raw transaction descriptions. Drives both the payroll matcher and the
+   * director entries in the merchant registry — the canonical way to recognise
+   * a person in the ledger, in one place.
+   */
+  readonly matchAliases: readonly string[];
 }
 
 export const PEOPLE = [
-  { id: 'david', name: 'David Morrison', filesSelfAssessment: true },
-  { id: 'heena', name: 'Heena Tailor',   filesSelfAssessment: true },
+  {
+    id: 'david',
+    name: 'David Morrison',
+    filesSelfAssessment: true,
+    matchAliases: [
+      'DAVID\\s+MORRISON',
+      'MORRISON\\s+DD',
+      '\\bD\\s+MORRISON\\b',
+    ],
+  },
+  {
+    id: 'heena',
+    name: 'Heena Tailor',
+    filesSelfAssessment: true,
+    matchAliases: [
+      'HEENA\\s+TAILOR',
+      'HEENA\\s+MORRISON',
+      'TAILOR\\s+HEENA',
+      'MORRISON\\s+H\\b',
+    ],
+  },
 ] as const satisfies readonly Person[];
 
 /** Literal union of every known person id. Use this instead of `string` anywhere a person is referenced. */
@@ -72,4 +98,26 @@ export function isPersonId(value: unknown): value is PersonId {
 /** Array of every valid PersonId — useful for Zod enums and tests. */
 export function allPersonIds(): readonly PersonId[] {
   return PEOPLE.map(p => p.id);
+}
+
+/** Combined case-insensitive regex source matching any alias of `p`. */
+export function personAliasAlternation(p: Person): string {
+  return p.matchAliases.join('|');
+}
+
+/** Case-insensitive regex matching any alias of `p`. */
+export function personAliasRegex(p: Person): RegExp {
+  return new RegExp(personAliasAlternation(p), 'i');
+}
+
+/**
+ * Return the person whose aliases match `description` (case-insensitive).
+ * Returns `null` when no person matches. Iterates {@link PEOPLE} in order, so
+ * the first matching person wins — aliases should be disjoint.
+ */
+export function matchPersonInDescription(description: string): KnownPerson | null {
+  for (const p of PEOPLE) {
+    if (personAliasRegex(p).test(description)) return p;
+  }
+  return null;
 }

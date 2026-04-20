@@ -9,7 +9,7 @@ interface ObligationItem {
   type: string;
   name: string;
   entity: string;
-  recurrence: string;
+  frequency: string;
   expectedAmount: number | null;
   dueDate: string | null;
   status: string;
@@ -221,7 +221,7 @@ function openSaPrefilledModal(personId: string, dueDate: string): void {
   if (!form) return;
 
   (form.elements.namedItem('type') as HTMLSelectElement).value = 'self-assessment';
-  (form.elements.namedItem('recurrence') as HTMLSelectElement).value = 'annual';
+  (form.elements.namedItem('frequency') as HTMLSelectElement).value = 'annual';
   const nameInput = form.elements.namedItem('name') as HTMLInputElement;
   nameInput.value = personId ? `Self Assessment — ${personId.charAt(0).toUpperCase()}${personId.slice(1)}` : 'Self Assessment';
   (form.elements.namedItem('entity') as HTMLInputElement).value = 'HMRC';
@@ -267,7 +267,7 @@ function buildDismissedVirtualRows(dismissals: DismissalItem[]): RegistryRow[] {
       type: human.type,
       name: human.name,
       entity: human.entity,
-      recurrence: human.type === 'vat' ? 'quarterly' : 'annual',
+      frequency: human.type === 'vat' ? 'quarterly' : 'annual',
       expectedAmount: null,
       dueDate: human.dueDate,
       status: 'dismissed',
@@ -327,7 +327,7 @@ function renderRegistry(obligations: ObligationItem[], dismissals: DismissalItem
         <td>${escapeHtml(o.name)}</td>
         <td>${escapeHtml(o.entity)}</td>
         <td>${escapeHtml(o.type)}</td>
-        <td>${escapeHtml(o.recurrence)}</td>
+        <td>${escapeHtml(o.frequency)}</td>
         <td class="obligations-col-amount">${o.expectedAmount !== null ? formatCurrency(o.expectedAmount) : '—'}</td>
         <td>${o.dueDate ? escapeHtml(formatIsoDateUkLong(o.dueDate)) : '—'}</td>
         <td class="obligations-col-amount">${o.paidAmount !== null ? formatCurrency(o.paidAmount) : '—'}</td>
@@ -409,7 +409,7 @@ function openEditModal(id: string, obligations: ObligationItem[]): void {
   (form.elements.namedItem('type') as HTMLSelectElement).value = o.type;
   (form.elements.namedItem('name') as HTMLInputElement).value = o.name;
   (form.elements.namedItem('entity') as HTMLInputElement).value = o.entity;
-  (form.elements.namedItem('recurrence') as HTMLSelectElement).value = o.recurrence;
+  (form.elements.namedItem('frequency') as HTMLSelectElement).value = o.frequency;
   (form.elements.namedItem('expectedAmount') as HTMLInputElement).value = o.expectedAmount !== null ? String(o.expectedAmount) : '';
   (form.elements.namedItem('dueDate') as HTMLInputElement).value = o.dueDate ?? '';
   (form.elements.namedItem('notes') as HTMLTextAreaElement).value = o.notes ?? '';
@@ -467,7 +467,7 @@ async function handleFormSubmit(e: Event): Promise<void> {
     type: (form.elements.namedItem('type') as HTMLSelectElement).value,
     name: (form.elements.namedItem('name') as HTMLInputElement).value,
     entity: (form.elements.namedItem('entity') as HTMLInputElement).value,
-    recurrence: (form.elements.namedItem('recurrence') as HTMLSelectElement).value,
+    frequency: (form.elements.namedItem('frequency') as HTMLSelectElement).value,
     expectedAmount: (form.elements.namedItem('expectedAmount') as HTMLInputElement).value
       ? Number((form.elements.namedItem('expectedAmount') as HTMLInputElement).value) : null,
     dueDate: (form.elements.namedItem('dueDate') as HTMLInputElement).value || null,

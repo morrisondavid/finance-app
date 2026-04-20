@@ -1,36 +1,36 @@
 /**
- * CSV I/O for declared commitments.
+ * CSV I/O for obligations.
  *
  * The on-disk CSV is a single flat shape that covers every category in the
  * discriminated union; irrelevant columns are left empty for categories that
- * don't use them. `parseCommitmentRow` rehydrates the correct variant and
+ * don't use them. `parseObligationRow` rehydrates the correct variant and
  * runs it through the Zod schema so invalid rows fail at the trust boundary
  * with a precise path.
  *
- * See docs/adr/0001-declared-commitments.md §7.
+ * See docs/adr/0001-obligations.md §7.
  */
 
 import fs from 'fs';
 import path from 'path';
 import { parse } from 'csv-parse/sync';
 import {
-  type DeclaredCommitment,
-  type DeclaredIncoming,
-  type DeclaredOutgoing,
-  DeclaredIncomingSchema,
-  DeclaredOutgoingSchema,
-  type DeclaredIncomingCategory,
-  type DeclaredOutgoingCategory,
+  type Obligation,
+  type IncomingObligation,
+  type OutgoingObligation,
+  IncomingObligationSchema,
+  OutgoingObligationSchema,
+  type IncomingObligationCategory,
+  type OutgoingObligationCategory,
   type PersonId,
 } from '../../../shared/api-contracts.js';
 
-export const COMMITMENTS_SEED_FILENAME = 'seed.csv';
-export const COMMITMENTS_USER_FILENAME = 'commitments.csv';
+export const OBLIGATIONS_SEED_FILENAME = 'obligations-seed.csv';
+export const OBLIGATIONS_USER_FILENAME = 'obligations.csv';
 
-export const COMMITMENT_CSV_HEADERS = [
+export const OBLIGATION_CSV_HEADERS = [
   'id',
   'category',
-  'cadence',
+  'frequency',
   'merchant',
   'display_name',
   'account',
@@ -45,16 +45,16 @@ export const COMMITMENT_CSV_HEADERS = [
   'tax_type',
 ] as const;
 
-export function getCommitmentsSeedCsvPath(commitmentsDir: string): string {
-  return path.join(commitmentsDir, COMMITMENTS_SEED_FILENAME);
+export function getObligationsSeedCsvPath(obligationsDir: string): string {
+  return path.join(obligationsDir, OBLIGATIONS_SEED_FILENAME);
 }
 
-export function getCommitmentsUserCsvPath(commitmentsDir: string): string {
-  return path.join(commitmentsDir, COMMITMENTS_USER_FILENAME);
+export function getObligationsUserCsvPath(obligationsDir: string): string {
+  return path.join(obligationsDir, OBLIGATIONS_USER_FILENAME);
 }
 
-const INCOMING_CATEGORIES = new Set<DeclaredIncomingCategory>(['rental-income']);
-const OUTGOING_CATEGORIES = new Set<DeclaredOutgoingCategory>([
+const INCOMING_CATEGORIES = new Set<IncomingObligationCategory>(['rental-income']);
+const OUTGOING_CATEGORIES = new Set<OutgoingObligationCategory>([
   'fixed-bill',
   'subscription',
   'payroll',
@@ -73,7 +73,7 @@ function parseNumber(value: string | undefined, field: string, rowId: string): n
   if (raw === undefined) return undefined;
   const n = Number(raw);
   if (!Number.isFinite(n)) {
-    throw new Error(`Commitment ${rowId}: ${field} must be numeric, got '${raw}'`);
+    throw new Error(`Obligation ${rowId}: ${field} must be numeric, got '${raw}'`);
   }
   return n;
 }
@@ -90,11 +90,11 @@ function buildOwnership(row: Record<string, string>, rowId: string): Partial<Rec
 function buildCommonFields(row: Record<string, string>, rowId: string) {
   const amount = parseNumber(row.amount, 'amount', rowId);
   if (amount === undefined) {
-    throw new Error(`Commitment ${rowId}: amount is required`);
+    throw new Error(`Obligation ${rowId}: amount is required`);
   }
   return {
     id: rowId,
-    cadence: row.cadence,
+    frequency: row.frequency,
     merchant: row.merchant,
     displayName: nonEmpty(row.display_name),
     account: nonEmpty(row.account),
@@ -105,21 +105,21 @@ function buildCommonFields(row: Record<string, string>, rowId: string) {
 }
 
 /**
- * Turn a flat CSV row into a validated `DeclaredCommitment` (either variant
+ * Turn a flat CSV row into a validated `Obligation` (either variant
  * of the union). Throws a descriptive error if the `category` column is
  * unknown or the row violates the Zod schema.
  */
-export function parseCommitmentRow(row: Record<string, string>): DeclaredCommitment {
+export function parseObligationRow(row: Record<string, string>): Obligation {
   const rowId = nonEmpty(row.id) ?? '<missing-id>';
   const category = nonEmpty(row.category);
   if (category === undefined) {
-    throw new Error(`Commitment ${rowId}: category column is required`);
+    throw new Error(`Obligation ${rowId}: category column is required`);
   }
   const common = buildCommonFields(row, rowId);
 
-  if (INCOMING_CATEGORIES.has(category as DeclaredIncomingCategory)) {
+  if (INCOMING_CATEGORIES.has(category as IncomingObligationCategory)) {
     if (category === 'rental-income') {
-      return DeclaredIncomingSchema.parse({
+      return IncomingObligationSchema.parse({
         ...common,
         category: 'rental-income',
         ownership: buildOwnership(row, rowId),
@@ -127,26 +127,26 @@ export function parseCommitmentRow(row: Record<string, string>): DeclaredCommitm
     }
   }
 
-  if (OUTGOING_CATEGORIES.has(category as DeclaredOutgoingCategory)) {
+  if (OUTGOING_CATEGORIES.has(category as OutgoingObligationCategory)) {
     switch (category) {
       case 'fixed-bill':
       case 'subscription':
-        return DeclaredOutgoingSchema.parse({ ...common, category });
+        return OutgoingObligationSchema.parse({ ...common, category });
       case 'payroll':
-        return DeclaredOutgoingSchema.parse({
+        return OutgoingObligationSchema.parse({
           ...common,
           category,
           personId: nonEmpty(row.person_id),
           amountTolerance: parseNumber(row.amount_tolerance, 'amount_tolerance', rowId),
         });
       case 'insurance':
-        return DeclaredOutgoingSchema.parse({
+        return OutgoingObligationSchema.parse({
           ...common,
           category,
           dueDate: nonEmpty(row.due_date),
         });
       case 'tax-manual':
-        return DeclaredOutgoingSchema.parse({
+        return OutgoingObligationSchema.parse({
           ...common,
           category,
           personId: nonEmpty(row.person_id),
@@ -156,10 +156,10 @@ export function parseCommitmentRow(row: Record<string, string>): DeclaredCommitm
     }
   }
 
-  throw new Error(`Commitment ${rowId}: unknown category '${category}'`);
+  throw new Error(`Obligation ${rowId}: unknown category '${category}'`);
 }
 
-export function readCommitmentsCsvFile(csvPath: string): DeclaredCommitment[] {
+export function readObligationsCsvFile(csvPath: string): Obligation[] {
   if (!fs.existsSync(csvPath)) return [];
   const content = fs.readFileSync(csvPath, 'utf8').trim();
   if (content === '') return [];
@@ -171,18 +171,18 @@ export function readCommitmentsCsvFile(csvPath: string): DeclaredCommitment[] {
     relax_column_count: true,
   }) as Record<string, string>[];
 
-  const rows: DeclaredCommitment[] = [];
+  const rows: Obligation[] = [];
   for (const row of records) {
     if (!nonEmpty(row.id)) continue;
-    rows.push(parseCommitmentRow(row));
+    rows.push(parseObligationRow(row));
   }
   return rows;
 }
 
-export function isDeclaredIncoming(c: DeclaredCommitment): c is DeclaredIncoming {
-  return INCOMING_CATEGORIES.has(c.category as DeclaredIncomingCategory);
+export function isIncomingObligation(c: Obligation): c is IncomingObligation {
+  return INCOMING_CATEGORIES.has(c.category as IncomingObligationCategory);
 }
 
-export function isDeclaredOutgoing(c: DeclaredCommitment): c is DeclaredOutgoing {
-  return OUTGOING_CATEGORIES.has(c.category as DeclaredOutgoingCategory);
+export function isOutgoingObligation(c: Obligation): c is OutgoingObligation {
+  return OUTGOING_CATEGORIES.has(c.category as OutgoingObligationCategory);
 }

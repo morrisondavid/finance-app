@@ -96,7 +96,7 @@ describe('resolveLastChargeDate', () => {
     const expense = makeExpense();
     const acc: Accumulator = {
       merchant: 'Netflix',
-      category: 'Subscriptions',
+      category: 'Entertainment',
       sourceAccount: 'barclays-current',
       accountCategory: 'business',
       monthlyTotals: new Map(),
@@ -119,7 +119,7 @@ describe('resolveLastChargeDate', () => {
     const map = new Map<string, Accumulator>();
     map.set(recurringKey(expense), {
       merchant: 'Netflix',
-      category: 'Subscriptions',
+      category: 'Entertainment',
       sourceAccount: 'barclays-current',
       accountCategory: 'business',
       monthlyTotals: new Map(),
@@ -178,7 +178,7 @@ describe('buildUpcomingRecurring', () => {
     // Attach a last-charge transaction in April 2026 to trigger the skip
     pipeline.expenseAccumulators.set(recurringKey(expense), {
       merchant: 'Netflix',
-      category: 'Subscriptions',
+      category: 'Entertainment',
       sourceAccount: 'barclays-current',
       accountCategory: 'business',
       monthlyTotals: new Map(),

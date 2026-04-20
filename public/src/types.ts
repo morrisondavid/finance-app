@@ -9,6 +9,7 @@ import type {
   AccountCategory as AccountCategoryContract,
   AccountName as AccountNameContract,
   AccountConfig as AccountConfigContract,
+  CurrencyCode as CurrencyCodeContract,
   ExtractedDate as ExtractedDateContract,
   FileInfo as FileInfoContract,
   AccountStatements as AccountStatementsContract,
@@ -31,6 +32,7 @@ export type AccountType = AccountTypeContract;
 export type AccountCategory = AccountCategoryContract;
 export type AccountName = AccountNameContract;
 export type AccountConfig = AccountConfigContract;
+export type CurrencyCode = CurrencyCodeContract;
 export type ExtractedDate = ExtractedDateContract;
 export type FileInfo = FileInfoContract;
 export type AccountStatements = AccountStatementsContract;

@@ -27,7 +27,7 @@ import {
 } from '../config/people.js';
 import {
   sumRentalIncomeForPerson,
-} from '../domain/commitments/rental-income.js';
+} from '../domain/obligations/rental-income.js';
 import {
   getDirectorPayments,
   type DirectorPaymentsDb,
@@ -108,6 +108,7 @@ export function estimateSaForPerson(
         db,
         director.namePattern,
         director.monthlySalary,
+        director.tolerance,
         clause,
         params,
       )

@@ -14,6 +14,7 @@
  */
 
 import { CATEGORY_NAMES, type CategoryName } from '../../shared/category-names.js';
+import { PEOPLE, personAliasAlternation, type Person } from '../config/people.js';
 
 export { CATEGORY_NAMES, type CategoryName };
 
@@ -23,30 +24,52 @@ export interface MerchantEntry {
   displayName: string | null;
 }
 
+const SALARY_KEYWORDS_SRC = '(?:SALARY|PAYROLL|WAGE|NET\\s+PAY|GROSS\\s+PAY)';
+
+/**
+ * Narrow Payroll entry for a person: matches when the description contains
+ * a salary keyword AND any alias for the person, and does NOT contain
+ * "DIVIDEND". Must be checked before the generic Transfers entry below.
+ */
+function narrowPayrollEntry(p: Person): MerchantEntry {
+  const aliases = personAliasAlternation(p);
+  return {
+    pattern: new RegExp(
+      `^(?!.*\\bDIVIDEND\\b)(?=.*\\b${SALARY_KEYWORDS_SRC}\\b).*(?:${aliases})`,
+      'i',
+    ),
+    category: 'Payroll',
+    displayName: null,
+  };
+}
+
+/** Generic Transfers entry for a person: catches any alias, always displays the full name. */
+function personTransferEntry(p: Person): MerchantEntry {
+  return {
+    pattern: new RegExp(personAliasAlternation(p), 'i'),
+    category: 'Transfers',
+    displayName: p.name,
+  };
+}
+
+/**
+ * Director recognition entries built from the Person registry. Placed at the
+ * top of MERCHANT_REGISTRY so narrow Payroll precedes generic Transfers,
+ * and both precede downstream bills/merchants. One source of truth for
+ * "how do we recognise David/Heena in a statement line" — extend by editing
+ * `PEOPLE[id].matchAliases` in server/config/people.ts.
+ */
+const PERSON_ENTRIES: readonly MerchantEntry[] = [
+  ...PEOPLE.map(narrowPayrollEntry),
+  ...PEOPLE.map(personTransferEntry),
+];
+
 export const MERCHANT_REGISTRY: readonly MerchantEntry[] = [
-  // ─── Transfers (early) + narrow Payroll before generic person transfers ─────
-  {
-    pattern:
-      /^(?!.*\bDIVIDEND\b)(?=.*\b(?:SALARY|PAYROLL|WAGE|NET\s+PAY|GROSS\s+PAY)\b).*DAVID\s+MORRISON/i,
-    category: 'Payroll',
-    displayName: null,
-  },
-  {
-    pattern:
-      /^(?!.*\bDIVIDEND\b)(?=.*\b(?:SALARY|PAYROLL|WAGE|NET\s+PAY|GROSS\s+PAY)\b).*(?:HEENA\s+TAILOR|HEENA\s+MORRISON)/i,
-    category: 'Payroll',
-    displayName: null,
-  },
-  { pattern: /DAVID MORRISON/i, category: 'Transfers', displayName: 'David Morrison' },
-  { pattern: /HEENA TAILOR|HEENA MORRISON/i, category: 'Transfers', displayName: 'Heena Tailor' },
+  ...PERSON_ENTRIES,
   { pattern: /MONZO JOINT/i, category: 'Transfers', displayName: 'Monzo Joint' },
   // Payroll from own company — Income, not inter-account Transfers (must stay above generic transfer patterns)
   { pattern: /AUTONIZE|AUTONIZEITLIMITED/i, category: 'Transfers', displayName: 'Autonize IT' },
-  { pattern: /MORRISON DD/i, category: 'Transfers', displayName: null },
-  { pattern: /TAILOR HEENA/i, category: 'Transfers', displayName: null },
-  { pattern: /D MORRISON\b/i, category: 'Transfers', displayName: null },
   { pattern: /BARCLAYS .*STO|BUSINESS PREMIUM STO/i, category: 'Transfers', displayName: null },
-  { pattern: /MORRISON H\b/i, category: 'Transfers', displayName: null },
   { pattern: /TRANSFERWISE/i, category: 'Transfers', displayName: 'Wise (TransferWise)' },
   { pattern: /OPTIONAL FT/i, category: 'Transfers', displayName: 'Internal Transfer' },
   { pattern: /\bDRAW\s*DOWN\b/i, category: 'Transfers', displayName: 'Credit line drawdown' },
@@ -116,6 +139,7 @@ export const MERCHANT_REGISTRY: readonly MerchantEntry[] = [
   { pattern: /GIDEA PARK COACHING/i, category: 'Childcare & Education', displayName: 'Gidea Park Coaching' },
 
   // ─── Insurance ──────────────────────────────────────────────────────────────
+  { pattern: /ORIENT\s+INSURANCE/i, category: 'Insurance', displayName: 'Orient Insurance PJSC' },
   { pattern: /CHURCHILL/i, category: 'Insurance', displayName: 'Churchill Insurance' },
   { pattern: /LIVERPOOL VICTORIA|\bLV\b/i, category: 'Insurance', displayName: 'LV Insurance' },
   { pattern: /AIG LIFE/i, category: 'Insurance', displayName: 'AIG Life' },

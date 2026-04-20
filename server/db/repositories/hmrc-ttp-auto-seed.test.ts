@@ -44,7 +44,7 @@ function createSchema(): void {
       type TEXT NOT NULL,
       name TEXT NOT NULL,
       entity TEXT NOT NULL,
-      recurrence TEXT NOT NULL,
+      frequency TEXT NOT NULL,
       expected_amount REAL,
       due_date TEXT,
       status TEXT NOT NULL DEFAULT 'pending',

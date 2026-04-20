@@ -41,8 +41,37 @@ export const AccountNameSchema = z.enum([
   'emirates-islamic'
 ]);
 
+/**
+ * Canonical list of supported account ids.
+ * Derived from {@link AccountNameSchema} so adding a new account only requires
+ * updating the schema — the literal tuple, the TS union type, and any runtime
+ * iteration all follow automatically.
+ */
+export const ACCOUNTS = AccountNameSchema.options;
+
 export const CurrencyCodeSchema = z.enum(['GBP', 'AED']);
 export type CurrencyCode = z.infer<typeof CurrencyCodeSchema>;
+
+/**
+ * Canonical recurrence frequency enum.
+ *
+ * Single source of truth for every "how often does this happen" concept in the
+ * app (obligations, recurring expenses, upcoming payments). Narrower surfaces
+ * (e.g. the recurring-expense detector, which currently only tracks monthly /
+ * annual cadences) derive a subset via `FrequencySchema.extract([...])` instead
+ * of redeclaring literals — that way adding a new cadence here automatically
+ * surfaces everywhere it's legal, and is a compile-time error everywhere it
+ * isn't yet handled.
+ */
+export const FrequencySchema = z.enum(['monthly', 'quarterly', 'annual', 'one-off']);
+export type Frequency = z.infer<typeof FrequencySchema>;
+
+/**
+ * Subset of {@link FrequencySchema} supported by the recurring-expense
+ * detector and the expenses-overview sheet. Derived (not redeclared) so
+ * extending `FrequencySchema` can't silently drift from this surface.
+ */
+export const RecurringFrequencySchema = FrequencySchema.extract(['monthly', 'annual']);
 
 export const AccountConfigSchema = z.object({
   name: AccountNameSchema,
@@ -298,7 +327,7 @@ export const ExpensesLineItemSchema = z.object({
   merchant: z.string(),
   category: z.string(),
   amount: z.number(),
-  frequency: z.enum(['monthly', 'annual']),
+  frequency: RecurringFrequencySchema,
   sourceAccount: z.string(),
   accountCategory: AccountCategorySchema,
   isVariable: z.boolean(),
@@ -453,7 +482,9 @@ export const AdHocMerchantSeriesResponseSchema = z.object({
 });
 
 // GET /api/expenses/recurring
-export const RecurringFrequencySchema = z.enum(['monthly', 'annual']);
+// `RecurringFrequencySchema` is the canonical monthly / annual subset of
+// {@link FrequencySchema}; it's declared at the top of this file so the
+// expenses-overview sheet can also reference it.
 
 export const RecurringExpenseSchema = z.object({
   merchant: z.string(),
@@ -471,15 +502,15 @@ export const RecurringExpenseSchema = z.object({
   nativeAmount: z.number().optional(),
   nativeCurrency: CurrencyCodeSchema.optional(),
   /**
-   * Back-reference to the declared-commitment row that produced this entry,
-   * when the recurring expense was driven by the commitments registry
+   * Back-reference to the obligation row that produced this entry,
+   * when the recurring expense was driven by the obligations registry
    * (either by relaxing the detector with declared evidence, or by being
    * synthesised whole from a zero-transaction declaration). Downstream
-   * surfaces that also read the commitments registry (e.g. the Obligations
+   * surfaces that also read the obligations registry (e.g. the Obligations
    * tab) use this id to dedupe against their own projection of the same
-   * commitment.
+   * obligation.
    */
-  declaredCommitmentId: z.string().optional(),
+  declaredObligationId: z.string().optional(),
 });
 
 export const RecurringExpensesResponseSchema = z.object({
@@ -558,7 +589,13 @@ export const ObligationSourceSchema = z.enum(['manual', 'auto']);
 export const ObligationTypeSchema = z.enum([
   'vat', 'corporation-tax', 'self-assessment', 'hmrc-ttp', 'loan', 'subscription', 'insurance', 'other'
 ]);
-export const ObligationRecurrenceSchema = z.enum(['quarterly', 'annual', 'monthly', 'one-off']);
+/**
+ * Frequency surface for the obligations registry / DB row.
+ * Alias of the canonical {@link FrequencySchema} — preserved as a named
+ * export for call-site clarity, but guaranteed to stay in lock-step by
+ * construction.
+ */
+export const ObligationFrequencySchema = FrequencySchema;
 export const ObligationStatusSchema = z.enum(['pending', 'paid', 'overdue', 'confirmed', 'not-yet-due', 'unpaid', 'insufficient-data']);
 
 /**
@@ -569,13 +606,19 @@ export const ObligationStatusSchema = z.enum(['pending', 'paid', 'overdue', 'con
  */
 export const PersonIdSchema = z.enum(['david', 'heena']);
 
-export const ObligationSchema = z.object({
+/**
+ * Shape of a row in the `financial_obligations` DB table, surfaced to the
+ * UI via `/api/obligations`. Distinct from the domain `Obligation` (the
+ * user-declared source of truth) — this type is the *projection* of an
+ * Obligation + per-occurrence state into a flat row for the Obligations tab.
+ */
+export const ObligationRowSchema = z.object({
   id: z.string(),
   source: ObligationSourceSchema,
   type: ObligationTypeSchema,
   name: z.string(),
   entity: z.string(),
-  recurrence: ObligationRecurrenceSchema,
+  frequency: ObligationFrequencySchema,
   expectedAmount: z.number().nullable(),
   dueDate: z.string().nullable(),
   status: ObligationStatusSchema,
@@ -589,7 +632,7 @@ export const ObligationSchema = z.object({
 });
 
 export const ObligationsListResponseSchema = z.object({
-  obligations: z.array(ObligationSchema),
+  obligations: z.array(ObligationRowSchema),
 });
 
 export const VatQuarterReconciliationSchema = z.object({
@@ -610,32 +653,38 @@ export const VatReconciliationResponseSchema = z.object({
 });
 
 export const UpcomingObligationsResponseSchema = z.object({
-  obligations: z.array(ObligationSchema),
+  obligations: z.array(ObligationRowSchema),
 });
 
 export const OverdueObligationsResponseSchema = z.object({
-  obligations: z.array(ObligationSchema),
+  obligations: z.array(ObligationRowSchema),
 });
 
 // ============================================
-// Declared Commitments (canonical)
+// Obligations (canonical declared source-of-truth)
 // ============================================
 //
-// A `DeclaredCommitment` is any user-declared recurring financial item,
-// regardless of which UI surface it ultimately lands on. This replaces the
-// four parallel sources that existed historically (FIXED_BILL_OVERRIDES,
+// An `Obligation` is any user-declared recurring financial item — the
+// single source of truth behind Fixed Expenses, the Obligations tab,
+// Rental Income, Payroll, and every upcoming-payments feed. This replaces
+// the four parallel sources that existed historically (FIXED_BILL_OVERRIDES,
 // RENTAL_PROPERTIES, PAYROLL_ENTRIES, manual-obligations.csv). See
-// docs/adr/0001-declared-commitments.md for the full decision record.
+// docs/adr/0001-obligations.md for the full decision record.
+//
+// Not to be confused with {@link ObligationRow} — that's the DB row shape
+// surfaced to the Obligations tab (a projection of an Obligation + state).
 //
 // Direction is split at the schema level — income and outgoings are
 // different kinds of thing, so functions that operate on one direction
 // can't be called with the other.
+//
+// {@link FrequencySchema} is the canonical recurrence enum and is defined
+// at the top of this file; the obligations domain re-uses it verbatim.
 
-export const CadenceSchema = z.enum(['monthly', 'quarterly', 'annual', 'one-off']);
-
-const CommitmentBase = z.object({
+const ObligationBase = z.object({
   id: z.string(),
-  cadence: CadenceSchema,
+  /** How often the obligation repeats. Canonical across the entire domain. */
+  frequency: FrequencySchema,
   /** Value emitted by `normalizeMerchant(description)` used to match transactions. */
   merchant: z.string(),
   /**
@@ -657,44 +706,50 @@ const CommitmentBase = z.object({
 });
 
 /**
- * Build a commitment variant schema for a given category. Uses two sequential
+ * Build a obligation variant schema for a given category. Uses two sequential
  * `.extend()` calls rather than spreading `extra` into one object literal —
  * spreading a generic `z.ZodRawShape` collapses the result's type to an index
- * signature and breaks `z.infer` for every field on `CommitmentBase`.
+ * signature and breaks `z.infer` for every field on `ObligationBase`.
  *
  * The default `E = {}` is crucial: without it, variants with no extra fields
  * fall back to the `ZodRawShape` constraint (which carries an index signature)
  * and erase the discriminant.
  */
-const commitmentCategory = <N extends string, E extends z.ZodRawShape = {}>(
+const obligationCategory = <N extends string, E extends z.ZodRawShape = {}>(
   name: N,
   extra: E = {} as E,
-) => CommitmentBase.extend(extra).extend({ category: z.literal(name) });
+) => ObligationBase.extend(extra).extend({ category: z.literal(name) });
 
-export const DeclaredIncomingSchema = z.discriminatedUnion('category', [
-  commitmentCategory('rental-income', {
+export const IncomingObligationSchema = z.discriminatedUnion('category', [
+  obligationCategory('rental-income', {
     ownership: z.record(PersonIdSchema, z.number()),
   }),
 ]);
 
-export const DeclaredOutgoingSchema = z.discriminatedUnion('category', [
-  commitmentCategory('fixed-bill'),
-  commitmentCategory('subscription'),
-  commitmentCategory('payroll', {
-    personId: PersonIdSchema.optional(),
+export const OutgoingObligationSchema = z.discriminatedUnion('category', [
+  obligationCategory('fixed-bill'),
+  obligationCategory('subscription'),
+  obligationCategory('payroll', {
+    /**
+     * Canonical link to the person being paid. Required — payroll matching
+     * uses `PEOPLE[personId].matchAliases` against raw descriptions rather
+     * than relying on the inherited `merchant` string, so the id must be
+     * authoritative.
+     */
+    personId: PersonIdSchema,
     amountTolerance: z.number().optional(),
   }),
-  commitmentCategory('insurance', {
+  obligationCategory('insurance', {
     dueDate: z.string().optional(),
   }),
-  commitmentCategory('tax-manual', {
+  obligationCategory('tax-manual', {
     personId: PersonIdSchema.optional(),
     dueDate: z.string().optional(),
     /**
      * Subtype of the tax obligation — mirrors the historical API `type` enum
-     * values that all project down to the `tax-manual` commitment category.
+     * values that all project down to the `tax-manual` obligation category.
      * Preserved so a `vat` obligation round-trips through
-     * commitments.csv back to the Obligations tab as `type='vat'` (not
+     * obligations.csv back to the Obligations tab as `type='vat'` (not
      * silently collapsed to `self-assessment`). Optional for backwards-
      * compatibility with rows written before this field existed.
      */
@@ -702,7 +757,12 @@ export const DeclaredOutgoingSchema = z.discriminatedUnion('category', [
   }),
 ]);
 
-export const UpcomingRecurringFrequencySchema = z.enum(['monthly', 'annual']);
+/**
+ * Alias of {@link RecurringFrequencySchema}. The upcoming-payments feed
+ * inherits the same cadence surface as the recurring-expense detector;
+ * kept as a named export so call sites can signal intent.
+ */
+export const UpcomingRecurringFrequencySchema = RecurringFrequencySchema;
 
 export const UpcomingRecurringSchema = z.object({
   merchant: z.string(),
@@ -714,8 +774,8 @@ export const UpcomingRecurringSchema = z.object({
   sourceAccount: z.string(),
   nextExpectedDate: z.string(),
   lastChargeDate: z.string().nullable(),
-  /** See {@link RecurringExpenseSchema.declaredCommitmentId}. */
-  declaredCommitmentId: z.string().optional(),
+  /** See {@link RecurringExpenseSchema.declaredObligationId}. */
+  declaredObligationId: z.string().optional(),
 });
 
 /**
@@ -757,7 +817,7 @@ export const CreateObligationBodySchema = z.object({
   type: ObligationTypeSchema,
   name: z.string().min(1),
   entity: z.string().min(1),
-  recurrence: ObligationRecurrenceSchema,
+  frequency: ObligationFrequencySchema,
   expectedAmount: z.number().nullable().optional(),
   dueDate: z.string().nullable().optional(),
   status: ObligationStatusSchema.optional(),
@@ -965,9 +1025,9 @@ export type DownloadSelectedRequest = z.infer<typeof DownloadSelectedRequestSche
 export type ObligationSource = z.infer<typeof ObligationSourceSchema>;
 export type ObligationType = z.infer<typeof ObligationTypeSchema>;
 export type PersonId = z.infer<typeof PersonIdSchema>;
-export type ObligationRecurrence = z.infer<typeof ObligationRecurrenceSchema>;
+export type ObligationFrequency = z.infer<typeof ObligationFrequencySchema>;
 export type ObligationStatus = z.infer<typeof ObligationStatusSchema>;
-export type Obligation = z.infer<typeof ObligationSchema>;
+export type ObligationRow = z.infer<typeof ObligationRowSchema>;
 export type ObligationsListResponse = z.infer<typeof ObligationsListResponseSchema>;
 export type VatQuarterReconciliation = z.infer<typeof VatQuarterReconciliationSchema>;
 export type VatReconciliationResponse = z.infer<typeof VatReconciliationResponseSchema>;
@@ -982,14 +1042,15 @@ export type Dismissal = z.infer<typeof DismissalSchema>;
 export type CreateDismissalBody = z.infer<typeof CreateDismissalBodySchema>;
 export type DismissalsListResponse = z.infer<typeof DismissalsListResponseSchema>;
 
-// Declared Commitments Types
-export type Cadence = z.infer<typeof CadenceSchema>;
-export type DeclaredIncoming = z.infer<typeof DeclaredIncomingSchema>;
-export type DeclaredOutgoing = z.infer<typeof DeclaredOutgoingSchema>;
-export type DeclaredCommitment = DeclaredIncoming | DeclaredOutgoing;
-export type DeclaredIncomingCategory = DeclaredIncoming['category'];
-export type DeclaredOutgoingCategory = DeclaredOutgoing['category'];
-export type DeclaredCommitmentCategory = DeclaredIncomingCategory | DeclaredOutgoingCategory;
+// Obligation registry (declared source-of-truth) types
+// Note: `Frequency` itself is exported alongside {@link FrequencySchema} near
+// the top of this file (it's the canonical recurrence type).
+export type IncomingObligation = z.infer<typeof IncomingObligationSchema>;
+export type OutgoingObligation = z.infer<typeof OutgoingObligationSchema>;
+export type Obligation = IncomingObligation | OutgoingObligation;
+export type IncomingObligationCategory = IncomingObligation['category'];
+export type OutgoingObligationCategory = OutgoingObligation['category'];
+export type ObligationCategory = IncomingObligationCategory | OutgoingObligationCategory;
 
 // Debts Types
 export type DebtKind = z.infer<typeof DebtKindSchema>;

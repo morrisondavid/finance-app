@@ -50,7 +50,7 @@ function createSchema(): void {
       type TEXT NOT NULL,
       name TEXT NOT NULL,
       entity TEXT NOT NULL,
-      recurrence TEXT NOT NULL,
+      frequency TEXT NOT NULL,
       expected_amount REAL,
       due_date TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
@@ -102,7 +102,7 @@ function insertCtPayment(opts: { date: string; amount: number; account?: string;
 function insertManualCtObligation(opts: { id: string; dueDate: string; expectedAmount?: number }): void {
   testDb.prepare(`
     INSERT INTO financial_obligations
-      (id, source, type, name, entity, recurrence, expected_amount, due_date, status)
+      (id, source, type, name, entity, frequency, expected_amount, due_date, status)
     VALUES (?, 'manual', 'corporation-tax', 'CT manual', 'HMRC', 'annual', ?, ?, 'pending')
   `).run(opts.id, opts.expectedAmount ?? 1000, opts.dueDate);
 }

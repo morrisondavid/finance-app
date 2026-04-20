@@ -4,6 +4,12 @@
 // z.infer<> there.  We re-export them here for convenience so that server code
 // can keep importing from '../types.js' without churn.
 
+import type {
+  AccountName,
+  CurrencyCode,
+} from '../shared/api-contracts.js';
+import { ACCOUNTS } from '../shared/api-contracts.js';
+
 export type {
   MonthlySummary,
   AccountSummary,
@@ -14,6 +20,9 @@ export type {
   UploadedFile,
   TransactionsResponse,
 } from '../shared/api-contracts.js';
+
+export type { AccountName, CurrencyCode };
+export { ACCOUNTS };
 
 // ─── Internal types (never serialised over HTTP) ─────────────────────────────
 
@@ -108,28 +117,6 @@ export interface UploadResponse {
   account?: string;
   type?: string;
 }
-
-/**
- * List of supported accounts
- */
-export const ACCOUNTS = [
-  'barclays-current',
-  'barclays-savings',
-  'capital-on-tap',
-  'barclaycard',
-  'natwest',
-  'natwest-savings',
-  'monzo-joint',
-  'emirates-islamic'
-] as const;
-
-export type AccountName = typeof ACCOUNTS[number];
-
-/**
- * ISO 4217 currency codes supported by the app.
- * Extend this union as new currencies are onboarded.
- */
-export type CurrencyCode = 'GBP' | 'AED';
 
 /**
  * Account type classification
