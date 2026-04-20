@@ -1,14 +1,29 @@
 import crypto from 'crypto';
-import { getDb } from '../connection.js';
-import {
-  readManualObligationsFromCsvFile,
-  writeManualObligationsToCsvFile,
-  getObligationsCsvPath,
-  ensureObligationsCsvWithHeader,
-  type ManualObligationCsvRow,
-} from '../obligations-csv.js';
-import { OBLIGATIONS_DIR } from '../connection.js';
+import { getDb, OBLIGATIONS_DIR, COMMITMENTS_DIR } from '../connection.js';
 import { buildFyWhereClauseForColumn } from '../utils/financial-year.js';
+import {
+  buildDeclaredCommitmentRegistry,
+  __resetDeclaredCommitmentRegistryForTests,
+} from '../../domain/commitments/registry.js';
+import { buildCommitmentsWriter } from '../../domain/commitments/csv-writer.js';
+import {
+  getObligationStateCsvPath,
+  readObligationStateFromFile,
+  upsertObligationState,
+  deleteObligationState,
+  type ObligationStateRow,
+} from '../../domain/commitments/obligation-state.js';
+import {
+  commitmentProjectsToObligation,
+  projectCommitmentToObligationRow,
+} from '../../domain/commitments/obligation-projection.js';
+import {
+  DeclaredOutgoingSchema,
+  type DeclaredOutgoing,
+  type Cadence,
+  type CreateObligationBody,
+  type UpdateObligationBody,
+} from '../../../shared/api-contracts.js';
 
 /**
  * Statuses that indicate an obligation has been resolved and doesn't need further action.
@@ -38,27 +53,53 @@ interface ObligationRow {
   updated_at: string | null;
 }
 
-function csvPath(): string {
-  return getObligationsCsvPath(OBLIGATIONS_DIR);
+function obligationStateCsvPath(): string {
+  return getObligationStateCsvPath(OBLIGATIONS_DIR);
 }
 
+function commitmentsWriter() {
+  return buildCommitmentsWriter(COMMITMENTS_DIR);
+}
+
+function freshRegistry() {
+  // Always build a fresh registry on the mutation path: we want the write we
+  // just made to be visible to downstream reads (projector + seeders) in the
+  // same request.
+  __resetDeclaredCommitmentRegistryForTests();
+  return buildDeclaredCommitmentRegistry(COMMITMENTS_DIR);
+}
+
+/**
+ * Load every manual obligation from the declared-commitments registry and
+ * upsert it into `financial_obligations`. Runs at boot in place of the old
+ * `manual-obligations.csv` reader.
+ */
 export function loadManualObligationsFromCsv(): void {
   const db = getDb();
-  const fp = csvPath();
-  ensureObligationsCsvWithHeader(fp);
-  const rows = readManualObligationsFromCsvFile(fp);
+  const registry = freshRegistry();
+  const state = readObligationStateFromFile(obligationStateCsvPath());
+
+  const projected = registry.outgoing
+    .filter(commitmentProjectsToObligation)
+    .map(c => projectCommitmentToObligationRow(c, state.get(c.id)));
 
   const insert = db.prepare(`
     INSERT OR REPLACE INTO financial_obligations
-      (id, source, type, name, entity, recurrence, expected_amount, due_date, status, notes, person_id, created_at, updated_at)
-    VALUES (?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      (id, source, type, name, entity, recurrence, expected_amount, due_date, status,
+       paid_amount, paid_date, paid_from_account, notes, person_id, created_at, updated_at)
+    VALUES (?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `);
 
-  for (const r of rows) {
-    insert.run(r.id, r.type, r.name, r.entity, r.recurrence, r.expectedAmount, r.dueDate, r.status, r.notes, r.personId);
+  for (const r of projected) {
+    insert.run(
+      r.id, r.type, r.name, r.entity, r.recurrence,
+      r.expectedAmount, r.dueDate, r.status,
+      r.paidAmount, r.paidDate, r.paidFromAccount, r.notes, r.personId,
+    );
   }
-  if (rows.length > 0) {
-    console.log(`[Database] Loaded ${rows.length} manual obligation(s) from CSV`);
+
+  if (projected.length > 0) {
+    console.log(`[Database] Loaded ${projected.length} manual obligation(s) from commitments registry`);
   }
 }
 
@@ -129,10 +170,6 @@ export function getAllObligations(filters?: ObligationFilters): ObligationRow[] 
   }
 
   let where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  // Explicit min/max takes precedence: the FY branch only runs when no
-  // explicit range was supplied. Keeps existing `financialYear` callers
-  // (dashboard/tests) working while the Obligations page moves to
-  // rolling-window filtering.
   if (!hasExplicitRange && filters?.financialYear) {
     const fy = buildFyWhereClauseForColumn(filters.financialYear, 'due_date');
     if (fy.clause) {
@@ -189,77 +226,186 @@ export function getObligationById(id: string): ObligationRow | undefined {
   return db.prepare('SELECT * FROM financial_obligations WHERE id = ?').get(id) as ObligationRow | undefined;
 }
 
-function syncManualToCsv(): void {
-  const db = getDb();
-  const manualRows = db.prepare(
-    `SELECT * FROM financial_obligations WHERE source = 'manual' ORDER BY id`
-  ).all() as ObligationRow[];
-
-  const csvRows: ManualObligationCsvRow[] = manualRows.map(r => ({
-    id: r.id,
-    type: r.type,
-    name: r.name,
-    entity: r.entity,
-    recurrence: r.recurrence,
-    expectedAmount: r.expected_amount,
-    dueDate: r.due_date,
-    status: r.status,
-    notes: r.notes,
-    personId: r.person_id,
-  }));
-  writeManualObligationsToCsvFile(csvPath(), csvRows);
+/**
+ * Translate the obligations API `type` enum into a declared commitment
+ * category. The API currently exposes historical types that also appear in
+ * the auto-seed pipelines (vat, corporation-tax, self-assessment, hmrc-ttp)
+ * — any of those posted manually collapse to `tax-manual`. `loan` and
+ * `other` don't map yet; future categories should be added to
+ * DeclaredOutgoingSchema first.
+ */
+function obligationTypeToCategory(type: string): DeclaredOutgoing['category'] {
+  switch (type) {
+    case 'insurance': return 'insurance';
+    case 'subscription': return 'subscription';
+    case 'vat':
+    case 'corporation-tax':
+    case 'self-assessment':
+    case 'hmrc-ttp':
+      return 'tax-manual';
+    default:
+      throw new Error(
+        `Manual obligations of type '${type}' are not supported by the declared-commitments registry. ` +
+        `Add a category to DeclaredOutgoingSchema first.`,
+      );
+  }
 }
 
-export function createManualObligation(data: {
-  type: string;
+const VALID_CADENCES: readonly Cadence[] = ['monthly', 'quarterly', 'annual', 'one-off'];
+function isCadence(r: string): r is Cadence {
+  return (VALID_CADENCES as readonly string[]).includes(r);
+}
+
+/**
+ * Fields shared by Create + Update payloads. We require `id` because this
+ * helper is the single writer for both paths; the route layer generates
+ * an id for creates and passes the existing id for updates.
+ */
+interface ObligationInputWithId {
+  id: string;
+  type: CreateObligationBody['type'];
   name: string;
   entity: string;
-  recurrence: string;
+  recurrence: CreateObligationBody['recurrence'];
   expectedAmount?: number | null;
   dueDate?: string | null;
-  status?: string;
   notes?: string | null;
-  personId?: string | null;
-}): ObligationRow {
-  const db = getDb();
-  const id = `manual-${crypto.randomUUID()}`;
-  db.prepare(`
-    INSERT INTO financial_obligations
-      (id, source, type, name, entity, recurrence, expected_amount, due_date, status, notes, person_id, created_at, updated_at)
-    VALUES (?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-  `).run(id, data.type, data.name, data.entity, data.recurrence,
-    data.expectedAmount ?? null, data.dueDate ?? null, data.status ?? 'pending',
-    data.notes ?? null, data.personId ?? null);
-  syncManualToCsv();
-  return getObligationById(id)!;
+  personId?: CreateObligationBody['personId'];
 }
 
-export function updateManualObligation(id: string, data: Record<string, unknown>): ObligationRow | null {
+function buildCommitmentFromObligationInput(input: ObligationInputWithId): DeclaredOutgoing {
+  const category = obligationTypeToCategory(input.type);
+  if (!isCadence(input.recurrence)) {
+    throw new Error(`Invalid recurrence '${input.recurrence}' for manual obligation`);
+  }
+  const base = {
+    id: input.id,
+    cadence: input.recurrence,
+    merchant: input.entity,
+    displayName: input.name,
+    amount: input.expectedAmount ?? 0,
+    currency: 'GBP' as const,
+    notes: input.notes ?? undefined,
+  };
+  const extra = category === 'insurance'
+    ? { category, dueDate: input.dueDate ?? undefined }
+    : category === 'tax-manual'
+      ? {
+        category,
+        personId: input.personId ?? undefined,
+        dueDate: input.dueDate ?? undefined,
+      }
+      : { category };
+  return DeclaredOutgoingSchema.parse({ ...base, ...extra });
+}
+
+function writeStateFromInput(id: string, data: {
+  status?: string | null;
+  paidAmount?: number | null;
+  paidDate?: string | null;
+  paidFromAccount?: string | null;
+}): void {
+  const row: ObligationStateRow = {
+    id,
+    status: data.status ?? 'pending',
+    paidAmount: data.paidAmount ?? null,
+    paidDate: data.paidDate ?? null,
+    paidFromAccount: data.paidFromAccount ?? null,
+  };
+  upsertObligationState(obligationStateCsvPath(), row);
+}
+
+export function createManualObligation(data: CreateObligationBody): ObligationRow {
+  const id = `manual-${crypto.randomUUID()}`;
+  const commitment = buildCommitmentFromObligationInput({ ...data, id });
+  commitmentsWriter().upsert(commitment);
+  if (data.status && data.status !== 'pending') {
+    writeStateFromInput(id, { status: data.status });
+  }
+  // Rebuild + reload so the DB reflects the write.
+  loadManualObligationsFromCsv();
+  const row = getObligationById(id);
+  if (!row) {
+    throw new Error(`createManualObligation: row ${id} missing after reload — check commitments/commitments.csv is writable`);
+  }
+  return row;
+}
+
+/**
+ * Reconstruct the obligation-shaped input from an existing commitment so the
+ * update path can start from known-good, schema-narrowed fields rather than
+ * the DB row (whose `type`/`recurrence` columns are bare strings).
+ */
+function inputFromCommitment(
+  c: Extract<DeclaredOutgoing, { category: 'insurance' | 'subscription' | 'tax-manual' }>,
+): ObligationInputWithId {
+  const obligationType: CreateObligationBody['type'] =
+    c.category === 'insurance' ? 'insurance' :
+    c.category === 'subscription' ? 'subscription' :
+    'self-assessment'; // tax-manual projects to self-assessment
+  return {
+    id: c.id,
+    type: obligationType,
+    name: c.displayName ?? c.merchant,
+    entity: c.merchant,
+    recurrence: c.cadence,
+    expectedAmount: c.amount,
+    dueDate: c.category === 'insurance' || c.category === 'tax-manual' ? c.dueDate ?? null : null,
+    notes: c.notes ?? null,
+    personId: c.category === 'tax-manual' ? c.personId ?? null : null,
+  };
+}
+
+export function updateManualObligation(id: string, patch: UpdateObligationBody): ObligationRow | null {
   const existing = getObligationById(id);
   if (!existing || existing.source !== 'manual') return null;
 
-  const fields: string[] = [];
-  const params: unknown[] = [];
+  const registry = freshRegistry();
+  const existingCommitment = registry.all.find(c => c.id === id);
+  if (!existingCommitment || !commitmentProjectsToObligation(existingCommitment)) return null;
 
-  const allowed: Record<string, string> = {
-    type: 'type', name: 'name', entity: 'entity', recurrence: 'recurrence',
-    expectedAmount: 'expected_amount', dueDate: 'due_date', status: 'status',
-    notes: 'notes', personId: 'person_id',
-  };
-  for (const [jsKey, dbCol] of Object.entries(allowed)) {
-    if (jsKey in data) {
-      fields.push(`${dbCol} = ?`);
-      params.push(data[jsKey] ?? null);
-    }
+  // Declaration fields go to commitments.csv; state fields (status + paidX)
+  // go to obligation-state.csv. Splitting the two writes at the field level
+  // keeps declarations pristine and mutation history isolated.
+  const touchDeclaration =
+    patch.type !== undefined || patch.name !== undefined || patch.entity !== undefined ||
+    patch.recurrence !== undefined || patch.expectedAmount !== undefined ||
+    patch.dueDate !== undefined || patch.notes !== undefined || patch.personId !== undefined;
+
+  // NOTE: paidAmount/paidDate/paidFromAccount are not part of
+  // UpdateObligationBodySchema today; if that changes, extend `touchState`
+  // to match.
+  const touchState = patch.status !== undefined;
+
+  if (touchDeclaration) {
+    const base = inputFromCommitment(existingCommitment);
+    const merged: ObligationInputWithId = {
+      ...base,
+      type: patch.type ?? base.type,
+      name: patch.name ?? base.name,
+      entity: patch.entity ?? base.entity,
+      recurrence: patch.recurrence ?? base.recurrence,
+      expectedAmount: patch.expectedAmount !== undefined ? patch.expectedAmount : base.expectedAmount,
+      dueDate: patch.dueDate !== undefined ? patch.dueDate : base.dueDate,
+      notes: patch.notes !== undefined ? patch.notes : base.notes,
+      personId: patch.personId !== undefined ? patch.personId : base.personId,
+    };
+    commitmentsWriter().upsert(buildCommitmentFromObligationInput(merged));
   }
-  if (fields.length === 0) return existing;
 
-  fields.push('updated_at = CURRENT_TIMESTAMP');
-  params.push(id);
+  if (touchState) {
+    const currentState = readObligationStateFromFile(obligationStateCsvPath()).get(id);
+    const next: ObligationStateRow = {
+      id,
+      status: patch.status ?? currentState?.status ?? existing.status,
+      paidAmount: currentState?.paidAmount ?? existing.paid_amount,
+      paidDate: currentState?.paidDate ?? existing.paid_date,
+      paidFromAccount: currentState?.paidFromAccount ?? existing.paid_from_account,
+    };
+    upsertObligationState(obligationStateCsvPath(), next);
+  }
 
-  const db = getDb();
-  db.prepare(`UPDATE financial_obligations SET ${fields.join(', ')} WHERE id = ?`).run(...params);
-  syncManualToCsv();
+  loadManualObligationsFromCsv();
   return getObligationById(id) ?? null;
 }
 
@@ -267,9 +413,10 @@ export function deleteManualObligation(id: string): boolean {
   const existing = getObligationById(id);
   if (!existing || existing.source !== 'manual') return false;
   const db = getDb();
+  const removed = commitmentsWriter().remove(id);
+  deleteObligationState(obligationStateCsvPath(), id);
   db.prepare('DELETE FROM financial_obligations WHERE id = ? AND source = ?').run(id, 'manual');
-  syncManualToCsv();
-  return true;
+  return removed;
 }
 
 export function toApiObligation(row: ObligationRow) {

@@ -1,0 +1,7 @@
+id,category,cadence,merchant,display_name,account,amount,currency,notes,ownership_david,ownership_heena,person_id,amount_tolerance,due_date
+seed-ee-barclays-current,fixed-bill,monthly,EE,,barclays-current,180,GBP,,,,,,
+seed-mce-advisory-emirates-islamic,fixed-bill,monthly,MCE Advisory,,emirates-islamic,4200,AED,,,,,,
+seed-hunters-square-78,rental-income,monthly,Stoneshaw Estates,78 Hunters Square,monzo-joint,1292.72,GBP,,0.5,0.5,,,
+seed-thorney-house-56,rental-income,monthly,Prospect Holdings,56 Thorney House,monzo-joint,979.2,GBP,,0.5,0.5,,,
+seed-payroll-david,payroll,monthly,David Morrison,Director salary — David,barclays-current,765,GBP,,,,david,50,
+seed-payroll-heena,payroll,monthly,Heena Tailor,Director salary — Heena,barclays-current,765,GBP,,,,heena,50,

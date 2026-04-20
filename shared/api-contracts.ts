@@ -607,6 +607,82 @@ export const OverdueObligationsResponseSchema = z.object({
   obligations: z.array(ObligationSchema),
 });
 
+// ============================================
+// Declared Commitments (canonical)
+// ============================================
+//
+// A `DeclaredCommitment` is any user-declared recurring financial item,
+// regardless of which UI surface it ultimately lands on. This replaces the
+// four parallel sources that existed historically (FIXED_BILL_OVERRIDES,
+// RENTAL_PROPERTIES, PAYROLL_ENTRIES, manual-obligations.csv). See
+// docs/adr/0001-declared-commitments.md for the full decision record.
+//
+// Direction is split at the schema level — income and outgoings are
+// different kinds of thing, so functions that operate on one direction
+// can't be called with the other.
+
+export const CadenceSchema = z.enum(['monthly', 'quarterly', 'annual', 'one-off']);
+
+const CommitmentBase = z.object({
+  id: z.string(),
+  cadence: CadenceSchema,
+  /** Value emitted by `normalizeMerchant(description)` used to match transactions. */
+  merchant: z.string(),
+  /**
+   * Human-friendly label for UI. Falls back to `merchant` when absent. Used
+   * for rental property names ("78 Hunters Square") and payroll labels
+   * ("Director salary — David") that diverge from the normalised payee key.
+   */
+  displayName: z.string().optional(),
+  /**
+   * Source/destination account. Required for pipeline-driven categories
+   * (fixed-bill, subscription, payroll, rental-income) that need to match
+   * transactions. Optional for declaration-only categories (insurance,
+   * tax-manual) where payment may come from any account.
+   */
+  account: z.string().optional(),
+  amount: z.number(),
+  currency: CurrencyCodeSchema.default('GBP'),
+  notes: z.string().optional(),
+});
+
+/**
+ * Build a commitment variant schema for a given category. Uses two sequential
+ * `.extend()` calls rather than spreading `extra` into one object literal —
+ * spreading a generic `z.ZodRawShape` collapses the result's type to an index
+ * signature and breaks `z.infer` for every field on `CommitmentBase`.
+ *
+ * The default `E = {}` is crucial: without it, variants with no extra fields
+ * fall back to the `ZodRawShape` constraint (which carries an index signature)
+ * and erase the discriminant.
+ */
+const commitmentCategory = <N extends string, E extends z.ZodRawShape = {}>(
+  name: N,
+  extra: E = {} as E,
+) => CommitmentBase.extend(extra).extend({ category: z.literal(name) });
+
+export const DeclaredIncomingSchema = z.discriminatedUnion('category', [
+  commitmentCategory('rental-income', {
+    ownership: z.record(PersonIdSchema, z.number()),
+  }),
+]);
+
+export const DeclaredOutgoingSchema = z.discriminatedUnion('category', [
+  commitmentCategory('fixed-bill'),
+  commitmentCategory('subscription'),
+  commitmentCategory('payroll', {
+    personId: PersonIdSchema.optional(),
+    amountTolerance: z.number().optional(),
+  }),
+  commitmentCategory('insurance', {
+    dueDate: z.string().optional(),
+  }),
+  commitmentCategory('tax-manual', {
+    personId: PersonIdSchema.optional(),
+    dueDate: z.string().optional(),
+  }),
+]);
+
 export const UpcomingRecurringFrequencySchema = z.enum(['monthly', 'annual']);
 
 export const UpcomingRecurringSchema = z.object({
@@ -884,6 +960,15 @@ export type UpdateObligationBody = z.infer<typeof UpdateObligationBodySchema>;
 export type Dismissal = z.infer<typeof DismissalSchema>;
 export type CreateDismissalBody = z.infer<typeof CreateDismissalBodySchema>;
 export type DismissalsListResponse = z.infer<typeof DismissalsListResponseSchema>;
+
+// Declared Commitments Types
+export type Cadence = z.infer<typeof CadenceSchema>;
+export type DeclaredIncoming = z.infer<typeof DeclaredIncomingSchema>;
+export type DeclaredOutgoing = z.infer<typeof DeclaredOutgoingSchema>;
+export type DeclaredCommitment = DeclaredIncoming | DeclaredOutgoing;
+export type DeclaredIncomingCategory = DeclaredIncoming['category'];
+export type DeclaredOutgoingCategory = DeclaredOutgoing['category'];
+export type DeclaredCommitmentCategory = DeclaredIncomingCategory | DeclaredOutgoingCategory;
 
 // Debts Types
 export type DebtKind = z.infer<typeof DebtKindSchema>;

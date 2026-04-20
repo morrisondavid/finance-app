@@ -4,8 +4,7 @@ import { parse } from 'csv-parse/sync';
 import { escapeCsvField, atomicWriteCsv } from '../utils/csv-helpers.js';
 
 /**
- * File-backed canonical source for obligation dismissals. Mirrors the manual
- * obligations CSV pattern (see {@link ./obligations-csv.ts}): the CSV is the
+ * File-backed canonical source for obligation dismissals. The CSV is the
  * source of truth; SQLite is rebuilt from it at startup and re-synced on
  * every mutation so the on-disk file always reflects the latest state.
  */

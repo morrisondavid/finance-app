@@ -13,10 +13,12 @@ export const DB_PATH = path.join(__dirname, '../../data/transactions.db');
 export const STATEMENTS_DIR = path.join(__dirname, '../../statements');
 /** Canonical category budgets CSV lives here (see budgets-csv.ts). */
 export const BUDGETS_DIR = path.join(__dirname, '../../budgets');
-/** Manual obligations CSV lives here (see obligations-csv.ts). */
+/** Obligation state CSV + dismissal log live here (see domain/commitments/obligation-state.ts). */
 export const OBLIGATIONS_DIR = path.join(__dirname, '../../obligations');
 /** Canonical debts CSV lives here (see debts-csv.ts). */
 export const DEBTS_DIR = path.join(__dirname, '../../debts');
+/** Declared-commitments registry (seed.csv + commitments.csv) lives here. */
+export const COMMITMENTS_DIR = path.join(__dirname, '../../commitments');
 
 let db: Database.Database;
 

@@ -110,7 +110,12 @@ export {
  */
 export async function initDatabase(): Promise<void> {
   console.log('[Database] Initializing...');
-  
+
+  // Validate the declared-commitments registry ownership splits early —
+  // misconfigured rental shares would otherwise silently skew SA estimates.
+  const { assertRentalOwnershipIntegrity } = await import('../domain/commitments/rental-income.js');
+  assertRentalOwnershipIntegrity();
+
   // Initialize connection
   initConnection();
   

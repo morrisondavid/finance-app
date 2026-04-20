@@ -17,11 +17,14 @@ import type { RecurringCandidate, TransactionDetail } from './recurring-detector
 import type { RecurringExpense } from '../../shared/api-contracts.js';
 import { round2, monthKeyFromIsoDate } from './math.js';
 import { SPECIAL_CATEGORY } from './category-constants.js';
-import { matchRentalProperty, RENTAL_PROPERTIES } from './rental-properties.js';
-import { matchFixedBillOverride } from './fixed-bill-overrides.js';
 import { resolveExpenseCategoryWithPayroll, type PayrollEntry } from '../config/payroll.js';
 import { convertAmountSync } from '../config/exchange-rates.js';
 import type { CurrencyCode } from '../types.js';
+import { getDeclaredCommitmentRegistry } from '../domain/commitments/registry.js';
+import {
+  matchFixedBillCommitment,
+  matchRentalCommitmentByAmount,
+} from '../domain/commitments/lookups.js';
 
 export interface RawTransaction {
   id: number;
@@ -113,20 +116,20 @@ function rowForAccumulation(txn: RawTransaction, side: 'expense' | 'income'): Ac
   let displayMerchant = merchant;
   let keyAmount = absAmount;
   if (payrollHit) {
-    displayMerchant = payrollHit.displayName;
+    displayMerchant = payrollHit.displayName ?? payrollHit.merchant;
     keyAmount = 0;
   }
 
   const isPropertyIncome = side === 'income' && category === SPECIAL_CATEGORY.property;
   if (isPropertyIncome) {
-    const prop = matchRentalProperty(merchant, account, absAmount);
+    const prop = matchRentalCommitmentByAmount(getDeclaredCommitmentRegistry(), merchant, account, absAmount);
     if (prop) {
-      displayMerchant = prop.name;
+      displayMerchant = prop.displayName ?? prop.merchant;
       keyAmount = 0;
     }
   }
 
-  if (side === 'expense' && matchFixedBillOverride(merchant, account)) {
+  if (side === 'expense' && matchFixedBillCommitment(getDeclaredCommitmentRegistry(), merchant, account)) {
     keyAmount = 0;
   }
 
@@ -171,13 +174,12 @@ function accumulatorsToCandidates(
       ? monthlyValues.reduce((s, v) => s + v, 0) / monthlyValues.length
       : 0;
 
-    // Declared fixed bills (FIXED_BILL_OVERRIDES with relaxedMinMonths) get a
-    // relaxed detector branch so they surface after 1–2 payments rather than
-    // waiting for ~12 months of history. Applies to expense side only.
-    const override = side === 'expense'
-      ? matchFixedBillOverride(acc.merchant, acc.sourceAccount)
-      : null;
-    const isDeclaredFixed = override?.relaxedMinMonths !== undefined;
+    // Any `fixed-bill` commitment declared in the registry is the recurrence
+    // signal in its own right — unlock the relaxed detector branch so the
+    // bill surfaces after as little as one historical payment rather than
+    // waiting for ~12 months of evidence. Applies to expense side only.
+    const isDeclaredFixed = side === 'expense'
+      && matchFixedBillCommitment(getDeclaredCommitmentRegistry(), acc.merchant, acc.sourceAccount) !== null;
 
     candidates.push({
       merchant: acc.merchant,
@@ -276,10 +278,12 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
     ? classifyRecurring(incomeCandidates, monthsCovered, new Date(), true)
     : { monthly: [], annual: [] };
 
+  const registry = getDeclaredCommitmentRegistry();
+  const rentals = registry.listByCategory('rental-income');
   for (const e of monthlyIncomeRecurring) {
     if (e.category === SPECIAL_CATEGORY.property) {
-      const prop = RENTAL_PROPERTIES.find(p => p.name === e.merchant);
-      if (prop) e.amount = round2(prop.grossRent);
+      const prop = rentals.find(p => (p.displayName ?? p.merchant) === e.merchant);
+      if (prop) e.amount = round2(prop.amount);
     }
   }
 
@@ -299,22 +303,23 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
 }
 
 /**
- * Stamp the config-declared monthly amount onto matching expenses. For
- * non-GBP bills the config amount is in the native currency (e.g. AED):
- * we convert to GBP for `amount` and preserve the native figure on
- * `nativeAmount` / `nativeCurrency` so the UI can render "£882 (AED 4,200)".
+ * Stamp the declared-commitment amount onto every matching recurring
+ * expense. Non-GBP commitments are converted to GBP for `amount` and keep
+ * their native figure on `nativeAmount` / `nativeCurrency` so the UI can
+ * render "£882 (AED 4,200)".
  */
 function applyFixedBillOverrides(monthly: RecurringExpense[]): void {
+  const registry = getDeclaredCommitmentRegistry();
   for (const e of monthly) {
-    const override = matchFixedBillOverride(e.merchant, e.sourceAccount);
-    if (!override) continue;
-    const currency: CurrencyCode = override.currency ?? 'GBP';
+    const commitment = matchFixedBillCommitment(registry, e.merchant, e.sourceAccount);
+    if (!commitment) continue;
+    const currency: CurrencyCode = commitment.currency;
     const gbpAmount = currency === 'GBP'
-      ? override.monthlyAmount
-      : convertAmountSync(override.monthlyAmount, currency, 'GBP');
+      ? commitment.amount
+      : convertAmountSync(commitment.amount, currency, 'GBP');
     e.amount = round2(gbpAmount);
     if (currency !== 'GBP') {
-      e.nativeAmount = round2(override.monthlyAmount);
+      e.nativeAmount = round2(commitment.amount);
       e.nativeCurrency = currency;
     }
   }

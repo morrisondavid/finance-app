@@ -6,7 +6,16 @@ import {
   getSaTaxYearForDate,
 } from './sa-estimator.js';
 import { getDirectors } from '../config/payees.js';
-import { RENTAL_PROPERTIES } from './rental-properties.js';
+import { getDeclaredCommitmentRegistry } from '../domain/commitments/registry.js';
+
+const registry = getDeclaredCommitmentRegistry();
+const rentals = registry.listByCategory('rental-income');
+if (rentals.length === 0) throw new Error('Expected at least one rental-income commitment in registry fixture');
+const huntersSquareRaw = rentals[0];
+if (huntersSquareRaw.account === undefined) {
+  throw new Error(`Expected rental commitment ${huntersSquareRaw.id} to have an account in the registry fixture`);
+}
+const huntersSquare = { ...huntersSquareRaw, account: huntersSquareRaw.account };
 import {
   calculateDividendTax,
   calculateIncomeTaxOnNonDividend,
@@ -118,8 +127,7 @@ describe('estimateSaForPerson', () => {
   });
 
   it('attributes rental income by ownership share', () => {
-    const huntersSquare = RENTAL_PROPERTIES[0];
-    const monthly = huntersSquare.grossRent;
+    const monthly = huntersSquare.amount;
 
     insertIncome('2024-05-01', `Rent from ${huntersSquare.merchant}`, monthly, huntersSquare.account);
     insertIncome('2024-06-01', `Rent from ${huntersSquare.merchant}`, monthly, huntersSquare.account);
@@ -132,14 +140,13 @@ describe('estimateSaForPerson', () => {
   it('estimatedTax equals dividend tax + non-dividend tax on rental income', () => {
     const david = getDirectors().find(d => d.id === 'david')!;
     const monthly = david.monthlySalary;
-    const huntersSquare = RENTAL_PROPERTIES[0];
 
     for (let m = 0; m < 12; m++) {
       const month = String(m + 4).padStart(2, '0');
       insertExpense(`2024-${month}-15`, 'DAVID MORRISON PAYROLL', -monthly);
     }
     insertExpense('2024-10-01', 'DAVID MORRISON DIVIDEND', -20000);
-    insertIncome('2024-05-01', `Rent ${huntersSquare.merchant}`, huntersSquare.grossRent * 12, huntersSquare.account);
+    insertIncome('2024-05-01', `Rent ${huntersSquare.merchant}`, huntersSquare.amount * 12, huntersSquare.account);
 
     const estimate = estimateSaForPerson('david', start, end, testDb);
     const expectedDividendTax = calculateDividendTax(estimate.dividends, estimate.salary);

@@ -1,38 +1,22 @@
 /**
- * Director / payroll debits from the business current account (same idea as RENTAL_PROPERTIES).
- * Update `expectedAmount` when salaries change. Matching uses closest amount among same payee+account.
+ * Director / payroll debits classifier.
+ *
+ * Thin adapter over the declared-commitments registry — the actual payroll
+ * rows live in `commitments/seed.csv` as `category: payroll` commitments.
+ * This module keeps the category-resolution API stable for the many call
+ * sites that classify transactions as Payroll vs Dividends vs Business.
  */
 
-import type { AccountName } from '../types.js';
 import type { CategoryName } from '../utils/merchant-registry.js';
 import { categorizeTransaction } from '../utils/categorizer.js';
 import { normalizeMerchant } from '../utils/merchant-normalizer.js';
+import { getDeclaredCommitmentRegistry } from '../domain/commitments/registry.js';
+import {
+  matchPayrollCommitment,
+  type Payroll,
+} from '../domain/commitments/lookups.js';
 
-export interface PayrollEntry {
-  sourceAccount: AccountName;
-  /** Value from `normalizeMerchant(description)` for that payee */
-  merchant: string;
-  expectedAmount: number;
-  displayName: string;
-}
-
-/** Reject config match when actual debit is this far from `expectedAmount` (update config after a pay rise). */
-const MAX_AMOUNT_DEVIATION = 50;
-
-export const PAYROLL_ENTRIES: PayrollEntry[] = [
-  {
-    sourceAccount: 'barclays-current',
-    merchant: 'David Morrison',
-    expectedAmount: 765,
-    displayName: 'Director salary — David',
-  },
-  {
-    sourceAccount: 'barclays-current',
-    merchant: 'Heena Tailor',
-    expectedAmount: 765,
-    displayName: 'Director salary — Heena',
-  },
-];
+export type PayrollEntry = Payroll;
 
 /**
  * Match a configured payroll debit. Returns null for dividends or non-matching rows.
@@ -44,22 +28,7 @@ export function matchPayrollEntry(
   description: string,
 ): PayrollEntry | null {
   if (/\bDIVIDEND\b/i.test(description)) return null;
-  const candidates = PAYROLL_ENTRIES.filter(
-    p => p.sourceAccount === account && p.merchant === merchant,
-  );
-  if (candidates.length === 0) return null;
-  let best = candidates[0]!;
-  let bestDiff = Math.abs(absAmount - best.expectedAmount);
-  for (let i = 1; i < candidates.length; i++) {
-    const c = candidates[i]!;
-    const diff = Math.abs(absAmount - c.expectedAmount);
-    if (diff < bestDiff) {
-      best = c;
-      bestDiff = diff;
-    }
-  }
-  if (bestDiff > MAX_AMOUNT_DEVIATION) return null;
-  return best;
+  return matchPayrollCommitment(getDeclaredCommitmentRegistry(), merchant, account, absAmount);
 }
 
 function isOutgoingExpense(type: string, amount: number): boolean {
@@ -74,10 +43,11 @@ export interface ResolvePayrollCategoryResult {
 }
 
 /**
- * Registry can label salary-like text as Payroll before payee-specific rules run.
- * Only {@link PAYROLL_ENTRIES} matches (amount within tolerance) stay Payroll; other
- * registry Payroll rows become Dividends (if DIVIDEND in description) or Business
- * (director drawings / non-matching amounts — not Transfers, which are omitted from expense buckets).
+ * Registry can label salary-like text as Payroll before payee-specific rules
+ * run. Only commitments-registry `payroll` matches (amount within tolerance)
+ * stay Payroll; other registry Payroll rows become Dividends (if DIVIDEND in
+ * description) or Business (director drawings / non-matching amounts — not
+ * Transfers, which are omitted from expense buckets).
  */
 export function resolveExpenseCategoryWithPayroll(
   description: string,
@@ -99,7 +69,7 @@ export function resolveExpenseCategoryWithPayroll(
   return { category: registryCategory, payrollHit: null };
 }
 
-/** Category for API / charts: Payroll when config matches an outgoing transfer/expense, else registry. */
+/** Category for API / charts: Payroll when a commitment matches an outgoing transfer/expense, else registry. */
 export function transactionCategoryWithPayroll(
   description: string,
   amount: number,

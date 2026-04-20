@@ -27,7 +27,7 @@ import {
 } from '../config/people.js';
 import {
   sumRentalIncomeForPerson,
-} from './rental-properties.js';
+} from '../domain/commitments/rental-income.js';
 import {
   getDirectorPayments,
   type DirectorPaymentsDb,
