@@ -76,11 +76,15 @@ export function getDirectors(): readonly Director[] {
  * HMRC Payment Patterns
  *
  * Each tax type has its own narrative on UK bank statements:
- * - VAT: always "HMRC VAT SOUTHEND …" — paid by direct debit to the VAT office
+ * - VAT: "HMRC VAT SOUTHEND …" for Bacs direct-debit settlement, OR
+ *   "HMRC ETMP - GLASGOW - Card Ending: NNNN" when VAT is paid by debit
+ *   card — HMRC routes card payments through the ETMP gateway regardless
+ *   of liability type, but the `Card Ending:` suffix is a reliable marker.
  * - Self Assessment: "HMRC GOV.UK SA…"
- * - Corporation Tax / PAYE / other: booked via HMRC's Enterprise Tax
- *   Management Platform as "HMRC ETMP …". ETMP is a generic gateway, so it
- *   must NOT be conflated with VAT.
+ * - Corporation Tax: "HMRC CORPORATION T…" (Bacs) or "HMRC GOV.UK COTAX…"
+ *   (card channel).
+ * - Payment-plan / TTP installments: bare "HMRC ETMP …" or "HMRC NDDS …"
+ *   (no card-ending suffix) — these are recurring direct debits.
  *
  * Patterns are SQL LIKE strings.
  */
@@ -91,25 +95,43 @@ export function getDirectors(): readonly Director[] {
  * classification SQL emitted by {@link buildHmrcNarrativeCaseSql}. Adding
  * a new narrative here surfaces everywhere (feeds, classifier, tests) in
  * one change — no parallel literal lists to keep in sync.
+ *
+ * Object insertion order is load-bearing: {@link buildHmrcNarrativeCaseSql}
+ * emits CASE WHEN clauses in iteration order, so more-specific patterns
+ * (e.g. card-channel ETMP under `vat`) must appear in a key that iterates
+ * BEFORE the more-generic fallback (bare ETMP under `payment-plan`).
  */
 export const HMRC_NARRATIVE_PATTERNS = {
-  'vat': ['HMRC VAT%'],
+  /**
+   * VAT narratives:
+   *   - "HMRC VAT…" for Bacs direct-debit settlement from the VAT office.
+   *   - "HMRC ETMP% Card Ending%" for debit-card VAT payments. HMRC's card
+   *     gateway routes every card payment through ETMP, so card-channel
+   *     VAT lands as "HMRC ETMP - GLASGOW - Card Ending: NNNN". The
+   *     `Card Ending:` suffix is the reliable discriminator from bare
+   *     "HMRC ETMP" (which is genuinely TTP / recurring-DD, not VAT).
+   */
+  'vat': ['HMRC VAT%', 'HMRC ETMP% Card Ending%'],
   'self-assessment': ['HMRC GOV.UK SA%'],
   /**
    * Corporation Tax — two distinct narratives observed in the wild:
    *   - "HMRC CORPORATION T…" for Bacs / faster-payments settlement
    *   - "HMRC GOV.UK COTAX…" for card-channel payments
-   * Deliberately does NOT include "HMRC ETMP…" even though ETMP is HMRC's
-   * generic collection gateway — ETMP lines are overwhelmingly PAYE-style
-   * recurring installments or Time-To-Pay arrangement debits, never direct
-   * Corp Tax settlements in the user's ledger. Conflating them would
-   * over-attribute CT to payments that aren't CT at all.
+   * Deliberately does NOT include bare "HMRC ETMP…" — those are recurring
+   * PAYE-style installments or Time-To-Pay direct debits, never CT. Card-
+   * channel CT already has its own specific prefix ("HMRC GOV.UK COTAX…"),
+   * so no card-ETMP fallback is needed for CT.
    */
   'corporation-tax': ['HMRC CORPORATION T%', 'HMRC GOV.UK COTAX%'],
   /**
    * Payment-plan / installment narratives. NDDS is HMRC's direct-debit
    * service for Time-To-Pay arrangements; ETMP is the generic gateway used
    * for PAYE and miscellaneous penalty / interest direct debits.
+   *
+   * Bare `HMRC ETMP%` stays here (not in `vat`) so recurring-DD TTP
+   * installments are still classified as payment-plan. The more-specific
+   * `HMRC ETMP% Card Ending%` lives in the `vat` key above and wins in
+   * the CASE expression because `vat` iterates first.
    */
   'payment-plan': ['HMRC NDDS%', 'HMRC ETMP%'],
 } as const satisfies Record<string, readonly string[]>;

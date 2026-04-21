@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
-import Database from 'better-sqlite3';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
+import { createInMemoryTestDb } from '../test-harness/in-memory-db.js';
 
 /**
  * Integration tests for the Mark Paid repository functions
@@ -17,12 +16,11 @@ import path from 'path';
  * patterns so future contributors have one shape to learn.
  */
 
-const tmpObligationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'obligations-state-routes-test-'));
-let testDb: Database.Database;
+const harness = createInMemoryTestDb();
 
 vi.mock('../connection.js', () => ({
-  getDb: () => testDb,
-  OBLIGATIONS_DIR: tmpObligationsDir,
+  getDb: () => harness.db,
+  OBLIGATIONS_DIR: harness.obligationsDir,
 }));
 
 const obligationsRepo = await import('./obligations.js');
@@ -34,47 +32,8 @@ import type { Server } from 'http';
 
 const MANUAL_ID = 'manual-test-ins-1';
 
-function createSchema(): void {
-  testDb.exec(`
-    CREATE TABLE IF NOT EXISTS transactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      hash TEXT UNIQUE NOT NULL,
-      date TEXT NOT NULL,
-      description TEXT NOT NULL,
-      amount REAL NOT NULL,
-      account TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('income', 'expense', 'transfer')),
-      linked_transaction_id INTEGER,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS financial_obligations (
-      id TEXT PRIMARY KEY,
-      source TEXT NOT NULL,
-      type TEXT NOT NULL,
-      name TEXT NOT NULL,
-      entity TEXT NOT NULL,
-      frequency TEXT NOT NULL,
-      expected_amount REAL,
-      due_date TEXT,
-      status TEXT NOT NULL DEFAULT 'pending',
-      paid_amount REAL,
-      paid_date TEXT,
-      paid_from_account TEXT,
-      notes TEXT,
-      person_id TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS obligation_dismissals (
-      obligation_id TEXT PRIMARY KEY,
-      reason TEXT,
-      dismissed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-}
-
 function seedManualObligationCsv(): void {
-  const csvPath = path.join(tmpObligationsDir, 'obligations.csv');
+  const csvPath = path.join(harness.obligationsDir, 'obligations.csv');
   fs.writeFileSync(
     csvPath,
     'id,category,frequency,merchant,display_name,account,amount,currency,notes,ownership_david,ownership_heena,person_id,amount_tolerance,due_date,tax_type\n' +
@@ -84,7 +43,7 @@ function seedManualObligationCsv(): void {
 }
 
 function stateCsvPath(): string {
-  return path.join(tmpObligationsDir, 'obligation-state.csv');
+  return path.join(harness.obligationsDir, 'obligation-state.csv');
 }
 
 let server: Server;
@@ -108,19 +67,16 @@ async function stopServer(): Promise<void> {
 }
 
 beforeAll(async () => {
-  testDb = new Database(':memory:');
-  createSchema();
   await startServer();
 });
 
 afterAll(async () => {
   await stopServer();
-  testDb.close();
-  fs.rmSync(tmpObligationsDir, { recursive: true, force: true });
+  harness.cleanup();
 });
 
 beforeEach(() => {
-  testDb.exec('DELETE FROM financial_obligations; DELETE FROM transactions; DELETE FROM obligation_dismissals;');
+  harness.db.exec('DELETE FROM financial_obligations; DELETE FROM transactions; DELETE FROM obligation_dismissals;');
   if (fs.existsSync(stateCsvPath())) fs.unlinkSync(stateCsvPath());
   seedManualObligationCsv();
   obligationsRepo.loadManualObligationsFromCsv();
@@ -169,7 +125,7 @@ describe('resetManualObligationState (repo)', () => {
       expect(csv).not.toContain(MANUAL_ID);
     }
 
-    const projectedRow = testDb.prepare('SELECT status, paid_amount FROM financial_obligations WHERE id = ?').get(MANUAL_ID) as { status: string; paid_amount: number | null };
+    const projectedRow = harness.db.prepare('SELECT status, paid_amount FROM financial_obligations WHERE id = ?').get(MANUAL_ID) as { status: string; paid_amount: number | null };
     expect(projectedRow.status).not.toBe('paid');
   });
 

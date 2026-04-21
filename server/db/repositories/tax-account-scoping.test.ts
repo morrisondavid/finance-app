@@ -1,14 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
-import Database from 'better-sqlite3';
+import { describe, it, expect, afterAll, vi, beforeEach } from 'vitest';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { getVatApplicableAccounts, getCorpTaxApplicableAccounts } from '../../types.js';
 import { buildVatAccountFilter, buildCorpTaxAccountFilter } from '../utils/tax-account-filter.js';
-
-// See sa-auto-seed.test.ts for the rationale: dynamic imports below mean
-// the factory runs after this const is assigned.
-const tmpObligationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tax-account-scoping-test-'));
+import { createInMemoryTestDb } from '../test-harness/in-memory-db.js';
 
 /**
  * Integration-style tests that run real SQL against an in-memory SQLite database
@@ -19,56 +14,17 @@ const tmpObligationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tax-account-sco
  * in vat-auto-seed.ts, obligations.ts, and tax.ts return the correct totals.
  */
 
-let testDb: Database.Database;
+const harness = createInMemoryTestDb();
 
 vi.mock('../connection.js', () => ({
-  getDb: () => testDb,
-  OBLIGATIONS_DIR: tmpObligationsDir,
+  getDb: () => harness.db,
+  OBLIGATIONS_DIR: harness.obligationsDir,
 }));
-
-function createSchema(): void {
-  testDb.exec(`
-    CREATE TABLE IF NOT EXISTS transactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      hash TEXT UNIQUE NOT NULL,
-      date TEXT NOT NULL,
-      description TEXT NOT NULL,
-      amount REAL NOT NULL,
-      account TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('income', 'expense', 'transfer')),
-      linked_transaction_id INTEGER,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS financial_obligations (
-      id TEXT PRIMARY KEY,
-      source TEXT NOT NULL,
-      type TEXT NOT NULL,
-      name TEXT NOT NULL,
-      entity TEXT NOT NULL,
-      frequency TEXT NOT NULL,
-      expected_amount REAL,
-      due_date TEXT,
-      status TEXT NOT NULL DEFAULT 'pending',
-      paid_amount REAL,
-      paid_date TEXT,
-      paid_from_account TEXT,
-      notes TEXT,
-      person_id TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS obligation_dismissals (
-      obligation_id TEXT PRIMARY KEY,
-      reason TEXT,
-      dismissed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-}
 
 let hashSeq = 0;
 function insertIncome(account: string, date: string, amount: number, description = 'Client payment'): void {
   hashSeq++;
-  testDb.prepare(`
+  harness.db.prepare(`
     INSERT INTO transactions (hash, date, description, amount, account, type)
     VALUES (?, ?, ?, ?, ?, 'income')
   `).run(`hash-${hashSeq}`, date, description, amount, account);
@@ -76,28 +32,22 @@ function insertIncome(account: string, date: string, amount: number, description
 
 function insertExpense(account: string, date: string, amount: number, description: string): void {
   hashSeq++;
-  testDb.prepare(`
+  harness.db.prepare(`
     INSERT INTO transactions (hash, date, description, amount, account, type)
     VALUES (?, ?, ?, ?, ?, 'expense')
   `).run(`hash-${hashSeq}`, date, description, amount, account);
 }
 
-beforeAll(() => {
-  testDb = new Database(':memory:');
-  createSchema();
-});
-
 afterAll(() => {
-  testDb.close();
-  fs.rmSync(tmpObligationsDir, { recursive: true, force: true });
+  harness.cleanup();
 });
 
 beforeEach(() => {
-  testDb.exec('DELETE FROM transactions');
-  testDb.exec('DELETE FROM financial_obligations');
-  testDb.exec('DELETE FROM obligation_dismissals');
+  harness.db.exec('DELETE FROM transactions');
+  harness.db.exec('DELETE FROM financial_obligations');
+  harness.db.exec('DELETE FROM obligation_dismissals');
   hashSeq = 0;
-  const csv = path.join(tmpObligationsDir, 'obligation-dismissals.csv');
+  const csv = path.join(harness.obligationsDir, 'obligation-dismissals.csv');
   if (fs.existsSync(csv)) fs.unlinkSync(csv);
 });
 
@@ -110,7 +60,7 @@ describe('VAT income queries exclude non-vatApplicable accounts', () => {
     insertIncome('barclays-current', '2022-04-19', 1000);
 
     const vatFilter = buildVatAccountFilter();
-    const result = testDb.prepare(
+    const result = harness.db.prepare(
       `SELECT MIN(date) as minDate FROM transactions WHERE type = 'income' ${vatFilter.clause}`
     ).get(...vatFilter.params) as { minDate: string | null };
 
@@ -124,7 +74,7 @@ describe('VAT income queries exclude non-vatApplicable accounts', () => {
     insertIncome('barclays-savings', '2023-01-25', 1000);
 
     const vatFilter = buildVatAccountFilter();
-    const result = testDb.prepare(`
+    const result = harness.db.prepare(`
       SELECT COALESCE(SUM(amount), 0) as total
       FROM transactions WHERE type = 'income' AND date >= ? AND date <= ? ${vatFilter.clause}
     `).get('2023-01-01', '2023-03-31', ...vatFilter.params) as { total: number };
@@ -141,7 +91,7 @@ describe('VAT income queries exclude non-vatApplicable accounts', () => {
     insertIncome('natwest', '2023-06-15', 5000);
 
     const vatFilter = buildVatAccountFilter();
-    const result = testDb.prepare(`
+    const result = harness.db.prepare(`
       SELECT COALESCE(SUM(amount), 0) as total
       FROM transactions WHERE type = 'income' AND date >= ? AND date <= ? ${vatFilter.clause}
     `).get('2023-01-01', '2023-12-31', ...vatFilter.params) as { total: number };
@@ -160,7 +110,7 @@ describe('Corporation Tax income queries exclude non-corpTaxApplicable accounts'
     insertIncome('capital-on-tap', '2023-06-20', 500);
 
     const corpTaxFilter = buildCorpTaxAccountFilter();
-    const result = testDb.prepare(`
+    const result = harness.db.prepare(`
       SELECT COALESCE(SUM(amount), 0) as total
       FROM transactions WHERE type = 'income' AND date >= ? AND date <= ? ${corpTaxFilter.clause}
     `).get('2023-05-01', '2024-04-30', ...corpTaxFilter.params) as { total: number };
@@ -178,13 +128,13 @@ describe('Corporation Tax income queries exclude non-corpTaxApplicable accounts'
 
     const corpTaxFilter = buildCorpTaxAccountFilter();
 
-    const withDashboardFilter = testDb.prepare(`
+    const withDashboardFilter = harness.db.prepare(`
       SELECT COALESCE(SUM(amount), 0) as total
       FROM transactions WHERE type = 'income' AND date >= ? AND date <= ? AND account = ? ${corpTaxFilter.clause}
     `).get('2023-05-01', '2024-04-30', 'natwest', ...corpTaxFilter.params) as { total: number };
     expect(withDashboardFilter.total).toBe(0);
 
-    const withBusinessFilter = testDb.prepare(`
+    const withBusinessFilter = harness.db.prepare(`
       SELECT COALESCE(SUM(amount), 0) as total
       FROM transactions WHERE type = 'income' AND date >= ? AND date <= ? ${corpTaxFilter.clause}
     `).get('2023-05-01', '2024-04-30', ...corpTaxFilter.params) as { total: number };
@@ -199,7 +149,7 @@ describe('vat-auto-seed partial-quarter skip', () => {
     const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
     deriveAndInsertAutoObligations();
 
-    const obligations = testDb.prepare(
+    const obligations = harness.db.prepare(
       `SELECT id, expected_amount FROM financial_obligations WHERE type = 'vat' ORDER BY id`
     ).all() as Array<{ id: string; expected_amount: number }>;
 
@@ -222,7 +172,7 @@ describe('vat-auto-seed partial-quarter skip', () => {
     const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
     deriveAndInsertAutoObligations();
 
-    const obligations = testDb.prepare(
+    const obligations = harness.db.prepare(
       `SELECT COUNT(*) as cnt FROM financial_obligations WHERE type = 'vat'`
     ).get() as { cnt: number };
 
@@ -236,13 +186,103 @@ describe('vat-auto-seed partial-quarter skip', () => {
     const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
     deriveAndInsertAutoObligations();
 
-    const q3Obligation = testDb.prepare(
+    const q3Obligation = harness.db.prepare(
       `SELECT expected_amount FROM financial_obligations WHERE id LIKE 'auto-vat-2023-07%'`
     ).get() as { expected_amount: number } | undefined;
 
     if (q3Obligation) {
       expect(q3Obligation.expected_amount).toBeCloseTo(10000 / 6, 0);
     }
+  });
+});
+
+/**
+ * Regression-lock for the card-channel VAT attribution fix.
+ *
+ * HMRC's card payment gateway routes every debit-card payment through
+ * ETMP, so when the user pays VAT by card the bank narrative shows as
+ * "HMRC ETMP - GLASGOW - Card Ending: NNNN" rather than "HMRC VAT…".
+ * Historically the seeder treated all HMRC ETMP lines as payment-plan
+ * debits and refused to attribute them to VAT quarters, leaving the
+ * user's paid VAT slots showing as overdue. The `Card Ending:` suffix
+ * is the reliable discriminator from recurring-DD TTP installments.
+ */
+describe('vat-auto-seed attributes card-channel ETMP payments', () => {
+  it('attaches "HMRC ETMP % Card Ending %" from a business card to the nearest VAT quarter', async () => {
+    insertIncome('barclays-current', '2024-06-15', 50000);
+    insertExpense(
+      'capital-on-tap',
+      '2024-09-09',
+      -5617.79,
+      'HMRC ETMP - GLASGOW - Card Ending: 8346',
+    );
+
+    const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
+    deriveAndInsertAutoObligations();
+
+    const mayJulQuarter = harness.db.prepare(`
+      SELECT status, paid_amount, paid_date, paid_from_account
+      FROM financial_obligations
+      WHERE type='vat' AND due_date='2024-09-07'
+    `).get() as
+      | { status: string; paid_amount: number; paid_date: string; paid_from_account: string }
+      | undefined;
+
+    expect(mayJulQuarter).toBeDefined();
+    expect(mayJulQuarter?.status).toBe('paid');
+    expect(mayJulQuarter?.paid_amount).toBeCloseTo(5617.79, 2);
+    expect(mayJulQuarter?.paid_date).toBe('2024-09-09');
+    expect(mayJulQuarter?.paid_from_account).toBe('capital-on-tap');
+  });
+
+  it('bare "HMRC ETMP" (no Card Ending suffix) is NOT attributed to VAT', async () => {
+    insertIncome('barclays-current', '2024-06-15', 50000);
+    // Bare ETMP direct debit — this is TTP, not a VAT card payment.
+    insertExpense('barclays-current', '2024-09-09', -5617.79, 'HMRC ETMP');
+
+    const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
+    deriveAndInsertAutoObligations();
+
+    const mayJulQuarter = harness.db.prepare(`
+      SELECT status, paid_from_account FROM financial_obligations
+      WHERE type='vat' AND due_date='2024-09-07'
+    `).get() as { status: string; paid_from_account: string | null } | undefined;
+
+    expect(mayJulQuarter?.status).toBe('unpaid');
+    expect(mayJulQuarter?.paid_from_account).toBeNull();
+  });
+
+  it('both card-channel ETMP and plain HMRC VAT land on the correct quarters when both exist', async () => {
+    insertIncome('barclays-current', '2023-06-15', 60000);
+    insertIncome('barclays-current', '2024-06-15', 60000);
+
+    // Feb-Apr 2024 quarter (due 2024-06-07) paid by Bacs.
+    insertExpense('barclays-current', '2024-06-05', -8000, 'HMRC VAT SOUTHEND');
+    // May-Jul 2024 quarter (due 2024-09-07) paid by card through ETMP.
+    insertExpense(
+      'capital-on-tap',
+      '2024-09-09',
+      -5617.79,
+      'HMRC ETMP - GLASGOW - Card Ending: 8346',
+    );
+
+    const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
+    deriveAndInsertAutoObligations();
+
+    const febApr = harness.db.prepare(
+      `SELECT status, paid_amount, paid_from_account FROM financial_obligations WHERE type='vat' AND due_date='2024-06-07'`
+    ).get() as { status: string; paid_amount: number; paid_from_account: string };
+    const mayJul = harness.db.prepare(
+      `SELECT status, paid_amount, paid_from_account FROM financial_obligations WHERE type='vat' AND due_date='2024-09-07'`
+    ).get() as { status: string; paid_amount: number; paid_from_account: string };
+
+    expect(febApr.status).toBe('paid');
+    expect(febApr.paid_amount).toBeCloseTo(8000, 2);
+    expect(febApr.paid_from_account).toBe('barclays-current');
+
+    expect(mayJul.status).toBe('paid');
+    expect(mayJul.paid_amount).toBeCloseTo(5617.79, 2);
+    expect(mayJul.paid_from_account).toBe('capital-on-tap');
   });
 });
 
@@ -282,7 +322,7 @@ describe('findHmrcPayments respects account list', () => {
 
 describe('deriveAndInsertAutoObligations stale cleanup', () => {
   it('deletes pre-existing auto-derived obligations before re-deriving', async () => {
-    testDb.prepare(`
+    harness.db.prepare(`
       INSERT INTO financial_obligations
         (id, source, type, name, entity, frequency, expected_amount, due_date, status)
       VALUES
@@ -295,14 +335,14 @@ describe('deriveAndInsertAutoObligations stale cleanup', () => {
     const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
     deriveAndInsertAutoObligations();
 
-    const stale = testDb.prepare(
+    const stale = harness.db.prepare(
       `SELECT id FROM financial_obligations WHERE id IN ('auto-vat-2019-08-01', 'auto-vat-2020-02-01')`
     ).all();
     expect(stale).toHaveLength(0);
   });
 
   it('preserves manual obligations when re-deriving auto obligations', async () => {
-    testDb.prepare(`
+    harness.db.prepare(`
       INSERT INTO financial_obligations
         (id, source, type, name, entity, frequency, expected_amount, due_date, status)
       VALUES
@@ -315,12 +355,12 @@ describe('deriveAndInsertAutoObligations stale cleanup', () => {
     const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
     deriveAndInsertAutoObligations();
 
-    const manual = testDb.prepare(
+    const manual = harness.db.prepare(
       `SELECT id FROM financial_obligations WHERE id = 'manual-vat-backdated'`
     ).get();
     expect(manual).toBeDefined();
 
-    const staleAuto = testDb.prepare(
+    const staleAuto = harness.db.prepare(
       `SELECT id FROM financial_obligations WHERE id = 'auto-vat-stale'`
     ).get();
     expect(staleAuto).toBeUndefined();
@@ -332,7 +372,7 @@ describe('findUnmatchedHmrcPayments', () => {
     insertExpense('barclays-current', '2024-03-08', -5780.23, 'HMRC ETMP');
     insertExpense('barclays-current', '2025-09-08', -8060, 'HMRC VAT SOUTHEND');
 
-    testDb.prepare(`
+    harness.db.prepare(`
       INSERT INTO financial_obligations
         (id, source, type, name, entity, frequency, expected_amount, due_date,
          status, paid_amount, paid_date, paid_from_account)
@@ -388,7 +428,7 @@ describe('findUnmatchedHmrcPayments', () => {
   it('matches paid_from_account using LIKE so dense account identifiers still link', async () => {
     insertExpense('barclays-current', '2025-06-09', -5578.79, 'HMRC ETMP - GLASGOW');
 
-    testDb.prepare(`
+    harness.db.prepare(`
       INSERT INTO financial_obligations
         (id, source, type, name, entity, frequency, expected_amount, due_date,
          status, paid_amount, paid_date, paid_from_account)
@@ -421,7 +461,7 @@ describe('findUnmatchedHmrcPayments', () => {
     insertExpense('barclays-current', '2025-01-29', -12500, 'HMRC CORPORATION T');
 
     // Simulate the auto CT seeder having written an attributed row.
-    testDb.prepare(`
+    harness.db.prepare(`
       INSERT INTO financial_obligations
         (id, source, type, name, entity, frequency, expected_amount, due_date,
          status, paid_amount, paid_date, paid_from_account)
@@ -442,7 +482,7 @@ describe('findUnmatchedHmrcPayments', () => {
   it('SA-narrative debits covered by an auto SA obligation drop off the orphan feed', async () => {
     insertExpense('natwest', '2026-01-31', -3500, 'HMRC GOV.UK SA');
 
-    testDb.prepare(`
+    harness.db.prepare(`
       INSERT INTO financial_obligations
         (id, source, type, name, entity, frequency, expected_amount, due_date,
          status, paid_amount, paid_date, paid_from_account, person_id)
@@ -464,7 +504,7 @@ describe('findUnmatchedHmrcPayments', () => {
     insertExpense('barclays-current', '2025-03-09', -643.69, 'HMRC NDDS - CUMBERNAULD');
     insertExpense('barclays-current', '2025-04-09', -643.69, 'HMRC NDDS - CUMBERNAULD');
 
-    testDb.prepare(`
+    harness.db.prepare(`
       INSERT INTO financial_obligations
         (id, source, type, name, entity, frequency, expected_amount, due_date,
          status, paid_amount, paid_date, paid_from_account)
@@ -573,7 +613,7 @@ describe('vat-auto-seed implicit coverage (pre-firstVatPaymentDate quarters)', (
     const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
     deriveAndInsertAutoObligations();
 
-    const rows = testDb.prepare(
+    const rows = harness.db.prepare(
       `SELECT id, status, due_date FROM financial_obligations WHERE type = 'vat' ORDER BY due_date`
     ).all() as Array<{ id: string; status: string; due_date: string }>;
 
@@ -598,7 +638,7 @@ describe('vat-auto-seed implicit coverage (pre-firstVatPaymentDate quarters)', (
     const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
     deriveAndInsertAutoObligations();
 
-    const zeroOverdue = testDb.prepare(
+    const zeroOverdue = harness.db.prepare(
       `SELECT id FROM financial_obligations
        WHERE type = 'vat' AND (expected_amount IS NULL OR expected_amount = 0)
          AND status IN ('unpaid', 'overdue', 'pending')`
@@ -624,7 +664,7 @@ describe('VAT payment matching maps each HMRC payment to exactly one quarter', (
     const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
     deriveAndInsertAutoObligations();
 
-    const rows = testDb.prepare(
+    const rows = harness.db.prepare(
       `SELECT id, paid_amount, paid_date FROM financial_obligations
        WHERE source = 'auto' AND type = 'vat' AND paid_amount IS NOT NULL
        ORDER BY due_date`
@@ -649,7 +689,7 @@ describe('VAT auto-seeder respects obligation dismissals', () => {
     const { deriveAndInsertAutoObligations } = await import('./vat-auto-seed.js');
     deriveAndInsertAutoObligations();
 
-    const before = testDb.prepare(
+    const before = harness.db.prepare(
       `SELECT id FROM financial_obligations WHERE source = 'auto' AND type = 'vat' ORDER BY id`
     ).all() as Array<{ id: string }>;
     expect(before.length).toBeGreaterThan(0);
@@ -660,7 +700,7 @@ describe('VAT auto-seeder respects obligation dismissals', () => {
 
     deriveAndInsertAutoObligations();
 
-    const after = testDb.prepare(
+    const after = harness.db.prepare(
       `SELECT id FROM financial_obligations WHERE source = 'auto' AND type = 'vat'`
     ).all() as Array<{ id: string }>;
     expect(after.some(r => r.id === toHide)).toBe(false);
@@ -674,7 +714,7 @@ describe('VAT auto-seeder respects obligation dismissals', () => {
     const { addDismissal, removeDismissal } = await import('./obligation-dismissals.js');
 
     deriveAndInsertAutoObligations();
-    const before = testDb.prepare(
+    const before = harness.db.prepare(
       `SELECT id FROM financial_obligations WHERE source = 'auto' AND type = 'vat' ORDER BY id`
     ).all() as Array<{ id: string }>;
     const id = before[0].id;
@@ -684,7 +724,7 @@ describe('VAT auto-seeder respects obligation dismissals', () => {
     removeDismissal(id);
     deriveAndInsertAutoObligations();
 
-    const after = testDb.prepare(
+    const after = harness.db.prepare(
       `SELECT id FROM financial_obligations WHERE source = 'auto' AND type = 'vat'`
     ).all() as Array<{ id: string }>;
     expect(after.some(r => r.id === id)).toBe(true);

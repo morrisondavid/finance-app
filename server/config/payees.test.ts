@@ -46,4 +46,72 @@ describe('buildHmrcNarrativeCaseSql', () => {
     const aliased = buildHmrcNarrativeCaseSql('descr');
     expect(aliased).toContain("WHEN descr LIKE 'HMRC VAT%' THEN 'vat'");
   });
+
+  /**
+   * Regression-lock: HMRC's card gateway routes every debit-card payment
+   * through ETMP, so card-channel VAT lands with narrative "HMRC ETMP -
+   * GLASGOW - Card Ending: NNNN". The card-ending suffix must classify as
+   * VAT (because it IS VAT), while bare "HMRC ETMP" must stay on
+   * payment-plan (where it belongs as TTP / recurring-DD).
+   *
+   * The classifier relies on object-insertion order: `vat` iterates before
+   * `payment-plan` in HMRC_NARRATIVE_PATTERNS, so the more-specific card-
+   * ending WHEN clause appears first and wins. If either of those
+   * invariants breaks, card VAT will silently drop onto the wrong bucket.
+   */
+  it('classifies card-channel ETMP as VAT (Card Ending: suffix)', () => {
+    const vatIdx = sql.indexOf("LIKE 'HMRC ETMP% Card Ending%' THEN 'vat'");
+    const paymentPlanIdx = sql.indexOf("LIKE 'HMRC ETMP%' THEN 'payment-plan'");
+    expect(vatIdx).toBeGreaterThanOrEqual(0);
+    expect(paymentPlanIdx).toBeGreaterThanOrEqual(0);
+    expect(vatIdx).toBeLessThan(paymentPlanIdx);
+  });
+
+  it('leaves bare HMRC ETMP classified as payment-plan (TTP/DD, not VAT)', () => {
+    expect(HMRC_NARRATIVE_PATTERNS['payment-plan']).toContain('HMRC ETMP%');
+    expect(HMRC_NARRATIVE_PATTERNS['vat']).not.toContain('HMRC ETMP%');
+  });
+});
+
+/**
+ * Regression-lock: SQL LIKE semantics for the card-ETMP discriminator.
+ * These cases simulate what SQLite's LIKE will match against real bank
+ * narratives seen in the user's ledger. If the pattern string ever
+ * changes, any match flip here catches it immediately.
+ */
+describe('card-channel ETMP discriminator (LIKE semantics)', () => {
+  function sqlLikeMatches(pattern: string, value: string): boolean {
+    const regex = new RegExp(
+      '^' +
+        pattern
+          .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          .replace(/%/g, '.*')
+          .replace(/_/g, '.') +
+        '$',
+    );
+    return regex.test(value);
+  }
+
+  const CARD_ETMP_PATTERN = 'HMRC ETMP% Card Ending%';
+  const BARE_ETMP_PATTERN = 'HMRC ETMP%';
+
+  it('matches real-world card-channel VAT narratives', () => {
+    expect(
+      sqlLikeMatches(CARD_ETMP_PATTERN, 'HMRC ETMP - GLASGOW - Card Ending: 8346'),
+    ).toBe(true);
+  });
+
+  it('does not match bare HMRC ETMP direct-debit narratives', () => {
+    expect(sqlLikeMatches(CARD_ETMP_PATTERN, 'HMRC ETMP')).toBe(false);
+    expect(
+      sqlLikeMatches(CARD_ETMP_PATTERN, 'HMRC ETMP             \tON 07 DEC BDC'),
+    ).toBe(false);
+  });
+
+  it('bare ETMP pattern still catches both (it is the generic fallback)', () => {
+    expect(sqlLikeMatches(BARE_ETMP_PATTERN, 'HMRC ETMP')).toBe(true);
+    expect(
+      sqlLikeMatches(BARE_ETMP_PATTERN, 'HMRC ETMP - GLASGOW - Card Ending: 8346'),
+    ).toBe(true);
+  });
 });

@@ -26,6 +26,16 @@ export const BUDGETS_DIR = path.join(__dirname, '../../budgets');
 export const OBLIGATIONS_DIR = path.join(__dirname, '../../obligations');
 /** Canonical debts CSV lives here (see debts-csv.ts). */
 export const DEBTS_DIR = path.join(__dirname, '../../debts');
+/**
+ * Canonical deadlines CSV lives here (see deadlines-csv.ts).
+ *
+ * A Deadline is a non-financial reminder with a due date (Companies
+ * House confirmation statement, MOT renewal, insurance cert expiry, …).
+ * It lives in its own folder for the same reason `obligations/`,
+ * `debts/`, and `budgets/` do — one folder per domain aggregate root
+ * keeps the mental model clean.
+ */
+export const DEADLINES_DIR = path.join(__dirname, '../../deadlines');
 
 let db: Database.Database;
 
@@ -368,6 +378,31 @@ export function migrateObligationsIfNeeded(): void {
   if (columns.some(c => c.name === 'recurrence') && !columns.some(c => c.name === 'frequency')) {
     db.exec('ALTER TABLE financial_obligations RENAME COLUMN recurrence TO frequency');
   }
+}
+
+/**
+ * Ensures the `deadlines` table exists. Canonical source is
+ * `deadlines/deadlines.csv`; the SQLite table is a read-projection
+ * rebuilt on startup by `loadDeadlinesFromCsv()` and re-exported to
+ * CSV on every mutation via the deadlines repository.
+ */
+export function migrateDeadlinesIfNeeded(): void {
+  const db = getDb();
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS deadlines (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      due_date TEXT NOT NULL,
+      recurrence TEXT NOT NULL,
+      notes TEXT,
+      url TEXT,
+      completed_date TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_deadlines_due_date ON deadlines(due_date);
+  `);
 }
 
 /**

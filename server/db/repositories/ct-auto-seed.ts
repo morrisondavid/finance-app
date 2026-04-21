@@ -13,10 +13,14 @@
  * Conflating them would over-attribute CT and hide the true recurring
  * installment pattern from the TTP detector.
  *
- * Proximity window: ±14 days. CT payments in the user's ledger land
- * within ~12 days of the deadline; a tighter window keeps precision high
- * at the cost of occasionally orphaning a very-early or very-late payment.
- * The user can manually reconcile outliers through the registry.
+ * Proximity window: ±90 days. CT is paid around the deadline in practice,
+ * but real-world data shows legitimate settlements landing up to ~80 days
+ * early (batch payments from the prior quarter) or ~20 days late. Because
+ * the narrative prefix (`HMRC CORPORATION T…` / `HMRC GOV.UK COTAX…`) is
+ * already CT-specific, a generous window cannot over-attribute unrelated
+ * HMRC debits — they wouldn't match the narrative filter in the first
+ * place. The matcher is greedy one-payment-per-slot, so at worst a very
+ * early payment attaches to the nearest CT slot rather than orphaning.
  */
 
 import { getDb } from '../connection.js';
@@ -38,12 +42,15 @@ import { buildCorpTaxAccountFilter } from '../utils/tax-account-filter.js';
 import { round2 } from '../../utils/math.js';
 
 /**
- * Tight proximity window for CT → bank payment matching. CT is almost
- * always paid right around the deadline; a narrow window avoids
- * mis-attributing unrelated HMRC debits that happen to land in the same
- * quarter.
+ * Proximity window for CT → bank payment matching. Generous (±90 days)
+ * because CT-specific narrative prefixes already prevent mis-attribution —
+ * a payment has to already look like CT to even be a candidate, so the
+ * window only decides which CT slot a CT payment attaches to. Real-world
+ * settlements land anywhere from ~80 days before the deadline (batch
+ * settlement in the prior quarter) to ~20 days after (HMRC card gateway
+ * posting delay), and both must attach.
  */
-export const CT_MATCH_PROXIMITY_DAYS = 14;
+export const CT_MATCH_PROXIMITY_DAYS = 90;
 
 /**
  * Manual supersede window. Mirrors the SA seeder pattern: if the user has

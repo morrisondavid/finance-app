@@ -46,8 +46,8 @@ import {
   findExpenseTransactionsByDescriptionPatterns,
   type ExpenseTransactionMatch,
 } from './transaction-queries.js';
-import { shiftIsoDate } from '../../utils/payment-matcher.js';
 import { round2 } from '../../utils/math.js';
+import { shiftIsoDate, toIsoDate, daysBetween } from '../../../shared/iso-date.js';
 import type { OutgoingObligation } from '../../../shared/api-contracts.js';
 
 /**
@@ -107,17 +107,9 @@ function projectToMatcherSlot(
   };
 }
 
-/** Signed day distance `a - b` for ISO dates (both YYYY-MM-DD). */
+/** Unsigned day distance `|a - b|` for ISO dates (both YYYY-MM-DD). */
 function dayDistanceAbs(a: string, b: string): number {
-  const toUtc = (iso: string): number => {
-    const [y, m, d] = iso.split('-').map(Number);
-    return Date.UTC(y, m - 1, d);
-  };
-  return Math.abs(Math.round((toUtc(a) - toUtc(b)) / 86_400_000));
-}
-
-function toIsoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  return Math.abs(daysBetween(a, b));
 }
 
 /**

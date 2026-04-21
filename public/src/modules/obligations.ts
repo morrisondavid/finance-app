@@ -1,5 +1,6 @@
 import { escapeHtml } from '../utils/dom';
 import { formatCurrency, formatIsoDateUkLong } from '../utils/formatting';
+import { daysUntil, daysLabel, todayIsoLocal } from '../../../shared/iso-date.js';
 
 type PersonId = 'david' | 'heena';
 
@@ -82,22 +83,6 @@ function statusBadge(status: string): string {
   };
   const bg = colours[status] ?? '#94a3b8';
   return `<span class="obligations-status-badge" style="background:${bg}">${escapeHtml(status)}</span>`;
-}
-
-function daysUntil(dateStr: string): number {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const target = new Date(`${dateStr}T00:00:00`);
-  return Math.ceil((target.getTime() - today.getTime()) / 86400000);
-}
-
-function daysLabel(days: number): string {
-  if (days < 0) {
-    const n = Math.abs(days);
-    return `${n} ${n === 1 ? 'day' : 'days'} overdue`;
-  }
-  if (days === 0) return 'Today';
-  return `${days} ${days === 1 ? 'day' : 'days'}`;
 }
 
 function upcomingItemDate(item: UpcomingPaymentItem): string {
@@ -501,20 +486,6 @@ async function handleDismiss(id: string): Promise<void> {
   } catch (err) {
     console.error('[Obligations] Dismiss error:', err);
   }
-}
-
-/**
- * Current date as an ISO `YYYY-MM-DD` string in local time — the user's
- * "today" on the UK-configured machine running this app, not UTC. Used to
- * prefill the Mark Paid confirmation. Intentionally not `toISOString()`
- * (that would roll over to the next day after 00:00 UTC).
- */
-function todayIsoLocal(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
 }
 
 /**

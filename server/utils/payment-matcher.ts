@@ -23,6 +23,11 @@
  * The helper is pure (no DB access) so it can be unit-tested directly.
  */
 import type { HmrcPaymentMatch } from '../db/repositories/tax.js';
+import { daysBetween, shiftIsoDate } from '../../shared/iso-date.js';
+
+// Re-exported for call sites that reach `shiftIsoDate` through the
+// payment-matcher module. The canonical source is shared/iso-date.ts.
+export { shiftIsoDate };
 
 /**
  * Default proximity window historically used for VAT quarters. 90 days ≈
@@ -97,22 +102,7 @@ export function matchPaymentsToSlots(
   return result;
 }
 
-/**
- * Shift an ISO date string (YYYY-MM-DD) by an integer number of days.
- * Uses UTC midpoint to avoid DST edge cases.
- */
-export function shiftIsoDate(iso: string, days: number): string {
-  const [y, m, d] = iso.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return dt.toISOString().slice(0, 10);
-}
-
 /** Signed day distance `a - b` for ISO dates (both YYYY-MM-DD). */
 function dayDistance(a: string, b: string): number {
-  const toUtc = (iso: string): number => {
-    const [y, m, d] = iso.split('-').map(Number);
-    return Date.UTC(y, m - 1, d);
-  };
-  return Math.round((toUtc(a) - toUtc(b)) / 86_400_000);
+  return daysBetween(a, b);
 }

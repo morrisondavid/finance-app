@@ -978,6 +978,114 @@ export const DebtOpeningBalanceBodySchema = z.object({
 export const DebtResponseSchema = z.object({ debt: DebtSchema });
 
 // ============================================
+// Deadlines (non-financial reminders — see server/domain/deadlines/)
+// ============================================
+//
+// A Deadline is a non-financial reminder with a due date (e.g. Companies
+// House confirmation statement, MOT, EPC renewal). They share a
+// presentation surface (the Deadlines tab + calendar) with financial
+// obligations but never have an `amount`/`entity`, and their state is
+// a simple `completedDate` rather than the richer `obligation-state.csv`
+// override shape.
+
+/** Slug: lowercase letters, digits, hyphens; must start with a letter or digit. */
+export const DeadlineIdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9][a-z0-9-]*$/);
+
+export const DeadlineTypeSchema = z.enum([
+  'companies-house',
+  'mot',
+  'passport',
+  'driving-license',
+  'insurance-cert',
+  'tax-filing',
+  'other',
+]);
+
+export const DeadlineRecurrenceSchema = z.enum([
+  'one-off',
+  'annual',
+  'every-5-years',
+  'every-10-years',
+]);
+
+export const DeadlineSchema = z.object({
+  id: DeadlineIdSchema,
+  type: DeadlineTypeSchema,
+  title: z.string().min(1),
+  dueDate: IsoDateSchema,
+  recurrence: DeadlineRecurrenceSchema,
+  notes: z.string().nullable(),
+  url: z.string().nullable(),
+  completedDate: IsoDateSchema.nullable(),
+  /** ISO timestamp; drives the ICS `SEQUENCE` so edits propagate to calendars. */
+  updatedAt: z.string(),
+});
+
+export const DeadlineCreateBodySchema = z.object({
+  id: DeadlineIdSchema.optional(),
+  type: DeadlineTypeSchema,
+  title: z.string().min(1),
+  dueDate: IsoDateSchema,
+  recurrence: DeadlineRecurrenceSchema,
+  notes: z.string().nullable().optional(),
+  url: z.string().nullable().optional(),
+  completedDate: IsoDateSchema.nullable().optional(),
+});
+
+export const DeadlineUpdateBodySchema = DeadlineCreateBodySchema
+  .omit({ id: true })
+  .partial();
+
+export const DeadlineCompleteBodySchema = z.object({
+  completedDate: IsoDateSchema.optional(),
+});
+
+export const DeadlinesListResponseSchema = z.object({
+  deadlines: z.array(DeadlineSchema),
+});
+
+export const DeadlineResponseSchema = z.object({ deadline: DeadlineSchema });
+
+// ---- Unified deadline feed (obligations + deadlines) ----
+
+export const UrgencyStatusSchema = z.enum(['overdue', 'due-soon', 'upcoming', 'completed']);
+
+/**
+ * Source tag: tells the UI (and any other consumer) whether the feed item
+ * originated from the financial-obligations table or from the deadlines
+ * CSV. Drives visual treatment (e.g. source badge colour) and click
+ * behaviour (obligation rows deep-link to the Obligations tab).
+ */
+export const DeadlineFeedSourceSchema = z.enum(['obligation', 'deadline']);
+
+export const DeadlineFeedItemSchema = z.object({
+  id: z.string(),
+  source: DeadlineFeedSourceSchema,
+  title: z.string(),
+  /** ISO date. All-day semantics — no time-of-day component. */
+  dueDate: IsoDateSchema,
+  /** Obligation type OR deadline type, depending on `source`. */
+  type: z.string(),
+  status: UrgencyStatusSchema,
+  amount: z.number().nullable(),
+  entity: z.string().nullable(),
+  notes: z.string().nullable(),
+  url: z.string().nullable(),
+  /** ISO timestamp; drives the ICS `SEQUENCE`. */
+  updatedAt: z.string(),
+  /** Mirrors the `completed` input to urgency helpers so UIs don't re-derive it. */
+  completed: z.boolean(),
+});
+
+export const DeadlineFeedResponseSchema = z.object({
+  items: z.array(DeadlineFeedItemSchema),
+});
+
+// ============================================
 // Inferred TypeScript Types
 // ============================================
 
@@ -1086,6 +1194,23 @@ export type DebtCreateBody = z.infer<typeof DebtCreateBodySchema>;
 export type DebtUpdateBody = z.infer<typeof DebtUpdateBodySchema>;
 export type DebtOpeningBalanceBody = z.infer<typeof DebtOpeningBalanceBodySchema>;
 export type DebtResponse = z.infer<typeof DebtResponseSchema>;
+
+// Deadlines Types
+export type DeadlineId = z.infer<typeof DeadlineIdSchema>;
+export type DeadlineType = z.infer<typeof DeadlineTypeSchema>;
+export type DeadlineRecurrence = z.infer<typeof DeadlineRecurrenceSchema>;
+export type Deadline = z.infer<typeof DeadlineSchema>;
+export type DeadlineCreateBody = z.infer<typeof DeadlineCreateBodySchema>;
+export type DeadlineUpdateBody = z.infer<typeof DeadlineUpdateBodySchema>;
+export type DeadlineCompleteBody = z.infer<typeof DeadlineCompleteBodySchema>;
+export type DeadlinesListResponse = z.infer<typeof DeadlinesListResponseSchema>;
+export type DeadlineResponse = z.infer<typeof DeadlineResponseSchema>;
+
+// Deadline Feed Types
+export type UrgencyStatus = z.infer<typeof UrgencyStatusSchema>;
+export type DeadlineFeedSource = z.infer<typeof DeadlineFeedSourceSchema>;
+export type DeadlineFeedItem = z.infer<typeof DeadlineFeedItemSchema>;
+export type DeadlineFeedResponse = z.infer<typeof DeadlineFeedResponseSchema>;
 
 // ============================================
 // Validation Helper

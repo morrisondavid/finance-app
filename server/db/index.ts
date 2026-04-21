@@ -24,6 +24,7 @@ import {
   migrateFixedExpenseSimulationExclusionsIfNeeded,
   migrateObligationsIfNeeded,
   migrateObligationDismissalsIfNeeded,
+  migrateDeadlinesIfNeeded,
 } from './connection.js';
 import { populateFromCSVs } from './repositories/files.js';
 import { detectTransfers } from './repositories/transactions.js';
@@ -36,6 +37,7 @@ import { deriveAndInsertAutoSaObligations } from './repositories/sa-auto-seed.js
 import { deriveAndInsertAutoCtObligations } from './repositories/ct-auto-seed.js';
 import { deriveAndInsertAutoTtpObligations } from './repositories/hmrc-ttp-auto-seed.js';
 import { deriveAndWriteAutoObligationStates } from './repositories/obligation-state-matcher.js';
+import { loadDeadlinesFromCsv } from './repositories/deadlines.js';
 
 // Re-export from connection
 export { 
@@ -45,7 +47,8 @@ export {
   DB_PATH,
   STATEMENTS_DIR,
   BUDGETS_DIR,
-  OBLIGATIONS_DIR
+  OBLIGATIONS_DIR,
+  DEADLINES_DIR,
 } from './connection.js';
 
 export { formatDateISO } from '../../shared/date-format.js';
@@ -189,7 +192,10 @@ export async function initDatabase(): Promise<void> {
   } catch (err) {
     console.error('[Database] HMRC TTP auto-seed failed:', err);
   }
-  
+
+  migrateDeadlinesIfNeeded();
+  loadDeadlinesFromCsv();
+
   console.log(`[Database] Ready: ${result.files} files, ${result.transactions} transactions (${result.duplicates} duplicates removed, ${transferPairs} transfer pairs detected)`);
 }
 

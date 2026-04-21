@@ -6,54 +6,42 @@
 > "I can see what happened" and "nothing can surprise me."
 >
 > **The obligations registry, HMRC auto-seeders (VAT, CT, SA, HMRC TTP),
-> budgets, recurring detection, overdue hero, and multi-currency/FX
-> foundations are all shipped.** What remains is the forward-looking
-> layer: invoices, forecasting, runway, and the agent surface that sits
-> on top of them.
+> budgets, recurring detection, overdue hero, missed-obligation detector
+> (annual / one-off non-tax items with Mark Paid + auto-match), and
+> multi-currency/FX foundations are all shipped.** What remains is the
+> forward-looking layer: invoices, forecasting, runway, and the agent
+> surface that sits on top of them.
 
 ---
 
-## Tier 0 — Certainty Layer ("Nothing Can Surprise Me")
+## Tier 0 — Certainty Layer ("Nothing Can Surprise Me") ✅ COMPLETE
 
-### 0.1 Missed Obligation Detector — extension beyond tax
+Tier 0 is now fully shipped. The obligations registry (manual + HMRC
+auto-seeders for VAT / CT / SA / TTP), overdue hero, missed-obligation
+detector, and the Deadlines tab + calendar view are all live. The
+certainty layer is visible at a glance, and every tracked obligation or
+reminder is either surfaced on the Obligations tab, the Deadlines tab,
+or both via the unified `/api/deadlines/feed` endpoint.
 
-The four HMRC auto-seeders already flag unpaid tax obligations via
-`getOverdueObligations()` + the `/obligations/overdue` endpoint. Generalise
-the same mechanism to:
+### 0.1 Deadlines Tab + Calendar View ✅ SHIPPED
 
-- **Insurance renewals** — the `insurance` obligation category has
-  `dueDate`; detect when a due date has passed with no matching payment.
-  Lapsed cover is the highest-impact silent failure on the list.
-- **Mortgage / loan payments** — `debts.ts` knows merchant pattern and
-  expected schedule; detect skipped monthly payments.
-- **Rental income (incoming)** — detect tenant non-payment: an expected
-  inbound transaction for a `rental-income` obligation that never lands.
-- **Council tax, business rates** — usually 10-installment DDs; detect
-  skipped months.
-
-Out of scope: general "is this transaction weird?" detection across all
-categories. Restrict strictly to items with declared schedules — false
-positives on variable spend categories are worse than the miss.
-
-### 0.2 Deadlines Tab + Calendar View
-
-A dedicated place to track every deadline — financial obligations plus
-non-financial ones — and eventually a calendar that surfaces them all
-together.
-
-- New Deadlines tab listing every tracked deadline with due date, type,
-  and source.
-- Seed from: obligations registry (auto) and manual deadline entries
-  (new CSV + CRUD).
-- Calendar view (month / quarter grid) rendering every deadline.
-- Clickable entries route to the corresponding obligation or reminder.
-- Companies House confirmation statement is the canonical test case —
-  it fits cleanly into the existing obligations registry as a yearly
-  obligation once the `other` / new `statutory` category is wired end
-  to end.
-
-This is the UI surface that makes the certainty layer visible at a
-glance, and is where the calendar experience will live.
+- Dedicated **Deadlines tab** with a List view and a FullCalendar-based
+  **Calendar view**, toggleable per session.
+- Non-financial deadlines modelled in their own `deadlines/deadlines.csv`
+  with CRUD at `/api/deadlines` (create, update, delete, mark done,
+  reopen).
+- Unified feed at `/api/deadlines/feed` merges non-financial deadlines
+  with financial obligations so one list + one calendar show
+  everything — driven by a single pure `buildDeadlineFeed()` function
+  that both the feed endpoint and the ICS exporter consume.
+- **ICS subscription** at `/api/deadlines.ics` for Google Calendar /
+  Apple Calendar with stable UIDs and a `SEQUENCE` derived from
+  `updatedAt` so edits propagate to subscribers instead of
+  de-duplicating.
+- Companies House confirmation statement seeded in
+  `deadlines/deadlines.csv` as the canonical non-financial example.
+- Regression-locked with 53 tests across CSV I/O, repository, feed
+  builder, ICS builder, and the full HTTP routes.
 
 ---
 
@@ -163,7 +151,7 @@ safe?"
 - Financial Safety: 8.5 / 10.
 - Unknown Risk: Low / Medium / High.
 - Composite of:
-  - Missed-obligation signal (from 0.1).
+  - Missed-obligation signal (existing overdue hero + auto-matcher).
   - Forecast health (from 1.2).
   - Invoice-to-payment gap (from 1.1).
   - Budget adherence (from existing budgets).
@@ -218,10 +206,10 @@ Parsers and FX support already exist (`emirates-islamic` parser,
 ## Dependency Chain
 
 ```
-Tier 0 (Certainty)              Tier 1 (Projection)          Tier 2 (Agent)
+Tier 0 (Certainty) ✅            Tier 1 (Projection)          Tier 2 (Agent)
 
-Missed Detector (extn.)  ────→  Invoice Intelligence  ────→  Financial Snapshot
-Deadlines Tab + Calendar        Cash Flow Forecast           Confidence Score
+Obligations + Deadlines ────→   Invoice Intelligence  ────→  Financial Snapshot
+(shipped)                       Cash Flow Forecast           Confidence Score
                                 Worst Case / Runway          Alert Queue
                                 Income Concentration         WhatsApp Interface
 ```
@@ -241,17 +229,13 @@ confidence score, the proactive alerts.
    the app can make.
 3. **Worst Case / Runway + formalised credit headroom (1.3)** —
    cheap once 1.2 lands.
-4. **Deadlines Tab + Calendar View (0.2)** — visible surface for the
-   certainty layer.
-5. **Missed Obligation Detector extension (0.1)** — generalises the
-   HMRC machinery to insurance, debts, rentals, council tax.
-6. **Income Concentration Score (1.4)** — feeds confidence score.
-7. **Financial Snapshot / Commitment Approval (2.1)** + **Confidence
+4. **Income Concentration Score (1.4)** — feeds confidence score.
+5. **Financial Snapshot / Commitment Approval (2.1)** + **Confidence
    Score (2.2)** — the agent's two core reads.
-8. **Alert & Notification Queue (2.3)**.
-9. **Net Worth Snapshots (3.1)**.
-10. **Multi-Currency extensions (3.2)**.
-11. **WhatsApp / Chat Interface (2.4)**.
+6. **Alert & Notification Queue (2.3)**.
+7. **Net Worth Snapshots (3.1)**.
+8. **Multi-Currency extensions (3.2)**.
+9. **WhatsApp / Chat Interface (2.4)**.
 
 ---
 

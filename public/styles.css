@@ -3768,3 +3768,246 @@ body {
 .debt-accounts-option input[type="checkbox"] {
   width: auto;
 }
+
+/* ============================================================
+   Deadlines tab
+   ============================================================ */
+
+.deadlines-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.deadlines-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.deadlines-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.deadlines-view-toggle {
+  display: inline-flex;
+  background: #f1f5f9;
+  padding: 2px;
+  border-radius: 8px;
+}
+
+.deadlines-view-btn {
+  border: none;
+  background: transparent;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  color: #475569;
+}
+
+.deadlines-view-btn.is-active {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.deadlines-view {
+  padding: 16px;
+}
+
+.deadlines-bucket + .deadlines-bucket {
+  margin-top: 24px;
+}
+
+.deadlines-bucket-title {
+  margin: 0 0 8px 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.deadlines-bucket-overdue .deadlines-bucket-title { color: #ef4444; }
+.deadlines-bucket-this-week .deadlines-bucket-title { color: #f97316; }
+
+.deadlines-bucket-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.deadlines-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.deadlines-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.deadlines-row-title {
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+.deadlines-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.deadlines-row-days {
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+
+.deadlines-row-date {
+  color: #0f172a;
+  font-weight: 500;
+}
+
+.deadlines-row-notes {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: #475569;
+  white-space: pre-wrap;
+}
+
+.deadlines-row-actions {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+
+.deadlines-status-badge {
+  color: #ffffff;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.deadlines-source-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.deadlines-source-obligation {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.deadlines-source-deadline {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.deadlines-url {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.deadlines-empty {
+  color: #64748b;
+  text-align: center;
+  padding: 32px 16px;
+}
+
+/* FullCalendar polish — keep the library defaults but align
+   typography + spacing with the rest of the app. */
+.fc {
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+
+.fc .fc-toolbar-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.fc .fc-button {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #0f172a;
+  box-shadow: none;
+  font-weight: 500;
+}
+
+.fc .fc-button-primary:not(:disabled).fc-button-active,
+.fc .fc-button-primary:not(:disabled):active {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
+}
+
+.fc .fc-daygrid-day.fc-day-today {
+  background: #fef9c3;
+}
+
+.fc-event.deadlines-event-completed {
+  opacity: 0.6;
+  text-decoration: line-through;
+}
+
+/* Year view (multiMonth) — with a 2-column layout each mini-month is
+   roughly half the card width, which is plenty of room for comfortable
+   typography. These tweaks just polish the type hierarchy; they do not
+   alter the card/border around the calendar. */
+.fc .fc-multimonth-title {
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 8px 0;
+}
+
+.fc .fc-multimonth-daygrid .fc-col-header-cell-cushion {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.fc .fc-multimonth-daygrid .fc-daygrid-day-number {
+  font-size: 0.9rem;
+  padding: 3px 5px;
+}
+
+.fc .fc-multimonth-daygrid .fc-daygrid-event {
+  font-size: 0.78rem;
+  padding: 1px 4px;
+}
+
+/* Day cells in any view advertise their interactivity so users
+   discover the double-click-to-zoom affordance naturally. */
+.fc .fc-daygrid-day {
+  cursor: pointer;
+}

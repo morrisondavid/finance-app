@@ -1,15 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
-import Database from 'better-sqlite3';
+import { describe, it, expect, afterAll, beforeEach, vi } from 'vitest';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
-
-// Note: vi.mock is hoisted above this, but its factory runs lazily (only
-// when the mocked module is actually imported). Since we use dynamic
-// `await import(...)` below — not a static top-level `import` — this
-// directory is created before the factory is invoked, so the closure
-// captures a valid path.
-const tmpObligationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sa-auto-seed-test-'));
+import { createInMemoryTestDb } from '../test-harness/in-memory-db.js';
 
 /**
  * SA auto-seed integration tests.
@@ -20,11 +12,11 @@ const tmpObligationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sa-auto-seed-te
  * end-to-end. This mirrors the pattern used by `tax-account-scoping.test.ts`.
  */
 
-let testDb: Database.Database;
+const harness = createInMemoryTestDb();
 
 vi.mock('../connection.js', () => ({
-  getDb: () => testDb,
-  OBLIGATIONS_DIR: tmpObligationsDir,
+  getDb: () => harness.db,
+  OBLIGATIONS_DIR: harness.obligationsDir,
 }));
 
 const {
@@ -35,49 +27,10 @@ const {
 
 const { addDismissal, removeDismissal } = await import('./obligation-dismissals.js');
 
-function createSchema(): void {
-  testDb.exec(`
-    CREATE TABLE IF NOT EXISTS transactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      hash TEXT UNIQUE NOT NULL,
-      date TEXT NOT NULL,
-      description TEXT NOT NULL,
-      amount REAL NOT NULL,
-      account TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('income', 'expense', 'transfer')),
-      linked_transaction_id INTEGER,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS financial_obligations (
-      id TEXT PRIMARY KEY,
-      source TEXT NOT NULL,
-      type TEXT NOT NULL,
-      name TEXT NOT NULL,
-      entity TEXT NOT NULL,
-      frequency TEXT NOT NULL,
-      expected_amount REAL,
-      due_date TEXT,
-      status TEXT NOT NULL DEFAULT 'pending',
-      paid_amount REAL,
-      paid_date TEXT,
-      paid_from_account TEXT,
-      notes TEXT,
-      person_id TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS obligation_dismissals (
-      obligation_id TEXT PRIMARY KEY,
-      reason TEXT,
-      dismissed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-}
-
 let hashSeq = 0;
 function insertDividend(date: string, who: 'DAVID MORRISON' | 'HEENA TAILOR', amount: number): void {
   hashSeq++;
-  testDb.prepare(`
+  harness.db.prepare(`
     INSERT INTO transactions (hash, date, description, amount, account, type)
     VALUES (?, ?, ?, ?, 'barclays-current', 'expense')
   `).run(`hash-${hashSeq}`, date, `${who} DIVIDEND`, -amount);
@@ -85,7 +38,7 @@ function insertDividend(date: string, who: 'DAVID MORRISON' | 'HEENA TAILOR', am
 
 function insertSaPayment(opts: { date: string; amount: number; account: string; description?: string }): void {
   hashSeq++;
-  testDb.prepare(`
+  harness.db.prepare(`
     INSERT INTO transactions (hash, date, description, amount, account, type)
     VALUES (?, ?, ?, ?, ?, 'expense')
   `).run(
@@ -103,29 +56,24 @@ function insertManualSaObligation(opts: {
   dueDate: string;
   expectedAmount?: number;
 }): void {
-  testDb.prepare(`
+  harness.db.prepare(`
     INSERT INTO financial_obligations
       (id, source, type, name, entity, frequency, expected_amount, due_date, status, person_id)
     VALUES (?, 'manual', 'self-assessment', 'SA manual', 'HMRC', 'annual', ?, ?, 'pending', ?)
   `).run(opts.id, opts.expectedAmount ?? 1000, opts.dueDate, opts.personId);
 }
 
-beforeAll(() => {
-  testDb = new Database(':memory:');
-  createSchema();
-});
 afterAll(() => {
-  testDb.close();
-  fs.rmSync(tmpObligationsDir, { recursive: true, force: true });
+  harness.cleanup();
 });
 beforeEach(() => {
-  testDb.exec('DELETE FROM transactions');
-  testDb.exec('DELETE FROM financial_obligations');
-  testDb.exec('DELETE FROM obligation_dismissals');
+  harness.db.exec('DELETE FROM transactions');
+  harness.db.exec('DELETE FROM financial_obligations');
+  harness.db.exec('DELETE FROM obligation_dismissals');
   hashSeq = 0;
-  // Repo also syncs to a CSV in tmpObligationsDir; drop it between tests so
-  // stale dismissals from a previous test don't leak back in via the CSV.
-  const csvPath = path.join(tmpObligationsDir, 'obligation-dismissals.csv');
+  // Repo also syncs to a CSV in the obligations temp dir; drop it between
+  // tests so stale dismissals from a previous test don't leak back in.
+  const csvPath = path.join(harness.obligationsDir, 'obligation-dismissals.csv');
   if (fs.existsSync(csvPath)) fs.unlinkSync(csvPath);
 });
 
@@ -148,7 +96,7 @@ describe('enumerateSaSlots', () => {
 describe('deriveAndInsertAutoSaObligations', () => {
   it('is a no-op when there are no taxable transactions (zero estimate → skip)', () => {
     deriveAndInsertAutoSaObligations();
-    const rows = testDb.prepare(
+    const rows = harness.db.prepare(
       "SELECT * FROM financial_obligations WHERE source = 'auto' AND type = 'self-assessment'"
     ).all();
     expect(rows).toHaveLength(0);
@@ -160,7 +108,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
 
     deriveAndInsertAutoSaObligations();
 
-    const rows = testDb.prepare(`
+    const rows = harness.db.prepare(`
       SELECT id, person_id, due_date, expected_amount FROM financial_obligations
       WHERE source = 'auto' AND type = 'self-assessment'
       ORDER BY due_date ASC
@@ -179,7 +127,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
 
     deriveAndInsertAutoSaObligations();
 
-    const rows = testDb.prepare(`
+    const rows = harness.db.prepare(`
       SELECT id, due_date, expected_amount FROM financial_obligations
       WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
     `).all() as Array<{ id: string; due_date: string; expected_amount: number }>;
@@ -196,7 +144,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
     insertDividend('2024-10-01', 'DAVID MORRISON', 60000);
 
     deriveAndInsertAutoSaObligations();
-    const before = testDb.prepare(`
+    const before = harness.db.prepare(`
       SELECT due_date FROM financial_obligations
       WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
     `).all() as Array<{ due_date: string }>;
@@ -207,7 +155,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
 
     deriveAndInsertAutoSaObligations();
 
-    const after = testDb.prepare(`
+    const after = harness.db.prepare(`
       SELECT due_date FROM financial_obligations
       WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
     `).all() as Array<{ due_date: string }>;
@@ -219,7 +167,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
     insertDividend('2024-10-01', 'DAVID MORRISON', 60000);
 
     deriveAndInsertAutoSaObligations();
-    const before = testDb.prepare(`
+    const before = harness.db.prepare(`
       SELECT due_date FROM financial_obligations
       WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
     `).all() as Array<{ due_date: string }>;
@@ -230,7 +178,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
 
     deriveAndInsertAutoSaObligations();
 
-    const after = testDb.prepare(`
+    const after = harness.db.prepare(`
       SELECT due_date FROM financial_obligations
       WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
     `).all() as Array<{ due_date: string }>;
@@ -242,7 +190,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
     insertDividend('2024-10-01', 'DAVID MORRISON', 60000);
 
     deriveAndInsertAutoSaObligations();
-    const before = testDb.prepare(`
+    const before = harness.db.prepare(`
       SELECT due_date FROM financial_obligations
       WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
     `).all() as Array<{ due_date: string }>;
@@ -256,7 +204,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
     insertManualSaObligation({ id: 'manual-within', personId: 'david', dueDate: withinIso });
     deriveAndInsertAutoSaObligations();
 
-    const after = testDb.prepare(`
+    const after = harness.db.prepare(`
       SELECT due_date FROM financial_obligations
       WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
     `).all() as Array<{ due_date: string }>;
@@ -267,12 +215,12 @@ describe('deriveAndInsertAutoSaObligations', () => {
   it('rebuilds from scratch each run (deletes prior auto rows)', () => {
     insertDividend('2024-10-01', 'DAVID MORRISON', 60000);
     deriveAndInsertAutoSaObligations();
-    const firstCount = testDb.prepare(
+    const firstCount = harness.db.prepare(
       "SELECT COUNT(*) as c FROM financial_obligations WHERE source = 'auto' AND type = 'self-assessment'"
     ).get() as { c: number };
 
     deriveAndInsertAutoSaObligations();
-    const secondCount = testDb.prepare(
+    const secondCount = harness.db.prepare(
       "SELECT COUNT(*) as c FROM financial_obligations WHERE source = 'auto' AND type = 'self-assessment'"
     ).get() as { c: number };
 
@@ -284,7 +232,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
       insertDividend('2024-10-01', 'DAVID MORRISON', 60000);
 
       deriveAndInsertAutoSaObligations();
-      const before = testDb.prepare(`
+      const before = harness.db.prepare(`
         SELECT id FROM financial_obligations
         WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
         ORDER BY due_date ASC
@@ -295,7 +243,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
       addDismissal({ obligationId: toHide, reason: 'Non-resident' });
 
       deriveAndInsertAutoSaObligations();
-      const after = testDb.prepare(`
+      const after = harness.db.prepare(`
         SELECT id FROM financial_obligations
         WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
       `).all() as Array<{ id: string }>;
@@ -307,7 +255,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
       insertDividend('2024-10-01', 'DAVID MORRISON', 60000);
 
       deriveAndInsertAutoSaObligations();
-      const before = testDb.prepare(`
+      const before = harness.db.prepare(`
         SELECT id FROM financial_obligations
         WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
         ORDER BY due_date ASC
@@ -319,7 +267,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
       removeDismissal(id);
       deriveAndInsertAutoSaObligations();
 
-      const after = testDb.prepare(`
+      const after = harness.db.prepare(`
         SELECT id FROM financial_obligations
         WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
       `).all() as Array<{ id: string }>;
@@ -332,7 +280,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
       insertDividend('2024-10-01', 'HEENA TAILOR', 60000);
 
       deriveAndInsertAutoSaObligations();
-      const davidRow = testDb.prepare(`
+      const davidRow = harness.db.prepare(`
         SELECT id FROM financial_obligations
         WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
         ORDER BY due_date ASC LIMIT 1
@@ -342,7 +290,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
       addDismissal({ obligationId: davidRow!.id });
       deriveAndInsertAutoSaObligations();
 
-      const heenaRows = testDb.prepare(`
+      const heenaRows = harness.db.prepare(`
         SELECT id FROM financial_obligations
         WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'heena'
       `).all() as Array<{ id: string }>;
@@ -355,7 +303,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
       insertDividend('2024-10-01', 'DAVID MORRISON', 60000);
 
       deriveAndInsertAutoSaObligations();
-      const janSlot = testDb.prepare(`
+      const janSlot = harness.db.prepare(`
         SELECT id, due_date FROM financial_obligations
         WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
         ORDER BY due_date ASC LIMIT 1
@@ -365,7 +313,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
       insertSaPayment({ date: janSlot!.due_date, amount: 4321.5, account: 'natwest' });
       deriveAndInsertAutoSaObligations();
 
-      const row = testDb.prepare(`
+      const row = harness.db.prepare(`
         SELECT status, paid_amount, paid_date, paid_from_account FROM financial_obligations
         WHERE id = ?
       `).get(janSlot!.id) as { status: string; paid_amount: number; paid_date: string; paid_from_account: string };
@@ -380,7 +328,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
       insertDividend('2024-10-01', 'DAVID MORRISON', 60000);
 
       deriveAndInsertAutoSaObligations();
-      const janSlot = testDb.prepare(`
+      const janSlot = harness.db.prepare(`
         SELECT id, due_date FROM financial_obligations
         WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
         ORDER BY due_date ASC LIMIT 1
@@ -390,7 +338,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
       insertSaPayment({ date: janSlot!.due_date, amount: 999.99, account: 'barclays-current' });
       deriveAndInsertAutoSaObligations();
 
-      const row = testDb.prepare(`
+      const row = harness.db.prepare(`
         SELECT status, paid_from_account FROM financial_obligations WHERE id = ?
       `).get(janSlot!.id) as { status: string; paid_from_account: string };
 
@@ -402,7 +350,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
       insertDividend('2024-10-01', 'DAVID MORRISON', 60000);
 
       deriveAndInsertAutoSaObligations();
-      const janSlot = testDb.prepare(`
+      const janSlot = harness.db.prepare(`
         SELECT id, due_date FROM financial_obligations
         WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
         ORDER BY due_date ASC LIMIT 1
@@ -415,7 +363,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
       insertSaPayment({ date: far.toISOString().slice(0, 10), amount: 500, account: 'natwest' });
 
       deriveAndInsertAutoSaObligations();
-      const row = testDb.prepare(`
+      const row = harness.db.prepare(`
         SELECT status, paid_amount, paid_from_account FROM financial_obligations WHERE id = ?
       `).get(janSlot!.id) as { status: string; paid_amount: number | null; paid_from_account: string | null };
 

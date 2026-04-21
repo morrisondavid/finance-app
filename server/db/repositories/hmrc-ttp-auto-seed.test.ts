@@ -1,10 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
-import Database from 'better-sqlite3';
+import { describe, it, expect, afterAll, beforeEach, vi } from 'vitest';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import type { PipelineResult, Accumulator } from '../../utils/recurring-pipeline.js';
 import type { RecurringExpense } from '../../../shared/api-contracts.js';
+import { createInMemoryTestDb } from '../test-harness/in-memory-db.js';
 
 /**
  * HMRC Time-To-Pay auto-seed integration tests.
@@ -16,13 +15,11 @@ import type { RecurringExpense } from '../../../shared/api-contracts.js';
  * assert the emitted obligation rows.
  */
 
-const tmpObligationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ttp-auto-seed-test-'));
-
-let testDb: Database.Database;
+const harness = createInMemoryTestDb();
 
 vi.mock('../connection.js', () => ({
-  getDb: () => testDb,
-  OBLIGATIONS_DIR: tmpObligationsDir,
+  getDb: () => harness.db,
+  OBLIGATIONS_DIR: harness.obligationsDir,
 }));
 
 // Controllable pipeline output. Each test sets `pipelineOutput` before
@@ -35,34 +32,6 @@ vi.mock('../../utils/expenses-overview-pipeline.js', () => ({
 const { deriveAndInsertAutoTtpObligations } = await import('./hmrc-ttp-auto-seed.js');
 const { addDismissal } = await import('./obligation-dismissals.js');
 const { recurringKey } = await import('../../utils/recurring-pipeline.js');
-
-function createSchema(): void {
-  testDb.exec(`
-    CREATE TABLE IF NOT EXISTS financial_obligations (
-      id TEXT PRIMARY KEY,
-      source TEXT NOT NULL,
-      type TEXT NOT NULL,
-      name TEXT NOT NULL,
-      entity TEXT NOT NULL,
-      frequency TEXT NOT NULL,
-      expected_amount REAL,
-      due_date TEXT,
-      status TEXT NOT NULL DEFAULT 'pending',
-      paid_amount REAL,
-      paid_date TEXT,
-      paid_from_account TEXT,
-      notes TEXT,
-      person_id TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS obligation_dismissals (
-      obligation_id TEXT PRIMARY KEY,
-      reason TEXT,
-      dismissed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-}
 
 /**
  * Build a synthetic pipeline result with a single HMRC recurring
@@ -128,26 +97,21 @@ function emptyPipelineOutput(): PipelineResult {
   };
 }
 
-beforeAll(() => {
-  testDb = new Database(':memory:');
-  createSchema();
-});
 afterAll(() => {
-  testDb.close();
-  fs.rmSync(tmpObligationsDir, { recursive: true, force: true });
+  harness.cleanup();
 });
 beforeEach(() => {
-  testDb.exec('DELETE FROM financial_obligations');
-  testDb.exec('DELETE FROM obligation_dismissals');
+  harness.db.exec('DELETE FROM financial_obligations');
+  harness.db.exec('DELETE FROM obligation_dismissals');
   pipelineOutput = emptyPipelineOutput();
-  const csvPath = path.join(tmpObligationsDir, 'obligation-dismissals.csv');
+  const csvPath = path.join(harness.obligationsDir, 'obligation-dismissals.csv');
   if (fs.existsSync(csvPath)) fs.unlinkSync(csvPath);
 });
 
 describe('deriveAndInsertAutoTtpObligations', () => {
   it('is a no-op when the pipeline surfaces no HMRC recurring group', () => {
     deriveAndInsertAutoTtpObligations(new Date('2025-06-15'));
-    const rows = testDb.prepare(
+    const rows = harness.db.prepare(
       "SELECT * FROM financial_obligations WHERE source='auto' AND type='hmrc-ttp'"
     ).all();
     expect(rows).toHaveLength(0);
@@ -166,7 +130,7 @@ describe('deriveAndInsertAutoTtpObligations', () => {
     pipelineOutput = unrelated;
     deriveAndInsertAutoTtpObligations(new Date('2025-06-15'));
 
-    const rows = testDb.prepare(
+    const rows = harness.db.prepare(
       "SELECT * FROM financial_obligations WHERE source='auto' AND type='hmrc-ttp'"
     ).all();
     expect(rows).toHaveLength(0);
@@ -184,7 +148,7 @@ describe('deriveAndInsertAutoTtpObligations', () => {
     });
     deriveAndInsertAutoTtpObligations(new Date('2025-05-20'));
 
-    const paid = testDb.prepare(`
+    const paid = harness.db.prepare(`
       SELECT id, status, due_date, paid_amount, paid_date, paid_from_account, expected_amount
       FROM financial_obligations
       WHERE source='auto' AND type='hmrc-ttp' AND status='paid'
@@ -220,7 +184,7 @@ describe('deriveAndInsertAutoTtpObligations', () => {
     });
     deriveAndInsertAutoTtpObligations(new Date('2025-04-20'));
 
-    const upcoming = testDb.prepare(`
+    const upcoming = harness.db.prepare(`
       SELECT id, status, due_date, paid_date
       FROM financial_obligations
       WHERE source='auto' AND type='hmrc-ttp' AND status='not-yet-due'
@@ -248,7 +212,7 @@ describe('deriveAndInsertAutoTtpObligations', () => {
     // Ref date 2025-05-10 — billing day (25) still ahead in this month.
     deriveAndInsertAutoTtpObligations(new Date('2025-05-10'));
 
-    const upcoming = testDb.prepare(`
+    const upcoming = harness.db.prepare(`
       SELECT due_date FROM financial_obligations
       WHERE source='auto' AND type='hmrc-ttp' AND status='not-yet-due'
     `).all() as Array<{ due_date: string }>;
@@ -268,10 +232,10 @@ describe('deriveAndInsertAutoTtpObligations', () => {
     });
     deriveAndInsertAutoTtpObligations(new Date('2025-05-20'));
 
-    const upcoming = testDb.prepare(
+    const upcoming = harness.db.prepare(
       "SELECT id FROM financial_obligations WHERE source='auto' AND type='hmrc-ttp' AND status='not-yet-due'"
     ).all();
-    const paid = testDb.prepare(
+    const paid = harness.db.prepare(
       "SELECT id FROM financial_obligations WHERE source='auto' AND type='hmrc-ttp' AND status='paid'"
     ).all();
     expect(upcoming).toHaveLength(0);
@@ -289,7 +253,7 @@ describe('deriveAndInsertAutoTtpObligations', () => {
     });
     deriveAndInsertAutoTtpObligations(new Date('2025-04-20'));
 
-    const all = testDb.prepare(
+    const all = harness.db.prepare(
       "SELECT id FROM financial_obligations WHERE source='auto' AND type='hmrc-ttp'"
     ).all() as Array<{ id: string }>;
     const paidRow = all.find(r => r.id.endsWith('2025-03-09'));
@@ -307,7 +271,7 @@ describe('deriveAndInsertAutoTtpObligations', () => {
     });
     deriveAndInsertAutoTtpObligations(new Date('2025-04-20'));
 
-    const after = testDb.prepare(
+    const after = harness.db.prepare(
       "SELECT id FROM financial_obligations WHERE source='auto' AND type='hmrc-ttp'"
     ).all() as Array<{ id: string }>;
 
@@ -326,12 +290,12 @@ describe('deriveAndInsertAutoTtpObligations', () => {
       ],
     });
     deriveAndInsertAutoTtpObligations(new Date('2025-04-20'));
-    const firstIds = testDb.prepare(
+    const firstIds = harness.db.prepare(
       "SELECT id FROM financial_obligations WHERE source='auto' AND type='hmrc-ttp'"
     ).all() as Array<{ id: string }>;
 
     deriveAndInsertAutoTtpObligations(new Date('2025-04-20'));
-    const secondIds = testDb.prepare(
+    const secondIds = harness.db.prepare(
       "SELECT id FROM financial_obligations WHERE source='auto' AND type='hmrc-ttp'"
     ).all() as Array<{ id: string }>;
 
@@ -396,7 +360,7 @@ describe('deriveAndInsertAutoTtpObligations', () => {
 
     deriveAndInsertAutoTtpObligations(new Date('2025-04-20'));
 
-    const rows = testDb.prepare(`
+    const rows = harness.db.prepare(`
       SELECT status, paid_from_account, expected_amount FROM financial_obligations
       WHERE source='auto' AND type='hmrc-ttp'
     `).all() as Array<{ status: string; paid_from_account: string | null; expected_amount: number }>;

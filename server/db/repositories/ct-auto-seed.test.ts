@@ -1,8 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
-import Database from 'better-sqlite3';
+import { describe, it, expect, afterAll, beforeEach, vi } from 'vitest';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
+import { createInMemoryTestDb } from '../test-harness/in-memory-db.js';
 
 /**
  * Corporation Tax auto-seed integration tests.
@@ -13,13 +12,11 @@ import path from 'path';
  * matching, manual-supersede gate, and dismissal — executes end-to-end.
  */
 
-const tmpObligationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ct-auto-seed-test-'));
-
-let testDb: Database.Database;
+const harness = createInMemoryTestDb();
 
 vi.mock('../connection.js', () => ({
-  getDb: () => testDb,
-  OBLIGATIONS_DIR: tmpObligationsDir,
+  getDb: () => harness.db,
+  OBLIGATIONS_DIR: harness.obligationsDir,
 }));
 
 const {
@@ -31,49 +28,10 @@ const {
 
 const { addDismissal } = await import('./obligation-dismissals.js');
 
-function createSchema(): void {
-  testDb.exec(`
-    CREATE TABLE IF NOT EXISTS transactions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      hash TEXT UNIQUE NOT NULL,
-      date TEXT NOT NULL,
-      description TEXT NOT NULL,
-      amount REAL NOT NULL,
-      account TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('income', 'expense', 'transfer')),
-      linked_transaction_id INTEGER,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS financial_obligations (
-      id TEXT PRIMARY KEY,
-      source TEXT NOT NULL,
-      type TEXT NOT NULL,
-      name TEXT NOT NULL,
-      entity TEXT NOT NULL,
-      frequency TEXT NOT NULL,
-      expected_amount REAL,
-      due_date TEXT,
-      status TEXT NOT NULL DEFAULT 'pending',
-      paid_amount REAL,
-      paid_date TEXT,
-      paid_from_account TEXT,
-      notes TEXT,
-      person_id TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE TABLE IF NOT EXISTS obligation_dismissals (
-      obligation_id TEXT PRIMARY KEY,
-      reason TEXT,
-      dismissed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-}
-
 let hashSeq = 0;
 function insertIncome(opts: { date: string; amount: number; account?: string; description?: string }): void {
   hashSeq++;
-  testDb.prepare(`
+  harness.db.prepare(`
     INSERT INTO transactions (hash, date, description, amount, account, type)
     VALUES (?, ?, ?, ?, ?, 'income')
   `).run(
@@ -87,7 +45,7 @@ function insertIncome(opts: { date: string; amount: number; account?: string; de
 
 function insertCtPayment(opts: { date: string; amount: number; account?: string; description?: string }): void {
   hashSeq++;
-  testDb.prepare(`
+  harness.db.prepare(`
     INSERT INTO transactions (hash, date, description, amount, account, type)
     VALUES (?, ?, ?, ?, ?, 'expense')
   `).run(
@@ -100,7 +58,7 @@ function insertCtPayment(opts: { date: string; amount: number; account?: string;
 }
 
 function insertManualCtObligation(opts: { id: string; dueDate: string; expectedAmount?: number }): void {
-  testDb.prepare(`
+  harness.db.prepare(`
     INSERT INTO financial_obligations
       (id, source, type, name, entity, frequency, expected_amount, due_date, status)
     VALUES (?, 'manual', 'corporation-tax', 'CT manual', 'HMRC', 'annual', ?, ?, 'pending')
@@ -113,20 +71,15 @@ function shiftDate(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-beforeAll(() => {
-  testDb = new Database(':memory:');
-  createSchema();
-});
 afterAll(() => {
-  testDb.close();
-  fs.rmSync(tmpObligationsDir, { recursive: true, force: true });
+  harness.cleanup();
 });
 beforeEach(() => {
-  testDb.exec('DELETE FROM transactions');
-  testDb.exec('DELETE FROM financial_obligations');
-  testDb.exec('DELETE FROM obligation_dismissals');
+  harness.db.exec('DELETE FROM transactions');
+  harness.db.exec('DELETE FROM financial_obligations');
+  harness.db.exec('DELETE FROM obligation_dismissals');
   hashSeq = 0;
-  const csvPath = path.join(tmpObligationsDir, 'obligation-dismissals.csv');
+  const csvPath = path.join(harness.obligationsDir, 'obligation-dismissals.csv');
   if (fs.existsSync(csvPath)) fs.unlinkSync(csvPath);
 });
 
@@ -154,7 +107,7 @@ describe('deriveAndInsertAutoCtObligations', () => {
     // Income on a non-CT-applicable account does not seed a CT obligation.
     insertIncome({ date: '2024-09-01', amount: 50000, account: 'natwest' });
     deriveAndInsertAutoCtObligations();
-    const rows = testDb.prepare(
+    const rows = harness.db.prepare(
       "SELECT * FROM financial_obligations WHERE source='auto' AND type='corporation-tax'"
     ).all();
     expect(rows).toHaveLength(0);
@@ -164,7 +117,7 @@ describe('deriveAndInsertAutoCtObligations', () => {
     insertIncome({ date: '2024-09-01', amount: 100000 });
     deriveAndInsertAutoCtObligations();
 
-    const rows = testDb.prepare(`
+    const rows = harness.db.prepare(`
       SELECT id, due_date, expected_amount, status FROM financial_obligations
       WHERE source='auto' AND type='corporation-tax'
     `).all() as Array<{ id: string; due_date: string; expected_amount: number; status: string }>;
@@ -182,7 +135,7 @@ describe('deriveAndInsertAutoCtObligations', () => {
 
     deriveAndInsertAutoCtObligations(new Date('2025-03-01'));
 
-    const row = testDb.prepare(`
+    const row = harness.db.prepare(`
       SELECT status, paid_amount, paid_date, paid_from_account FROM financial_obligations
       WHERE id='auto-ct-2024-04-30'
     `).get() as { status: string; paid_amount: number; paid_date: string; paid_from_account: string };
@@ -199,7 +152,7 @@ describe('deriveAndInsertAutoCtObligations', () => {
 
     deriveAndInsertAutoCtObligations(new Date('2025-03-01'));
 
-    const row = testDb.prepare(`
+    const row = harness.db.prepare(`
       SELECT status FROM financial_obligations WHERE id='auto-ct-2024-04-30'
     `).get() as { status: string };
 
@@ -212,7 +165,7 @@ describe('deriveAndInsertAutoCtObligations', () => {
 
     deriveAndInsertAutoCtObligations(new Date('2025-03-01'));
 
-    const row = testDb.prepare(`
+    const row = harness.db.prepare(`
       SELECT status FROM financial_obligations WHERE id='auto-ct-2024-04-30'
     `).get() as { status: string };
 
@@ -220,23 +173,82 @@ describe('deriveAndInsertAutoCtObligations', () => {
     expect(row.status).toBe('unpaid');
   });
 
-  it('does NOT match a CT payment landing outside ±CT_MATCH_PROXIMITY_DAYS', () => {
+  /**
+   * Regression-lock for the real-world case that prompted widening the
+   * window from 14 → 90 days: the user settled CT FY 2023/24 on
+   * 2025-02-20 via the HMRC card gateway, which is 20 days AFTER the
+   * 2025-01-31 deadline. With the old ±14-day window this payment
+   * orphaned and the slot incorrectly showed "unpaid / overdue".
+   */
+  it('matches a CT payment landing ~20 days AFTER the deadline (card-gateway posting delay)', () => {
     insertIncome({ date: '2023-09-01', amount: 100000 });
-    // 30 days before the deadline — beyond the 14-day window.
-    insertCtPayment({ date: shiftDate('2025-01-31', -30), amount: 12500 });
+    insertCtPayment({
+      date: shiftDate('2025-01-31', 20),
+      amount: 5573.35,
+      account: 'capital-on-tap',
+      description: 'HMRC GOV.UK COTAX - GLASGOW - Card Ending: 8346',
+    });
 
     deriveAndInsertAutoCtObligations(new Date('2025-03-01'));
 
-    const row = testDb.prepare(`
+    const row = harness.db.prepare(`
+      SELECT status, paid_amount, paid_date, paid_from_account FROM financial_obligations
+      WHERE id='auto-ct-2024-04-30'
+    `).get() as {
+      status: string;
+      paid_amount: number;
+      paid_date: string;
+      paid_from_account: string;
+    };
+
+    expect(row.status).toBe('paid');
+    expect(row.paid_amount).toBeCloseTo(5573.35, 2);
+    expect(row.paid_from_account).toBe('capital-on-tap');
+  });
+
+  /**
+   * Regression-lock for the other real-world case: CT FY 2022/23 was
+   * settled in a batch on 2023-11-13 — 79 days BEFORE the 2024-01-31
+   * deadline. The old 14-day window orphaned this too.
+   */
+  it('matches a CT payment landing ~79 days BEFORE the deadline (prior-quarter batch settlement)', () => {
+    insertIncome({ date: '2022-09-01', amount: 100000 });
+    insertCtPayment({
+      date: shiftDate('2024-01-31', -79),
+      amount: 17000,
+      description: 'HMRC CORPORATION T    \t1046211398A00106A BBP',
+    });
+
+    deriveAndInsertAutoCtObligations(new Date('2024-03-01'));
+
+    const row = harness.db.prepare(`
+      SELECT status, paid_amount FROM financial_obligations
+      WHERE id='auto-ct-2023-04-30'
+    `).get() as { status: string; paid_amount: number };
+
+    expect(row.status).toBe('paid');
+    expect(row.paid_amount).toBeCloseTo(17000, 2);
+  });
+
+  it('does NOT match a CT payment landing outside ±CT_MATCH_PROXIMITY_DAYS', () => {
+    insertIncome({ date: '2023-09-01', amount: 100000 });
+    // 120 days before the deadline — beyond the 90-day window.
+    insertCtPayment({ date: shiftDate('2025-01-31', -120), amount: 12500 });
+
+    deriveAndInsertAutoCtObligations(new Date('2025-03-01'));
+
+    const row = harness.db.prepare(`
       SELECT status, paid_from_account FROM financial_obligations
       WHERE id='auto-ct-2024-04-30'
     `).get() as { status: string; paid_from_account: string | null };
 
     expect(row.status).toBe('unpaid');
     expect(row.paid_from_account).toBeNull();
-    // Sanity: the widely-tuned SA window (60) would be large enough, so
-    // this test also guards against accidental window widening.
-    expect(CT_MATCH_PROXIMITY_DAYS).toBeLessThan(30);
+    // Sanity: the window must be generous enough to absorb real-world
+    // early/late settlements but tight enough that a payment a whole
+    // quarter away doesn't silently attach to the wrong CT slot.
+    expect(CT_MATCH_PROXIMITY_DAYS).toBeGreaterThanOrEqual(90);
+    expect(CT_MATCH_PROXIMITY_DAYS).toBeLessThan(120);
   });
 
   it('marks an unmatched future-dated slot as not-yet-due', () => {
@@ -244,7 +256,7 @@ describe('deriveAndInsertAutoCtObligations', () => {
     // FY 2025/26 due 2027-01-31 — still in the future from today.
     deriveAndInsertAutoCtObligations(new Date('2025-12-15'));
 
-    const row = testDb.prepare(`
+    const row = harness.db.prepare(`
       SELECT status, paid_date FROM financial_obligations WHERE id='auto-ct-2026-04-30'
     `).get() as { status: string; paid_date: string | null };
 
@@ -256,7 +268,7 @@ describe('deriveAndInsertAutoCtObligations', () => {
     insertIncome({ date: '2023-09-01', amount: 100000 });
     deriveAndInsertAutoCtObligations(new Date('2025-06-01'));
 
-    const row = testDb.prepare(`
+    const row = harness.db.prepare(`
       SELECT status FROM financial_obligations WHERE id='auto-ct-2024-04-30'
     `).get() as { status: string };
 
@@ -270,7 +282,7 @@ describe('deriveAndInsertAutoCtObligations', () => {
     insertManualCtObligation({ id: 'manual-ct-1', dueDate: manualDue });
 
     deriveAndInsertAutoCtObligations();
-    const rows = testDb.prepare(`
+    const rows = harness.db.prepare(`
       SELECT id FROM financial_obligations WHERE source='auto' AND type='corporation-tax'
     `).all() as Array<{ id: string }>;
 
@@ -284,7 +296,7 @@ describe('deriveAndInsertAutoCtObligations', () => {
     insertManualCtObligation({ id: 'manual-ct-far', dueDate: manualDue });
 
     deriveAndInsertAutoCtObligations();
-    const rows = testDb.prepare(`
+    const rows = harness.db.prepare(`
       SELECT id FROM financial_obligations WHERE source='auto' AND type='corporation-tax'
     `).all() as Array<{ id: string }>;
 
@@ -298,7 +310,7 @@ describe('deriveAndInsertAutoCtObligations', () => {
     addDismissal({ obligationId: 'auto-ct-2024-04-30' });
     deriveAndInsertAutoCtObligations();
 
-    const rows = testDb.prepare(`
+    const rows = harness.db.prepare(`
       SELECT id FROM financial_obligations WHERE source='auto' AND type='corporation-tax'
     `).all() as Array<{ id: string }>;
 
@@ -309,12 +321,12 @@ describe('deriveAndInsertAutoCtObligations', () => {
     insertIncome({ date: '2023-09-01', amount: 100000 });
 
     deriveAndInsertAutoCtObligations();
-    const first = testDb.prepare(
+    const first = harness.db.prepare(
       "SELECT COUNT(*) as c FROM financial_obligations WHERE source='auto' AND type='corporation-tax'"
     ).get() as { c: number };
 
     deriveAndInsertAutoCtObligations();
-    const second = testDb.prepare(
+    const second = harness.db.prepare(
       "SELECT COUNT(*) as c FROM financial_obligations WHERE source='auto' AND type='corporation-tax'"
     ).get() as { c: number };
 

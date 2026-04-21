@@ -10,6 +10,7 @@
 import type { RecurringExpense, UpcomingRecurring } from '../../shared/api-contracts.js';
 import type { PipelineResult, Accumulator } from './recurring-pipeline.js';
 import { recurringKey } from './recurring-pipeline.js';
+import { toIsoDate } from '../../shared/iso-date.js';
 
 /**
  * ISO date (YYYY-MM-DD) for the next calendar day matching `billingDayOfMonth`
@@ -144,10 +145,6 @@ export function buildUpcomingRecurring(
 
 function buildDate(year: number, monthIndex: number, day: number): Date {
   return new Date(Date.UTC(year, monthIndex, day));
-}
-
-function toIsoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
 }
 
 function parseIsoDate(iso: string): Date {

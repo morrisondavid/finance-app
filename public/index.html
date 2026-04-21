@@ -19,6 +19,7 @@
       <button class="tab" data-tab="fixed-expenses">Fixed Expenses</button>
       <button class="tab" data-tab="budget">Budget</button>
       <button class="tab" data-tab="obligations">Obligations</button>
+      <button class="tab" data-tab="deadlines">Deadlines</button>
       <button class="tab" data-tab="debt">Debt</button>
       <button class="tab" data-tab="statements">Statements</button>
       <button class="tab" data-tab="upload">Upload</button>
@@ -537,6 +538,79 @@
             <div class="modal-footer">
               <button type="submit" class="btn btn-primary">Save</button>
               <button type="button" class="btn" id="obligations-modal-cancel">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- Deadlines Tab -->
+    <section id="deadlines" class="tab-content">
+      <div class="deadlines-header">
+        <h2 class="deadlines-title">Deadlines</h2>
+        <div class="deadlines-header-actions">
+          <div class="deadlines-view-toggle" role="tablist" aria-label="Deadlines view">
+            <button type="button" class="btn deadlines-view-btn is-active" data-deadlines-view="list" role="tab" aria-selected="true">List</button>
+            <button type="button" class="btn deadlines-view-btn" data-deadlines-view="calendar" role="tab" aria-selected="false">Calendar</button>
+          </div>
+          <label class="obligations-toggle-label">
+            <input type="checkbox" id="deadlines-show-completed" />
+            Show completed
+          </label>
+          <button type="button" class="btn" id="deadlines-subscribe-btn" title="Copy the ICS URL so you can subscribe in Google Calendar / Apple Calendar">Subscribe (.ics)</button>
+          <button type="button" class="btn btn-primary" id="deadlines-add-btn">+ Add deadline</button>
+        </div>
+      </div>
+
+      <div class="card deadlines-view deadlines-view-list" id="deadlines-view-list">
+        <div id="deadlines-list"></div>
+      </div>
+
+      <div class="card deadlines-view deadlines-view-calendar" id="deadlines-view-calendar" style="display:none">
+        <div id="deadlines-calendar"></div>
+      </div>
+
+      <div class="modal-overlay" id="deadlines-modal" style="display:none">
+        <div class="modal">
+          <div class="modal-header">
+            <h3 id="deadlines-modal-title">Add deadline</h3>
+            <button type="button" class="modal-close" id="deadlines-modal-close">&times;</button>
+          </div>
+          <form id="deadlines-form" class="modal-body">
+            <div class="form-row">
+              <label>Title <input name="title" type="text" required /></label>
+            </div>
+            <div class="form-row">
+              <label>Due date <input name="dueDate" type="date" required /></label>
+              <label>Type
+                <select name="type" required>
+                  <option value="companies-house">Companies House</option>
+                  <option value="mot">MOT</option>
+                  <option value="passport">Passport</option>
+                  <option value="driving-license">Driving licence</option>
+                  <option value="insurance-cert">Insurance certificate</option>
+                  <option value="tax-filing">Tax filing</option>
+                  <option value="other" selected>Other</option>
+                </select>
+              </label>
+              <label>Recurrence
+                <select name="recurrence" required>
+                  <option value="one-off" selected>One-off</option>
+                  <option value="annual">Annual</option>
+                  <option value="every-5-years">Every 5 years</option>
+                  <option value="every-10-years">Every 10 years</option>
+                </select>
+              </label>
+            </div>
+            <div class="form-row">
+              <label>URL <input name="url" type="url" placeholder="https://…" /></label>
+            </div>
+            <div class="form-row">
+              <label>Notes <textarea name="notes" rows="3"></textarea></label>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn" id="deadlines-modal-cancel">Cancel</button>
+              <button type="submit" class="btn btn-primary">Save</button>
             </div>
           </form>
         </div>
