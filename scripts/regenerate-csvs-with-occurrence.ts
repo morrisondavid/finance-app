@@ -9,12 +9,12 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { partitionCSVFile } from '../server/utils/csv-partitioner.js';
+import { ACCOUNTS } from '../server/types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const STATEMENTS_DIR = path.resolve(__dirname, '../statements');
-const ACCOUNTS = ['barclays-current', 'barclays-savings', 'capital-on-tap', 'barclaycard', 'natwest'];
 
 console.log('🔄 Regenerating all CSVs with occurrence tracking...\n');
 

@@ -48,7 +48,6 @@ const MERCHANT_DOMAINS: readonly DomainRule[] = [
   { pattern: /^B&M$/i, domain: 'bmstores.co.uk' },
   { pattern: /^Ocado$/i, domain: 'ocado.com' },
   { pattern: /^Amazon Fresh$/i, domain: 'amazon.co.uk' },
-  { pattern: /^M&S Food$/i, domain: 'marksandspencer.com' },
   { pattern: /^Iceland$/i, domain: 'iceland.co.uk' },
   { pattern: /^Budgens$/i, domain: 'budgens.co.uk' },
 
@@ -77,8 +76,8 @@ const MERCHANT_DOMAINS: readonly DomainRule[] = [
   { pattern: /^Talabat$/i, domain: 'talabat.com' },
   { pattern: /^Zomato$/i, domain: 'zomato.com' },
   { pattern: /^Careem Food$/i, domain: 'careem.com' },
-  { pattern: /^Careem Delivery$/i, domain: 'careem.com' },
-  { pattern: /^Careem Quick$/i, domain: 'careem.com' },
+  { pattern: /^Careem Deliveries$/i, domain: 'careem.com' },
+  { pattern: /^Careem Quik$/i, domain: 'careem.com' },
 
   // Transport
   { pattern: /^Shell$/i, domain: 'shell.co.uk' },

@@ -85,6 +85,18 @@ export interface ValidationResult {
   errors?: string[];
 }
 
+/**
+ * Result of transcoding a non-CSV upload into a CSV the rest of the pipeline
+ * can consume. `filenameHint` is used as the on-disk name for the converted
+ * file so the generic filename normaliser can still pick up the statement
+ * period (useful for banks whose raw download filenames only carry the
+ * request date, not the statement date).
+ */
+export interface TranscodedUpload {
+  csv: string;
+  filenameHint: string;
+}
+
 export interface BankParser {
   columns: 'auto' | string[];
   dateColumn: string;
@@ -98,6 +110,22 @@ export interface BankParser {
   extractFilenameDate(filename: string): string | null;
   validateHeaders(headers: string[]): ValidationResult;
   transform(row: CSVRow, account: string): Transaction | null;
+
+  /**
+   * Extra file extensions this parser can ingest beyond `.csv` (e.g. `['.xls']`
+   * for banks that export HTML tables disguised as Excel). When set, the
+   * upload route will accept matching files and delegate transcoding to
+   * `transcodeUpload` before the rest of the CSV pipeline runs.
+   */
+  acceptedUploadExtensions?: readonly string[];
+
+  /**
+   * Convert raw uploaded bytes (in an extension listed in
+   * `acceptedUploadExtensions`) into CSV text. Bank-specific knowledge about
+   * byte encoding, sheet layout, and statement-period naming lives here so
+   * `server/routes/upload.ts` stays account-agnostic.
+   */
+  transcodeUpload?: (raw: Buffer, originalFilename: string) => TranscodedUpload;
 }
 
 export interface ParserMap {
@@ -250,6 +278,16 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     currency: 'AED',
     category: 'business',
     business: { vatApplicable: false, corpTaxApplicable: false },
+    canMakeOutgoingPayments: true,
+    excludeTransfersFromIncome: false,
+    showTaxLiabilities: false,
+  },
+  'santander-everyday': {
+    name: 'santander-everyday',
+    label: 'Santander Everyday',
+    type: 'credit-card',
+    currency: 'GBP',
+    category: 'personal',
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,

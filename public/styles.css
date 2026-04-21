@@ -339,10 +339,16 @@ body {
   padding: 6px 8px;
   border-radius: 4px;
   font-size: 0.85rem;
+  cursor: pointer;
 }
 
 .category-legend-item:hover {
   background: var(--color-bg);
+}
+
+.category-legend-item:focus-visible {
+  outline: 2px solid var(--color-primary, #3b82f6);
+  outline-offset: 2px;
 }
 
 .category-swatch {

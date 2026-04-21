@@ -285,6 +285,8 @@ export function detectTransfers(): number {
       AND (
         LOWER(description) LIKE '%capital on tap%'
         OR LOWER(description) LIKE '%barclaycard%'
+        OR LOWER(description) LIKE '%santander%'
+        OR description LIKE '%3062%'
       )
   `).all() as Array<{
     id: number;
@@ -345,6 +347,8 @@ export function detectTransfers(): number {
       AND (
         LOWER(description) LIKE '%capital on tap%'
         OR LOWER(description) LIKE '%barclaycard%'
+        OR LOWER(description) LIKE '%santander%'
+        OR description LIKE '%3062%'
         OR LOWER(description) LIKE '%virtualbanktransfer%'
         OR LOWER(description) LIKE '%optional ft%'
         OR description LIKE '%60878820%'

@@ -10,6 +10,7 @@ import { initDatabase } from '../db/index.js';
 import type { UploadedFile, UploadResponse } from '../types.js';
 import { ACCOUNTS, AccountName } from '../types.js';
 import type { UploadResponse as UploadResponseContract } from '../../shared/api-contracts.js';
+import { PARSERS } from '../parsers/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -59,32 +60,98 @@ const storage = multer.diskStorage({
   }
 });
 
+/**
+ * Result of evaluating whether an uploaded file should be accepted by multer.
+ * Exported for unit-testing the pipeline without a full HTTP round-trip.
+ */
+export type UploadAcceptance =
+  | { accepted: true }
+  | { accepted: false; reason: string };
+
+/**
+ * PURE - Decide whether a given filename is allowed for a given `account` and
+ * `type`. The CSV lane optionally widens to a parser's declared
+ * `acceptedUploadExtensions` (e.g. `.xls` for banks that ship HTML tables);
+ * no account-name string literals live here.
+ */
+export function evaluateUploadAcceptance(
+  filename: string,
+  account: string,
+  type: string,
+): UploadAcceptance {
+  const ext = path.extname(filename).toLowerCase();
+
+  if (account === 'invoices') {
+    if (ext === '.pdf') return { accepted: true };
+    return { accepted: false, reason: 'Invoices must be PDF files' };
+  }
+
+  if (type === 'pdf' && ext === '.pdf') return { accepted: true };
+  if (type === 'csv' && ext === '.csv') return { accepted: true };
+
+  if (type === 'csv' && ACCOUNTS.includes(account as AccountName)) {
+    const extras = PARSERS[account]?.acceptedUploadExtensions ?? [];
+    if (extras.includes(ext)) return { accepted: true };
+  }
+
+  return {
+    accepted: false,
+    reason: `Invalid file type. Expected ${type.toUpperCase()} file.`,
+  };
+}
+
 const upload = multer({ 
   storage,
   fileFilter: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
     const account = getParam(req.params, 'account');
     const type = getParam(req.params, 'type');
-    
-    // For invoices, accept PDF
-    if (account === 'invoices') {
-      if (ext === '.pdf') {
-        return cb(null, true);
-      }
-      return cb(new Error('Invoices must be PDF files'));
-    }
-    
-    // For statements, match the type
-    if (type === 'pdf' && ext === '.pdf') {
-      return cb(null, true);
-    }
-    if (type === 'csv' && ext === '.csv') {
-      return cb(null, true);
-    }
-    
-    cb(new Error(`Invalid file type. Expected ${type.toUpperCase()} file.`));
+    const decision = evaluateUploadAcceptance(file.originalname, account, type);
+    if (decision.accepted) return cb(null, true);
+    cb(new Error(decision.reason));
   }
 });
+
+/**
+ * Transcode any non-CSV uploads into CSV files in place, using the parser's
+ * declared capability. Preserves the raw bytes in `_originals` so the
+ * original download is recoverable, then mutates the `files` array entries
+ * so the rest of the upload pipeline (validation, duplicate check,
+ * partitioner, normaliser, DB reload) can treat everything as CSV.
+ *
+ * The parser owns all bank-specific knowledge: byte encoding, how to derive
+ * a sensible on-disk filename for the converted file, etc. This route simply
+ * dispatches through the capability.
+ */
+function transcodeNonCsvUploads(
+  files: Express.Multer.File[],
+  account: string,
+): void {
+  const parser = PARSERS[account];
+  if (!parser?.transcodeUpload) return;
+
+  const originalsDir = path.join(STATEMENTS_DIR, account, 'csv', '_originals');
+  if (!fs.existsSync(originalsDir)) {
+    fs.mkdirSync(originalsDir, { recursive: true });
+  }
+
+  for (const f of files) {
+    const ext = path.extname(f.originalname).toLowerCase();
+    if (ext === '.csv') continue;
+
+    fs.copyFileSync(f.path, path.join(originalsDir, f.originalname));
+
+    const raw = fs.readFileSync(f.path);
+    const { csv, filenameHint } = parser.transcodeUpload(raw, f.originalname);
+
+    const csvPath = path.join(path.dirname(f.path), filenameHint);
+    fs.writeFileSync(csvPath, csv, 'utf-8');
+    if (csvPath !== f.path) fs.unlinkSync(f.path);
+
+    f.path = csvPath;
+    f.filename = path.basename(csvPath);
+    f.originalname = filenameHint;
+  }
+}
 
 interface UploadedFileWithStats extends UploadedFile {
   transactionsAdded?: number;
@@ -107,6 +174,13 @@ router.post('/:account/:type', upload.array('files', 50), async (req: Request, r
     res.status(400).json({ error: 'No files uploaded' });
     return;
   }
+
+  // Some banks (e.g. Santander) ship uploads in non-CSV formats. Parsers
+  // that opt in via `acceptedUploadExtensions` + `transcodeUpload` get their
+  // files converted here so every downstream step (validation, duplicate
+  // detection, partitioner, filename normaliser) can treat them like any
+  // other CSV upload.
+  transcodeNonCsvUploads(files, account);
   
   // For CSV files, validate format BEFORE processing
   if (type === 'csv') {

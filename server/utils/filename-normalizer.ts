@@ -140,7 +140,7 @@ export function normalizeFileOnDisk(filePath: string, account: string): Normaliz
   }
   
   // Get normalized filename (now includes account)
-  const normalizedFilename = normalizeFilename(originalFilename, parser, account);
+  let normalizedFilename = normalizeFilename(originalFilename, parser, account);
   
   // If already normalized or couldn't normalize, return as-is
   if (normalizedFilename === originalFilename) {
@@ -151,22 +151,28 @@ export function normalizeFileOnDisk(filePath: string, account: string): Normaliz
     };
   }
   
-  // Prepare target path with normalized filename
-  const newPath = path.join(directory, normalizedFilename);
-  
-  // If target file already exists, delete it (we're replacing it with the new upload)
-  if (fs.existsSync(newPath) && newPath !== filePath) {
-    fs.unlinkSync(newPath);
+  // If the target already exists and isn't us, fall back to a unique suffix.
+  // Two uploads can legitimately normalise to the same `YYYY-MM_…` name when a
+  // single statement period spans multiple calendar months (or when a bank's
+  // download filename only carries the request date, not the statement date).
+  // Deleting the existing file would drop previously ingested rows; leaving
+  // both files on disk lets the DB reload pick them both up.
+  let targetPath = path.join(directory, normalizedFilename);
+  if (fs.existsSync(targetPath) && targetPath !== filePath) {
+    const existing = new Set(fs.readdirSync(directory));
+    const ext = getExtension(normalizedFilename);
+    const baseName = removeExtension(normalizedFilename);
+    normalizedFilename = generateUniqueFilename(baseName, ext, existing);
+    targetPath = path.join(directory, normalizedFilename);
   }
   
-  // Rename the file to normalized name
-  fs.renameSync(filePath, newPath);
+  fs.renameSync(filePath, targetPath);
   
   return {
     original: originalFilename,
     normalized: normalizedFilename,
     renamed: true,
-    newPath
+    newPath: targetPath
   };
 }
 

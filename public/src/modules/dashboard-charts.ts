@@ -118,36 +118,12 @@ export async function renderCategoryChart(): Promise<void> {
       return;
     }
 
-    const threshold = 2;
-    const visible: typeof data.categories = [];
-    let otherTotal = 0;
-    let otherCount = 0;
-
-    for (const cat of data.categories) {
-      if (cat.percentage < threshold) {
-        otherTotal += cat.total;
-        otherCount += cat.count;
-      } else {
-        visible.push(cat);
-      }
-    }
-
-    if (otherTotal > 0) {
-      const existingOther = visible.find(c => c.name === 'Other');
-      if (existingOther) {
-        existingOther.total += otherTotal;
-        existingOther.count += otherCount;
-        existingOther.percentage = Math.round((existingOther.total / data.totalExpenses) * 1000) / 10;
-      } else {
-        visible.push({
-          name: 'Other',
-          total: Math.round(otherTotal * 100) / 100,
-          count: otherCount,
-          percentage: Math.round((otherTotal / data.totalExpenses) * 1000) / 10,
-          colour: '#6B7280',
-        });
-      }
-    }
+    // Show every non-zero spend category as its own slice (API returns them
+    // sorted by descending total). The real 'Other' classification bucket
+    // still appears naturally if it has spend — we no longer fold small
+    // categories into a synthetic 'Other', which previously hid ~10 real
+    // categories (e.g. Eating Out at ~1.4%) behind an opaque label.
+    const visible = data.categories;
 
     currentVisibleCategories = visible.map(c => c.name);
 
@@ -218,7 +194,7 @@ export async function renderCategoryChart(): Promise<void> {
     if (legendEl) {
       legendEl.innerHTML = visible
         .map(c => `
-          <div class="category-legend-item">
+          <div class="category-legend-item" role="button" tabindex="0" data-category="${c.name}">
             <span class="category-swatch" style="background:${c.colour}"></span>
             <span class="category-name">${c.name}</span>
             <span class="category-amount">${formatCurrency(c.total, getSelectedCurrency())}</span>
@@ -226,6 +202,22 @@ export async function renderCategoryChart(): Promise<void> {
           </div>
         `)
         .join('');
+
+      // Delegated click/keyboard handler: parity with the donut slice onClick
+      // above. Using `.onclick` / `.onkeydown` (not addEventListener) so
+      // repeated renderCategoryChart() calls overwrite rather than accumulate.
+      const openCategory = (target: EventTarget | null): void => {
+        const item = (target as HTMLElement | null)?.closest<HTMLElement>('.category-legend-item');
+        const name = item?.dataset.category;
+        if (name) showCategoryTransactionsModal(name);
+      };
+      legendEl.onclick = (ev) => openCategory(ev.target);
+      legendEl.onkeydown = (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          openCategory(ev.target);
+        }
+      };
     }
   } catch (error) {
     console.error('[Dashboard] Error loading categories:', error);

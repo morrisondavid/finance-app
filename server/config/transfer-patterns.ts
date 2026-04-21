@@ -12,6 +12,8 @@
 export const TRANSFER_PATTERNS: RegExp[] = [
   /capital on tap/i,
   /barclaycard/i,
+  /santander/i,             // Santander Everyday credit card payments
+  /\b3062\b/,               // Santander Everyday card number fallback
   /credit card/i,
   /transfer to/i,
   /transfer from/i,
@@ -48,6 +50,12 @@ export const TRANSFER_SQL_PATTERNS = {
   
   /** Barclaycard payments */
   BARCLAYCARD: '%barclaycard%',
+
+  /** Santander Everyday card payments */
+  SANTANDER: '%santander%',
+
+  /** Santander Everyday card reference (last 4 of card) */
+  SANTANDER_REF: '%3062%',
   
   /** Virtual bank transfers */
   VIRTUAL_TRANSFER: '%virtualbanktransfer%',

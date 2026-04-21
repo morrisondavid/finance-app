@@ -182,7 +182,7 @@ export const MERCHANT_REGISTRY: readonly MerchantEntry[] = [
   { pattern: /\bB&M\b/i, category: 'Groceries', displayName: 'B&M' },
   { pattern: /OCADO/i, category: 'Groceries', displayName: 'Ocado' },
   { pattern: /AMAZON FRESH/i, category: 'Groceries', displayName: 'Amazon Fresh' },
-  { pattern: /M&S FOOD/i, category: 'Groceries', displayName: 'M&S Food' },
+  { pattern: /M&S\b/i, category: 'Groceries', displayName: 'M&S' },
   { pattern: /ICELAND/i, category: 'Groceries', displayName: 'Iceland' },
   { pattern: /MODERN MILKMAN/i, category: 'Groceries', displayName: 'Modern Milkman' },
   { pattern: /\bLULU\b/i, category: 'Groceries', displayName: null },
@@ -195,6 +195,10 @@ export const MERCHANT_REGISTRY: readonly MerchantEntry[] = [
   { pattern: /BALGORES LANE/i, category: 'Groceries', displayName: null },
   { pattern: /ROMFORD MINI/i, category: 'Groceries', displayName: 'Romford Mini Market' },
   { pattern: /GNANAM/i, category: 'Groceries', displayName: 'Gnanam & Son' },
+  // Careem Quik is Careem's ~15-minute grocery delivery service — kept in the
+  // Groceries block above the Eating Out `CAREEM FOOD` entry so `CAREEM FOOD`
+  // still wins on food line-items (first match wins).
+  { pattern: /CAREEM QUIK/i, category: 'Groceries', displayName: 'Careem Quik' },
 
   // ─── Eating Out ─────────────────────────────────────────────────────────────
   { pattern: /DELIVEROO/i, category: 'Eating Out', displayName: 'Deliveroo' },
@@ -216,8 +220,7 @@ export const MERCHANT_REGISTRY: readonly MerchantEntry[] = [
   { pattern: /FIVE GUYS/i, category: 'Eating Out', displayName: 'Five Guys' },
   { pattern: /PAPA JOHN/i, category: 'Eating Out', displayName: "Papa John's" },
   { pattern: /CAREEM FOOD/i, category: 'Eating Out', displayName: 'Careem Food' },
-  { pattern: /CAREEM DELIVERIES/i, category: 'Eating Out', displayName: 'Careem Delivery' },
-  { pattern: /CAREEM QUIK/i, category: 'Eating Out', displayName: 'Careem Quick' },
+  { pattern: /CAREEM DELIVERIES/i, category: 'Eating Out', displayName: 'Careem Deliveries' },
   { pattern: /SLIM CHICKEN/i, category: 'Eating Out', displayName: 'Slim Chickens' },
   { pattern: /TACO BELL/i, category: 'Eating Out', displayName: 'Taco Bell' },
   { pattern: /HOT & TASTY/i, category: 'Eating Out', displayName: 'Hot & Tasty' },
@@ -466,7 +469,6 @@ export const MERCHANT_REGISTRY: readonly MerchantEntry[] = [
   { pattern: /HVP RETAIL/i, category: 'Shopping', displayName: 'HVP Retail' },
   { pattern: /TROPH/i, category: 'Shopping', displayName: 'Trophy Store' },
   { pattern: /POST OFFICE/i, category: 'Shopping', displayName: 'Post Office' },
-  { pattern: /M&S\b/i, category: 'Shopping', displayName: 'M&S' },
   { pattern: /SPORTSWEAR MARKET/i, category: 'Shopping', displayName: 'Sportswear Market' },
   { pattern: /LIBERTY SHOPP/i, category: 'Shopping', displayName: 'Liberty Shopping Centre' },
   { pattern: /THE MEADOWS RETAIL/i, category: 'Shopping', displayName: null },

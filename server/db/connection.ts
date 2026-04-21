@@ -218,6 +218,13 @@ export function initSchema(): void {
     INSERT OR IGNORE INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
     VALUES ('emirates-islamic', 0.00, '2026-02-22', CURRENT_TIMESTAMP)
   `).run();
+  // Santander Everyday opens at 0.00 the day before the first statement's
+  // 2025-03-20 BALANCE TRANSFER MERCH row, so the ingested transactions
+  // drive the running balance up to the current ~£6,873.84 naturally.
+  db.prepare(`
+    INSERT OR IGNORE INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
+    VALUES ('santander-everyday', 0.00, '2025-03-19', CURRENT_TIMESTAMP)
+  `).run();
 
   console.log('[Database] Schema initialized');
 }

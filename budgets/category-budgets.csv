@@ -1,2 +1,8 @@
 account,category,amount,period
+monzo-joint,Eating Out,0,monthly
+monzo-joint,Entertainment,0,monthly
 monzo-joint,Groceries,600,monthly
+monzo-joint,Health & Personal,0,monthly
+monzo-joint,Shopping,0,monthly
+monzo-joint,Transport,150,monthly
+monzo-joint,Travel,0,monthly

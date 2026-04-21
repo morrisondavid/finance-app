@@ -6,6 +6,34 @@ import { uploadFiles as apiUploadFiles } from '../utils/api';
 import { escapeHtml } from '../utils/dom';
 
 /**
+ * Extra upload extensions a given account accepts on the CSV lane, in addition
+ * to `.csv`. This mirrors each parser's server-side `acceptedUploadExtensions`
+ * capability (see `server/parsers/*.ts`); the server is still the source of
+ * truth, this map just keeps the OS file picker from filtering out files the
+ * server would have accepted anyway.
+ */
+const CSV_LANE_EXTRAS: Record<string, readonly string[]> = {
+  'santander-everyday': ['.xls'],
+};
+
+/**
+ * Update the statements file input's `accept` attribute to match the currently
+ * selected account + type, so drag-and-drop and the OS file picker only offer
+ * files the server will accept.
+ */
+function refreshStatementsAccept(): void {
+  const accountSelect = document.getElementById('upload-account') as HTMLSelectElement | null;
+  const typeSelect = document.getElementById('upload-type') as HTMLSelectElement | null;
+  const fileInput = document.getElementById('file-input-statements') as HTMLInputElement | null;
+  if (!accountSelect || !typeSelect || !fileInput) return;
+
+  const type = typeSelect.value;
+  const base: string[] = type === 'pdf' ? ['.pdf'] : type === 'csv' ? ['.csv'] : ['.pdf', '.csv'];
+  const extras = type === 'csv' ? (CSV_LANE_EXTRAS[accountSelect.value] ?? []) : [];
+  fileInput.accept = [...base, ...extras].join(',');
+}
+
+/**
  * Initialize upload functionality
  */
 export function initUpload(callbacks: {
@@ -23,7 +51,16 @@ export function initUpload(callbacks: {
     },
     onSuccess: callbacks.onUploadSuccess
   });
-  
+
+  // Keep the file input's `accept` attribute in sync with the account/type
+  // selectors so uploads that the parser can't handle are filtered out at the
+  // OS level, not only by the server.
+  const accountSelect = document.getElementById('upload-account');
+  const typeSelect = document.getElementById('upload-type');
+  accountSelect?.addEventListener('change', refreshStatementsAccept);
+  typeSelect?.addEventListener('change', refreshStatementsAccept);
+  refreshStatementsAccept();
+
   // Invoices upload
   initDropzone({
     dropzoneId: 'dropzone-invoices',

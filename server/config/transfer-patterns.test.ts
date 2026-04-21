@@ -20,6 +20,14 @@ describe('Transfer Pattern Detection', () => {
       expect(isTransferDescription('BARCLAYCARD DIRECT DEBIT')).toBe(true);
     });
 
+    it('should detect Santander Everyday card payments by name or card number', () => {
+      expect(isTransferDescription('SANTANDER CARDS')).toBe(true);
+      expect(isTransferDescription('Santander Credit Card Payment')).toBe(true);
+      expect(isTransferDescription('DD TO SANTANDER 3062')).toBe(true);
+      // Bare card number should still classify as a transfer reference.
+      expect(isTransferDescription('CARD PAYMENT REF 3062')).toBe(true);
+    });
+
     it('should detect generic credit card transfers', () => {
       expect(isTransferDescription('Credit card payment')).toBe(true);
       expect(isTransferDescription('CREDIT CARD REPAYMENT')).toBe(true);

@@ -38,7 +38,8 @@ export const AccountNameSchema = z.enum([
   'natwest',
   'natwest-savings',
   'monzo-joint',
-  'emirates-islamic'
+  'emirates-islamic',
+  'santander-everyday'
 ]);
 
 /**

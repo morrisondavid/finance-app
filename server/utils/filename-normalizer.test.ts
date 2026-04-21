@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import {
   normalizeFilename,
+  normalizeFileOnDisk,
   isNormalized,
   cleanJunk,
   getExtension,
@@ -212,5 +216,41 @@ describe('Pure Functions', () => {
       expect(normalizeFilename('Statement 27-DEC-24.csv', mockParser, 'capital-on-tap')).toBe('2024-12_transactions_capital-on-tap.csv');
       expect(normalizeFilename('Statement 27-DEC-24.pdf', mockParser, 'natwest')).toBe('2024-12_statement_natwest.pdf');
     });
+  });
+});
+
+describe('normalizeFileOnDisk', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'normaliser-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  // Two uploads can legitimately normalise to the same `YYYY-MM_transactions_...`
+  // target (e.g. a bank's download filenames all carry the request date, not
+  // the statement period). Historically the normaliser deleted the existing
+  // target, which silently dropped previously ingested rows. Today it must
+  // disambiguate with a `_2`/`_3` suffix and leave both files on disk so the
+  // DB reload can load both.
+  it('preserves an existing target by suffixing the new file on collision', () => {
+    const original = path.join(tmpDir, '2025-08_transactions_santander-everyday.csv');
+    fs.writeFileSync(original, 'first-upload-rows');
+
+    const incomingName = '2025-08-21_Report_2042026NUMERO_DE_PERSONA 98340537 (5).csv';
+    const incoming = path.join(tmpDir, incomingName);
+    fs.writeFileSync(incoming, 'second-upload-rows');
+
+    const result = normalizeFileOnDisk(incoming, 'santander-everyday');
+
+    expect(result.renamed).toBe(true);
+    expect(result.normalized).toBe('2025-08_transactions_santander-everyday_2.csv');
+    expect(fs.existsSync(original)).toBe(true);
+    expect(fs.readFileSync(original, 'utf-8')).toBe('first-upload-rows');
+    expect(fs.existsSync(incoming)).toBe(false);
+    expect(fs.readFileSync(result.newPath!, 'utf-8')).toBe('second-upload-rows');
   });
 });
