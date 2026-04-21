@@ -742,6 +742,14 @@ export const OutgoingObligationSchema = z.discriminatedUnion('category', [
   }),
   obligationCategory('insurance', {
     dueDate: z.string().optional(),
+    /**
+     * Optional per-row override for the obligation-state-matcher's default
+     * amount-tolerance ratio when auto-matching renewal debits. Useful
+     * for insurance policies whose premiums climb sharply year-over-year
+     * and would otherwise fall outside the default tolerance window.
+     * Expressed as a decimal fraction (e.g. 0.3 = ±30%).
+     */
+    amountTolerance: z.number().optional(),
   }),
   obligationCategory('tax-manual', {
     personId: PersonIdSchema.optional(),
@@ -827,6 +835,19 @@ export const CreateObligationBodySchema = z.object({
 });
 
 export const UpdateObligationBodySchema = CreateObligationBodySchema.partial();
+
+/**
+ * Body of `POST /api/obligations/:id/state`. Lightweight write path used
+ * by the Mark Paid UI (and any future explicit-override surface) to
+ * publish a user-authored status override into `obligation-state.csv`.
+ * Always writes a `source=user` row; auto-* ids are rejected server-side.
+ */
+export const ObligationStateUpsertBodySchema = z.object({
+  status: ObligationStatusSchema,
+  paidAmount: z.number().nullable().optional(),
+  paidDate: z.string().nullable().optional(),
+  paidFromAccount: z.string().nullable().optional(),
+});
 
 // ============================================
 // Obligation Dismissals
@@ -1039,6 +1060,7 @@ export type UpcomingPaymentItem = z.infer<typeof UpcomingPaymentItemSchema>;
 export type UpcomingPaymentsResponse = z.infer<typeof UpcomingPaymentsResponseSchema>;
 export type CreateObligationBody = z.infer<typeof CreateObligationBodySchema>;
 export type UpdateObligationBody = z.infer<typeof UpdateObligationBodySchema>;
+export type ObligationStateUpsertBody = z.infer<typeof ObligationStateUpsertBodySchema>;
 export type Dismissal = z.infer<typeof DismissalSchema>;
 export type CreateDismissalBody = z.infer<typeof CreateDismissalBodySchema>;
 export type DismissalsListResponse = z.infer<typeof DismissalsListResponseSchema>;

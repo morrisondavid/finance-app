@@ -35,6 +35,7 @@ import { deriveAndInsertAutoObligations } from './repositories/vat-auto-seed.js'
 import { deriveAndInsertAutoSaObligations } from './repositories/sa-auto-seed.js';
 import { deriveAndInsertAutoCtObligations } from './repositories/ct-auto-seed.js';
 import { deriveAndInsertAutoTtpObligations } from './repositories/hmrc-ttp-auto-seed.js';
+import { deriveAndWriteAutoObligationStates } from './repositories/obligation-state-matcher.js';
 
 // Re-export from connection
 export { 
@@ -151,6 +152,18 @@ export async function initDatabase(): Promise<void> {
   // already respects hidden slots (otherwise the dismissed rows flash
   // into `financial_obligations` until the next mutation triggers a reseed).
   loadDismissalsFromCsv();
+  // Auto-derive `source=auto` state rows for one-off / annual
+  // obligations (renewal debits) BEFORE projecting the manual obligations
+  // into `financial_obligations`. The projection reads obligation-state.csv
+  // to apply status overrides, so the matcher's writes must land first
+  // or they won't be visible until the next reload cycle. Fault-tolerant
+  // for the same reason as the HMRC seeders: a matcher bug must never
+  // block the core obligations registry from loading.
+  try {
+    deriveAndWriteAutoObligationStates();
+  } catch (err) {
+    console.error('[Database] Obligation state auto-matcher failed:', err);
+  }
   loadManualObligationsFromCsv();
   deriveAndInsertAutoObligations();
   // SA seeding runs after VAT. If it throws we log and continue so a bug

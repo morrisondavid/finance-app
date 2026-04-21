@@ -18,33 +18,34 @@ import {
 import { getBusinessPaymentAccounts } from '../../types.js';
 import { round2 } from '../../utils/math.js';
 import { buildVatAccountFilter, buildCorpTaxAccountFilter } from '../utils/tax-account-filter.js';
+import {
+  findExpenseTransactionsByDescriptionPatterns,
+  type ExpenseTransactionMatch,
+} from './transaction-queries.js';
 
-export interface HmrcPaymentMatch {
-  date: string;
-  amount: number;
-  account: string;
-  description: string;
-}
+/**
+ * Historical name for the shared {@link ExpenseTransactionMatch} shape.
+ * Kept as an alias so the existing HMRC seeders + routes don't churn
+ * their imports; new callers should prefer {@link ExpenseTransactionMatch}
+ * directly.
+ */
+export type HmrcPaymentMatch = ExpenseTransactionMatch;
 
+/**
+ * HMRC-flavoured wrapper around
+ * {@link findExpenseTransactionsByDescriptionPatterns}. Exists only to
+ * preserve the legacy name at call sites (VAT / CT / SA seeders,
+ * `/api/tax/vat-payments`). Future callers should use the generic
+ * primitive directly — the HMRC-ness lives purely in the supplied
+ * `patterns` + `accounts`.
+ */
 export function findHmrcPayments(opts: {
   patterns: readonly string[];
   accounts: readonly string[];
   startDate: string;
   endDate: string;
 }): HmrcPaymentMatch[] {
-  const db = getDb();
-  const patternCondition = opts.patterns.map(() => 'description LIKE ?').join(' OR ');
-  const accountPlaceholders = opts.accounts.map(() => '?').join(',');
-
-  return db.prepare(`
-    SELECT date, amount, account, description
-    FROM transactions
-    WHERE type = 'expense'
-    AND (${patternCondition})
-    AND account IN (${accountPlaceholders})
-    AND date >= ? AND date <= ?
-    ORDER BY date ASC
-  `).all(...opts.patterns, ...opts.accounts, opts.startDate, opts.endDate) as HmrcPaymentMatch[];
+  return findExpenseTransactionsByDescriptionPatterns(opts);
 }
 
 /**

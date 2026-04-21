@@ -25,8 +25,10 @@ function hasOwnership(c: Obligation): c is Extract<IncomingObligation, { categor
 function hasPersonId(c: Obligation): c is Extract<OutgoingObligation, { category: 'payroll' | 'tax-manual' }> {
   return c.category === 'payroll' || c.category === 'tax-manual';
 }
-function hasAmountTolerance(c: Obligation): c is Extract<OutgoingObligation, { category: 'payroll' }> {
-  return c.category === 'payroll';
+function hasAmountTolerance(
+  c: Obligation,
+): c is Extract<OutgoingObligation, { category: 'payroll' | 'insurance' }> {
+  return c.category === 'payroll' || c.category === 'insurance';
 }
 function hasDueDate(c: Obligation): c is Extract<OutgoingObligation, { category: 'insurance' | 'tax-manual' }> {
   return c.category === 'insurance' || c.category === 'tax-manual';

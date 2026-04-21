@@ -11,6 +11,9 @@ import {
   createManualObligation,
   updateManualObligation,
   deleteManualObligation,
+  upsertManualObligationState,
+  resetManualObligationState,
+  NonManualStateError,
   getObligationById,
   toApiObligation,
 } from '../db/repositories/obligations.js';
@@ -29,6 +32,7 @@ import {
   CreateObligationBodySchema,
   UpdateObligationBodySchema,
   CreateDismissalBodySchema,
+  ObligationStateUpsertBodySchema,
   type ObligationsListResponse,
   type VatReconciliationResponse,
   type UpcomingObligationsResponse,
@@ -350,6 +354,61 @@ router.put('/:id', (req: Request<{ id: string }>, res: Response<ObligationRow | 
   } catch (error) {
     console.error('Error updating obligation:', error);
     res.status(500).json({ error: 'Failed to update obligation' });
+  }
+});
+
+/**
+ * Upsert a user-authored state row for a manual obligation (Mark Paid,
+ * Mark Unpaid, explicit status override). Writes to
+ * `obligation-state.csv` with `source=user` so the auto-matcher
+ * (obligation-state-matcher) never overwrites it. Rejects `auto-*`
+ * ids — those are owned by the HMRC seeders and would be regenerated.
+ */
+router.post('/:id/state', (req: Request<{ id: string }>, res: Response<ObligationRow | { error: string }>) => {
+  try {
+    const parsed = ObligationStateUpsertBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: `Invalid body: ${parsed.error.issues.map(i => i.message).join(', ')}` });
+      return;
+    }
+    try {
+      const row = upsertManualObligationState(req.params.id, parsed.data);
+      if (!row) { res.status(404).json({ error: 'Obligation not found' }); return; }
+      res.json(toApiObligation(row));
+    } catch (err) {
+      if (err instanceof NonManualStateError) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+  } catch (error) {
+    console.error('Error upserting obligation state:', error);
+    res.status(500).json({ error: 'Failed to update obligation state' });
+  }
+});
+
+/**
+ * Reset any user-authored or auto-derived state row back to the
+ * default projection (Undo Mark Paid, restore auto-matcher control).
+ * Returns 404 if there was nothing to reset.
+ */
+router.delete('/:id/state', (req: Request<{ id: string }>, res: Response<{ success: boolean } | { error: string }>) => {
+  try {
+    try {
+      const removed = resetManualObligationState(req.params.id);
+      if (!removed) { res.status(404).json({ error: 'No state override to reset' }); return; }
+      res.json({ success: true });
+    } catch (err) {
+      if (err instanceof NonManualStateError) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+  } catch (error) {
+    console.error('Error resetting obligation state:', error);
+    res.status(500).json({ error: 'Failed to reset obligation state' });
   }
 });
 

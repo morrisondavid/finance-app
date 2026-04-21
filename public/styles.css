@@ -3173,6 +3173,7 @@ body {
 .obligations-status-badge {
   display: inline-block; padding: 0.15em 0.5em; border-radius: 999px;
   font-size: 0.7rem; font-weight: 600; color: #fff; text-transform: uppercase; letter-spacing: 0.03em;
+  white-space: nowrap;
 }
 
 /* Self Assessment "estimate" affordances — distinguish auto rows from
@@ -3229,7 +3230,7 @@ body {
 }
 .obligations-overdue-item {
   display: grid;
-  grid-template-columns: 1fr auto auto auto;
+  grid-template-columns: 1fr auto auto auto auto;
   gap: 1rem;
   align-items: center;
   padding: 0.85rem 1rem;
@@ -3238,6 +3239,11 @@ body {
   border-radius: 6px;
   border-left: 6px solid #fff;
 }
+.obligations-overdue-item .obligations-overdue-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.obligations-overdue-item .obligations-overdue-actions:empty { display: none; }
 .obligations-overdue-item strong { font-size: 1.05rem; font-weight: 800; color: #fff; }
 .obligations-overdue-item .obligations-overdue-entity { display: block; font-weight: 500; opacity: 0.85; font-size: 0.85rem; }
 .obligations-overdue-item .obligations-overdue-amount { font-weight: 800; font-size: 1.05rem; }

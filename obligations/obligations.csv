@@ -2,3 +2,6 @@ id,category,frequency,merchant,display_name,account,amount,currency,notes,owners
 manual-ed2f2cf3-8f8b-45d2-8ede-bf3bb94df495,tax-manual,one-off,HMRC,Self Assessment Tax,,2083.54,GBP,,,,,,2026-01-31,self-assessment
 manual-665c8ca2-3383-47a8-8889-122435f74b3a,insurance,annual,Orient Insurance PJSC,Professional Indemnity,emirates-islamic,25200,AED,"25200 AED (annual professional indemnity)",,,,,2027-03-27,
 manual-0a2cda18-eb22-4526-bcba-711e802ffb2b,insurance,annual,Orient Insurance PJSC,Public Liability,emirates-islamic,3150,AED,"3150 AED (annual public liability)",,,,,2027-03-27,
+manual-31dabe96-a412-4b9d-b359-6b89c5fb41ea,insurance,annual,Kingsbridge,Kingsbridge Insurance (UK ltd),barclays-current,614.88,GBP,"Annual UK ltd business insurance. Most recent charge 2025-11-06; rising year-on-year (223/475/503/615).",,,,,2026-11-06,
+manual-fac5747b-3bce-4eb0-b176-96c295b780b0,insurance,monthly,Churchill Insurance,Landlord Insurance — 78 Hunters Square,monzo-joint,89.43,GBP,"Monthly landlord policy. Stream running on monzo-joint since Sep 2019.",0.5,0.5,,,,
+manual-d75f68d8-22ee-4f55-86e6-a31ba75cc65d,insurance,monthly,Churchill Insurance,Landlord Insurance — 56 Thorney House,monzo-joint,93.22,GBP,"Monthly landlord policy. Stream running on monzo-joint since Aug 2020.",0.5,0.5,,,,

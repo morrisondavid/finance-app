@@ -104,6 +104,24 @@ function upcomingItemDate(item: UpcomingPaymentItem): string {
   return item.kind === 'obligation' ? item.dueDate : item.nextExpectedDate;
 }
 
+/**
+ * True when a Mark Paid / Undo action should be offered for this row.
+ *
+ * State overrides live in `obligation-state.csv` keyed by obligation id;
+ * auto-seeded HMRC rows (ids prefixed `auto-`) are owned by the seeders
+ * and cannot accept a user state override — the server rejects those
+ * ids at the `/state` endpoint. So the UI only offers the action for
+ * `source=manual` rows, which is equivalent but checked client-side so
+ * the button never renders in the first place.
+ */
+function supportsStateOverride(o: ObligationItem): boolean {
+  return o.source === 'manual';
+}
+
+function isPaidStatus(status: string): boolean {
+  return status === 'paid' || status === 'confirmed';
+}
+
 function renderOverdue(obligations: ObligationItem[]): void {
   const panel = document.getElementById('obligations-overdue-panel');
   const list = document.getElementById('obligations-overdue-list');
@@ -118,6 +136,9 @@ function renderOverdue(obligations: ObligationItem[]): void {
   panel.style.display = '';
   const rows = obligations.map(o => {
     const days = o.dueDate ? Math.abs(daysUntil(o.dueDate)) : 0;
+    const action = supportsStateOverride(o)
+      ? `<button type="button" class="btn btn-sm obligations-mark-paid-btn" data-id="${escapeHtml(o.id)}">Mark paid</button>`
+      : '';
     return `
       <div class="obligations-overdue-item">
         <div>
@@ -127,10 +148,20 @@ function renderOverdue(obligations: ObligationItem[]): void {
         <div class="obligations-overdue-amount">${o.expectedAmount !== null ? formatCurrency(o.expectedAmount) : '—'}</div>
         <div class="obligations-overdue-due">Due ${o.dueDate ? escapeHtml(formatIsoDateUkLong(o.dueDate)) : '—'}</div>
         <div class="obligations-overdue-days">${days} ${days === 1 ? 'day' : 'days'} overdue</div>
+        <div class="obligations-overdue-actions">${action}</div>
       </div>`;
   }).join('');
 
   list.innerHTML = rows;
+
+  list.querySelectorAll<HTMLButtonElement>('.obligations-mark-paid-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.id;
+      if (!id) return;
+      const obligation = obligations.find(o => o.id === id);
+      if (obligation) void handleMarkPaid(obligation);
+    });
+  });
 }
 
 function renderUpcomingPayments(items: UpcomingPaymentItem[]): void {
@@ -302,7 +333,15 @@ function renderRegistry(obligations: ObligationItem[], dismissals: DismissalItem
       // Dismissed auto rows only offer Undo — no editing, no second delete.
       actions = `<button type="button" class="btn btn-sm obligations-undismiss-btn" data-id="${escapeHtml(o.id)}">Undo</button>`;
     } else if (isManual) {
+      // Mark Paid / Undo sits between Edit and Delete so the two
+      // destructive-looking buttons (Delete, and Undo's confirm) aren't
+      // adjacent — Undo only clears the state override, not the row, but
+      // the visual grouping still matters for muscle memory.
+      const stateBtn = isPaidStatus(o.status)
+        ? `<button type="button" class="btn btn-sm obligations-undo-state-btn" data-id="${escapeHtml(o.id)}">Undo</button>`
+        : `<button type="button" class="btn btn-sm obligations-mark-paid-btn" data-id="${escapeHtml(o.id)}">Mark paid</button>`;
       actions = `<button type="button" class="btn btn-sm obligations-edit-btn" data-id="${escapeHtml(o.id)}">Edit</button>
+         ${stateBtn}
          <button type="button" class="btn btn-sm btn-danger obligations-delete-btn" data-id="${escapeHtml(o.id)}" data-source="manual">Delete</button>`;
     } else {
       // Auto row: keeps the same red `btn-danger` styling as the manual
@@ -382,6 +421,22 @@ function renderRegistry(obligations: ObligationItem[], dismissals: DismissalItem
       if (id) void handleUndismiss(id);
     });
   });
+
+  container.querySelectorAll<HTMLButtonElement>('.obligations-mark-paid-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.id;
+      if (!id) return;
+      const obligation = obligations.find(ob => ob.id === id);
+      if (obligation) void handleMarkPaid(obligation);
+    });
+  });
+
+  container.querySelectorAll<HTMLButtonElement>('.obligations-undo-state-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.id;
+      if (id) void handleUndoState(id);
+    });
+  });
 }
 
 function openModal(title: string): void {
@@ -445,6 +500,84 @@ async function handleDismiss(id: string): Promise<void> {
     await loadObligations();
   } catch (err) {
     console.error('[Obligations] Dismiss error:', err);
+  }
+}
+
+/**
+ * Current date as an ISO `YYYY-MM-DD` string in local time — the user's
+ * "today" on the UK-configured machine running this app, not UTC. Used to
+ * prefill the Mark Paid confirmation. Intentionally not `toISOString()`
+ * (that would roll over to the next day after 00:00 UTC).
+ */
+function todayIsoLocal(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Mark a manual obligation as paid. Prefills paid date to today and
+ * paid amount to the expected amount so the common case is a single
+ * confirm click; paid-from-account is left blank because the UI
+ * doesn't have the obligation's configured account to hand (that data
+ * lives in `obligations.csv` and isn't on `ObligationRowSchema`).
+ * Users who need to record a specific account can edit
+ * `obligation-state.csv` directly — same fallback path the rest of
+ * the state system relies on.
+ */
+async function handleMarkPaid(obligation: ObligationItem): Promise<void> {
+  const paidDate = todayIsoLocal();
+  const paidAmount = obligation.expectedAmount;
+  const amountLabel = paidAmount !== null ? formatCurrency(paidAmount) : '(no expected amount)';
+  const confirmMsg = `Mark "${obligation.name}" as paid on ${paidDate} for ${amountLabel}?`;
+  if (!confirm(confirmMsg)) return;
+
+  try {
+    const resp = await fetch(`/api/obligations/${encodeURIComponent(obligation.id)}/state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'paid',
+        paidAmount,
+        paidDate,
+        paidFromAccount: null,
+      }),
+    });
+    if (!resp.ok) {
+      const errPayload = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` })) as { error?: string };
+      throw new Error(errPayload.error ?? 'Mark paid failed');
+    }
+    await loadObligations();
+  } catch (err) {
+    console.error('[Obligations] Mark paid error:', err);
+    alert(err instanceof Error ? err.message : 'Mark paid failed');
+  }
+}
+
+/**
+ * Reset any state override on a manual obligation so it reverts to the
+ * default projection — undoes a Mark Paid, including ones applied by the
+ * auto-matcher (source=auto rows get cleared too, by design: if the user
+ * clicks Undo on a paid insurance row, they want the "not paid" state
+ * back, not the matcher immediately overwriting it on the next tick).
+ * Database-initialisation re-runs the matcher, so if the match was
+ * correct the row will flip back to paid — otherwise the user has
+ * cleared a false positive.
+ */
+async function handleUndoState(id: string): Promise<void> {
+  if (!confirm('Undo the paid status on this obligation?')) return;
+  try {
+    const resp = await fetch(`/api/obligations/${encodeURIComponent(id)}/state`, { method: 'DELETE' });
+    if (!resp.ok) {
+      const errPayload = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` })) as { error?: string };
+      throw new Error(errPayload.error ?? 'Undo failed');
+    }
+    await loadObligations();
+  } catch (err) {
+    console.error('[Obligations] Undo error:', err);
+    alert(err instanceof Error ? err.message : 'Undo failed');
   }
 }
 

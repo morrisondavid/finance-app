@@ -318,6 +318,7 @@ function writeStateFromInput(id: string, data: {
     paidAmount: data.paidAmount ?? null,
     paidDate: data.paidDate ?? null,
     paidFromAccount: data.paidFromAccount ?? null,
+    source: 'user',
   };
   upsertObligationState(obligationStateCsvPath(), row);
 }
@@ -409,12 +410,81 @@ export function updateManualObligation(id: string, patch: UpdateObligationBody):
       paidAmount: currentState?.paidAmount ?? existing.paid_amount,
       paidDate: currentState?.paidDate ?? existing.paid_date,
       paidFromAccount: currentState?.paidFromAccount ?? existing.paid_from_account,
+      source: 'user',
     };
     upsertObligationState(obligationStateCsvPath(), next);
   }
 
   rebuildObligationsTable();
   return getObligationById(id) ?? null;
+}
+
+/**
+ * Upsert a `source=user` state row for a manual obligation and rebuild
+ * the projected `financial_obligations` table so the override is
+ * immediately visible to `/api/obligations` and `/overdue`.
+ *
+ * Rejects auto-seeder ids (prefix `auto-`) — those are wholly managed by
+ * the HMRC seeders and would be clobbered on the next seed cycle.
+ * Returns `null` if the id does not exist in the registry (404).
+ */
+export function upsertManualObligationState(id: string, patch: {
+  status: string;
+  paidAmount?: number | null;
+  paidDate?: string | null;
+  paidFromAccount?: string | null;
+}): ObligationDbRow | null {
+  if (id.startsWith('auto-')) {
+    throw new NonManualStateError(
+      `Cannot set state on auto-seeded obligation '${id}'. Auto rows are managed by the HMRC seeders.`,
+    );
+  }
+  const registry = freshRegistry();
+  const exists = registry.all.some(c => c.id === id);
+  if (!exists) return null;
+
+  const row: ObligationStateRow = {
+    id,
+    status: patch.status,
+    paidAmount: patch.paidAmount ?? null,
+    paidDate: patch.paidDate ?? null,
+    paidFromAccount: patch.paidFromAccount ?? null,
+    source: 'user',
+  };
+  upsertObligationState(obligationStateCsvPath(), row);
+  rebuildObligationsTable();
+  return getObligationById(id) ?? null;
+}
+
+/**
+ * Remove any state override (user OR auto) for a manual obligation,
+ * reverting it to the default projection (status=pending for annual
+ * rows, etc). Rebuilds the projection so the change is visible
+ * immediately. Returns `false` if no state row existed.
+ */
+export function resetManualObligationState(id: string): boolean {
+  if (id.startsWith('auto-')) {
+    throw new NonManualStateError(
+      `Cannot reset state on auto-seeded obligation '${id}'. Auto rows are managed by the HMRC seeders.`,
+    );
+  }
+  const stateBefore = readObligationStateFromFile(obligationStateCsvPath());
+  if (!stateBefore.has(id)) return false;
+  deleteObligationState(obligationStateCsvPath(), id);
+  rebuildObligationsTable();
+  return true;
+}
+
+/**
+ * Thrown when the user targets an auto-seeded id with a manual-only
+ * endpoint (e.g. the Mark Paid routes). Caught by the route handler and
+ * turned into a 400.
+ */
+export class NonManualStateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NonManualStateError';
+  }
 }
 
 export function deleteManualObligation(id: string): boolean {

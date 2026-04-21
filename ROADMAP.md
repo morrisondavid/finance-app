@@ -4,255 +4,254 @@
 >
 > Everything below is organized around one principle: closing the gap between
 > "I can see what happened" and "nothing can surprise me."
+>
+> **The obligations registry, HMRC auto-seeders (VAT, CT, SA, HMRC TTP),
+> budgets, recurring detection, overdue hero, and multi-currency/FX
+> foundations are all shipped.** What remains is the forward-looking
+> layer: invoices, forecasting, runway, and the agent surface that sits
+> on top of them.
 
 ---
 
 ## Tier 0 — Certainty Layer ("Nothing Can Surprise Me")
 
-### 0.1 Obligation Registry
+### 0.1 Missed Obligation Detector — extension beyond tax
 
-Every financial obligation gets a record: type, amount, frequency, authority, due date, status.
+The four HMRC auto-seeders already flag unpaid tax obligations via
+`getOverdueObligations()` + the `/obligations/overdue` endpoint. Generalise
+the same mechanism to:
 
-- New `financial_obligations` table (amount, due date, recurrence, entity, status)
-- Auto-populated from known schedules (VAT quarters are already in config — the dates just aren't tracked as deadlines)
-- Manual entries for one-offs (e.g. a tax bill just remembered)
-- This is the table the AI agent queries when asked "what do I owe this month?"
+- **Insurance renewals** — the `insurance` obligation category has
+  `dueDate`; detect when a due date has passed with no matching payment.
+  Lapsed cover is the highest-impact silent failure on the list.
+- **Mortgage / loan payments** — `debts.ts` knows merchant pattern and
+  expected schedule; detect skipped monthly payments.
+- **Rental income (incoming)** — detect tenant non-payment: an expected
+  inbound transaction for a `rental-income` obligation that never lands.
+- **Council tax, business rates** — usually 10-installment DDs; detect
+  skipped months.
 
-### 0.2 Coverage Audit
+Out of scope: general "is this transaction weird?" detection across all
+categories. Restrict strictly to items with declared schedules — false
+positives on variable spend categories are worse than the miss.
 
-The system must flag obligation *types* with no record, closing the unknown-unknowns gap.
+### 0.2 Deadlines Tab + Calendar View
 
-- Checklist engine: VAT, corp tax, PAYE, self assessment, loans, subscriptions, insurance
-- Each has expected frequency and expected authority (HMRC, lender, etc.)
-- System flags gaps: "You have no PAYE obligations — confirm none exist"
-- Seeded from existing `tax-rates.ts` config and `HMRC_PATTERNS`
+A dedicated place to track every deadline — financial obligations plus
+non-financial ones — and eventually a calendar that surfaces them all
+together.
 
-### 0.3 Missed Obligation Detector (backward-looking)
+- New Deadlines tab listing every tracked deadline with due date, type,
+  and source.
+- Seed from: obligations registry (auto) and manual deadline entries
+  (new CSV + CRUD).
+- Calendar view (month / quarter grid) rendering every deadline.
+- Clickable entries route to the corresponding obligation or reminder.
+- Companies House confirmation statement is the canonical test case —
+  it fits cleanly into the existing obligations registry as a yearly
+  obligation once the `other` / new `statutory` category is wired end
+  to end.
 
-Not just future deadlines — scan the past for things already missed.
-
-- Compare expected obligations vs actual payments in transaction history
-- Output: "Corporation tax likely due but no payment recorded" / "Expected VAT submission missing"
-- `getCurrentVatQuarter()` + `HMRC_PATTERNS` already get 80% of the way there for VAT
-- Extends to all obligation types in the registry
-
-### 0.4 Tax Rate Staleness Alert
-
-`tax-rates.ts` is hardcoded for 2023/24 and 2024/25. When HMRC changes rates each April, someone has to remember to update them — exactly the kind of admin task that slips.
-
-- Timestamp or metadata tracking when tax config was last verified
-- System flags: "Your tax config was last updated for 2024/25 — HMRC rates may have changed"
-
-### 0.5 Accountant Filing Tracker
-
-The VAT quarter ZIP export and accountant package download exist, but there is no tracking of whether the accountant actually filed.
-
-- The chain: data collected → ZIP exported → accountant files → HMRC confirms
-- Currently only steps 1-2 are tracked
-- The obligation engine needs a "confirmed filed" status per quarter
+This is the UI surface that makes the certainty layer visible at a
+glance, and is where the calendar experience will live.
 
 ---
 
 ## Tier 1 — Projection Layer ("What's Coming")
 
-### 1.1 Cash Flow Forecast / Runway Projection
+### 1.1 Invoice Intelligence (foundation for everything projection-related)
 
-All the ingredients exist but are never combined to answer "What will my balance be in 30/60/90 days?"
+**The highest-priority unbuilt item.** Without invoice data:
 
-- `account_balances` has opening balances (stored)
-- `recurring-detector.ts` identifies recurring income and expense patterns (detected)
-- Tax liabilities are estimated
-- No engine connects them into a forward projection
-- This is the single most important feature for an AI agent — it powers "can I afford this holiday?"
+- VAT calculations are guesswork — the reconciler uses bank-ledger
+  heuristics, not actual invoice totals.
+- Income forecasting is backward-looking only — invoiced-but-not-yet-paid
+  revenue is invisible to any projection.
 
-### 1.2 Worst Case / Runway Mode
+Invoices today are just files in `/invoices`. Make them data:
 
-One button: "If all income stops today."
+- Parse invoice metadata: amount, date, vendor, invoice number, VAT
+  amount, currency.
+- New `invoices` table keyed by invoice number; CSV-backed like the rest
+  of the app.
+- Link invoices to matching transactions by amount + date proximity
+  (reuse `matchPaymentsToSlots` machinery from the HMRC seeders).
+- Surface **expected income** (invoiced, not yet settled) on the
+  dashboard and feed it into the forecast engine (1.2).
+- Improve VAT reconciliation: compare VAT on invoices issued vs. VAT
+  collected into the account — turns the current heuristic into a
+  derivation with audit trail.
+- Support the reverse lookup: "where is my invoice for this £2,400
+  payment?" as a one-click query on the transaction row.
 
-- Output: runway in months, mandatory vs optional spend, survival threshold
-- Uses forecast engine + the bills/QoL split already computed in `expenses-insight.ts`
-- Should include available credit headroom as emergency runway
-- Removes the mental looping of "am I safe?" — the app answers directly
+Build this **before** the cash-flow forecast — the forecast's accuracy
+on the income side is capped by whether we know about outstanding
+invoices.
 
-### 1.3 Shock Simulator
+### 1.2 Cash Flow Forecast / Runway Projection
 
-Simulate specific scenarios and convert fear into numbers.
+The single most important feature behind the whole app. All ingredients
+exist but nothing stitches them together:
 
-- "If your biggest client leaves" → impact on cashflow, months until problem
-- "If tax bill hits early" → deficit in Y weeks
-- "If rental void for 2 months" → runway change
-- "If contract ends" → months until problem
-- Uses forecast engine + income source tracking
+- `account_balances` has opening balances.
+- `recurring-detector` / `recurring-upcoming` identifies recurring income
+  and expenses with predicted next-charge dates.
+- Obligations registry provides known future outgoings with due dates.
+- Tax liabilities are estimated by the HMRC auto-seeders.
+- Invoices (from 1.1) provide expected inbound income.
 
-### 1.4 Seasonal Pattern Learning
+Output: "what will my balance be in 30 / 60 / 90 days?" per account and
+across the business / household as a whole.
 
-Multi-year transaction data exists. December and January reliably spike (gifts, insurance renewals, annual subscriptions).
+This is the endpoint the AI agent calls before answering "can I afford
+this holiday?"
 
-- The circular statistics in `recurring-detector.ts` can be applied to total monthly spend
-- Forecast should account for historical seasonal patterns rather than assuming flat monthly averages
-- Significantly improves forecast accuracy for months with known spikes
+### 1.3 Worst Case / Runway Mode
 
-### 1.5 Income Concentration Score
+One button: "if all income stops today".
 
-Income totals are tracked but there is no analysis of where income comes from.
+- Output: runway in months, mandatory vs optional spend, survival
+  threshold.
+- Uses the forecast engine + the bills / QoL split already computed in
+  `expenses-insight.ts`.
+- Includes available credit headroom as emergency runway.
+- Credit limit is currently approximated by each credit card's opening
+  balance (the user has been treating opening balance *as* the limit for
+  existing dashboard calculations). Formalise this as a derived
+  `creditLimit` on `AccountConfigSchema` — default to the opening
+  balance so nothing changes semantically, but the intent becomes
+  explicit and the field is available for future tuning.
 
-- If 90% of revenue comes from one client, that is a single point of failure
-- Income transactions grouped by source with concentration percentage
-- An AI agent answering "am I safe?" needs to know this risk
+### 1.4 Income Concentration Score
 
----
+Income totals are tracked but not analysed by source.
 
-## Tier 2 — Enforcement Layer ("Hard Stops")
+- Group income transactions (and invoices, from 1.1) by payer / client.
+- Concentration percentage per source.
+- Flag single-point-of-failure risks ("90% of income comes from one
+  client").
+- Feeds the confidence score (2.2).
 
-### 2.1 Commitment Approval API
-
-Before any spend, ask "Can I afford this?" — this is the WhatsApp agent's core job.
-
-- System responds: safe / reduces runway to X / creates deficit in Y days
-- Single endpoint the agent calls before answering any spending question
-- Needs: current liquid balance, committed outgoings for next N days, uncommitted/discretionary balance, recent spending velocity vs budget
-
-### 2.2 Budget Enforcement Mode
-
-The app tracks budgets (caps on spending) but they are soft. Systemise hard stops.
-
-- Define: fixed account (bills), variable account (spending)
-- Enforce: "You have £X left this month. Hard stop."
-- Extends `category_budgets` with an enforcement flag
-- No thinking required — the system says yes or no
-
-### 2.3 Anomaly / Missing Payment Detection
-
-`recurring-detector.ts` identifies monthly and annual recurring transactions, but there is no mechanism to flag deviations.
-
-- "This bill was £80 higher than usual"
-- "Expected salary didn't arrive"
-- "Subscription charged twice this month"
-- The recurring detector gives the expected pattern — compare against actuality
-
-### 2.4 Category Override System
-
-Categories are derived at runtime via `merchant-registry.ts` regex matching. There is no way to override a miscategorization. If the registry gets it wrong, every query using that category is wrong.
-
-- New `category_overrides` table (transaction hash → corrected category)
-- Applied after the regex matcher in `categorizer.ts`
-- The AI agent could learn patterns: "you always recategorize X as Y" and suggest corrections
-
-### 2.5 Credit Headroom Tracking
-
-Capital on Tap and Barclaycard are configured as credit cards in `ACCOUNT_CONFIG`, but there is no concept of credit limits or available credit.
-
-- New fields on `account_balances` for credit limits
-- Available credit as part of the safety picture
-- "£12k available across credit cards" feeds into worst-case/runway calculations
+Combined with invoices (1.1), this is the first time the agent has
+enough signal to answer "am I safe?" with something meaningful.
 
 ---
 
-## Tier 3 — AI Agent Layer ("Proactive Guardian")
+## Tier 2 — AI Agent Layer ("Proactive Guardian")
 
-### 3.1 Financial Snapshot Endpoint
+### 2.1 Financial Snapshot / Commitment Approval
 
-`/api/dashboard/summary` returns data shaped for the UI. An AI agent needs a different shape.
+Single endpoint the agent calls before answering any spending question.
 
-- Current liquid balance across accounts
-- Committed outgoings for the next N days (from obligations engine)
-- Uncommitted/discretionary balance
-- Recent spending velocity vs budget
-- Single "affordability API" the agent calls before answering any spending question
+- Current liquid balance across accounts.
+- Committed outgoings for next N days (from obligations + recurring
+  detector).
+- Expected inbound from outstanding invoices (from 1.1).
+- Uncommitted / discretionary balance.
+- Recent spending velocity vs budget.
+- Verdict: safe / reduces runway to X / creates deficit in Y days.
 
-### 3.2 Confidence Score
+Replaces the agent-side shape that `/api/dashboard/summary` can't
+provide (the summary is UI-shaped and not task-shaped for affordability
+questions).
 
-A daily psychological stabiliser: a single number that answers "am I safe?"
+### 2.2 Confidence Score
 
-- Financial Safety: 8.5 / 10
-- Unknown Risk: Low / Medium / High
-- Composite of: obligation coverage %, forecast health, anomaly count, budget adherence, income concentration
-- If score drops → the agent investigates and explains why
+A daily psychological stabiliser: a single number that answers "am I
+safe?"
 
-### 3.3 Financial Memory Layer
+- Financial Safety: 8.5 / 10.
+- Unknown Risk: Low / Medium / High.
+- Composite of:
+  - Missed-obligation signal (from 0.1).
+  - Forecast health (from 1.2).
+  - Invoice-to-payment gap (from 1.1).
+  - Budget adherence (from existing budgets).
+  - Income concentration (from 1.4).
+- Score drop → agent investigates and explains why.
 
-The biggest operational issue: things get forgotten.
+### 2.3 Alert & Notification Queue
 
-- AI builds persistent memory: "You usually pay X every quarter" / "You forgot Y last year"
-- Pattern store the agent reads and writes
-- Warns proactively based on learned patterns, not just configured rules
+The app is entirely pull-based today — no email, no webhook, no push.
 
-### 3.4 Behavior Drift Detection
+- New `pending_alerts` CSV/table (trigger, message, severity, delivery
+  status).
+- Trigger conditions: obligation approaching, missed expected payment
+  (from 0.1), balance below threshold, confidence score drop, data
+  freshness timeout (no statement upload for account X in N weeks).
+- Delivery layer: WhatsApp API, email.
+- Without this, the agent can only answer questions — it cannot
+  proactively warn.
 
-Not just missed payments — spending creep.
+### 2.4 WhatsApp / Chat Interface
 
-- "Your discretionary spend is 40% higher than your 3-month average"
-- "Subscription costs have increased £45/month since January"
-- Monthly aggregates compared against rolling window
-
-### 3.5 Alert & Notification Queue
-
-The app is entirely pull-based. There is no notification path — no email, no webhook, no push.
-
-- New `pending_alerts` table (trigger, message, severity, delivery status)
-- Trigger conditions: obligation approaching, budget breach, anomaly detected, balance below threshold, confidence score drop
-- Delivery layer: WhatsApp API, email, etc.
-- Without this, the AI agent can only answer questions — it cannot proactively warn
-
-### 3.6 Savings Goals / Targets
-
-Budgets cap spending, but there is no concept of saving toward something. Budget nudges only say "you're overspending in X." The inverse — "you're £800 away from your holiday fund" — does not exist.
-
-- New `savings_goals` table (name, target amount, deadline, current progress)
-- Tracked against balance minus commitments
-- For an AI agent, goals give it something to measure against when asked aspirational questions
+Delivery channel, not logic. Wraps 2.1 + 2.2 + 2.3 in conversation. Ship
+last — the agent is only as good as the layers underneath it.
 
 ---
 
-## Tier 4 — Polish (Only After Everything Above)
+## Tier 3 — Historical & Polish
 
-### 4.1 Net Worth Tracking Over Time
+### 3.1 Net Worth Tracking Over Time
 
-Point-in-time balances exist but there are no historical snapshots. Cannot answer "am I richer than 6 months ago?"
+Point-in-time balances exist; no historical snapshots.
 
-- Simple `net_worth_snapshots` table (date, total liquid, total obligations)
-- Taken daily or weekly
-- Enables trend analysis — powerful context for an AI agent
+- New `net_worth_snapshots` table (date, total liquid, total
+  obligations, total debt, net).
+- Daily or weekly cadence.
+- Trend context for the agent ("am I richer than 6 months ago?").
 
-### 4.2 Invoice Intelligence
+### 3.2 Multi-Currency / FX — extensions
 
-Invoices are stored and downloadable but are just files in a directory. No metadata extraction, no linking to transactions.
+Parsers and FX support already exist (`emirates-islamic` parser,
+`currency-exchange-client`, GBP ↔ AED rates, `nativeAmount` /
+`nativeCurrency` on line items). What's left:
 
-- Parse invoice metadata (amount, date, vendor, invoice number)
-- Link to matching transactions
-- AI agent can answer "where's my invoice for that £2,400 payment?"
-
-### 4.3 Multi-Currency / FX Tracking
-
-All parsers are GBP-centric (Barclays, NatWest, Monzo, Barclaycard, Capital on Tap).
-
-- Foreign transactions on UK cards need FX rate capture
-- Overseas accounts would need new parsers
-- AI agent handles "how much have I spent in AED this month?"
-
-### 4.4 WhatsApp / Chat Interface
-
-This is the delivery channel, not the logic. Build last.
-
-- Conversational interface wrapping the financial snapshot + commitment approval + alerts
-- The AI agent is only as good as the layers underneath it
+- Historical FX rate capture per transaction (we currently always apply
+  the latest rate).
+- Multi-currency breakdown on dashboard totals (currently implicitly
+  GBP).
+- Agent-facing: "how much have I spent in AED this month?"
 
 ---
 
 ## Dependency Chain
 
 ```
-Tier 0 (Certainty)       Tier 1 (Projection)       Tier 2 (Enforcement)       Tier 3 (AI Agent)
+Tier 0 (Certainty)              Tier 1 (Projection)          Tier 2 (Agent)
 
-Obligation Registry ────→ Cash Flow Forecast ──────→ Commitment Approval ─────→ Financial Snapshot
-Coverage Audit            Worst Case Mode            Budget Enforcement          Confidence Score
-Missed Detector           Shock Simulator            Anomaly Detection           Alert Queue
-Tax Staleness Alert       Seasonal Patterns          Category Overrides          Financial Memory
-Accountant Tracker        Income Concentration       Credit Headroom             Behavior Drift
-                                                                                 Savings Goals
+Missed Detector (extn.)  ────→  Invoice Intelligence  ────→  Financial Snapshot
+Deadlines Tab + Calendar        Cash Flow Forecast           Confidence Score
+                                Worst Case / Runway          Alert Queue
+                                Income Concentration         WhatsApp Interface
 ```
 
-The AI agent is the **last** layer, not the first. It is a delivery mechanism for the intelligence underneath. Build the certainty and projection layers first — the agent just wraps them in conversation.
+**Invoices gate the forecast** because outstanding invoices are the
+single biggest piece of expected-income data the current system can't
+see. **The forecast gates everything in Tier 2** — the agent, the
+confidence score, the proactive alerts.
+
+---
+
+## Suggested Build Order
+
+1. **Invoice Intelligence (1.1)** — unblocks VAT accuracy and income
+   forecasting.
+2. **Cash Flow Forecast (1.2)** — the single biggest behaviour change
+   the app can make.
+3. **Worst Case / Runway + formalised credit headroom (1.3)** —
+   cheap once 1.2 lands.
+4. **Deadlines Tab + Calendar View (0.2)** — visible surface for the
+   certainty layer.
+5. **Missed Obligation Detector extension (0.1)** — generalises the
+   HMRC machinery to insurance, debts, rentals, council tax.
+6. **Income Concentration Score (1.4)** — feeds confidence score.
+7. **Financial Snapshot / Commitment Approval (2.1)** + **Confidence
+   Score (2.2)** — the agent's two core reads.
+8. **Alert & Notification Queue (2.3)**.
+9. **Net Worth Snapshots (3.1)**.
+10. **Multi-Currency extensions (3.2)**.
+11. **WhatsApp / Chat Interface (2.4)**.
 
 ---
 

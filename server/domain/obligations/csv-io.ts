@@ -144,6 +144,7 @@ export function parseObligationRow(row: Record<string, string>): Obligation {
           ...common,
           category,
           dueDate: nonEmpty(row.due_date),
+          amountTolerance: parseNumber(row.amount_tolerance, 'amount_tolerance', rowId),
         });
       case 'tax-manual':
         return OutgoingObligationSchema.parse({
