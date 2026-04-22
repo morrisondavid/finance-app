@@ -7,8 +7,7 @@
  *   - whether to filter pass-through IDs
  */
 
-import { ACCOUNT_CONFIG } from '../types.js';
-import type { AccountName } from '../types.js';
+import { getAccountConfig, isValidAccountName } from '../domain/accounts/index.js';
 import { categorizeTransaction, categoryColour } from './categorizer.js';
 import type { CategoryName } from './categorizer.js';
 import { normalizeMerchant } from './merchant-normalizer.js';
@@ -18,7 +17,7 @@ import { getMerchantLogoUrl } from './merchant-logos.js';
 import type { RecurringExpense } from '../../shared/api-contracts.js';
 import { round2, monthKeyFromIsoDate } from './math.js';
 import { SPECIAL_CATEGORY } from './category-constants.js';
-import { resolveExpenseCategoryWithPayroll, type PayrollEntry } from '../config/payroll.js';
+import { resolveExpenseCategoryWithPayroll, type PayrollEntry } from '../domain/payroll/index.js';
 import { convertAmountSync } from '../config/exchange-rates.js';
 import type { CurrencyCode } from '../types.js';
 import { getObligationRegistry, type ObligationRegistry } from '../domain/obligations/registry.js';
@@ -327,7 +326,9 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
 
     const { key, category, displayMerchant, obligationId } = bucket;
     const account = txn.account;
-    const accountCategory = ACCOUNT_CONFIG[account as AccountName]?.category ?? 'personal';
+    const accountCategory = isValidAccountName(account)
+      ? getAccountConfig(account).category
+      : 'personal';
     const absAmount = Math.abs(txn.amount);
     const ym = monthKeyFromIsoDate(txn.date);
     allMonths.add(ym);

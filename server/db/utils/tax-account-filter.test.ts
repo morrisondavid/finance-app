@@ -3,9 +3,11 @@ import { buildAccountInFilter } from './tax-account-filter.js';
 import {
   vatApplicableAccounts,
   corpTaxApplicableAccounts,
+  personalAccounts,
+  businessAccounts,
+  getAccountConfig,
   type AccountName,
 } from '../../domain/accounts/index.js';
-import { ACCOUNTS, ACCOUNT_CONFIG } from '../../types.js';
 
 describe('buildAccountInFilter', () => {
   it('produces AND 1=0 for an empty accounts list', () => {
@@ -54,16 +56,15 @@ describe('VAT filter integration (buildAccountInFilter × vatApplicableAccounts)
 
   it('never includes a personal account', () => {
     const { params } = buildAccountInFilter(vatApplicableAccounts());
-    const personalAccounts = ACCOUNTS.filter(a => ACCOUNT_CONFIG[a].category === 'personal');
-    for (const p of personalAccounts) {
+    for (const p of personalAccounts()) {
       expect(params).not.toContain(p);
     }
   });
 
   it('never includes a business account with vat.applicable === false', () => {
     const { params } = buildAccountInFilter(vatApplicableAccounts());
-    for (const name of ACCOUNTS) {
-      const config = ACCOUNT_CONFIG[name];
+    for (const name of businessAccounts()) {
+      const config = getAccountConfig(name);
       if (config.category === 'business' && !config.business.vat.applicable) {
         expect(params).not.toContain(name);
       }
@@ -91,16 +92,15 @@ describe('CT filter integration (buildAccountInFilter × corpTaxApplicableAccoun
 
   it('never includes a personal account', () => {
     const { params } = buildAccountInFilter(corpTaxApplicableAccounts());
-    const personalAccounts = ACCOUNTS.filter(a => ACCOUNT_CONFIG[a].category === 'personal');
-    for (const p of personalAccounts) {
+    for (const p of personalAccounts()) {
       expect(params).not.toContain(p);
     }
   });
 
   it('never includes a business account with corpTax.applicable === false', () => {
     const { params } = buildAccountInFilter(corpTaxApplicableAccounts());
-    for (const name of ACCOUNTS) {
-      const config = ACCOUNT_CONFIG[name];
+    for (const name of businessAccounts()) {
+      const config = getAccountConfig(name);
       if (config.category === 'business' && !config.business.corpTax.applicable) {
         expect(params).not.toContain(name);
       }

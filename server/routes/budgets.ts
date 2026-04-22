@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import { validateAccount } from '../types.js';
+import { validateAccount } from '../domain/accounts/index.js';
 import type { BudgetsListResponse, BudgetUpsertBody } from '../../shared/api-contracts.js';
 import {
   BudgetUpsertBodySchema,

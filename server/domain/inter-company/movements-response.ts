@@ -12,7 +12,7 @@
 
 import type Database from 'better-sqlite3';
 import { findInterCompanyPairs } from './pair-finder.js';
-import { getOverrideRegistry } from '../transaction-overrides/registry.js';
+import { lookupOverride } from '../transaction-overrides/index.js';
 import {
   isInterCompanyCategory,
   type CategoryName,
@@ -29,12 +29,11 @@ function resolvePairClassification(
   expenseHash: string,
   incomeHash: string,
 ): CategoryName | null {
-  const overrides = getOverrideRegistry();
-  const expenseOverride = overrides.get(expenseHash);
+  const expenseOverride = lookupOverride(expenseHash);
   if (expenseOverride !== null && isInterCompanyCategory(expenseOverride)) {
     return expenseOverride;
   }
-  const incomeOverride = overrides.get(incomeHash);
+  const incomeOverride = lookupOverride(incomeHash);
   if (incomeOverride !== null && isInterCompanyCategory(incomeOverride)) {
     return incomeOverride;
   }

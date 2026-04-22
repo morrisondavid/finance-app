@@ -28,8 +28,8 @@ import {
   calculateCorporationTax,
   VAT,
 } from '../../config/tax-rates.js';
-import { HMRC_PATTERNS } from '../../config/payees.js';
-import { getBusinessPaymentAccounts } from '../../types.js';
+import { HMRC_PATTERNS } from '../../domain/payees/index.js';
+import { businessPaymentAccounts } from '../../domain/accounts/index.js';
 import { insertAutoObligation } from './obligations.js';
 import { isDismissed } from './obligation-dismissals.js';
 import { findHmrcPayments, type HmrcPaymentMatch } from './tax.js';
@@ -152,7 +152,7 @@ function shiftIso(iso: string, days: number): string {
 function fetchCtPayments(): HmrcPaymentMatch[] {
   return findHmrcPayments({
     patterns: HMRC_PATTERNS.CORPORATION_TAX,
-    accounts: getBusinessPaymentAccounts(),
+    accounts: [...businessPaymentAccounts()],
     startDate: '0000-01-01',
     endDate: '9999-12-31',
   });

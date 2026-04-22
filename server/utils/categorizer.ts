@@ -1,17 +1,19 @@
 /**
  * Transaction categorizer -- maps transaction descriptions to spending categories.
  *
- * Reads from the single-source-of-truth merchant-registry.ts so that category
- * assignments and display names can never drift out of sync.
- *
- * Entries are checked top-to-bottom; first match wins.
- * "Transfers" entries are deliberately first so inter-account movements are caught
- * before they could accidentally match more specific categories.
+ * Consumes the merchants domain registry so that category assignments
+ * and display names cannot drift out of sync. The registry iterates
+ * entries top-to-bottom; first match wins. "Transfers" entries are
+ * deliberately first so inter-account movements are caught before
+ * they could accidentally match more specific categories.
  */
 
-import { MERCHANT_REGISTRY, CATEGORY_NAMES } from './merchant-registry.js';
-import type { CategoryName } from './merchant-registry.js';
-import { getOverrideRegistry } from '../domain/transaction-overrides/registry.js';
+import {
+  CATEGORY_NAMES,
+  findFirstCategoryMatch,
+  type CategoryName,
+} from '../domain/merchants/index.js';
+import { lookupOverride } from '../domain/transaction-overrides/index.js';
 
 export { CATEGORY_NAMES };
 export type { CategoryName };
@@ -48,16 +50,11 @@ export function categorizeTransaction(
   // that pattern matching cannot express (e.g. "this is an
   // inter-company loan, not a general Transfer").
   if (opts?.hash !== undefined) {
-    const override = getOverrideRegistry().get(opts.hash);
+    const override = lookupOverride(opts.hash);
     if (override !== null) return override;
   }
   const normalized = normalizeForMatching(description);
-  for (const entry of MERCHANT_REGISTRY) {
-    if (entry.pattern.test(normalized)) {
-      return entry.category;
-    }
-  }
-  return 'Other';
+  return findFirstCategoryMatch(normalized) ?? 'Other';
 }
 
 // ─── Category Config ─────────────────────────────────────────────────────────

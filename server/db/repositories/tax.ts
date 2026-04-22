@@ -10,11 +10,11 @@ import {
   type VatQuarterRange
 } from '../../config/tax-rates.js';
 import {
-  getDirectors,
   HMRC_PATTERNS,
   buildHmrcNarrativeCaseSql,
   type HmrcNarrativeKey,
-} from '../../config/payees.js';
+} from '../../domain/payees/index.js';
+import { getDirectorPayroll } from '../../domain/payroll/index.js';
 import {
   businessPaymentAccounts,
   corpTaxApplicableAccounts,
@@ -337,9 +337,8 @@ export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilitie
     vatPayments.reduce((sum, p) => sum + Math.abs(p.amount), 0),
   );
   
-  const directors = getDirectors();
-  const david = directors.find(d => d.id === 'david');
-  const heena = directors.find(d => d.id === 'heena');
+  const david = getDirectorPayroll('david');
+  const heena = getDirectorPayroll('heena');
 
   const davidPayments = david
     ? getDirectorPayments(db, david.namePattern, david.monthlySalary, david.tolerance, clause, params)

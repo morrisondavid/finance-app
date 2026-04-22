@@ -10,7 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import { parse } from 'csv-parse/sync';
 import type { AccountName } from '../types.js';
-import { isValidAccountName } from '../types.js';
+import { isValidAccountName } from '../domain/accounts/index.js';
 import { CATEGORY_NAMES, type CategoryName } from '../utils/categorizer.js';
 import { round2 } from '../utils/math.js';
 import { escapeCsvField, ensureDir, atomicWriteCsv } from '../utils/csv-helpers.js';

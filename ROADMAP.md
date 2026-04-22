@@ -1334,6 +1334,177 @@ depends on to route per-entity credentials. 3.5 can ship any time after
 
 ---
 
+### 3.6 Canonical Config Registry Pattern (architecture)
+
+**Problem.** The `entityId` dropdown that shipped to the dashboard and
+did nothing was a symptom, not a bug. Config logic was fragmented across
+six places: `ACCOUNT_CONFIG` literal in `server/types.ts`, inline
+`ACCOUNTS.filter(a => ACCOUNT_CONFIG[a].category === 'business')`
+scattered across repositories, `getVatApplicableAccounts` /
+`getCorpTaxApplicableAccounts` helpers, a parallel `EntityScopedFilterOpts`
+type that threaded `entityId` through filters that didn't use it,
+`buildVatAccountFilter` / `buildCorpTaxAccountFilter` with their own gate
+logic, and a `DashboardFilters.entityId` field consumed by nobody. Six
+subtly different answers to one question — and no programmatic way to
+detect that a capability had lost all its consumers. See
+[docs/config-registries.md](docs/config-registries.md) for the full
+architectural rationale.
+
+**Shape of the fix.** Every set-wise configuration (accounts, people,
+payees, merchants, payroll, company, transaction-overrides) is migrated
+to a standard `server/domain/<name>/` module:
+
+```
+server/domain/<name>/
+  schema.ts       Zod schema + derived TS types (single source of truth for shape)
+  data.ts         the raw literal / CSV loader
+  registry.ts     build function + precomputed indexes + memoization via createRegistry
+  queries.ts      pure public query functions over the registry indexes
+  fixtures.ts     makeTest<Name>Registry for tests, routed through production build
+  index.ts        barrel re-exports
+  *.test.ts       schema / gates / invariants / lifecycle / queries / manifest
+```
+
+Plus shared primitives under `server/domain/_shared/`:
+`create-registry.ts` (memoization + invalidation + test reset),
+`index-builders.ts` (`groupBy` / `indexBy` / `filterToIndex` /
+`mapToIndex`), `fixture-builder.ts`, and `manifest-test.ts` — the
+capability-drift detector that asserts every index in a registry has at
+least one documented live consumer, so a dead dropdown can never silently
+ship again.
+
+**Status — Phase A complete for `accounts`:**
+
+- ✅ **A0** — shared primitives built + tested (37/37 passing)
+- ✅ **A1** — `docs/config-registries.md` written (pattern + test template + naming rule)
+- ✅ **A2** — `server/domain/accounts/` built (97/97 tests passing)
+- ✅ **A2b** — pre-migration parity snapshot locked (17/17 OLD vs NEW byte-for-byte)
+- ✅ **A3** — parallel idioms killed: `isBusinessConfig`, `getVatApplicableAccounts`,
+  `getCorpTaxApplicableAccounts`, `EntityScopedFilterOpts` deleted from
+  `server/types.ts`; `buildVatAccountFilter` + `buildCorpTaxAccountFilter`
+  collapsed into a single generic `buildAccountInFilter(accounts)` driven by
+  the new registry indexes; `DashboardFilters.entityId` removed (it had no
+  consumer); every dependent test file rewritten against the new API.
+- ✅ **A4** — every remaining consumer migrated to
+  `server/domain/accounts/`. `server/types.ts` shrank from 503 lines to 170:
+  `ACCOUNT_CONFIG` literal, `getAccountConfig`, `isValidAccountName`,
+  `validateAccount`, `getBusinessPaymentAccounts`, `getAccountsByEntity`,
+  `getEntityIdForAccount`, `getPersonalPaymentAccounts`,
+  `getBusinessAndPersonalPaymentAccounts`, `isCreditCard`,
+  `isBusinessAccount`, `isCrossAccountBusinessToBusinessTransfer`, plus all
+  account-related interfaces (`AccountType`, `AccountCategory`, `VatConfig`,
+  `CorpTaxConfig`, `BusinessTaxConfig`, `BusinessAccountConfig`,
+  `PersonalAccountConfig`, `AccountConfig`) all deleted. The 17 files that
+  imported any of them — `transactions`, `debts`, `budgets`, `sa-auto-seed`,
+  `ct-auto-seed`, `vat-auto-seed`, `query-builders`, `tax`, `parsers/index`,
+  `dashboard`, `statements`, `expenses`, `budgets` (route), `tax` (route),
+  `recurring-pipeline`, `ad-hoc-merchant-series`, `inter-company/pair-finder`,
+  `warnings/fzco-income` — all now import from `server/domain/accounts/`.
+  The legacy `server/types.test.ts` was deleted (coverage fully replicated
+  by `queries.test.ts`, `migration-parity.test.ts`, and
+  `registry.invariants.test.ts`).
+- ✅ **A5** — `registry.manifest.test.ts` tightened from a placeholder into
+  a real consumer manifest. Every one of the 13 indexes
+  (`business`, `personal`, `byEntity`, `vatApplicable`,
+  `vatApplicableByEntity`, `corpTaxApplicable`, `corpTaxApplicableByEntity`,
+  `outgoingPaymentsCapable`, `businessOutgoingPayments`,
+  `personalOutgoingPayments`, `excludeTransfersFromIncome`,
+  `showTaxLiabilities`, `creditCards`) is now mapped to the real files +
+  functions that consume it, so adding a new index without wiring a caller
+  will fail this test. Indexes documented as test-only (`excludeTransfersFromIncome`,
+  `showTaxLiabilities`) are honestly flagged — future production use should
+  promote them; if none emerges they are the next cleanup candidates.
+- ✅ **A6** — `tsc --noEmit` clean, **106 files / 1774 tests passing**
+  (down from 107 files after deleting the redundant `server/types.test.ts`;
+  no net regression — its 22 tests are fully absorbed by the domain
+  test suite). Live smoke: `GET /api/dashboard/accounts`,
+  `/api/dashboard/summary`, `/api/statements/accounts`,
+  `/api/tax/vat-payments` all return 200 against the running dev server.
+  **Phase A is complete for `accounts` — ready for Phase B.**
+
+**Status — Phase B complete (all six registries migrated):**
+
+- ✅ **B1** — `server/config/people.ts` → `server/domain/people/` with
+  `byId` / `directors` / `saFilers` / `aliasRegexes` indexes. Every
+  consumer (`sa-auto-seed`, `sa-estimator`, `merchant-registry`, payees)
+  redirected; legacy file deleted.
+- ✅ **B2** — `server/config/payees.ts` split: `Director` folded into
+  `people.indexes.directors`; HMRC narrative patterns
+  (`HMRC_PATTERNS`, `HMRC_NARRATIVE_PATTERNS`, `buildHmrcNarrativeCaseSql`)
+  relocated to `server/domain/payees/hmrc-patterns.ts`. All tax-auto-seed
+  consumers (`tax` repo + route, `vat-auto-seed`, `sa-auto-seed`,
+  `ct-auto-seed`, `sa-estimator`) rewired.
+- ✅ **B3** — `server/utils/merchant-registry.ts` →
+  `server/domain/merchants/` with `patterns` / `byCategory` /
+  `byDisplayName` indexes + full canonical test template; `categorizer`
+  and `normalizeMerchant` call sites migrated.
+- ✅ **B4** — `server/config/payroll.ts` → `server/domain/payroll/`
+  (derived registry joining `payroll`-category obligations with directors
+  from the people registry). Indexes: `entries`, `byAccount`,
+  `byPersonAccount`, `directorsById`. Full testing template landed;
+  legacy file + test deleted.
+- ✅ **B5** — `server/domain/company/registry.ts` refactored onto
+  `createRegistry`. Methods (`getById`, `listByJurisdiction`,
+  `listEntityIds`) replaced with named indexes (`byId`, `byJurisdiction`,
+  `active`) + query functions (`allCompanies`, `companyById`,
+  `companiesByJurisdiction`, `activeCompanies`). Routes `company.ts` and
+  `warnings.ts` migrated to the new query surface.
+- ✅ **B6** — `server/domain/transaction-overrides/` brought onto
+  `createRegistry` with `byHash` index, mutable-directory handling
+  documented in the pattern doc, and its manifest test landed.
+  Four consumers (`categorizer`, `payroll/queries`,
+  `inter-company/movements-response`, `warnings/inter-company-count`)
+  migrated from `getOverrideRegistry().get(hash)` to the
+  `lookupOverride(hash)` query.
+- ✅ **B7** — `docs/config-registries.md` closed with the full registry
+  directory table: location, purpose, and the exhaustive index list for
+  all seven canonical registries (`accounts`, `people`, `payees`,
+  `merchants`, `payroll`, `company`, `transaction-overrides`), plus an
+  explicit carve-out for the one not-yet-migrated legacy registry
+  (`obligations`).
+
+**Status — Phase C complete (enforcement):**
+
+- ✅ **C1** — Every canonical registry ships a `registry.manifest.test.ts`
+  built on the shared `assertManifestConsumers` helper. Added
+  `server/domain/_shared/all-registries.manifest.test.ts`: a repo-wide
+  sweep that auto-discovers every directory under `server/domain/`
+  containing a `registry.ts` and asserts it ships a manifest test.
+  Non-registry-shaped directories (`_shared`, `deadlines`,
+  `inter-company`, `payees`, `warnings`) are explicitly listed;
+  the single legacy exception (`obligations`, not yet on `createRegistry`)
+  is pinned in an exemption list so that removing it from the list
+  instantly enforces the contract. A new registry cannot merge without
+  a manifest test.
+- ✅ **C2** — UI-control code-review checklist added to
+  `docs/config-registries.md`. The rule — _"a UI control must change at
+  least one visible field in the response via a path not already
+  expressed by existing config; if not, the control shouldn't exist"_ —
+  is now backed by a concrete six-item reviewer checklist (name the
+  field it changes, trace the path, check for parallel vocabulary,
+  require a manifest consumer, require a test that fails without the
+  control, name the question). The Entity dropdown post-mortem is the
+  worked example.
+
+**Verification.** `tsc --noEmit` clean, **133 files / 1937 tests passing**,
+including the six canonical registry test templates, the new
+registry-sweep test, and the manifest tests for every registry. Live API
+smoke (`/api/dashboard/summary`, `/api/warnings/*`, `/api/statements/accounts`,
+`/api/tax/vat-payments`) all 200. The pattern is fully in place; the only
+deferred item is **C3** (end-to-end API snapshot test for
+`/api/dashboard/summary` + `/api/warnings/*`), tracked separately.
+
+**Why this is worth the churn.** Every Tier 1 feature lands faster on
+this foundation: multi-entity scoping (1.1) is already partially
+expressed via the `accounts` registry's `byEntity` index; contracts and
+invoices (1.2 / 1.3) will route through `clients` / `contracts`
+registries in the same shape; the Warnings Engine (1.8) becomes a
+reduction over named registry indexes rather than ad-hoc scans. The
+manifest-test contract means new features cannot ship orphaned
+capabilities, full stop.
+
+---
+
 ## Dependency Chain
 
 ```

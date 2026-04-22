@@ -17,14 +17,14 @@ import {
   calculateIncomeTaxOnNonDividend,
 } from '../config/tax-rates.js';
 import {
-  getDirectors,
-  type Director,
-} from '../config/payees.js';
+  getDirectorPayroll,
+  type DirectorPayroll,
+} from '../domain/payroll/index.js';
 import {
   getPerson,
   personShortName,
   type PersonId,
-} from '../config/people.js';
+} from '../domain/people/index.js';
 import {
   sumRentalIncomeForPerson,
 } from '../domain/obligations/rental-income.js';
@@ -98,17 +98,17 @@ export function estimateSaForPerson(
   db: PreparableDb,
 ): SaEstimate {
   const person = getPerson(personId);
-  const director: Director | undefined = getDirectors().find(d => d.id === personId);
+  const payroll: DirectorPayroll | undefined = getDirectorPayroll(personId);
 
   const clause = 'AND date >= ? AND date <= ?';
   const params: string[] = [taxYearStart, taxYearEnd];
 
-  const directorPayments = director
+  const directorPayments = payroll
     ? getDirectorPayments(
         db,
-        director.namePattern,
-        director.monthlySalary,
-        director.tolerance,
+        payroll.namePattern,
+        payroll.monthlySalary,
+        payroll.tolerance,
         clause,
         params,
       )

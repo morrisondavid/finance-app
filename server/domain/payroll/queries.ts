@@ -1,43 +1,69 @@
 /**
- * Director / payroll debits classifier.
+ * Payroll domain — public query surface.
  *
- * Thin adapter over the obligations registry — the actual payroll rows live
- * in `obligations/obligations-seed.csv` with `category: payroll`. Matching is
- * person-driven: the raw description is tested against
- * `PEOPLE[personId].matchAliases`, not against the `merchant` field. This
- * lets "STO SALARY DAVID MORRISON", "D MORRISON", and "MORRISON DD" all
- * resolve to the same person even though they normalise to different
- * merchant strings.
+ * Every function answers one named question by reading a
+ * precomputed index (or delegating to the categoriser / override
+ * registry). No function in this file contains a `.filter(...)`
+ * over raw obligation rows — if you find yourself writing one, the
+ * answer belongs as a new index in `registry.ts`.
  */
 
-import type { CategoryName } from '../utils/merchant-registry.js';
-import { categorizeTransaction } from '../utils/categorizer.js';
-import { matchPersonInDescription } from './people.js';
-import { getObligationRegistry } from '../domain/obligations/registry.js';
-import { getOverrideRegistry } from '../domain/transaction-overrides/registry.js';
-import type { OutgoingObligation } from '../../shared/api-contracts.js';
-
-export type PayrollEntry = Extract<OutgoingObligation, { category: 'payroll' }>;
+import type { CategoryName } from '../merchants/index.js';
+import { categorizeTransaction } from '../../utils/categorizer.js';
+import {
+  matchPersonInDescription,
+  type PersonId,
+} from '../people/index.js';
+import { lookupOverride } from '../transaction-overrides/index.js';
+import {
+  getPayrollRegistry,
+  personAccountKey,
+  type PayrollEntry,
+  type PayrollRegistry,
+} from './registry.js';
+import type { DirectorPayroll } from './schema.js';
 
 /**
- * Match a configured payroll debit. Returns null for dividends, for rows
- * that don't reference a known person, and for amounts outside the
- * obligation's declared tolerance. When multiple payroll obligations
- * exist for the same (person, account), the closest absolute amount wins —
- * enabling a single account to host several scheduled payroll runs.
+ * Resolve the hydrated payroll record for a director. Returns
+ * `undefined` when no payroll obligation is on file for
+ * `personId` — the caller is expected to treat that as "no salary
+ * payments to attribute" rather than an error.
+ */
+export function getDirectorPayroll(
+  personId: PersonId,
+  reg: PayrollRegistry = getPayrollRegistry(),
+): DirectorPayroll | undefined {
+  return reg.indexes.directorsById.get(personId);
+}
+
+/** Every payroll obligation in declaration order. */
+export function allPayrollEntries(
+  reg: PayrollRegistry = getPayrollRegistry(),
+): readonly PayrollEntry[] {
+  return reg.indexes.entries;
+}
+
+/**
+ * Match a configured payroll debit. Returns null for dividends, for
+ * rows that don't reference a known person, and for amounts outside
+ * the obligation's declared tolerance. When multiple payroll
+ * obligations exist for the same (person, account) the closest
+ * absolute amount wins — enabling a single account to host several
+ * scheduled payroll runs.
  */
 export function matchPayrollEntry(
   account: string,
   absAmount: number,
   description: string,
+  reg: PayrollRegistry = getPayrollRegistry(),
 ): PayrollEntry | null {
   if (/\bDIVIDEND\b/i.test(description)) return null;
   const person = matchPersonInDescription(description);
   if (person === null) return null;
-  const candidates = getObligationRegistry()
-    .listByCategory('payroll')
-    .filter(c => c.personId === person.id && c.account === account);
-  if (candidates.length === 0) return null;
+  const candidates = reg.indexes.byPersonAccount.get(
+    personAccountKey(person.id, account),
+  );
+  if (candidates === undefined || candidates.length === 0) return null;
   let best = candidates[0];
   let bestDiff = Math.abs(absAmount - best.amount);
   for (let i = 1; i < candidates.length; i++) {
@@ -81,8 +107,9 @@ export function resolveExpenseCategoryWithPayroll(
   account: string,
   absAmount: number,
   registryCategory: CategoryName,
+  reg: PayrollRegistry = getPayrollRegistry(),
 ): ResolvePayrollCategoryResult {
-  const payrollHit = matchPayrollEntry(account, absAmount, description);
+  const payrollHit = matchPayrollEntry(account, absAmount, description, reg);
   if (payrollHit !== null) {
     return { category: 'Payroll', payrollHit };
   }
@@ -111,14 +138,11 @@ export function transactionCategoryWithPayroll(
   account: string,
   type: 'income' | 'expense' | 'transfer',
   hash?: string,
+  reg: PayrollRegistry = getPayrollRegistry(),
 ): CategoryName {
   const base = categorizeTransaction(description, hash ? { hash } : undefined);
   if (hash !== undefined) {
-    // The override registry returns a non-null category here iff
-    // the hash is pinned. Re-query so we can skip payroll fallback
-    // when pinned — `base` alone can't distinguish pattern-match
-    // "Transfers" from a pinned "Transfers" override.
-    const override = getOverrideRegistry().get(hash);
+    const override = lookupOverride(hash);
     if (override !== null) return override;
   }
   if (!isOutgoingExpense(type, amount)) return base;
@@ -127,6 +151,7 @@ export function transactionCategoryWithPayroll(
     account,
     Math.abs(amount),
     base,
+    reg,
   );
   return category;
 }

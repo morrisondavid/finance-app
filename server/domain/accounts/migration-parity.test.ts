@@ -59,7 +59,7 @@ describe('locked snapshot — corpTaxApplicableAccounts', () => {
 describe('locked snapshot — payment account enumerations', () => {
   it('businessPaymentAccounts', () => {
     expect([...businessPaymentAccounts()].sort()).toEqual(
-      ['barclaycard', 'barclays-current', 'capital-on-tap', 'emirates-islamic'],
+      ['barclaycard', 'barclays-current', 'capital-on-tap', 'emirates-islamic', 'wise-ltd'],
     );
   });
 
@@ -79,6 +79,7 @@ describe('locked snapshot — payment account enumerations', () => {
         'monzo-joint',
         'natwest',
         'santander-everyday',
+        'wise-ltd',
       ],
     );
   });
@@ -89,7 +90,7 @@ describe('locked snapshot — accountsForEntity', () => {
     { scope: null, expected: ['monzo-joint', 'natwest', 'natwest-savings', 'santander-everyday'] },
     {
       scope: 'autonize-it-ltd',
-      expected: ['barclaycard', 'barclays-current', 'barclays-savings', 'capital-on-tap'],
+      expected: ['barclaycard', 'barclays-current', 'barclays-savings', 'capital-on-tap', 'wise-ltd'],
     },
     { scope: 'autonize-it-fzco', expected: ['emirates-islamic'] },
   ];
@@ -112,6 +113,7 @@ describe('locked snapshot — per-account predicates', () => {
       'monzo-joint': null,
       'emirates-islamic': 'autonize-it-fzco',
       'santander-everyday': null,
+      'wise-ltd': 'autonize-it-ltd',
     };
     for (const a of ACCOUNTS) {
       expect(getEntityIdForAccount(a)).toBe(expected[a]);
@@ -129,6 +131,7 @@ describe('locked snapshot — per-account predicates', () => {
       'monzo-joint': false,
       'emirates-islamic': true,
       'santander-everyday': false,
+      'wise-ltd': true,
     };
     for (const a of ACCOUNTS) {
       expect(isBusinessAccount(a)).toBe(expected[a]);
@@ -152,6 +155,7 @@ describe('locked snapshot — per-account predicates', () => {
       'monzo-joint': false,
       'emirates-islamic': false,
       'santander-everyday': true,
+      'wise-ltd': false,
     };
     for (const a of ACCOUNTS) {
       expect(isCreditCard(a)).toBe(expected[a]);

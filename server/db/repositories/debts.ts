@@ -10,7 +10,7 @@
 
 import { getDb, DEBTS_DIR } from '../connection.js';
 import type { AccountName } from '../../types.js';
-import { isValidAccountName } from '../../types.js';
+import { isValidAccountName } from '../../domain/accounts/index.js';
 import { round2 } from '../../utils/math.js';
 import {
   readDebtsFromCsvFile,

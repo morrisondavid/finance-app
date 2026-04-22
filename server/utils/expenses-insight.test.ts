@@ -7,7 +7,7 @@ import {
   NON_QOL_CATEGORIES,
   QOL_CATEGORIES,
 } from './expenses-insight.js';
-import { CATEGORY_NAMES } from './merchant-registry.js';
+import { CATEGORY_NAMES } from '../domain/merchants/index.js';
 import type { ExpensesLineItem, ExpensesSection } from '../../shared/api-contracts.js';
 
 // ---------------------------------------------------------------------------

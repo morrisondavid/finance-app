@@ -1,7 +1,21 @@
+/**
+ * Witness test — locks in that every named entry in the merchants
+ * registry produces a description that, when round-tripped through
+ * `categorizeTransaction` + `normalizeMerchant`, resolves back to
+ * the exact same category and display name declared on that entry.
+ *
+ * This is the canonical regression lock for pattern ordering: if a
+ * later entry in `STATIC_MERCHANT_DATA` accidentally shadows an
+ * earlier one, the shadowed entry becomes unreachable and this test
+ * fails loudly with the entry index and pattern source.
+ */
+
 import { describe, it, expect } from 'vitest';
-import { MERCHANT_REGISTRY } from './merchant-registry.js';
-import { categorizeTransaction } from './categorizer.js';
-import { normalizeMerchant } from './merchant-normalizer.js';
+import { getMerchantsRegistry } from './registry.js';
+import { categorizeTransaction } from '../../utils/categorizer.js';
+import { normalizeMerchant } from '../../utils/merchant-normalizer.js';
+
+const PATTERNS = getMerchantsRegistry().indexes.patterns;
 
 /** Mirrors `normalizeForMatching` in categorizer.ts */
 function normalizeLikeCategorizer(raw: string): string {
@@ -20,15 +34,15 @@ function normalizeLikeNormalizer(raw: string): string {
 }
 
 function firstCategoryMatchIndex(normalized: string): number {
-  for (let j = 0; j < MERCHANT_REGISTRY.length; j++) {
-    if (MERCHANT_REGISTRY[j].pattern.test(normalized)) return j;
+  for (let j = 0; j < PATTERNS.length; j++) {
+    if (PATTERNS[j].pattern.test(normalized)) return j;
   }
   return -1;
 }
 
 function firstNamedMatchIndex(normalized: string): number {
-  for (let j = 0; j < MERCHANT_REGISTRY.length; j++) {
-    const e = MERCHANT_REGISTRY[j];
+  for (let j = 0; j < PATTERNS.length; j++) {
+    const e = PATTERNS[j];
     if (e.displayName !== null && e.pattern.test(normalized)) return j;
   }
   return -1;
@@ -133,7 +147,7 @@ function syntheticSamplesForSource(source: string): string[] {
 }
 
 function findExclusiveWitness(entryIndex: number): string | undefined {
-  const entry = MERCHANT_REGISTRY[entryIndex];
+  const entry = PATTERNS[entryIndex];
   if (entry.displayName === null) return undefined;
 
   const tryOrder = [
@@ -169,7 +183,7 @@ function witnessVariants(base: string, entryIndex: number): string[] {
   const pad = `ZREG${entryIndex}Z`;
   out.push(`${pad} ${base}`, `${base} ${pad}`, `${pad}${base}`, `${base}${pad}`);
 
-  if (/\d/.test(MERCHANT_REGISTRY[entryIndex].pattern.source)) {
+  if (/\d/.test(PATTERNS[entryIndex].pattern.source)) {
     for (const d of ['01', '12', '99']) {
       out.push(base.replace(/00/g, d));
     }
@@ -178,19 +192,19 @@ function witnessVariants(base: string, entryIndex: number): string[] {
   return [...new Set(out)];
 }
 
-describe('MERCHANT_REGISTRY', () => {
-  it('has more than 100 entries', () => {
-    expect(MERCHANT_REGISTRY.length).toBeGreaterThan(100);
+describe('merchants registry witness round-trip', () => {
+  it('has more than 100 patterns', () => {
+    expect(PATTERNS.length).toBeGreaterThan(100);
   });
 
   it('gives every entry a non-empty category string', () => {
-    for (const [i, entry] of MERCHANT_REGISTRY.entries()) {
+    for (const [i, entry] of PATTERNS.entries()) {
       expect(entry.category, `entry #${i}`).toMatch(/\S/);
     }
   });
 
   it('gives every entry a valid RegExp pattern', () => {
-    for (const [i, entry] of MERCHANT_REGISTRY.entries()) {
+    for (const [i, entry] of PATTERNS.entries()) {
       expect(entry.pattern, `entry #${i}`).toBeInstanceOf(RegExp);
       expect(entry.pattern.source.length, `entry #${i}`).toBeGreaterThan(0);
 
@@ -201,11 +215,14 @@ describe('MERCHANT_REGISTRY', () => {
 
   it('has no duplicate non-null displayName + category pairs', () => {
     const seen = new Map<string, number>();
-    for (const [i, entry] of MERCHANT_REGISTRY.entries()) {
+    for (const [i, entry] of PATTERNS.entries()) {
       if (entry.displayName === null) continue;
       const key = `${entry.displayName}\u0000${entry.category}`;
       const prev = seen.get(key);
-      expect(prev, `duplicate displayName+category at #${i} and #${prev}: ${entry.displayName} / ${entry.category}`).toBeUndefined();
+      expect(
+        prev,
+        `duplicate displayName+category at #${i} and #${prev}: ${entry.displayName} / ${entry.category}`,
+      ).toBeUndefined();
       seen.set(key, i);
     }
   });
@@ -213,12 +230,14 @@ describe('MERCHANT_REGISTRY', () => {
   it('keeps categorizer and normalizer aligned for every named entry (exclusive witness)', () => {
     const failures: string[] = [];
 
-    for (const [i, entry] of MERCHANT_REGISTRY.entries()) {
+    for (const [i, entry] of PATTERNS.entries()) {
       if (entry.displayName === null) continue;
 
       const witness = findExclusiveWitness(i);
       if (witness === undefined) {
-        failures.push(`#${i} category=${entry.category} displayName=${entry.displayName} pattern=${entry.pattern}`);
+        failures.push(
+          `#${i} category=${entry.category} displayName=${entry.displayName} pattern=${entry.pattern}`,
+        );
         continue;
       }
 

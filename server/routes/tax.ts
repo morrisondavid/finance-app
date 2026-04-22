@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
 import { getFinancialYearRange } from '../db/utils/financial-year.js';
-import { HMRC_PATTERNS } from '../config/payees.js';
-import { getBusinessPaymentAccounts } from '../types.js';
+import { HMRC_PATTERNS } from '../domain/payees/index.js';
+import { businessPaymentAccounts } from '../domain/accounts/index.js';
 import type { VATPaymentsResponse } from '../../shared/api-contracts.js';
 import { findHmrcPayments } from '../db/repositories/tax.js';
 
@@ -28,7 +28,7 @@ router.get('/vat-payments', (req: Request<object, VATPaymentsResponse, object, V
 
     const payments = findHmrcPayments({
       patterns: HMRC_PATTERNS.VAT,
-      accounts: getBusinessPaymentAccounts(),
+      accounts: [...businessPaymentAccounts()],
       startDate: range.startDate,
       endDate: range.endDate,
     });

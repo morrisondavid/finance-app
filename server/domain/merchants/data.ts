@@ -1,71 +1,25 @@
 /**
- * Single source of truth for merchant recognition.
+ * Merchants domain — raw entry data.
  *
- * Each entry maps a regex pattern to a category and (optionally) a clean display name.
- * Both `categorizeTransaction` and `normalizeMerchant` read from this registry,
- * ensuring they can never drift out of sync.
+ * The ordered, flat list of merchant-recognition entries. Entries are
+ * checked top-to-bottom at call time; the first matching entry wins
+ * for both category and display-name resolution, so the declared order
+ * here is semantically load-bearing.
  *
- * Entries are checked top-to-bottom; first match wins for both category and display name.
- * Entries with `displayName: null` contribute to categorisation only — the normalizer
- * will fall through to later entries or its generic cleanup fallback.
+ * Person-derived entries (narrow payroll + generic transfer rows for
+ * each configured person) are NOT listed here. They are prepended at
+ * registry build time from the people domain so that we have a single
+ * source of truth for "how do we recognise David/Heena" (see
+ * `server/domain/people/data.ts`).
  *
- * IMPORTANT: Narrow **Payroll** (salary tokens, no dividend) sits before generic person-name
- * **Transfers**. Remaining **Transfers** rows stay early so other inter-account movements match first.
+ * IMPORTANT: Narrow **Payroll** (salary tokens, no dividend) sits
+ * before generic person-name **Transfers**. Remaining **Transfers**
+ * rows stay early so other inter-account movements match first.
  */
 
-import { CATEGORY_NAMES, type CategoryName } from '../../shared/category-names.js';
-import { PEOPLE, personAliasAlternation, type Person } from '../config/people.js';
+import type { MerchantEntry } from './schema.js';
 
-export { CATEGORY_NAMES, type CategoryName };
-
-export interface MerchantEntry {
-  pattern: RegExp;
-  category: CategoryName;
-  displayName: string | null;
-}
-
-const SALARY_KEYWORDS_SRC = '(?:SALARY|PAYROLL|WAGE|NET\\s+PAY|GROSS\\s+PAY)';
-
-/**
- * Narrow Payroll entry for a person: matches when the description contains
- * a salary keyword AND any alias for the person, and does NOT contain
- * "DIVIDEND". Must be checked before the generic Transfers entry below.
- */
-function narrowPayrollEntry(p: Person): MerchantEntry {
-  const aliases = personAliasAlternation(p);
-  return {
-    pattern: new RegExp(
-      `^(?!.*\\bDIVIDEND\\b)(?=.*\\b${SALARY_KEYWORDS_SRC}\\b).*(?:${aliases})`,
-      'i',
-    ),
-    category: 'Payroll',
-    displayName: null,
-  };
-}
-
-/** Generic Transfers entry for a person: catches any alias, always displays the full name. */
-function personTransferEntry(p: Person): MerchantEntry {
-  return {
-    pattern: new RegExp(personAliasAlternation(p), 'i'),
-    category: 'Transfers',
-    displayName: p.name,
-  };
-}
-
-/**
- * Director recognition entries built from the Person registry. Placed at the
- * top of MERCHANT_REGISTRY so narrow Payroll precedes generic Transfers,
- * and both precede downstream bills/merchants. One source of truth for
- * "how do we recognise David/Heena in a statement line" — extend by editing
- * `PEOPLE[id].matchAliases` in server/config/people.ts.
- */
-const PERSON_ENTRIES: readonly MerchantEntry[] = [
-  ...PEOPLE.map(narrowPayrollEntry),
-  ...PEOPLE.map(personTransferEntry),
-];
-
-export const MERCHANT_REGISTRY: readonly MerchantEntry[] = [
-  ...PERSON_ENTRIES,
+export const STATIC_MERCHANT_DATA: readonly MerchantEntry[] = [
   { pattern: /MONZO JOINT/i, category: 'Transfers', displayName: 'Monzo Joint' },
   // Payroll from own company — Income, not inter-account Transfers (must stay above generic transfer patterns)
   { pattern: /AUTONIZE|AUTONIZEITLIMITED/i, category: 'Transfers', displayName: 'Autonize IT' },

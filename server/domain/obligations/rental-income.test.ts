@@ -62,7 +62,7 @@ describe('assertRentalOwnershipIntegrity', () => {
 });
 
 describe('assertRentalMerchantsClassify', () => {
-  it('passes on the real registry (every rental merchant is in merchant-registry)', () => {
+  it('passes on the real registry (every rental merchant is in merchants registry)', () => {
     expect(() => assertRentalMerchantsClassify()).not.toThrow();
   });
 

@@ -209,7 +209,9 @@ describe('indexes.showTaxLiabilities', () => {
 });
 
 describe('indexes.excludeTransfersFromIncome', () => {
-  it('is exactly [barclays-current] on current seed data', () => {
-    expect(reg.indexes.excludeTransfersFromIncome).toEqual(['barclays-current']);
+  it('is exactly [barclays-current, wise-ltd] on current seed data', () => {
+    expect([...reg.indexes.excludeTransfersFromIncome].sort()).toEqual(
+      ['barclays-current', 'wise-ltd'],
+    );
   });
 });

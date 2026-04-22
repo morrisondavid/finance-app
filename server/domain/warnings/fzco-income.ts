@@ -8,7 +8,7 @@
  */
 
 import type Database from 'better-sqlite3';
-import { getAccountsByEntity } from '../../types.js';
+import { accountsForEntity } from '../accounts/index.js';
 import { toIsoDate, shiftIsoDate } from '../../../shared/iso-date.js';
 
 /**
@@ -21,7 +21,7 @@ export function sumFzcoTrailing12mIncomeAed(
   db: Database.Database,
   today: Date,
 ): number {
-  const uaeAccounts = getAccountsByEntity('autonize-it-fzco');
+  const uaeAccounts = accountsForEntity('autonize-it-fzco');
   if (uaeAccounts.length === 0) return 0;
   const placeholders = uaeAccounts.map(() => '?').join(', ');
   const endIso = toIsoDate(today);

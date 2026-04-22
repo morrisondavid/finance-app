@@ -131,14 +131,39 @@ export function renderInterCompanyMovements(
     return;
   }
 
+  // Split the queue: unclassified pairs stay expanded at the top so
+  // the user's eye lands on work that still needs attention; already-
+  // classified pairs collapse into a `<details>` drawer so the list
+  // visibly shrinks on save (fixes the "row doesn't disappear" UX
+  // complaint). The API still returns both sets so the audit trail
+  // remains intact — we're only hiding them in the DOM.
+  const unclassified = response.pairs.filter(p => p.classification === null);
+  const classified = response.pairs.filter(p => p.classification !== null);
+
+  const unclassifiedSection = unclassified.length === 0
+    ? `<p class="inter-company-movements__empty inter-company-movements__empty--done">
+         All detected pairs have been classified. Nice.
+       </p>`
+    : `<ul class="inter-company-movements__list" data-role="unclassified">
+         ${unclassified.map(renderPairRow).join('')}
+       </ul>`;
+
+  const classifiedSection = classified.length === 0
+    ? ''
+    : `<details class="inter-company-movements__classified-drawer">
+         <summary>Show classified (${classified.length})</summary>
+         <ul class="inter-company-movements__list inter-company-movements__list--classified" data-role="classified">
+           ${classified.map(renderPairRow).join('')}
+         </ul>
+       </details>`;
+
   body.innerHTML = `
     <div class="inter-company-movements__summary">
       ${response.classified} of ${response.total} pair${response.total === 1 ? '' : 's'} classified
       (${response.unclassified} outstanding).
     </div>
-    <ul class="inter-company-movements__list">
-      ${response.pairs.map(renderPairRow).join('')}
-    </ul>
+    ${unclassifiedSection}
+    ${classifiedSection}
   `;
 }
 
@@ -243,6 +268,11 @@ async function handleMovementsClick(event: MouseEvent): Promise<void> {
     // Also refresh the aggregate entity-foundation warning count
     // since classifying/clearing a pair shifts it.
     await loadEntityFoundation();
+    // The row has been moved into the collapsed drawer (or removed if
+    // re-set to Unclassified), so the Save button it was attached to
+    // no longer exists. Flash a transient toast instead of writing
+    // into a feedback span that was just re-rendered.
+    showMovementsToast(category === null ? 'Cleared' : 'Saved');
   } catch (error) {
     console.error('Failed to classify inter-company pair:', error);
     if (feedback !== null) {
@@ -251,6 +281,38 @@ async function handleMovementsClick(event: MouseEvent): Promise<void> {
     }
     button.disabled = false;
   }
+}
+
+/**
+ * Display a short-lived confirmation toast above the movements list.
+ * Deliberately self-contained (no global toast framework yet) — if
+ * one lands later this can be swapped out. Reuses a single element
+ * keyed by `MOVEMENTS_TOAST_ID` so rapid saves don't stack.
+ */
+const MOVEMENTS_TOAST_ID = 'inter-company-movements-toast';
+
+function showMovementsToast(message: string): void {
+  const body = document.getElementById(MOVEMENTS_BODY_ID);
+  if (body === null) return;
+
+  let toast = document.getElementById(MOVEMENTS_TOAST_ID);
+  if (toast === null) {
+    toast = document.createElement('div');
+    toast.id = MOVEMENTS_TOAST_ID;
+    toast.className = 'inter-company-movements__toast';
+    toast.setAttribute('role', 'status');
+    toast.setAttribute('aria-live', 'polite');
+    body.parentElement?.insertBefore(toast, body);
+  }
+  toast.textContent = message;
+  toast.classList.remove('inter-company-movements__toast--hidden');
+  toast.classList.add('inter-company-movements__toast--visible');
+
+  const toastEl = toast;
+  window.setTimeout(() => {
+    toastEl.classList.remove('inter-company-movements__toast--visible');
+    toastEl.classList.add('inter-company-movements__toast--hidden');
+  }, 1800);
 }
 
 function severityRank(severity: WarningSeverity): number {

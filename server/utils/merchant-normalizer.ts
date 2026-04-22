@@ -2,14 +2,13 @@
  * Merchant name normalizer -- converts raw transaction descriptions into
  * clean, human-readable merchant display names.
  *
- * Reads from the single-source-of-truth merchant-registry.ts so that
- * display names and category assignments can never drift out of sync.
- *
- * Entries with `displayName: null` are skipped (category-only matchers);
- * if no named entry matches, a generic cleanup fallback is applied.
+ * Consumes the merchants domain registry so display names and
+ * category assignments cannot drift out of sync. Entries with
+ * `displayName: null` are skipped (category-only matchers); if no
+ * named entry matches, a generic cleanup fallback is applied.
  */
 
-import { MERCHANT_REGISTRY } from './merchant-registry.js';
+import { findFirstNamedMatch } from '../domain/merchants/index.js';
 
 // ─── Fallback cleanup ────────────────────────────────────────────────────────
 
@@ -58,10 +57,7 @@ function normalizeForMatching(raw: string): string {
 
 export function normalizeMerchant(description: string): string {
   const normalized = normalizeForMatching(description);
-  for (const entry of MERCHANT_REGISTRY) {
-    if (entry.displayName !== null && entry.pattern.test(normalized)) {
-      return entry.displayName;
-    }
-  }
+  const named = findFirstNamedMatch(normalized);
+  if (named !== null) return named;
   return cleanFallback(description);
 }

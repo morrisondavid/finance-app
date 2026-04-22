@@ -16,7 +16,7 @@
 
 import express, { Request, Response } from 'express';
 import { getDb } from '../db/connection.js';
-import { getCompanyRegistry } from '../domain/company/registry.js';
+import { allCompanies } from '../domain/company/index.js';
 import { deriveEntityFoundationWarnings } from '../domain/warnings/entity-foundation.js';
 import { sumFzcoTrailing12mIncomeAed } from '../domain/warnings/fzco-income.js';
 import { countUnclassifiedInterCompanyPairs } from '../domain/warnings/inter-company-count.js';
@@ -32,12 +32,11 @@ const router = express.Router();
 
 router.get('/entity-foundation', (_req: Request, res: Response) => {
   try {
-    const registry = getCompanyRegistry();
     const db = getDb();
     const today = new Date();
 
     const warnings = deriveEntityFoundationWarnings({
-      companies: registry.all,
+      companies: allCompanies(),
       fzcoTrailing12mIncomeAed: sumFzcoTrailing12mIncomeAed(db, today),
       interCompanyMovementCount: countUnclassifiedInterCompanyPairs(db),
       today,

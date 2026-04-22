@@ -80,6 +80,32 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
   },
+  /**
+   * Wise (formerly TransferWise) GBP business balance held by Autonize
+   * IT Ltd. Wise is not a legal bank — it's an EMI operating under FCA
+   * authorisation 900507 — but for our ledger it behaves identically to
+   * a current account: money in, money out, per-row settlement dates.
+   * `excludeTransfersFromIncome: true` mirrors `barclays-current` so
+   * top-ups that `detectTransfers` pairs Barclays→Wise don't inflate
+   * Wise's "income" view. When we open a Wise balance under the FZCO
+   * entity a second row (`wise-fzco`, AED) should be added alongside.
+   */
+  'wise-ltd': {
+    name: 'wise-ltd',
+    label: 'Wise (UK Ltd)',
+    type: 'current',
+    currency: 'GBP',
+    entityId: 'autonize-it-ltd',
+    category: 'business',
+    business: {
+      jurisdiction: 'UK',
+      vat: { applicable: false, rate: 0.2, registered: true },
+      corpTax: { applicable: false, qualifyingFreeZone: false },
+    },
+    canMakeOutgoingPayments: true,
+    excludeTransfersFromIncome: true,
+    showTaxLiabilities: false,
+  },
   'natwest': {
     name: 'natwest',
     label: 'NatWest',

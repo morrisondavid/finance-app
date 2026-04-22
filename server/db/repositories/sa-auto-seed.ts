@@ -15,7 +15,7 @@
  */
 
 import { getDb } from '../connection.js';
-import { getSaFilers, type PersonId } from '../../config/people.js';
+import { saFilers, type PersonId } from '../../domain/people/index.js';
 import {
   estimateSaForPerson,
   getSaTaxYearForDate,
@@ -24,8 +24,8 @@ import {
 import { insertAutoObligation } from './obligations.js';
 import { isDismissed } from './obligation-dismissals.js';
 import { findHmrcPayments, type HmrcPaymentMatch } from './tax.js';
-import { HMRC_PATTERNS } from '../../config/payees.js';
-import { getBusinessAndPersonalPaymentAccounts } from '../../types.js';
+import { HMRC_PATTERNS } from '../../domain/payees/index.js';
+import { businessAndPersonalPaymentAccounts } from '../../domain/accounts/index.js';
 import { matchPaymentsToSlots } from '../../utils/payment-matcher.js';
 import { round2 } from '../../utils/math.js';
 
@@ -88,7 +88,7 @@ export function enumerateSaSlots(referenceDate: Date = new Date()): SaSlot[] {
   const windowEnd = new Date(referenceDate);
   windowEnd.setMonth(windowEnd.getMonth() + SA_WINDOW_FUTURE_MONTHS);
 
-  const filers = getSaFilers();
+  const filers = saFilers();
   const slots: SaSlot[] = [];
 
   // Cover the tax years that can possibly emit a deadline within the window.
@@ -198,7 +198,7 @@ function roundHalfUp2(n: number): number {
 function fetchSaPayments(): HmrcPaymentMatch[] {
   return findHmrcPayments({
     patterns: HMRC_PATTERNS.SELF_ASSESSMENT,
-    accounts: getBusinessAndPersonalPaymentAccounts(),
+    accounts: [...businessAndPersonalPaymentAccounts()],
     startDate: '0000-01-01',
     endDate: '9999-12-31',
   });

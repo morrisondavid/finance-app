@@ -1,5 +1,10 @@
 import type { Transaction, TransactionType, AccountName } from '../../types.js';
-import { isCreditCard, isCrossAccountBusinessToBusinessTransfer, getAccountConfig, isValidAccountName } from '../../types.js';
+import {
+  isCreditCard,
+  isCrossAccountBusinessToBusinessTransfer,
+  getAccountConfig,
+  isValidAccountName,
+} from '../../domain/accounts/index.js';
 import type { CurrencyCode } from '../../types.js';
 import { getDb, generateTransactionHash } from '../connection.js';
 import { formatDateISO } from '../../../shared/date-format.js';

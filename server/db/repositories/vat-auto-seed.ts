@@ -1,6 +1,6 @@
 import { getDb } from '../connection.js';
 import { VAT, getVatQuarterForDate, type VatQuarterRange } from '../../config/tax-rates.js';
-import { HMRC_PATTERNS } from '../../config/payees.js';
+import { HMRC_PATTERNS } from '../../domain/payees/index.js';
 import { businessPaymentAccounts, vatApplicableAccounts } from '../../domain/accounts/index.js';
 import { findHmrcPayments, type HmrcPaymentMatch } from './tax.js';
 import { insertAutoObligation } from './obligations.js';

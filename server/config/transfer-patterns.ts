@@ -93,6 +93,35 @@ export function isBounceDescription(description: string): boolean {
 }
 
 /**
+ * Description patterns that unconditionally disqualify a transaction
+ * from inter-company pair detection, regardless of how well the amount
+ * or date happens to line up on the other side.
+ *
+ * Rationale: the pair-finder keys purely off amount × currency × date
+ * tolerance. That's sufficient for actual cross-border movements
+ * (Wise → Emirates Islamic, etc.) but coincidences do happen — a
+ * Barclays dividend debit to a NatWest personal account can align
+ * within ±5 days and (post-FX) ±20% of a genuine EI inward remittance.
+ * When the description screams "this is not a cross-entity transfer"
+ * (DIVIDEND payments, SALARY / PAYE runs, HMRC tax debits) we bail out
+ * rather than surface a false-positive pair in the Warnings tab.
+ *
+ * Applied on BOTH sides — an expense OR income match is enough to
+ * disqualify the candidate pair. Consumed by
+ * {@link server/domain/inter-company/pair-finder.ts::findInterCompanyPairs}.
+ */
+export const INTER_COMPANY_EXCLUSION_PATTERNS: RegExp[] = [
+  /\bDIVIDENDS?\b/i,
+  /\bSALARY\b|\bPAYROLL\b|\bPAYE\b/i,
+  /\bHMRC\b|VAT RETURN|CORPORATION TAX/i,
+];
+
+/** `true` iff the description matches any `INTER_COMPANY_EXCLUSION_PATTERNS` entry. */
+export function isInterCompanyExcludedDescription(description: string): boolean {
+  return INTER_COMPANY_EXCLUSION_PATTERNS.some(p => p.test(description));
+}
+
+/**
  * How many days apart transactions can be to be considered a transfer pair
  */
 export const TRANSFER_DATE_TOLERANCE_DAYS = 5;

@@ -9,8 +9,8 @@ import {
 import { classifyInterCompanyPair } from './classify-pair.js';
 import {
   __resetOverrideRegistryForTests,
-  getOverrideRegistry,
 } from './registry.js';
+import { lookupOverride } from './queries.js';
 import {
   getOverridesCsvPath,
   readOverridesCsvFile,
@@ -92,8 +92,8 @@ describe('classifyInterCompanyPair', () => {
       category: 'Capital Contribution',
       notes: null,
     });
-    expect(getOverrideRegistry().get('e2')).toBe('Capital Contribution');
-    expect(getOverrideRegistry().get('i2')).toBe('Capital Contribution');
+    expect(lookupOverride('e2')).toBe('Capital Contribution');
+    expect(lookupOverride('i2')).toBe('Capital Contribution');
   });
 
   it('clears both sides when category is null, preserving unrelated overrides', () => {

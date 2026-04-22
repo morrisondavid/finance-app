@@ -5,7 +5,7 @@ import {
   getSaTaxYearRange,
   getSaTaxYearForDate,
 } from './sa-estimator.js';
-import { getDirectors } from '../config/payees.js';
+import { getDirectorPayroll } from '../domain/payroll/index.js';
 import { getObligationRegistry } from '../domain/obligations/registry.js';
 
 const registry = getObligationRegistry();
@@ -110,7 +110,7 @@ describe('estimateSaForPerson', () => {
   });
 
   it('classifies payments near monthlySalary as salary and others as dividends', () => {
-    const david = getDirectors().find(d => d.id === 'david')!;
+    const david = getDirectorPayroll('david')!;
     const monthly = david.monthlySalary;
 
     insertExpense('2024-05-20', 'DAVID MORRISON PAYROLL', -monthly);
@@ -138,7 +138,7 @@ describe('estimateSaForPerson', () => {
   });
 
   it('estimatedTax equals dividend tax + non-dividend tax on rental income', () => {
-    const david = getDirectors().find(d => d.id === 'david')!;
+    const david = getDirectorPayroll('david')!;
     const monthly = david.monthlySalary;
 
     for (let m = 0; m < 12; m++) {
@@ -155,7 +155,7 @@ describe('estimateSaForPerson', () => {
   });
 
   it('only includes transactions within the window', () => {
-    const david = getDirectors().find(d => d.id === 'david')!;
+    const david = getDirectorPayroll('david')!;
     insertExpense('2024-04-05', 'DAVID MORRISON DIVIDEND', -10000);
     insertExpense('2024-04-06', 'DAVID MORRISON DIVIDEND', -10000);
     insertExpense('2025-04-05', 'DAVID MORRISON DIVIDEND', -10000);

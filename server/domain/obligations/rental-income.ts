@@ -58,7 +58,7 @@ export function assertRentalOwnershipIntegrity(
  * budgeting, ad-hoc expense classification — still call
  * {@link categorizeTransaction} directly. This invariant guarantees the
  * two sources agree on every declared rental, so a mis-configured
- * merchant-registry entry surfaces loudly at boot rather than silently
+ * merchants registry entry surfaces loudly at boot rather than silently
  * bucketing rental income under `Other` on those surfaces.
  */
 export function assertRentalMerchantsClassify(
@@ -68,7 +68,7 @@ export function assertRentalMerchantsClassify(
     const category = categorizeTransaction(property.merchant);
     if (category !== SPECIAL_CATEGORY.property) {
       throw new Error(
-        `Rental obligation ${property.id} merchant "${property.merchant}" classifies as "${category}", expected "${SPECIAL_CATEGORY.property}". Add a matching entry to server/utils/merchant-registry.ts.`,
+        `Rental obligation ${property.id} merchant "${property.merchant}" classifies as "${category}", expected "${SPECIAL_CATEGORY.property}". Add a matching entry to server/domain/merchants/data.ts.`,
       );
     }
   }

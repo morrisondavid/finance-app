@@ -1,6 +1,11 @@
 import express, { Request, Response } from 'express';
-import type { TransactionJSON, TransactionType, AccountConfig } from '../types.js';
-import { ACCOUNTS, ACCOUNT_CONFIG, validateAccount } from '../types.js';
+import type { TransactionJSON, TransactionType } from '../types.js';
+import { ACCOUNTS } from '../types.js';
+import {
+  validateAccount,
+  getAccountConfig,
+  type AccountConfig,
+} from '../domain/accounts/index.js';
 import type {
   DashboardSummaryResponse,
   AccountConfigsResponse,
@@ -23,7 +28,7 @@ import {
   getTaxLiabilities
 } from '../db/index.js';
 import { categoryColour } from '../utils/categorizer.js';
-import { transactionCategoryWithPayroll } from '../config/payroll.js';
+import { transactionCategoryWithPayroll } from '../domain/payroll/index.js';
 import { getCategoryExpenseBreakdown } from '../utils/category-expense-totals.js';
 import { getBudgetComparisonsForFy, listBudgets } from '../db/repositories/budgets.js';
 import { normalizeFinancialYear } from '../db/utils/financial-year.js';
@@ -159,7 +164,7 @@ router.post('/balance/:account', (req: Request<{ account: string }, AccountBalan
 router.get('/accounts', (_req: Request, res: Response<AccountConfigsResponse | { error: string }>) => {
   try {
     // Return account config as an array for easier iteration
-    const accounts: AccountConfig[] = ACCOUNTS.map(account => ACCOUNT_CONFIG[account]);
+    const accounts: AccountConfig[] = ACCOUNTS.map(account => getAccountConfig(account));
     res.json(accounts);
   } catch (error) {
     console.error('Error fetching account config:', error);

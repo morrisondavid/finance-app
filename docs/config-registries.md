@@ -217,25 +217,40 @@ Violation = loud test failure with a readable aggregate diff.
 | Indexes field | `registry.indexes` (never `registry.idx`, `registry.by`, etc.) |
 | Primary-key lookup | `registry.byKey` (e.g. `byName`, `byId`) |
 
-## UI-control code-review rule
+## UI-control code-review checklist
 
-Added here because it's the post-mortem artefact from the Entity dropdown:
+Added here because it's the post-mortem artefact from the Entity dropdown — a dropdown that threaded an `entityId` parameter through six layers and changed nothing, because per-account `vat.registered` / `corporationTax.applicable` / `entityId` already did the scoping.
+
+**The rule:**
 
 > **A UI control must change at least one visible field in the response via a path not already expressed by existing config; if not, the control shouldn't exist.**
 
-Applied at code-review time. A new dropdown/filter/toggle that maps 1:1 to a flag already on a registry row is a redundant control — the flag is already doing the scoping. Remove it.
+**Reviewer checklist** — apply to every new / modified filter, dropdown, toggle, segmented control, or request-shape parameter:
 
-## Registry directory (updated as each phase lands)
+1. **Name the field it changes.** Which response field (or set of fields) becomes different when the control toggles? If the answer is "none — the server just receives the param", the control is inert. Reject.
+2. **Trace the path.** Follow the param from the UI through the API contract, route handler, query, registry, and data. Write down the exact step where it branches behaviour. If the branch is "passed through and ignored", reject.
+3. **Check for a parallel vocabulary.** Does the param duplicate a gate already expressed by a registry index or per-row config field (`vat.registered`, `category === 'business'`, `entityId`, `active`)? If yes, the registry is already doing the job. Delete the param.
+4. **Require a manifest consumer.** If the control reads from a registry index, that index must already appear in the registry's `registry.manifest.test.ts` with a consumer file + function pointing at the new UI code. If you're adding the index, add the manifest entry in the same PR.
+5. **Require a test that fails without the control.** Add a test asserting the response differs between the two control states. If the test passes with the control removed, the control is cosmetic. Delete it.
+6. **Name the question the control answers.** A filter exists to answer one named question (e.g. "show only VAT-applicable accounts"). If you can't name the question, or the name collapses into an existing index's name, reject.
+
+A new dropdown / filter / toggle that maps 1:1 to a flag already on a registry row is a redundant control — the flag is already doing the scoping. The registry, not the UI, is the scoping vocabulary. Any UI control that tries to re-parameterise it is dead code in waiting.
+
+## Registry directory
+
+Every set-wise config in the codebase currently following the canonical pattern:
 
 | Registry | Location | Purpose | Indexes |
 |---|---|---|---|
-| `accounts` | `server/domain/accounts/` | _(Phase A2 — pending)_ | _(Phase A2)_ |
-| `people` | `server/domain/people/` | _(Phase B1 — pending)_ | _(Phase B1)_ |
-| `payees` | `server/domain/payees/` | _(Phase B2 — pending)_ | _(Phase B2)_ |
-| `merchants` | `server/domain/merchants/` | _(Phase B3 — pending)_ | _(Phase B3)_ |
-| `payroll` | `server/domain/payroll/` | _(Phase B4 — pending)_ | _(Phase B4)_ |
-| `company` | `server/domain/company/` | Legally-distinct entities (UK Ltd, UAE FZCO). Sourced from `autonize-it/company.csv`. | _(Phase B5)_ |
-| `transaction-overrides` | `server/domain/transaction-overrides/` | Per-transaction category overrides keyed by hash. Sourced from `autonize-it/transaction-category-overrides.csv`. | _(Phase B6)_ |
+| `accounts` | `server/domain/accounts/` | UK + UAE bank / credit-card accounts with per-account VAT / CT / reporting gates. Source: `ACCOUNT_CONFIG_DATA` literal. | `business`, `personal`, `byEntity`, `vatApplicable`, `vatApplicableByEntity`, `corpTaxApplicable`, `corpTaxApplicableByEntity`, `outgoingPaymentsCapable`, `businessOutgoingPayments`, `personalOutgoingPayments`, `excludeTransfersFromIncome`, `showTaxLiabilities`, `creditCards` |
+| `people` | `server/domain/people/` | The humans this ledger tracks (directors, Self Assessment filers, alias matchers). Source: `PEOPLE_DATA` literal. | `directors`, `saFilers`, `aliasRegexes` |
+| `payees` | `server/domain/payees/` | HMRC narrative patterns used by tax-auto-seeders. Not a registry — flat pattern lists; lives here because it pairs with directors (held in the people registry). | _(n/a — flat module, not registry-shaped)_ |
+| `merchants` | `server/domain/merchants/` | Pattern list that maps raw transaction descriptions → `(category, displayName)`. Source: `STATIC_MERCHANT_DATA` + person-derived narrowing entries. | `patterns`, `byCategory`, `byDisplayName` |
+| `payroll` | `server/domain/payroll/` | Derived view joining `payroll`-category obligations with directors in the people registry. | `entries`, `byAccount`, `byPersonAccount`, `directorsById` |
+| `company` | `server/domain/company/` | Legally-distinct entities (UK Ltd, UAE FZCO). Source: `autonize-it/company.csv`. | `byId`, `byJurisdiction`, `active` |
+| `transaction-overrides` | `server/domain/transaction-overrides/` | Per-transaction category overrides keyed by hash. Source: `autonize-it/transaction-category-overrides.csv`. | `byHash` |
+
+`server/domain/obligations/` is pre-existing but not yet migrated onto `createRegistry`; bringing it under the canonical shape is tracked separately from this phase.
 
 ## Out of scope for this pattern
 

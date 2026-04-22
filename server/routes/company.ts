@@ -12,14 +12,13 @@
 
 import express, { Request, Response } from 'express';
 import { CompaniesListResponseSchema } from '../../shared/api-contracts.js';
-import { getCompanyRegistry } from '../domain/company/registry.js';
+import { allCompanies } from '../domain/company/index.js';
 
 const router = express.Router();
 
 router.get('/', (_req: Request, res: Response) => {
   try {
-    const registry = getCompanyRegistry();
-    const body = CompaniesListResponseSchema.parse({ companies: registry.all });
+    const body = CompaniesListResponseSchema.parse({ companies: allCompanies() });
     res.json(body);
   } catch (error) {
     console.error('[Company] GET error:', error);

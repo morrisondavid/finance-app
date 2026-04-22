@@ -4,7 +4,7 @@
  */
 import { getDb, BUDGETS_DIR } from '../connection.js';
 import type { AccountName } from '../../types.js';
-import { isValidAccountName } from '../../types.js';
+import { isValidAccountName } from '../../domain/accounts/index.js';
 import type { CategoryName } from '../../utils/categorizer.js';
 import { CATEGORY_NAMES } from '../../utils/categorizer.js';
 import { round2 } from '../../utils/math.js';

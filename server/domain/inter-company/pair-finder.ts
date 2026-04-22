@@ -20,6 +20,7 @@ import type Database from 'better-sqlite3';
 import {
   CROSS_CURRENCY_TOLERANCE,
   TRANSFER_DATE_TOLERANCE_DAYS,
+  isInterCompanyExcludedDescription,
 } from '../../config/transfer-patterns.js';
 import { convertAmountSync } from '../../config/exchange-rates.js';
 import {
@@ -27,9 +28,8 @@ import {
   isValidAccountName,
   getEntityIdForAccount,
   isBusinessAccount,
-  type CurrencyCode,
-  type EntityId,
-} from '../../types.js';
+} from '../accounts/index.js';
+import type { CurrencyCode, EntityId } from '../../types.js';
 
 export interface PairCandidate {
   id: number;
@@ -131,6 +131,12 @@ function currencyOrGbp(account: string): CurrencyCode {
  *     paired within-entity by `detectTransfers()` and are off the
  *     table for inter-company classification).
  *   - Amount/date matcher agrees.
+ *   - Neither description matches
+ *     {@link INTER_COMPANY_EXCLUSION_PATTERNS} (dividends, salary,
+ *     HMRC, etc.). These can legitimately coincide on amount/date
+ *     with a real inter-company remittance but are structurally never
+ *     cross-entity transfers, so we short-circuit instead of asking
+ *     the user to classify a false positive.
  *
  * No duplicate avoidance between pairs: if the same income matches
  * two candidate expenses (which would be unusual), both pairs are
@@ -177,6 +183,7 @@ export function findInterCompanyPairs(db: Database.Database): InterCompanyPair[]
     if (!isBusinessAccount(income.account)) continue;
     const incomeEntity = getEntityIdForAccount(income.account);
     if (incomeEntity === null) continue;
+    if (isInterCompanyExcludedDescription(income.description)) continue;
 
     for (const expense of expenses) {
       if (!isValidAccountName(expense.account)) continue;
@@ -184,6 +191,7 @@ export function findInterCompanyPairs(db: Database.Database): InterCompanyPair[]
       const expenseEntity = getEntityIdForAccount(expense.account);
       if (expenseEntity === null) continue;
       if (expenseEntity === incomeEntity) continue;
+      if (isInterCompanyExcludedDescription(expense.description)) continue;
 
       if (
         !doAmountsAndDatesMatchForAccounts({

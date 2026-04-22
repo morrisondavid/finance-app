@@ -7,8 +7,9 @@ import barclaycardParser from './barclaycard.js';
 import monzoParser from './monzo.js';
 import emiratesIslamicParser from './emirates-islamic.js';
 import santanderEverydayParser from './santander-everyday.js';
+import wiseParser from './wise.js';
 import type { BankParser, ParserMap, Transaction, CSVRow } from '../types.js';
-import { isCreditCard, isValidAccountName } from '../types.js';
+import { isCreditCard, isValidAccountName } from '../domain/accounts/index.js';
 import { normalizeDescription } from '../db/connection.js';
 import { formatDateISO } from '../../shared/date-format.js';
 
@@ -22,6 +23,7 @@ export const PARSERS: ParserMap = {
   'natwest-savings': natwestParser,
   'capital-on-tap': capitalOnTapParser,
   'barclaycard': barclaycardParser,
+  'wise-ltd': wiseParser,
   'monzo-joint': monzoParser,
   'emirates-islamic': emiratesIslamicParser,
   'santander-everyday': santanderEverydayParser

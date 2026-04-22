@@ -16,7 +16,7 @@
 
 import type Database from 'better-sqlite3';
 import { findInterCompanyPairs } from '../inter-company/pair-finder.js';
-import { getOverrideRegistry } from '../transaction-overrides/registry.js';
+import { lookupOverride } from '../transaction-overrides/index.js';
 import { isInterCompanyCategory } from '../../../shared/category-names.js';
 
 /**
@@ -28,12 +28,11 @@ import { isInterCompanyCategory } from '../../../shared/category-names.js';
 export function countUnclassifiedInterCompanyPairs(db: Database.Database): number {
   const pairs = findInterCompanyPairs(db);
   if (pairs.length === 0) return 0;
-  const overrides = getOverrideRegistry();
 
   let unclassified = 0;
   for (const pair of pairs) {
-    const expenseOverride = overrides.get(pair.expense.hash);
-    const incomeOverride = overrides.get(pair.income.hash);
+    const expenseOverride = lookupOverride(pair.expense.hash);
+    const incomeOverride = lookupOverride(pair.income.hash);
     const classified =
       (expenseOverride !== null && isInterCompanyCategory(expenseOverride)) ||
       (incomeOverride !== null && isInterCompanyCategory(incomeOverride));

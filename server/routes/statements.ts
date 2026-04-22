@@ -4,7 +4,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import archiver from 'archiver';
 import type { FileInfo, ExtractedDate, AllStatements, AccountStatements, AccountName } from '../types.js';
-import { ACCOUNTS, ACCOUNT_CONFIG } from '../types.js';
+import { ACCOUNTS } from '../types.js';
+import { getAccountConfig, businessAccounts } from '../domain/accounts/index.js';
 import type {
   StatementsResponse,
   StatementYearsResponse,
@@ -239,7 +240,7 @@ router.get('/', (req: Request<object, StatementsResponse, object, StatementsQuer
     
     // Quarter filter takes precedence over year/month
     if (quarter) {
-      const overlap = ACCOUNT_CONFIG[account].quarterOverlapMonths ?? 0;
+      const overlap = getAccountConfig(account).quarterOverlapMonths ?? 0;
       pdfs = pdfs.filter(f => matchesQuarter(f.displayDate, quarter, overlap));
       csvs = csvs.filter(f => matchesQuarter(f.displayDate, quarter, overlap));
     } else {
@@ -291,7 +292,7 @@ router.get('/download-all', (req: Request<object, unknown, object, StatementsQue
     }
     
     if (quarter) {
-      const overlap = ACCOUNT_CONFIG[account as AccountName]?.quarterOverlapMonths ?? 0;
+      const overlap = getAccountConfig(account as AccountName).quarterOverlapMonths ?? 0;
       pdfs = pdfs.filter(f => matchesQuarter(f.displayDate, quarter, overlap));
       csvs = csvs.filter(f => matchesQuarter(f.displayDate, quarter, overlap));
     } else {
@@ -364,8 +365,8 @@ router.get('/download-all', (req: Request<object, unknown, object, StatementsQue
 });
 
 // Helper to get business accounts only
-function getBusinessAccounts(): AccountName[] {
-  return ACCOUNTS.filter(account => ACCOUNT_CONFIG[account].category === 'business');
+function getBusinessAccounts(): readonly AccountName[] {
+  return businessAccounts();
 }
 
 // Helper to get expected months for a quarter
@@ -444,7 +445,7 @@ router.get('/check-quarter', (req: Request<object, CheckQuarterResponse, object,
   const missingFiles: string[] = [];
   
   for (const account of businessAccounts) {
-    const accountConfig = ACCOUNT_CONFIG[account];
+    const accountConfig = getAccountConfig(account);
     const accountDir = path.join(STATEMENTS_DIR, account);
     const pdfDir = path.join(accountDir, 'pdf');
     const csvDir = path.join(accountDir, 'csv');
@@ -494,7 +495,7 @@ router.get('/download-for-accountant', (req: Request<object, unknown, object, Qu
   const filesToZip: FileToZip[] = [];
   
   for (const account of businessAccounts) {
-    const accountConfig = ACCOUNT_CONFIG[account];
+    const accountConfig = getAccountConfig(account);
     const accountDir = path.join(STATEMENTS_DIR, account);
     const pdfDir = path.join(accountDir, 'pdf');
     const csvDir = path.join(accountDir, 'csv');
@@ -591,7 +592,7 @@ router.post('/download-selected', (req: Request<object, unknown, DownloadSelecte
       return; // Skip invalid types
     }
     
-    const accountConfig = ACCOUNT_CONFIG[file.account as AccountName];
+    const accountConfig = getAccountConfig(file.account as AccountName);
     const folderName = accountConfig.label.toLowerCase().replace(/\s+/g, '-');
     const filePath = path.join(STATEMENTS_DIR, file.account, file.type, file.filename);
     

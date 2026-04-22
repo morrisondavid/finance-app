@@ -43,6 +43,7 @@ export const AccountNameSchema = z.enum([
   'barclays-savings',
   'capital-on-tap',
   'barclaycard',
+  'wise-ltd',
   'natwest',
   'natwest-savings',
   'monzo-joint',
@@ -609,9 +610,9 @@ export const ObligationStatusSchema = z.enum(['pending', 'paid', 'overdue', 'con
 
 /**
  * Person identifier — matches the literal union type derived from
- * `server/config/people.ts`. Kept as a string enum here so the shared
- * package stays free of server-only imports; runtime validation defers
- * to {@link server/config/people.ts#isPersonId} where it matters.
+ * `server/domain/people/data.ts`. Kept as a string enum here so the
+ * shared package stays free of server-only imports; runtime validation
+ * defers to `server/domain/people/index.ts::isPersonId` where it matters.
  */
 export const PersonIdSchema = z.enum(['david', 'heena']);
 

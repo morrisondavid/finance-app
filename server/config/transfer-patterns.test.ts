@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { 
-  isTransferDescription, 
+import {
+  isTransferDescription,
   isBounceDescription,
+  isInterCompanyExcludedDescription,
   TRANSFER_PATTERNS,
   BOUNCE_PATTERNS,
-  TRANSFER_DATE_TOLERANCE_DAYS
+  INTER_COMPANY_EXCLUSION_PATTERNS,
+  TRANSFER_DATE_TOLERANCE_DAYS,
 } from './transfer-patterns.js';
 
 describe('Transfer Pattern Detection', () => {
@@ -120,6 +122,36 @@ describe('Transfer Pattern Detection', () => {
     it('should have bounce patterns defined', () => {
       expect(BOUNCE_PATTERNS.length).toBeGreaterThan(0);
       expect(BOUNCE_PATTERNS.every(p => p instanceof RegExp)).toBe(true);
+    });
+
+    it('should have inter-company exclusion patterns defined', () => {
+      expect(INTER_COMPANY_EXCLUSION_PATTERNS.length).toBeGreaterThan(0);
+      expect(INTER_COMPANY_EXCLUSION_PATTERNS.every(p => p instanceof RegExp)).toBe(true);
+    });
+  });
+
+  describe('isInterCompanyExcludedDescription', () => {
+    it('matches DIVIDEND / DIVIDENDS (Barclays → NatWest dividend false positive)', () => {
+      expect(isInterCompanyExcludedDescription('DAVID MORRISON DIVIDENDS FT')).toBe(true);
+      expect(isInterCompanyExcludedDescription('Dividend payment March')).toBe(true);
+    });
+
+    it('matches salary / payroll / PAYE', () => {
+      expect(isInterCompanyExcludedDescription('SALARY MARCH 2026')).toBe(true);
+      expect(isInterCompanyExcludedDescription('Payroll run')).toBe(true);
+      expect(isInterCompanyExcludedDescription('HMRC PAYE')).toBe(true);
+    });
+
+    it('matches HMRC / VAT return / corporation tax', () => {
+      expect(isInterCompanyExcludedDescription('HMRC VAT RETURN')).toBe(true);
+      expect(isInterCompanyExcludedDescription('Corporation Tax Q1')).toBe(true);
+      expect(isInterCompanyExcludedDescription('VAT RETURN 2026')).toBe(true);
+    });
+
+    it('does not match legitimate inter-company descriptions', () => {
+      expect(isInterCompanyExcludedDescription('Wise: to Autonize IT - FZCO (4824 AED @ 4.84)')).toBe(false);
+      expect(isInterCompanyExcludedDescription('INWARD REMITTANCE AUTONIZE')).toBe(false);
+      expect(isInterCompanyExcludedDescription('Intercompany transfer')).toBe(false);
     });
   });
 });

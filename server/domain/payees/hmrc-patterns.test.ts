@@ -3,7 +3,7 @@ import {
   HMRC_PATTERNS,
   HMRC_NARRATIVE_PATTERNS,
   buildHmrcNarrativeCaseSql,
-} from './payees.js';
+} from './hmrc-patterns.js';
 
 describe('HMRC_PATTERNS derivation', () => {
   it('seeder-facing groups point at the same array instances as the canonical map', () => {
@@ -48,16 +48,18 @@ describe('buildHmrcNarrativeCaseSql', () => {
   });
 
   /**
-   * Regression-lock: HMRC's card gateway routes every debit-card payment
-   * through ETMP, so card-channel VAT lands with narrative "HMRC ETMP -
-   * GLASGOW - Card Ending: NNNN". The card-ending suffix must classify as
-   * VAT (because it IS VAT), while bare "HMRC ETMP" must stay on
-   * payment-plan (where it belongs as TTP / recurring-DD).
+   * Regression-lock: HMRC's card gateway routes every debit-card
+   * payment through ETMP, so card-channel VAT lands with narrative
+   * "HMRC ETMP - GLASGOW - Card Ending: NNNN". The card-ending
+   * suffix must classify as VAT (because it IS VAT), while bare
+   * "HMRC ETMP" must stay on payment-plan (where it belongs as
+   * TTP / recurring-DD).
    *
-   * The classifier relies on object-insertion order: `vat` iterates before
-   * `payment-plan` in HMRC_NARRATIVE_PATTERNS, so the more-specific card-
-   * ending WHEN clause appears first and wins. If either of those
-   * invariants breaks, card VAT will silently drop onto the wrong bucket.
+   * The classifier relies on object-insertion order: `vat`
+   * iterates before `payment-plan` in HMRC_NARRATIVE_PATTERNS, so
+   * the more-specific card-ending WHEN clause appears first and
+   * wins. If either of those invariants breaks, card VAT will
+   * silently drop onto the wrong bucket.
    */
   it('classifies card-channel ETMP as VAT (Card Ending: suffix)', () => {
     const vatIdx = sql.indexOf("LIKE 'HMRC ETMP% Card Ending%' THEN 'vat'");
@@ -74,10 +76,11 @@ describe('buildHmrcNarrativeCaseSql', () => {
 });
 
 /**
- * Regression-lock: SQL LIKE semantics for the card-ETMP discriminator.
- * These cases simulate what SQLite's LIKE will match against real bank
- * narratives seen in the user's ledger. If the pattern string ever
- * changes, any match flip here catches it immediately.
+ * Regression-lock: SQL LIKE semantics for the card-ETMP
+ * discriminator. These cases simulate what SQLite's LIKE will
+ * match against real bank narratives seen in the user's ledger.
+ * If the pattern string ever changes, any match flip here catches
+ * it immediately.
  */
 describe('card-channel ETMP discriminator (LIKE semantics)', () => {
   function sqlLikeMatches(pattern: string, value: string): boolean {

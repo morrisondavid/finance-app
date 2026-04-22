@@ -5,7 +5,7 @@
  * based on account configuration, avoiding duplication across repositories.
  */
 
-import { getAccountConfig, isValidAccountName } from '../../types.js';
+import { getAccountConfig, isValidAccountName } from '../../domain/accounts/index.js';
 
 /**
  * Check if transfers should be included as income for the given account filter

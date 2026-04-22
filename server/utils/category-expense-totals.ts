@@ -8,7 +8,7 @@
 
 import type { AccountName, TransactionType } from '../types.js';
 import { getTransactions } from '../db/repositories/transactions.js';
-import { transactionCategoryWithPayroll } from '../config/payroll.js';
+import { transactionCategoryWithPayroll } from '../domain/payroll/index.js';
 import type { CategoryName } from './categorizer.js';
 import { SPECIAL_CATEGORY } from './category-constants.js';
 import { monthKeyFromIsoDate } from './math.js';

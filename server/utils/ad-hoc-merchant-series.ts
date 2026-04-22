@@ -3,7 +3,7 @@
  */
 
 import type { AccountName } from '../types.js';
-import { isValidAccountName } from '../types.js';
+import { isValidAccountName } from '../domain/accounts/index.js';
 import { SPECIAL_CATEGORY } from './category-constants.js';
 import {
   accumulationFromTxn,

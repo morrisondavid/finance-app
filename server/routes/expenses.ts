@@ -9,7 +9,8 @@ import {
   type RecurringExpense,
   type RecurringExpensesResponse,
 } from '../../shared/api-contracts.js';
-import { ACCOUNTS, ACCOUNT_CONFIG, isValidAccountName } from '../types.js';
+import { ACCOUNTS } from '../types.js';
+import { isValidAccountName, getAccountConfig } from '../domain/accounts/index.js';
 import type { AccountName } from '../types.js';
 import {
   getTransactions,
@@ -138,7 +139,8 @@ router.get('/overview', (_req: Request<object, ExpensesSheetResponse, object, Ov
     for (const e of pipeline.monthlyExpenseRecurring) {
       const acc = pipeline.expenseAccumulators.get(recurringKey(e));
       const variance = acc ? computeMonthlyVariance(acc.monthlyTotals, e.amount) : [];
-      const acctCat = acc?.accountCategory ?? ACCOUNT_CONFIG[e.sourceAccount as AccountName]?.category ?? 'personal';
+      const acctCat = acc?.accountCategory
+        ?? (isValidAccountName(e.sourceAccount) ? getAccountConfig(e.sourceAccount).category : 'personal');
       const list = monthlyItemsByCategory.get(e.category) ?? [];
       list.push(toLineItem(e, 'monthly', acctCat, variance, 'expense'));
       monthlyItemsByCategory.set(e.category, list);
@@ -162,7 +164,7 @@ router.get('/overview', (_req: Request<object, ExpensesSheetResponse, object, Ov
     for (const e of pipeline.annualExpenseRecurring) {
       const acc = pipeline.expenseAccumulators.get(recurringKey(e));
       const variance = acc ? getAnnualVariance(acc.transactions, e.amount) : [];
-      const accountCategory = ACCOUNT_CONFIG[e.sourceAccount as AccountName]?.category ?? 'personal';
+      const accountCategory = isValidAccountName(e.sourceAccount) ? getAccountConfig(e.sourceAccount).category : 'personal';
       const list = annualByCategory.get(e.category) ?? [];
       list.push(toLineItem(e, 'annual', accountCategory, variance, 'expense'));
       annualByCategory.set(e.category, list);
@@ -185,14 +187,14 @@ router.get('/overview', (_req: Request<object, ExpensesSheetResponse, object, Ov
     for (const e of pipeline.monthlyIncomeRecurring) {
       const acc = pipeline.incomeAccumulators.get(recurringKey(e));
       const variance = acc ? computeMonthlyVariance(acc.monthlyTotals, e.amount) : [];
-      const accountCategory = ACCOUNT_CONFIG[e.sourceAccount as AccountName]?.category ?? 'personal';
+      const accountCategory = isValidAccountName(e.sourceAccount) ? getAccountConfig(e.sourceAccount).category : 'personal';
       incomeMonthlyItems.push(toLineItem(e, 'monthly', accountCategory, variance, 'income'));
     }
     const incomeAnnualItems: ExpensesLineItem[] = [];
     for (const e of pipeline.annualIncomeRecurring) {
       const acc = pipeline.incomeAccumulators.get(recurringKey(e));
       const variance = acc ? getAnnualVariance(acc.transactions, e.amount) : [];
-      const accountCategory = ACCOUNT_CONFIG[e.sourceAccount as AccountName]?.category ?? 'personal';
+      const accountCategory = isValidAccountName(e.sourceAccount) ? getAccountConfig(e.sourceAccount).category : 'personal';
       incomeAnnualItems.push(toLineItem(e, 'annual', accountCategory, variance, 'income'));
     }
     incomeMonthlyItems.sort((a, b) => b.amount - a.amount);
