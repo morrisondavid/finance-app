@@ -6,7 +6,9 @@
 >
 > **What's shipped (Tier 0):** the obligations registry, HMRC auto-seeders (VAT, CT, SA, HMRC TTP), budgets, recurring detection, overdue hero, missed-obligation detector (annual / one-off non-tax items with Mark Paid + auto-match), multi-currency / FX foundations (GBP + AED), and the Deadlines tab + calendar view with ICS export.
 >
-> **What's left (Tier 1):** the business now spans two legally distinct entities — **Autonize IT Limited** (UK, operational since 2014) and **Autonize IT Software Development – FZCO** (UAE, operational from March 2026) — and most engagements are agency-mediated (La Fosse for the current Edwin Group work) while some are direct (Delta Capita), with some self-billed and others supplier-issued. Tier 1 builds the income-side layer that makes all of that legible to the forecast: a multi-entity foundation so UK and UAE books never cross-contaminate, a clients / contracts / renewals registry to anchor every income stream, an invoicing system that handles both outbound generation and inbound self-bill ingestion in whichever currency the contract specifies, a working-days ledger so income becomes continuously derivable, a real forecast on top of it, a ranked warnings surface, a debt-strategy advisor, and finally the agent / notification layer.
+> **What's shipped (Tier 1 so far):** the **Multi-Entity Foundation (1.1)** — UK Ltd and UAE FZCO are first-class entities across config, query, and warning surfaces; every `ACCOUNT_CONFIG` row (including the new `wise-ltd` intermediary) carries an `entityId`; jurisdiction-scoped tax rules live in `tax-rules.ts`; the entity-foundation warnings endpoint ships six branches (TBC fields, FZCO CT status, UAE VAT thresholds, IFZA renewal, inter-company classification); the Warnings tab lets you classify every UK ↔ UAE movement (loan / capital / service fee) with description-based false-positive suppression; and the IFZA license renewal is on the deadlines + ICS feed.
+>
+> **What's left (Tier 1):** the business now spans two legally distinct entities — **Autonize IT Limited** (UK, operational since 2014) and **Autonize IT Software Development – FZCO** (UAE, operational from March 2026) — and most engagements are agency-mediated (La Fosse for the current Edwin Group work) while some are direct (Delta Capita), with some self-billed and others supplier-issued. With the multi-entity foundation now in place, the remaining Tier 1 work is the income-side layer that makes all of that legible to the forecast: a clients / contracts / renewals registry to anchor every income stream, an invoicing system that handles both outbound generation and inbound self-bill ingestion in whichever currency the contract specifies, a working-days ledger so income becomes continuously derivable, a real forecast on top of it, a ranked warnings surface, a debt-strategy advisor, and finally the agent / notification layer.
 
 ---
 
@@ -43,191 +45,35 @@ or both via the unified `/api/deadlines/feed` endpoint.
 
 ## Tier 1 — Projection Layer ("What's Coming")
 
-### 1.1 Multi-Entity Foundation
+### 1.1 Multi-Entity Foundation ✅ SHIPPED
 
-**The structural gate everything else in Tier 1 depends on.** The
-business now spans two legally distinct entities that share operational
-ownership but must never share a tax return, a VAT quarter, or an
-invoice sequence. Every subsequent Tier 1 feature assumes `entity_id`
-already exists on account configs, contracts, invoices, and the
-obligation registry.
-
-**Why seed data lands in this feature, not as a tail-end section**
-
-Without seeded entity rows, contracts can't FK an issuer, invoices
-can't pick a PDF template, the dashboard has nothing to group by, and
-there is no way to exercise jurisdiction-scoped tax queries in tests.
-`autonize-it/company.csv` is committed as part of this feature's first
-PR, not its last.
-
-**Schema — `autonize-it/company.csv`**
-
-```
-id, legal_name, trading_name, kind (ltd | fzco | sole_trader | other),
-jurisdiction (UK | UAE), regulator,
-company_number, vat_number,                 -- UK-shaped identifiers
-license_number, registration_number,        -- UAE-shaped identifiers
-formation_date, address,
-currency,
-bank_sort_code, bank_account_number,        -- GBP bank details
-iban, swift_bic,                            -- AED bank details
-email,
-logo_path,
-accountant_name, accountant_email,
-ct_registered, qfzp_elected,                -- UAE CT flags (UK row ignores)
-vat_registered,                             -- applies to both, different thresholds
-active, updated_at
-```
-
-Asymmetric columns deliberately: `company_number` + `vat_number` apply
-to the UK row; `license_number` + `registration_number` + `iban` +
-`swift_bic` apply to the FZCO row; `ct_registered` + `qfzp_elected`
-only gate UAE CT obligations. All jurisdiction-specific columns are
-nullable so a single schema handles both.
-
-**Seed data — both rows committed at ship time**
-
-| column | UK entity (row 1) | UAE entity (row 2) |
-|---|---|---|
-| `id` | `autonize-it-ltd` | `autonize-it-fzco` |
-| `legal_name` | Autonize IT Limited | Autonize IT Software Development – FZCO |
-| `trading_name` | Autonize IT Ltd | Autonize IT FZCO |
-| `kind` | `ltd` | `fzco` |
-| `jurisdiction` | UK | UAE |
-| `regulator` | Companies House | IFZA (International Free Zone Authority) |
-| `company_number` | 08842112 | *(null)* |
-| `vat_number` | 292 1465 96 | *(null)* |
-| `license_number` | *(null)* | 73348 |
-| `registration_number` | *(null)* | 71347 |
-| `formation_date` | *(TBC — capture from Companies House)* | 2025-11-04 |
-| `address` | 53 Heath Park Road, Romford, RM2 5UL | DSO-IFZA, IFZA Properties, Dubai Silicon Oasis, Dubai, UAE |
-| `currency` | GBP | AED |
-| `bank_sort_code` | 20-25-19 | *(null)* |
-| `bank_account_number` | 63648923 | *(null)* |
-| `iban` | *(null)* | *(TBC — Emirates Islamic)* |
-| `swift_bic` | *(null)* | *(TBC — Emirates Islamic)* |
-| `email` | dmorrison@autonize-it.com | dmorrison@autonize-it.com |
-| `logo_path` | `autonize-it/logo.svg` | `autonize-it/logo.svg` |
-| `accountant_name` | *(TBC)* | *(TBC)* |
-| `accountant_email` | *(TBC)* | *(TBC)* |
-| `ct_registered` | `true` | *(TBC)* |
-| `qfzp_elected` | *(n/a)* | *(TBC)* |
-| `vat_registered` | `true` | `false` (per La Fosse self-bill agreement, FZCO VAT = N/A) |
-| `active` | `true` | `true` |
-
-Every `TBC` is preserved verbatim in the seed file so the Warnings
-Engine (1.8) can flag them as unfilled data until resolved.
-
-**Code changes — `server/types.ts`**
-
-- `ACCOUNT_CONFIG` entries gain `entityId: 'autonize-it-ltd' |
-  'autonize-it-fzco' | null` (personal accounts = `null`).
-  - Business mapping: `barclays-current`, `barclays-savings`,
-    `capital-on-tap`, `barclaycard` → `autonize-it-ltd`;
-    `emirates-islamic` → `autonize-it-fzco`.
-  - Personal: `natwest`, `natwest-savings`, `monzo-joint`,
-    `santander-everyday` → `null`.
-- `emirates-islamic`: `type` changes from `savings` to `current` (it is
-  an operational current account now, not a parked AED reserve).
-- `BusinessTaxConfig` restructures from two booleans into a
-  jurisdiction-scoped shape:
-
-  ```
-  BusinessTaxConfig {
-    entityId: 'autonize-it-ltd' | 'autonize-it-fzco'
-    jurisdiction: 'UK' | 'UAE'
-    vat: { applicable: boolean, rate: number, registered: boolean }
-    corpTax: { applicable: boolean, qualifyingFreeZone: boolean }
-  }
-  ```
-
-- `isCrossAccountBusinessToBusinessTransfer()` updates: returns
-  `false` for pairs that span entity IDs; the transaction is instead
-  classified via a new helper
-  `classifyInterCompanyMovement(from, to) → 'within-entity' |
-  'inter-company-unclassified'`. Inter-company movements flow through
-  the Warnings Engine (1.8) rather than silently netting out.
-
-**Code changes — `server/config/tax-rules.ts` (new)**
-
-Single source of truth for tax rules keyed by `(jurisdiction, fy)`:
-
-- UK entries: VAT 20% standard, CT 19% small-profits / 25% main /
-  marginal relief band (existing registry already models this; tax-
-  rules.ts becomes the jurisdiction-aware wrapper).
-- UAE entries: VAT 5% (registration-gated), CT 0% QFZP qualifying /
-  9% above AED 375k non-qualifying (QFZP election-gated). Threshold
-  constants: `UAE_VAT_VOLUNTARY_AED = 187_500`,
+- `autonize-it/company.csv` is the canonical entity registry with UK
+  Ltd + UAE FZCO rows fully populated; every `ACCOUNT_CONFIG` entry
+  carries an `entityId` (including the new `wise-ltd` intermediary);
+  `emirates-islamic` is modelled as a `current` account.
+- `server/config/tax-rules.ts` centralises UK VAT / CT / SA parameters
+  alongside the UAE thresholds (`UAE_VAT_VOLUNTARY_AED = 187_500`,
   `UAE_VAT_MANDATORY_AED = 375_000`, `UAE_CT_SMALL_BUSINESS_AED =
-  375_000`.
-
-**Code changes — `server/db/utils/tax-account-filter.ts`**
-
-Both `buildVatAccountFilter()` and `buildCorpTaxAccountFilter()` gain
-an `entityId` parameter. Default to UK Ltd when omitted (backward-
-compatible for existing call sites). Callers updated to pass the
-entity derived from the dashboard's entity-scope toggle or from the
-obligation row's own `entity_id`.
-
-**Dashboard UI — `public/src/modules/dashboard.ts`**
-
-- Entity scope selector in the header: **All · UK Ltd · UAE FZCO**.
-  Defaults to All. Selection persists in session storage.
-- Tax-liabilities panel splits when an entity-specific scope is
-  active: UK panel shows VAT + CT in GBP; UAE panel shows CT (once
-  registered) in AED with GBP-equivalent in a muted secondary line.
-
-**Migration order — MUST be in this sequence**
-
-1. Land `company.csv` seed + `entity_id` on `ACCOUNT_CONFIG` +
-   jurisdiction-scoped tax-account-filter helpers, all together,
-   behind their regression tests.
-2. Only **after** step 1 is green, flip `emirates-islamic`'s
-   `BusinessTaxConfig` from legacy booleans to the new
-   jurisdiction-scoped shape with `jurisdiction: 'UAE'`, `vat.registered:
-   false`, `corpTax.applicable: true, qualifyingFreeZone: TBC`.
-3. Inverting this sequence silently pipes AED income into the UK VAT
-   return — a hard regression that existing fixtures do not currently
-   guard against. The new tests in step 1 close that gap.
-
-**Regression tests — land alongside the config changes, green before flip**
-
-- "UK VAT SQL query returns zero rows when the only matching
-  transactions are on an AED-currency account, regardless of amount
-  or narrative."
-- "UK CT SQL query returns zero rows when the only matching
-  transactions are on an `autonize-it-fzco` account."
-- "UAE CT obligation auto-seeder emits zero rows until
-  `company.csv.fzco.ct_registered = true` AND `qfzp_elected` is
-  explicitly `true` or `false`."
-- "`isCrossAccountBusinessToBusinessTransfer('barclays-current',
-  'emirates-islamic')` returns `false`; the transaction pair is
-  classified as `inter-company-unclassified` and raises a warning."
-- "Dashboard entity selector set to UAE FZCO hides Barclays accounts
-  and shows only Emirates Islamic."
-
-**Warnings this feature emits into the Warnings Engine (1.8)**
-
-- FZCO UAE CT registration status unknown — consult accountant.
-- FZCO UAE VAT voluntary threshold crossed (AED 187.5k trailing 12m).
-- FZCO UAE VAT mandatory threshold crossed (AED 375k trailing 12m).
-- IFZA license renewal within 60 days (annual, license 73348).
-- Inter-company money movement requires classification (loan /
-  capital contribution / inter-company service fee).
-- `autonize-it/company.csv` has any `TBC` field still populated.
-
-**Non-goals (deferred to later tiers or explicit accountant territory)**
-
-- Live UAE CT obligation rows — blocked on QFZP election answer.
-- Live UAE VAT obligation rows — blocked on UAE VAT registration,
-  which is not in place per the La Fosse self-bill agreement.
-- UAE Economic Substance Regulations annual notification — Tier 3
-  if FZCO's activity profile triggers it.
-- Transfer pricing calculations for inter-company service fees — Tier
-  3, accountant-driven.
-- Controlled Foreign Company (CFC) interactions with UK personal
-  tax for a UK-resident director of a UAE entity — strictly
-  accountant territory; not app scope.
+  375_000`). `buildAccountInFilter` drives every VAT / CT SQL query
+  off the `accounts` registry's `vatApplicable(ByEntity)` /
+  `corpTaxApplicable(ByEntity)` indexes.
+- Cross-entity business-to-business transfers flow through the
+  inter-company pair-finder rather than netting out, with
+  `INTER_COMPANY_EXCLUSION_PATTERNS` (DIVIDENDS / SALARY / PAYE / HMRC
+  / VAT RETURN / CORPORATION TAX) suppressing description-based false
+  positives.
+- Wise ships as first-class account `wise-ltd` with its own CSV
+  parser; `detectTransfers()` auto-pairs the Barclays → Wise leg, so
+  Wise → Emirates Islamic is the primary cross-entity candidate.
+- `/api/warnings/entity-foundation` exposes six regression-locked
+  branches (residual `TBC` fields, FZCO CT status unknown, UAE VAT
+  voluntary / mandatory thresholds, IFZA license renewal window,
+  aggregate inter-company unclassified count). The Warnings tab UI
+  classifies each pair (loan / capital / service fee) via
+  `autonize-it/transaction-category-overrides.csv`.
+- IFZA license renewal seeded in `deadlines/deadlines.csv` (annual,
+  2025-11-04 anniversary) so it surfaces on the list, calendar, and
+  ICS feed in addition to the warning branch.
 
 ### 1.2 Clients, Contracts & Renewals
 
@@ -511,8 +357,12 @@ to the other — they are parallel paths selected by the contract's
 id,                                          -- e.g. UK-0011, FZ-0001
 contract_id, client_id, issuing_entity_id,
 invoice_number,                              -- same as id, kept for parser output
+payment_reference,                           -- cited by client on deposit; usually = invoice_number, tracked separately so stale refs are visible in the reconciler
 invoice_date,
+
+-- line item
 period_start, period_end, days_billed,
+description,                                 -- narrative shown on the PDF's Item cell (e.g. "David Morrison - Consultant Services, Software Development"); rendered above the formatted period range
 
 -- currency and amounts (always in invoice_currency)
 currency,                                    -- invoice-denominated
@@ -536,6 +386,16 @@ created_at, updated_at
 - Per-entity sequences: UK Ltd uses `UK-0001`, `UK-0002`…; FZCO uses
   `FZ-0001`, `FZ-0002`…. Never a global sequence — HMRC and FTA
   audit trails must remain separable.
+- `description` is seeded verbatim from the existing PDF for the 10
+  historical DC rows; for new generated invoices the default template
+  is `"{consultant.name} - Consultant Services, {contract.job_title}"`
+  with the formatted `period_start - period_end` string rendered as a
+  second line in the Item cell.
+- `payment_reference` defaults to `invoice_number` at generation time;
+  the separate column exists so the reconciler can flag cases where
+  the client pastes an old reference (every DC invoice from DC-002
+  through DC-010 in the historical-rows fixture below shows exactly
+  this failure and relies on this column to surface it).
 
 **Schema — `invoices/invoice_payments.csv`**
 
@@ -1326,10 +1186,10 @@ turns into an overdue warning within 24 hours.
 - The re-consent expiry path has a clock-mocked test that asserts a
   Deadlines row appears 7 days before token expiry.
 
-**Deferred until after 1.1 ships.** The multi-entity foundation (1.1)
-owns the authoritative `accounts → entity_id` mapping that this feature
-depends on to route per-entity credentials. 3.5 can ship any time after
-1.1 lands; it has no upstream dependency on the forecasting stack
+**Unblocked by 1.1.** The multi-entity foundation (§1.1, now shipped)
+owns the authoritative `accounts → entityId` mapping this feature
+depends on to route per-entity credentials. 3.5 can ship whenever
+scheduled; it has no upstream dependency on the forecasting stack
 (1.2 – 1.9).
 
 ---
@@ -1508,11 +1368,11 @@ capabilities, full stop.
 ## Dependency Chain
 
 ```
-Tier 0 (Certainty) ✅      Tier 1 (Projection)                     Tier 2 (Agent)
+Tier 0 (Certainty) ✅       Tier 1 (Projection)                     Tier 2 (Agent)
 
-Obligations + Deadlines    Multi-Entity Foundation (1.1) ─┐
-(shipped)                  Clients + Contracts (1.2) ─────┼─→ Invoicing (1.3) ─→ Working-Days Ledger (1.4) ─┐
-                           Renewals (1.2) ────────────────┘                                                  ├─→ Forecast (1.5) ─→ Snapshot (2.1)
+Obligations + Deadlines     Multi-Entity Foundation (1.1) ✅
+Multi-Entity Foundation ✅   Clients + Contracts (1.2) ────┬─→ Invoicing (1.3) ─→ Working-Days Ledger (1.4) ─┐
+                            Renewals (1.2) ───────────────┘                                                  ├─→ Forecast (1.5) ─→ Snapshot (2.1)
                                                                                                              │                    Confidence Score (2.2)
                                                                                                              │                    (reduction over 1.8)
                                                                                                              ├─→ Warnings (1.8) ─→ Alert Queue (2.3)
@@ -1523,10 +1383,11 @@ Obligations + Deadlines    Multi-Entity Foundation (1.1) ─┐
                                                                                                              └─→ Debt Strategy (1.9)
 ```
 
-**Multi-Entity Foundation is the gate.** Nothing income-side can be
-correctly scoped until UK and UAE books are separable at the query
-layer. Once 1.1 lands, every downstream feature inherits entity
-awareness for free.
+**Multi-Entity Foundation is the gate — and it is now open.** UK and UAE
+books are separable at the query layer; every downstream Tier 1
+feature inherits entity awareness via the `accounts` + `company`
+registries and the jurisdiction-scoped `tax-rules.ts` module for
+free.
 
 **Clients + Contracts → Invoicing → Working-Days Ledger → Forecast →
 Warnings** is the main income-side backbone. Invoicing depends on
@@ -1543,11 +1404,12 @@ where "is this user safe?" is decided.
 
 ## Suggested Build Order
 
-1. **Multi-Entity Foundation (1.1)** — `company.csv` both rows,
-   `entity_id` on `ACCOUNT_CONFIG`, jurisdiction-scoped
-   tax-account-filter, Emirates Islamic reclassified as
-   current/operational, dashboard entity toggle. Regression tests
-   green before any Emirates Islamic tax flag flips.
+1. ~~**Multi-Entity Foundation (1.1)**~~ ✅ SHIPPED — see §1.1.
+   `company.csv` both rows, `entityId` on every account (incl. Wise),
+   jurisdiction-scoped `tax-rules.ts`, `buildAccountInFilter` driven by
+   registry indexes, entity-foundation warnings endpoint, inter-company
+   pair-finder + description-based exclusion patterns, Wise as
+   intermediary, IFZA deadline seeded.
 2. **Clients, Contracts & Renewals (1.2)** — `clients.csv` and
    `contracts.csv` with DC + La Fosse/Edwin seed rows; template
    routing engine; renewal deadlines wired into the Tier 0

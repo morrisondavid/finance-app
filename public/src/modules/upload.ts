@@ -4,6 +4,8 @@
 
 import { uploadFiles as apiUploadFiles } from '../utils/api';
 import { escapeHtml } from '../utils/dom';
+import { formatAccountName } from '../utils/formatting';
+import { ACCOUNTS } from '../../../shared/api-contracts';
 
 /**
  * Extra upload extensions a given account accepts on the CSV lane, in addition
@@ -15,6 +17,20 @@ import { escapeHtml } from '../utils/dom';
 const CSV_LANE_EXTRAS: Record<string, readonly string[]> = {
   'santander-everyday': ['.xls'],
 };
+
+/**
+ * Populate the Account dropdown from the canonical `ACCOUNTS` enum so every
+ * account with a registered parser is uploadable without touching HTML when a
+ * new one is added. Labels come from `formatAccountName()` for consistency
+ * with every other account-name render in the UI.
+ */
+function populateAccountDropdown(): void {
+  const select = document.getElementById('upload-account') as HTMLSelectElement | null;
+  if (!select) return;
+  select.innerHTML = ACCOUNTS
+    .map(account => `<option value="${account}">${escapeHtml(formatAccountName(account))}</option>`)
+    .join('');
+}
 
 /**
  * Update the statements file input's `accept` attribute to match the currently
@@ -39,6 +55,8 @@ function refreshStatementsAccept(): void {
 export function initUpload(callbacks: {
   onUploadSuccess?: () => void;
 }): void {
+  populateAccountDropdown();
+
   // Statements upload
   initDropzone({
     dropzoneId: 'dropzone-statements',

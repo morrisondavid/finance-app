@@ -853,13 +853,10 @@
         <div class="upload-form">
           <label for="upload-account">Account:</label>
           <select id="upload-account">
-            <option value="barclays-current">Barclays Current</option>
-            <option value="barclays-savings">Barclays Savings</option>
-            <option value="capital-on-tap">Capital on Tap</option>
-            <option value="barclaycard">Barclaycard</option>
-            <option value="natwest">NatWest</option>
-            <option value="monzo-joint">Monzo Joint</option>
-            <option value="santander-everyday">Santander Everyday</option>
+            <!-- Options populated at runtime from the canonical ACCOUNTS
+                 enum (see shared/api-contracts.ts) via initUpload() →
+                 populateAccountDropdown(). Adding a new account to the
+                 enum + parser map surfaces here automatically. -->
           </select>
           
           <label for="upload-type">File Type:</label>
