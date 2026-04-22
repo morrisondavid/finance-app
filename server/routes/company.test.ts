@@ -59,19 +59,23 @@ describe('/api/company routes', () => {
     expect(result.success).toBe(true);
   });
 
-  it('GET / preserves the remaining TBC literal in the JSON response', async () => {
-    // As the user resolves TBC fields (see autonize-it/company.csv
-    // history), this assertion tightens naturally. The one remaining
-    // TBC is `vat_registered` on the UAE entity, which depends on a
-    // UAE VAT-registration decision; locking it here ensures the
-    // TBC literal survives the round-trip through the registry
-    // and Zod response envelope.
+  it('GET / reports the FZCO VAT registration state as `false` (UAE entity is below the mandatory threshold and has not elected voluntary registration)', async () => {
+    // When the UAE entity was first added `vat_registered` was left
+    // as the `TBC` literal because the accountant discussion hadn't
+    // happened yet. That discussion now has: Autonize IT FZCO is not
+    // VAT-registered in the UAE (income is below the AED 375k
+    // mandatory threshold and the La Fosse self-bill assumes
+    // reverse-charge). Locking `false` here guards against accidental
+    // regressions to `TBC` (which would silently re-fire the
+    // `company-tbc-fields` warning). If the FZCO ever registers for
+    // VAT this flips to `true` in company.csv, and this expectation
+    // plus the related warnings assertion should move with it.
     const resp = await fetch(`${baseUrl}/api/company`);
     const body = await resp.json();
     const parsed = CompaniesListResponseSchema.parse(body);
     const uae = parsed.companies.find(c => c.id === 'autonize-it-fzco');
     if (!uae || uae.jurisdiction !== 'UAE') throw new Error('UAE row missing');
-    expect(uae.vat_registered).toBe('TBC');
+    expect(uae.vat_registered).toBe(false);
   });
 
   it('GET / returns UK row with correct jurisdiction-specific fields', async () => {

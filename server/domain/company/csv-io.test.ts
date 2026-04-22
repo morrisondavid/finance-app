@@ -250,13 +250,13 @@ describe('Committed seed file autonize-it/company.csv', () => {
     expect(uk.currency).toBe('GBP');
   });
 
-  it('UAE row matches the roadmap spec, with remaining TBC fields preserved', () => {
-    // As the user resolves TBC fields (Marian / MCE Advisory email,
-    // Emirates Islamic IBAN + SWIFT, CT registration confirmation),
-    // this assertion tightens naturally. The two remaining TBCs
-    // (`qfzp_elected`, `vat_registered`) require an accountant or a
-    // UAE-VAT registration decision and are the right resolution
-    // gates for the UAE CT / VAT auto-seeders.
+  it('UAE row matches the roadmap spec, with every TBC field now resolved', () => {
+    // All TBC gates have landed: CT registration + QFZP election are
+    // `true`, and VAT is explicitly `false` (FZCO is not UAE-VAT-
+    // registered — trailing-12m income sits below the AED 375k
+    // mandatory threshold and La Fosse's self-bill agreement assumes
+    // reverse-charge). If the FZCO ever registers for VAT this flips
+    // to `true` in company.csv and this assertion flips with it.
     const companies = readCompaniesCsvFile(seedPath);
     const uae = companies.find(c => c.id === 'autonize-it-fzco');
     if (!uae || uae.jurisdiction !== 'UAE') throw new Error('UAE seed row missing');
@@ -268,7 +268,7 @@ describe('Committed seed file autonize-it/company.csv', () => {
     expect(uae.swift_bic).toBe('MEBLAEADXXX');
     expect(uae.accountant_email).toBe('marian@mceadvisory.com');
     expect(uae.qfzp_elected).toBe(true);
-    expect(uae.vat_registered).toBe('TBC');
+    expect(uae.vat_registered).toBe(false);
     expect(uae.currency).toBe('AED');
   });
 });

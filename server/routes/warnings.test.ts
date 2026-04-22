@@ -99,26 +99,22 @@ describe('GET /api/warnings/entity-foundation', () => {
     expect(parsed.success).toBe(true);
   });
 
-  it('surfaces the seed CSV TBC state — FZCO still has vat_registered=TBC, so the company-tbc-fields code appears on FZCO only', async () => {
+  it('does NOT emit company-tbc-fields once every TBC literal has been resolved in the seed CSV', async () => {
     const resp = await fetch(`${baseUrl}/api/warnings/entity-foundation`);
     const body = await resp.json();
     const parsed = EntityFoundationWarningsResponseSchema.parse(body);
     const codes = parsed.warnings.map(w => w.code);
-    // autonize-it/company.csv has been progressively resolved. At the
-    // time of writing only `vat_registered` remains TBC on the FZCO,
-    // which is enough to surface the company-tbc-fields branch for
-    // that entity. The UK entity is fully resolved. As more fields
-    // get answered upstream this assertion will need to relax (or
-    // the test will need reframing against a fixture CSV); until
-    // then it's the cleanest regression-lock on "the warning fires
-    // iff a TBC literal survives the registry".
-    expect(codes).toContain('company-tbc-fields');
-    const fzcoWarning = parsed.warnings.find(
-      w => w.code === 'company-tbc-fields' && w.id.endsWith('autonize-it-fzco'),
-    );
-    expect(fzcoWarning).toBeDefined();
-    expect(fzcoWarning?.detail).toContain('vat_registered');
-    // CT gate is now resolved (ct_registered=true, qfzp_elected=true),
+    // autonize-it/company.csv has been progressively resolved. The
+    // final outstanding TBC — FZCO `vat_registered` — is now `false`
+    // (the UAE entity is not VAT-registered; income is below the
+    // mandatory AED 375k threshold and La Fosse self-bill assumes
+    // reverse-charge). The `company-tbc-fields` warning branch fires
+    // iff ANY row still carries a TBC literal, so the seed data must
+    // now produce zero instances of it. If a future CSV edit
+    // reintroduces a TBC (e.g. a new field with no default, or a
+    // regression), this assertion is the first thing that flips.
+    expect(codes).not.toContain('company-tbc-fields');
+    // CT gate is also resolved (ct_registered=true, qfzp_elected=true),
     // so the fzco-ct-status-unknown branch must NOT appear.
     expect(codes).not.toContain('fzco-ct-status-unknown');
   });
