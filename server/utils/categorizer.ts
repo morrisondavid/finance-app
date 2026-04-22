@@ -11,9 +11,21 @@
 
 import { MERCHANT_REGISTRY, CATEGORY_NAMES } from './merchant-registry.js';
 import type { CategoryName } from './merchant-registry.js';
+import { getOverrideRegistry } from '../domain/transaction-overrides/registry.js';
 
 export { CATEGORY_NAMES };
 export type { CategoryName };
+
+/**
+ * Optional context used by the categoriser to consult the
+ * per-transaction override store before falling through to the
+ * description-based pattern list. Call sites that don't have a hash
+ * can simply omit the arg — backward compatible.
+ */
+export interface CategorizeOptions {
+  /** Stable transaction hash (matches `transactions.hash`). */
+  hash?: string;
+}
 
 /**
  * Strip NatWest-style formatting noise before pattern matching.
@@ -28,7 +40,17 @@ function normalizeForMatching(description: string): string {
     .trim();
 }
 
-export function categorizeTransaction(description: string): CategoryName {
+export function categorizeTransaction(
+  description: string,
+  opts?: CategorizeOptions,
+): CategoryName {
+  // Manual override always wins — it encodes a human assertion
+  // that pattern matching cannot express (e.g. "this is an
+  // inter-company loan, not a general Transfer").
+  if (opts?.hash !== undefined) {
+    const override = getOverrideRegistry().get(opts.hash);
+    if (override !== null) return override;
+  }
   const normalized = normalizeForMatching(description);
   for (const entry of MERCHANT_REGISTRY) {
     if (entry.pattern.test(normalized)) {
@@ -67,6 +89,14 @@ export const CATEGORY_CONFIG: Record<CategoryName, CategoryConfig> = {
   'Property':              { colour: '#F59E0B', budgetable: false },
   'Transfers':             { colour: '#38BDF8', budgetable: false },
   'Income':                { colour: '#34D399', budgetable: false },
+  // Inter-company (Phase 8) — never budgetable; colours are distinct
+  // tints so the dashboard renders them unambiguously against the
+  // general `Transfers` / `Business` colours.
+  'Inter-company Loan':          { colour: '#0EA5E9', budgetable: false },
+  'Capital Contribution':        { colour: '#6EE7B7', budgetable: false },
+  'Inter-company Service Fee':    { colour: '#A78BFA', budgetable: false },
+  'Inter-company False Positive': { colour: '#9CA3AF', budgetable: false },
+  'Inter-company Other':          { colour: '#F472B6', budgetable: false },
 };
 
 export const CATEGORY_COLOURS: Record<CategoryName, string> =

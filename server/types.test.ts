@@ -3,12 +3,10 @@ import {
   ACCOUNTS,
   ACCOUNT_CONFIG,
   isBusinessAccount,
-  isBusinessConfig,
   isCrossAccountBusinessToBusinessTransfer,
   getBusinessPaymentAccounts,
-  getVatApplicableAccounts,
-  getCorpTaxApplicableAccounts,
-  type BusinessAccountConfig,
+  getAccountsByEntity,
+  getEntityIdForAccount,
 } from './types.js';
 
 describe('isBusinessAccount', () => {
@@ -32,13 +30,19 @@ describe('isBusinessAccount', () => {
 });
 
 describe('AccountConfig discriminated union structure', () => {
-  it('every business account has a business property', () => {
+  it('every business account has a jurisdiction-scoped business block', () => {
     for (const name of ACCOUNTS) {
       const config = ACCOUNT_CONFIG[name];
       if (config.category === 'business') {
         expect(config).toHaveProperty('business');
-        expect(config.business).toHaveProperty('vatApplicable');
-        expect(config.business).toHaveProperty('corpTaxApplicable');
+        expect(config.business).toHaveProperty('jurisdiction');
+        expect(config.business).toHaveProperty('vat');
+        expect(config.business).toHaveProperty('corpTax');
+        expect(config.business.vat).toHaveProperty('applicable');
+        expect(config.business.vat).toHaveProperty('rate');
+        expect(config.business.vat).toHaveProperty('registered');
+        expect(config.business.corpTax).toHaveProperty('applicable');
+        expect(config.business.corpTax).toHaveProperty('qualifyingFreeZone');
       }
     }
   });
@@ -52,92 +56,29 @@ describe('AccountConfig discriminated union structure', () => {
     }
   });
 
-  it('isBusinessConfig narrows correctly for business accounts', () => {
-    const barclaysCurrent = ACCOUNT_CONFIG['barclays-current'];
-    expect(isBusinessConfig(barclaysCurrent)).toBe(true);
-    if (isBusinessConfig(barclaysCurrent)) {
-      expect(barclaysCurrent.business.vatApplicable).toBe(true);
-      expect(barclaysCurrent.business.corpTaxApplicable).toBe(true);
-    }
-  });
-
-  it('isBusinessConfig returns false for personal accounts', () => {
-    expect(isBusinessConfig(ACCOUNT_CONFIG['natwest'])).toBe(false);
-    expect(isBusinessConfig(ACCOUNT_CONFIG['monzo-joint'])).toBe(false);
-  });
-});
-
-describe('getVatApplicableAccounts', () => {
-  it('returns only business accounts with business.vatApplicable === true', () => {
-    const vatAccounts = getVatApplicableAccounts();
-    expect(vatAccounts).toContain('barclays-current');
-    expect(vatAccounts.length).toBeGreaterThan(0);
-
-    for (const name of vatAccounts) {
-      const config = ACCOUNT_CONFIG[name];
-      expect(isBusinessConfig(config)).toBe(true);
-      expect((config as BusinessAccountConfig).business.vatApplicable).toBe(true);
-    }
-  });
-
-  it('never includes personal accounts', () => {
-    const vatAccounts = getVatApplicableAccounts();
-    const personalAccounts = ACCOUNTS.filter(a => ACCOUNT_CONFIG[a].category === 'personal');
-    for (const p of personalAccounts) {
-      expect(vatAccounts).not.toContain(p);
-    }
-  });
-
-  it('never includes business accounts with vatApplicable === false', () => {
-    const vatAccounts = getVatApplicableAccounts();
+  it('every UK Ltd business account carries jurisdiction=UK', () => {
     for (const name of ACCOUNTS) {
       const config = ACCOUNT_CONFIG[name];
-      if (isBusinessConfig(config) && !config.business.vatApplicable) {
-        expect(vatAccounts).not.toContain(name);
+      if (config.category === 'business' && config.entityId === 'autonize-it-ltd') {
+        expect(config.business.jurisdiction).toBe('UK');
       }
     }
   });
 
-  it('excludes emirates-islamic (UAE jurisdiction)', () => {
-    const vatAccounts = getVatApplicableAccounts();
-    expect(vatAccounts).not.toContain('emirates-islamic');
-  });
-});
-
-describe('getCorpTaxApplicableAccounts', () => {
-  it('returns only business accounts with business.corpTaxApplicable === true', () => {
-    const corpTaxAccounts = getCorpTaxApplicableAccounts();
-    expect(corpTaxAccounts).toContain('barclays-current');
-    expect(corpTaxAccounts.length).toBeGreaterThan(0);
-
-    for (const name of corpTaxAccounts) {
-      const config = ACCOUNT_CONFIG[name];
-      expect(isBusinessConfig(config)).toBe(true);
-      expect((config as BusinessAccountConfig).business.corpTaxApplicable).toBe(true);
+  it('the FZCO account carries jurisdiction=UAE', () => {
+    const fzco = ACCOUNT_CONFIG['emirates-islamic'];
+    expect(fzco.category).toBe('business');
+    if (fzco.category === 'business') {
+      expect(fzco.business.jurisdiction).toBe('UAE');
+      expect(fzco.business.vat.rate).toBe(0.05);
+      expect(fzco.business.vat.registered).toBe(false);
+      expect(fzco.business.corpTax.applicable).toBe(true);
+      expect(fzco.business.corpTax.qualifyingFreeZone).toBe('TBC');
     }
   });
 
-  it('never includes personal accounts', () => {
-    const corpTaxAccounts = getCorpTaxApplicableAccounts();
-    const personalAccounts = ACCOUNTS.filter(a => ACCOUNT_CONFIG[a].category === 'personal');
-    for (const p of personalAccounts) {
-      expect(corpTaxAccounts).not.toContain(p);
-    }
-  });
-
-  it('never includes business accounts with corpTaxApplicable === false', () => {
-    const corpTaxAccounts = getCorpTaxApplicableAccounts();
-    for (const name of ACCOUNTS) {
-      const config = ACCOUNT_CONFIG[name];
-      if (isBusinessConfig(config) && !config.business.corpTaxApplicable) {
-        expect(corpTaxAccounts).not.toContain(name);
-      }
-    }
-  });
-
-  it('excludes emirates-islamic (UAE jurisdiction)', () => {
-    const corpTaxAccounts = getCorpTaxApplicableAccounts();
-    expect(corpTaxAccounts).not.toContain('emirates-islamic');
+  it('emirates-islamic is reclassified as a current account (Phase 4)', () => {
+    expect(ACCOUNT_CONFIG['emirates-islamic'].type).toBe('current');
   });
 });
 
@@ -179,13 +120,22 @@ describe('isCrossAccountBusinessToBusinessTransfer', () => {
     );
   });
 
-  it('returns true for cross-currency business-to-business transfers (UK ↔ UAE)', () => {
+  it('Phase 5 flip: returns FALSE for UK Ltd ↔ UAE FZCO pairs — inter-company is NOT a plain transfer', () => {
     expect(isCrossAccountBusinessToBusinessTransfer('barclays-current', 'emirates-islamic')).toBe(
-      true,
+      false,
     );
     expect(isCrossAccountBusinessToBusinessTransfer('emirates-islamic', 'barclays-current')).toBe(
-      true,
+      false,
     );
+  });
+
+  it('still returns true for same-entity UK ↔ UK business pairs', () => {
+    expect(
+      isCrossAccountBusinessToBusinessTransfer('barclays-current', 'barclays-savings'),
+    ).toBe(true);
+    expect(
+      isCrossAccountBusinessToBusinessTransfer('barclays-savings', 'capital-on-tap'),
+    ).toBe(true);
   });
 
   it('returns false for business to personal (director payouts stay expense/income)', () => {
@@ -196,5 +146,99 @@ describe('isCrossAccountBusinessToBusinessTransfer', () => {
   it('returns false if either account is unknown', () => {
     expect(isCrossAccountBusinessToBusinessTransfer('barclays-current', 'other')).toBe(false);
     expect(isCrossAccountBusinessToBusinessTransfer('other', 'barclays-current')).toBe(false);
+  });
+});
+
+describe('ACCOUNT_CONFIG entityId axis', () => {
+  it('every business account has a non-null entityId', () => {
+    for (const name of ACCOUNTS) {
+      const config = ACCOUNT_CONFIG[name];
+      if (config.category === 'business') {
+        expect(config.entityId).not.toBeNull();
+      }
+    }
+  });
+
+  it('every personal account has entityId === null', () => {
+    for (const name of ACCOUNTS) {
+      const config = ACCOUNT_CONFIG[name];
+      if (config.category === 'personal') {
+        expect(config.entityId).toBeNull();
+      }
+    }
+  });
+
+  it('UK Ltd business accounts are exactly the four expected ones', () => {
+    const ukAccounts = ACCOUNTS.filter(
+      a => ACCOUNT_CONFIG[a].entityId === 'autonize-it-ltd',
+    );
+    expect([...ukAccounts].sort()).toEqual(
+      ['barclaycard', 'barclays-current', 'barclays-savings', 'capital-on-tap'].sort(),
+    );
+  });
+
+  it('UAE FZCO business accounts are exactly [emirates-islamic]', () => {
+    const fzcoAccounts = ACCOUNTS.filter(
+      a => ACCOUNT_CONFIG[a].entityId === 'autonize-it-fzco',
+    );
+    expect(fzcoAccounts).toEqual(['emirates-islamic']);
+  });
+
+  it('entityId matches each account individually', () => {
+    expect(ACCOUNT_CONFIG['barclays-current'].entityId).toBe('autonize-it-ltd');
+    expect(ACCOUNT_CONFIG['barclays-savings'].entityId).toBe('autonize-it-ltd');
+    expect(ACCOUNT_CONFIG['capital-on-tap'].entityId).toBe('autonize-it-ltd');
+    expect(ACCOUNT_CONFIG['barclaycard'].entityId).toBe('autonize-it-ltd');
+    expect(ACCOUNT_CONFIG['emirates-islamic'].entityId).toBe('autonize-it-fzco');
+    expect(ACCOUNT_CONFIG['natwest'].entityId).toBeNull();
+    expect(ACCOUNT_CONFIG['natwest-savings'].entityId).toBeNull();
+    expect(ACCOUNT_CONFIG['monzo-joint'].entityId).toBeNull();
+    expect(ACCOUNT_CONFIG['santander-everyday'].entityId).toBeNull();
+  });
+});
+
+describe('getAccountsByEntity', () => {
+  it('returns UK Ltd accounts for autonize-it-ltd', () => {
+    expect([...getAccountsByEntity('autonize-it-ltd')].sort()).toEqual(
+      ['barclaycard', 'barclays-current', 'barclays-savings', 'capital-on-tap'].sort(),
+    );
+  });
+
+  it('returns [emirates-islamic] for autonize-it-fzco', () => {
+    expect(getAccountsByEntity('autonize-it-fzco')).toEqual(['emirates-islamic']);
+  });
+
+  it('returns every personal account when passed null', () => {
+    const personal = getAccountsByEntity(null);
+    expect([...personal].sort()).toEqual(
+      ['monzo-joint', 'natwest', 'natwest-savings', 'santander-everyday'].sort(),
+    );
+  });
+
+  it('the three result sets partition every account exactly once', () => {
+    const uk = new Set(getAccountsByEntity('autonize-it-ltd'));
+    const fzco = new Set(getAccountsByEntity('autonize-it-fzco'));
+    const personal = new Set(getAccountsByEntity(null));
+    expect(uk.size + fzco.size + personal.size).toBe(ACCOUNTS.length);
+    for (const a of ACCOUNTS) {
+      const hits = [uk.has(a), fzco.has(a), personal.has(a)].filter(Boolean).length;
+      expect(hits).toBe(1);
+    }
+  });
+});
+
+describe('getEntityIdForAccount', () => {
+  it('resolves the UK Ltd entity for Barclays accounts', () => {
+    expect(getEntityIdForAccount('barclays-current')).toBe('autonize-it-ltd');
+    expect(getEntityIdForAccount('barclays-savings')).toBe('autonize-it-ltd');
+  });
+
+  it('resolves the FZCO entity for emirates-islamic', () => {
+    expect(getEntityIdForAccount('emirates-islamic')).toBe('autonize-it-fzco');
+  });
+
+  it('resolves null for personal accounts', () => {
+    expect(getEntityIdForAccount('natwest')).toBeNull();
+    expect(getEntityIdForAccount('monzo-joint')).toBeNull();
   });
 });

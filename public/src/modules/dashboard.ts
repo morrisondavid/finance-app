@@ -30,7 +30,7 @@ export async function loadDashboard(): Promise<void> {
   try {
     const data = await fetchDashboard({
       account: state.selectedAccount,
-      financialYear: state.selectedFinancialYear || undefined
+      financialYear: state.selectedFinancialYear || undefined,
     });
 
     setState('summaryData', data);

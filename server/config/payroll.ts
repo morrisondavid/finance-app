@@ -14,6 +14,7 @@ import type { CategoryName } from '../utils/merchant-registry.js';
 import { categorizeTransaction } from '../utils/categorizer.js';
 import { matchPersonInDescription } from './people.js';
 import { getObligationRegistry } from '../domain/obligations/registry.js';
+import { getOverrideRegistry } from '../domain/transaction-overrides/registry.js';
 import type { OutgoingObligation } from '../../shared/api-contracts.js';
 
 export type PayrollEntry = Extract<OutgoingObligation, { category: 'payroll' }>;
@@ -94,14 +95,32 @@ export function resolveExpenseCategoryWithPayroll(
   return { category: registryCategory, payrollHit: null };
 }
 
-/** Category for API / charts: Payroll when an obligation matches an outgoing transfer/expense, else registry. */
+/**
+ * Category for API / charts: Payroll when an obligation matches an
+ * outgoing transfer/expense, else the registry category.
+ *
+ * Accepts an optional `hash` so per-transaction category overrides
+ * (Phase 8 inter-company classification) take precedence over the
+ * pattern lookup. When an override is present we skip the
+ * payroll-resolution branch entirely — a hash-level override is a
+ * stronger human signal than a payroll-obligation amount match.
+ */
 export function transactionCategoryWithPayroll(
   description: string,
   amount: number,
   account: string,
   type: 'income' | 'expense' | 'transfer',
+  hash?: string,
 ): CategoryName {
-  const base = categorizeTransaction(description);
+  const base = categorizeTransaction(description, hash ? { hash } : undefined);
+  if (hash !== undefined) {
+    // The override registry returns a non-null category here iff
+    // the hash is pinned. Re-query so we can skip payroll fallback
+    // when pinned — `base` alone can't distinguish pattern-match
+    // "Transfers" from a pinned "Transfers" override.
+    const override = getOverrideRegistry().get(hash);
+    if (override !== null) return override;
+  }
   if (!isOutgoingExpense(type, amount)) return base;
   const { category } = resolveExpenseCategoryWithPayroll(
     description,

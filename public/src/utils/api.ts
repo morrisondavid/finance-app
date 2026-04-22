@@ -22,6 +22,10 @@ import {
   BudgetUpsertBodySchema,
   BudgetRowSchema,
   BudgetCategoryNamesResponseSchema,
+  EntityFoundationWarningsResponseSchema,
+  InterCompanyMovementsResponseSchema,
+  type InterCompanyMovementsResponse,
+  type InterCompanyClassifyRequest,
   type DashboardSummaryResponse,
   type AccountConfigsResponse,
   type TransactionsResponse,
@@ -40,6 +44,7 @@ import {
   type BudgetUpsertBody,
   type BudgetRow,
   type BudgetCategoryNamesResponse,
+  type EntityFoundationWarningsResponse,
 } from '../../../shared/api-contracts.js';
 
 /**
@@ -51,7 +56,13 @@ export async function fetchAccountConfig(): Promise<AccountConfigsResponse> {
 }
 
 /**
- * Fetch dashboard summary with optional filters
+ * Fetch dashboard summary with optional filters.
+ *
+ * Tax-liability scoping is driven entirely by the per-account
+ * `vat.applicable` / `corpTax.applicable` flags on the server side, so
+ * there is no `entity` knob on this endpoint — the dashboard is
+ * account-specific and tax rollups derive from the tax-applicable
+ * accounts on their own.
  */
 export async function fetchDashboard(params?: {
   financialYear?: string;
@@ -60,10 +71,46 @@ export async function fetchDashboard(params?: {
   const query = new URLSearchParams();
   if (params?.financialYear) query.set('financialYear', params.financialYear);
   if (params?.account) query.set('account', params.account);
-  
+
   const url = `/api/dashboard/summary?${query}`;
   const response = await fetch(url);
   return validateResponse(response, DashboardSummaryResponseSchema);
+}
+
+/**
+ * Fetch the entity-foundation warnings surfaced by Roadmap 1.1 Phase 7.
+ * Global — not scoped to the currently-selected entity — because these
+ * warnings exist precisely to catch inter-company and registration
+ * issues the per-entity dashboards cannot see on their own.
+ */
+export async function fetchEntityFoundationWarnings(): Promise<EntityFoundationWarningsResponse> {
+  const response = await fetch('/api/warnings/entity-foundation');
+  return validateResponse(response, EntityFoundationWarningsResponseSchema);
+}
+
+/**
+ * Fetch every detected inter-company money movement pair, each
+ * annotated with its current classification (Roadmap 1.1 Phase 8).
+ */
+export async function fetchInterCompanyMovements(): Promise<InterCompanyMovementsResponse> {
+  const response = await fetch('/api/warnings/inter-company-movements');
+  return validateResponse(response, InterCompanyMovementsResponseSchema);
+}
+
+/**
+ * Persist a classification (or clear it when `category` is `null`)
+ * for one detected inter-company pair. Returns the refreshed movement
+ * payload so the caller can re-render without a separate GET.
+ */
+export async function classifyInterCompanyMovement(
+  request: InterCompanyClassifyRequest,
+): Promise<InterCompanyMovementsResponse> {
+  const response = await fetch('/api/warnings/inter-company-movements/classify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  return validateResponse(response, InterCompanyMovementsResponseSchema);
 }
 
 /**

@@ -38,7 +38,8 @@ import {
   getAvailableFinancialYears,
   getFinancialYearRange,
 } from '../utils/financial-year.js';
-import { buildCorpTaxAccountFilter } from '../utils/tax-account-filter.js';
+import { buildAccountInFilter } from '../utils/tax-account-filter.js';
+import { corpTaxApplicableAccounts } from '../../domain/accounts/index.js';
 import { round2 } from '../../utils/math.js';
 
 /**
@@ -104,7 +105,11 @@ function computeCtDueDate(fyEnd: string): string {
  */
 function sumCtIncomeForFy(fy: { startDate: string; endDate: string }): number {
   const db = getDb();
-  const filter = buildCorpTaxAccountFilter();
+  // Roadmap 1.1 / Phase 4: UK CT seeder only — UAE CT auto-seeding is
+  // gated on QFZP election and handled separately once the status is
+  // resolved. The `corpTaxApplicable` index already excludes UAE FZCO
+  // while its QFZP status is 'TBC'; no separate entity filter needed.
+  const filter = buildAccountInFilter(corpTaxApplicableAccounts());
   const row = db.prepare(`
     SELECT COALESCE(SUM(amount), 0) as total
     FROM transactions

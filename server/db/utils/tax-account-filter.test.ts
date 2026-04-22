@@ -1,124 +1,114 @@
 import { describe, it, expect } from 'vitest';
-import { buildVatAccountFilter, buildCorpTaxAccountFilter } from './tax-account-filter.js';
+import { buildAccountInFilter } from './tax-account-filter.js';
 import {
-  ACCOUNTS,
-  ACCOUNT_CONFIG,
-  isBusinessConfig,
-  getVatApplicableAccounts,
-  getCorpTaxApplicableAccounts,
-} from '../../types.js';
+  vatApplicableAccounts,
+  corpTaxApplicableAccounts,
+  type AccountName,
+} from '../../domain/accounts/index.js';
+import { ACCOUNTS, ACCOUNT_CONFIG } from '../../types.js';
 
-describe('buildVatAccountFilter', () => {
-  it('returns a clause with placeholders matching vatApplicable accounts', () => {
-    const { clause, params } = buildVatAccountFilter();
-    const expected = getVatApplicableAccounts();
-    expect(expected.length).toBeGreaterThan(0);
-    expect(clause).toContain('AND account IN');
-    expect(params).toEqual(expected);
+describe('buildAccountInFilter', () => {
+  it('produces AND 1=0 for an empty accounts list', () => {
+    const { clause, params } = buildAccountInFilter([]);
+    expect(clause).toBe('AND 1=0');
+    expect(params).toEqual([]);
   });
 
-  it('params contain only vatApplicable accounts', () => {
-    const { params } = buildVatAccountFilter();
-    for (const p of params) {
-      const config = ACCOUNT_CONFIG[p as keyof typeof ACCOUNT_CONFIG];
-      expect(isBusinessConfig(config)).toBe(true);
-      if (isBusinessConfig(config)) {
-        expect(config.business.vatApplicable).toBe(true);
-      }
-    }
+  it('produces a placeholder IN clause for a non-empty list', () => {
+    const { clause, params } = buildAccountInFilter(['barclays-current']);
+    expect(clause).toBe('AND account IN (?)');
+    expect(params).toEqual(['barclays-current']);
+  });
+
+  it('placeholder count matches params count', () => {
+    const { clause, params } = buildAccountInFilter([
+      'barclays-current',
+      'capital-on-tap',
+      'barclaycard',
+    ]);
+    const questionMarks = (clause.match(/\?/g) ?? []).length;
+    expect(questionMarks).toBe(params.length);
+    expect(params).toEqual(['barclays-current', 'capital-on-tap', 'barclaycard']);
+  });
+
+  it('returns a fresh params array — mutating the result does not leak', () => {
+    const accounts: readonly AccountName[] = ['barclays-current'];
+    const { params } = buildAccountInFilter(accounts);
+    params.push('capital-on-tap');
+    expect(accounts).toEqual(['barclays-current']);
+  });
+});
+
+describe('VAT filter integration (buildAccountInFilter × vatApplicableAccounts)', () => {
+  it('produces the same clause/params the seeder actually consumes', () => {
+    const result = buildAccountInFilter(vatApplicableAccounts());
+    const expected = [...vatApplicableAccounts()];
+    expect(result.params).toEqual(expected);
+    expect(result.clause).toContain('AND account IN');
+  });
+
+  it('current config: params === [barclays-current]', () => {
+    const { params } = buildAccountInFilter(vatApplicableAccounts());
+    expect(params).toEqual(['barclays-current']);
   });
 
   it('never includes a personal account', () => {
-    const { params } = buildVatAccountFilter();
+    const { params } = buildAccountInFilter(vatApplicableAccounts());
     const personalAccounts = ACCOUNTS.filter(a => ACCOUNT_CONFIG[a].category === 'personal');
     for (const p of personalAccounts) {
       expect(params).not.toContain(p);
     }
   });
 
-  it('never includes a business account without vatApplicable', () => {
-    const { params } = buildVatAccountFilter();
+  it('never includes a business account with vat.applicable === false', () => {
+    const { params } = buildAccountInFilter(vatApplicableAccounts());
     for (const name of ACCOUNTS) {
       const config = ACCOUNT_CONFIG[name];
-      if (isBusinessConfig(config) && !config.business.vatApplicable) {
+      if (config.category === 'business' && !config.business.vat.applicable) {
         expect(params).not.toContain(name);
       }
     }
   });
 
-  it('placeholder count matches params count', () => {
-    const { clause, params } = buildVatAccountFilter();
-    const questionMarks = (clause.match(/\?/g) ?? []).length;
-    expect(questionMarks).toBe(params.length);
+  it('never includes emirates-islamic (FZCO vat.registered=false)', () => {
+    const { params } = buildAccountInFilter(vatApplicableAccounts());
+    expect(params).not.toContain('emirates-islamic');
   });
 });
 
-describe('buildCorpTaxAccountFilter', () => {
-  it('returns a clause with placeholders matching corpTaxApplicable accounts', () => {
-    const { clause, params } = buildCorpTaxAccountFilter();
-    const expected = getCorpTaxApplicableAccounts();
-    expect(expected.length).toBeGreaterThan(0);
-    expect(clause).toContain('AND account IN');
-    expect(params).toEqual(expected);
+describe('CT filter integration (buildAccountInFilter × corpTaxApplicableAccounts)', () => {
+  it('produces the same clause/params the seeder actually consumes', () => {
+    const result = buildAccountInFilter(corpTaxApplicableAccounts());
+    const expected = [...corpTaxApplicableAccounts()];
+    expect(result.params).toEqual(expected);
+    expect(result.clause).toContain('AND account IN');
   });
 
-  it('params contain only corpTaxApplicable accounts', () => {
-    const { params } = buildCorpTaxAccountFilter();
-    for (const p of params) {
-      const config = ACCOUNT_CONFIG[p as keyof typeof ACCOUNT_CONFIG];
-      expect(isBusinessConfig(config)).toBe(true);
-      if (isBusinessConfig(config)) {
-        expect(config.business.corpTaxApplicable).toBe(true);
-      }
-    }
+  it('current config: params === [barclays-current]', () => {
+    const { params } = buildAccountInFilter(corpTaxApplicableAccounts());
+    expect(params).toEqual(['barclays-current']);
   });
 
   it('never includes a personal account', () => {
-    const { params } = buildCorpTaxAccountFilter();
+    const { params } = buildAccountInFilter(corpTaxApplicableAccounts());
     const personalAccounts = ACCOUNTS.filter(a => ACCOUNT_CONFIG[a].category === 'personal');
     for (const p of personalAccounts) {
       expect(params).not.toContain(p);
     }
   });
 
-  it('never includes a business account without corpTaxApplicable', () => {
-    const { params } = buildCorpTaxAccountFilter();
+  it('never includes a business account with corpTax.applicable === false', () => {
+    const { params } = buildAccountInFilter(corpTaxApplicableAccounts());
     for (const name of ACCOUNTS) {
       const config = ACCOUNT_CONFIG[name];
-      if (isBusinessConfig(config) && !config.business.corpTaxApplicable) {
+      if (config.category === 'business' && !config.business.corpTax.applicable) {
         expect(params).not.toContain(name);
       }
     }
   });
 
-  it('placeholder count matches params count', () => {
-    const { clause, params } = buildCorpTaxAccountFilter();
-    const questionMarks = (clause.match(/\?/g) ?? []).length;
-    expect(questionMarks).toBe(params.length);
-  });
-});
-
-describe('zero-result safety net', () => {
-  it('buildVatAccountFilter would return AND 1=0 if no accounts qualified', () => {
-    // We can't easily mock ACCOUNT_CONFIG in a unit test without DI,
-    // but we can verify the shape of the current output is never empty
-    // given the current config. The structural guarantee comes from
-    // the implementation: if getVatApplicableAccounts() returns [],
-    // the function returns { clause: 'AND 1=0', params: [] }.
-    const { clause, params } = buildVatAccountFilter();
-    if (params.length === 0) {
-      expect(clause).toBe('AND 1=0');
-    } else {
-      expect(clause).toContain('AND account IN');
-    }
-  });
-
-  it('buildCorpTaxAccountFilter would return AND 1=0 if no accounts qualified', () => {
-    const { clause, params } = buildCorpTaxAccountFilter();
-    if (params.length === 0) {
-      expect(clause).toBe('AND 1=0');
-    } else {
-      expect(clause).toContain('AND account IN');
-    }
+  it('never includes emirates-islamic (FZCO qualifyingFreeZone=TBC)', () => {
+    const { params } = buildAccountInFilter(corpTaxApplicableAccounts());
+    expect(params).not.toContain('emirates-islamic');
   });
 });

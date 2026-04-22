@@ -96,3 +96,18 @@ export function isBounceDescription(description: string): boolean {
  * How many days apart transactions can be to be considered a transfer pair
  */
 export const TRANSFER_DATE_TOLERANCE_DAYS = 5;
+
+/**
+ * Fractional amount tolerance when pairing two sides of a transfer
+ * that cross a currency boundary. The absolute difference after FX
+ * conversion must sit within this fraction of the target-currency
+ * amount, otherwise the candidates are considered unrelated.
+ *
+ * 20% covers the realistic spread: interbank rates vs. retail
+ * spreads, Wise vs. SWIFT fees, timing-gap rate drift between the
+ * debit and credit sides. Tightening it would start dropping real
+ * pairs; loosening would start pairing coincidences. Used by both
+ * {@link detectTransfers} (within-entity) and the Phase 8
+ * inter-company pair finder so the two heuristics cannot drift.
+ */
+export const CROSS_CURRENCY_TOLERANCE = 0.20;

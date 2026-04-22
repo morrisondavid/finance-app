@@ -19,6 +19,12 @@ export interface CategoryExpenseTransaction {
   amount: number;
   account: string;
   type: TransactionType;
+  /**
+   * Stable transaction hash. Optional to stay backwards-compatible
+   * with legacy callers; when present, the categoriser consults the
+   * per-transaction override registry before pattern matching.
+   */
+  hash?: string;
 }
 
 export interface CategoryAggregation {
@@ -43,6 +49,7 @@ export function aggregateCategoryExpenses(
       t.amount,
       t.account,
       t.type,
+      t.hash,
     );
     if (category === SPECIAL_CATEGORY.transfers) continue;
     const amt = Math.abs(t.amount);

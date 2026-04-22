@@ -56,6 +56,8 @@ function closestRentalIncome(
 
 export interface RawTransaction {
   id: number;
+  /** Stable hash — optional for legacy callers; enables per-transaction category overrides. */
+  hash?: string;
   date: string;
   description: string;
   amount: number;
@@ -146,7 +148,7 @@ function rowForAccumulation(txn: RawTransaction, side: 'expense' | 'income'): Ac
   const absAmount = Math.abs(txn.amount);
   const account = txn.account;
 
-  let category = categorizeTransaction(txn.description);
+  let category = categorizeTransaction(txn.description, txn.hash ? { hash: txn.hash } : undefined);
   let payrollHit: PayrollEntry | null = null;
   if (side === 'expense') {
     const resolved = resolveExpenseCategoryWithPayroll(

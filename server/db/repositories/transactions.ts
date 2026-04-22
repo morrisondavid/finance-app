@@ -5,7 +5,6 @@ import { getDb, generateTransactionHash } from '../connection.js';
 import { formatDateISO } from '../../../shared/date-format.js';
 import { getFinancialYearRange, buildDashboardFilters, type DashboardFilters } from '../utils/financial-year.js';
 import { 
-  TRANSFER_DATE_TOLERANCE_DAYS,
   isTransferDescription,
   isBounceDescription
 } from '../../config/transfer-patterns.js';
@@ -14,19 +13,17 @@ import {
   getIncomeCondition,
   getExpenseCondition 
 } from '../utils/query-builders.js';
-import { convertAmountSync } from '../../config/exchange-rates.js';
-
 function accountCurrency(account: string): CurrencyCode {
   if (!isValidAccountName(account)) return 'GBP';
   return getAccountConfig(account as AccountName).currency;
 }
 
-const CROSS_CURRENCY_TOLERANCE = 0.20;
 import {
   expenseTxnMatchesMerchantModal,
   merchantDrillSearchSql,
 } from '../../utils/merchant-drill-search.js';
 import type { RawTransaction } from '../../utils/recurring-pipeline.js';
+import { doAmountsAndDatesMatchForAccounts } from '../../domain/inter-company/pair-finder.js';
 
 export interface TransactionRow {
   id: number;
@@ -174,35 +171,37 @@ export function detectTransfers(): number {
   // Match income and expense transactions
   for (const income of incomeTransactions) {
     if (matchedIds.has(income.id)) continue;
-    
-    const incomeDate = new Date(income.date);
+
     const incomeAmount = Math.abs(income.amount);
     const incomeIsTransferLike = isTransferLikeDescription(income.description);
     const incomeIsBounce = isBouncedPayment(income.description);
-    
+
     for (const expense of expenseTransactions) {
       if (matchedIds.has(expense.id)) continue;
-      
-      const expenseDate = new Date(expense.date);
-      const expenseAmount = Math.abs(expense.amount);
+
       const expenseIsTransferLike = isTransferLikeDescription(expense.description);
+
+      // Shared amount + FX + date tolerance — identical to the
+      // predicate `findInterCompanyPairs` uses, so within-entity
+      // pairing and inter-company detection cannot drift out of
+      // calibration.
+      if (
+        !doAmountsAndDatesMatchForAccounts({
+          expenseAccount: expense.account,
+          expenseAmount: expense.amount,
+          expenseDate: expense.date,
+          incomeAccount: income.account,
+          incomeAmount: income.amount,
+          incomeDate: income.date,
+        })
+      ) {
+        continue;
+      }
 
       const incomeCur = accountCurrency(income.account);
       const expenseCur = accountCurrency(expense.account);
       const crossCurrency = incomeCur !== expenseCur;
 
-      if (crossCurrency) {
-        const convertedExpense = convertAmountSync(expenseAmount, expenseCur, incomeCur);
-        const diff = Math.abs(incomeAmount - convertedExpense);
-        if (diff / Math.max(incomeAmount, 1) > CROSS_CURRENCY_TOLERANCE) continue;
-      } else {
-        if (Math.abs(incomeAmount - expenseAmount) > 0.01) continue;
-      }
-      
-      // Check if dates are within tolerance
-      const daysDiff = Math.abs((incomeDate.getTime() - expenseDate.getTime()) / (1000 * 60 * 60 * 24));
-      if (daysDiff > TRANSFER_DATE_TOLERANCE_DAYS) continue;
-      
       // For same-account matching, need a reason to pair them:
       // - At least one side is transfer-like (Capital on Tap, etc.)
       // - OR the income side is a bounced payment (REV, insufficient funds)

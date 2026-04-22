@@ -11,6 +11,8 @@ import budgetsRouter from './routes/budgets.js';
 import debtsRouter from './routes/debts.js';
 import obligationsRouter from './routes/obligations.js';
 import deadlinesRouter from './routes/deadlines.js';
+import companyRouter from './routes/company.js';
+import warningsRouter from './routes/warnings.js';
 import { normalizeAllFiles } from './utils/filename-normalizer.js';
 import { initDatabase, closeDatabase } from './db/index.js';
 
@@ -41,6 +43,8 @@ app.use('/api/budgets', budgetsRouter);
 app.use('/api/debts', debtsRouter);
 app.use('/api/obligations', obligationsRouter);
 app.use('/api/deadlines', deadlinesRouter);
+app.use('/api/company', companyRouter);
+app.use('/api/warnings', warningsRouter);
 
 if (isProduction) {
   // SPA fallback — serve index.html for non-API routes

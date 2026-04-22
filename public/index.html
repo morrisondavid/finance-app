@@ -21,6 +21,7 @@
       <button class="tab" data-tab="obligations">Obligations</button>
       <button class="tab" data-tab="deadlines">Deadlines</button>
       <button class="tab" data-tab="debt">Debt</button>
+      <button class="tab" data-tab="warnings">Warnings</button>
       <button class="tab" data-tab="statements">Statements</button>
       <button class="tab" data-tab="upload">Upload</button>
     </nav>
@@ -739,6 +740,51 @@
           </div>
         </div>
       </div>
+    </section>
+
+    <!-- Warnings Tab (Roadmap 1.1 Phase 7 — entity-foundation slice) -->
+    <section id="warnings" class="tab-content">
+      <div class="warnings-header">
+        <h2>Warnings</h2>
+        <p class="warnings-subtitle">
+          Entity-foundation warnings surfaced from <code>autonize-it/company.csv</code>,
+          UAE tax thresholds, and inter-company money movements. The full
+          Solvency Warnings Engine (Roadmap 1.8) will extend this tab
+          with obligation-level, debt, and income-goal warnings.
+        </p>
+      </div>
+      <div
+        id="entity-foundation-warnings"
+        class="entity-foundation-warnings"
+        role="region"
+        aria-label="Entity foundation warnings"
+        hidden
+      ></div>
+      <div id="warnings-empty-state" class="warnings-empty-state" hidden>
+        <p>No warnings — everything checks out.</p>
+      </div>
+
+      <!-- Inter-company money movements (Roadmap 1.1 Phase 8) -->
+      <section
+        id="inter-company-movements"
+        class="inter-company-movements"
+        role="region"
+        aria-label="Inter-company money movements"
+      >
+        <header class="inter-company-movements__header">
+          <h3>Inter-company movements</h3>
+          <p class="inter-company-movements__subtitle">
+            Detected transaction pairs that move money between
+            Autonize IT Ltd (UK) and Autonize IT FZCO (UAE). Classify
+            each one so the tax calculations know whether to treat it
+            as an inter-company loan, a capital contribution, or a
+            service fee.
+          </p>
+        </header>
+        <div id="inter-company-movements-body" class="inter-company-movements__body">
+          <p class="inter-company-movements__loading">Loading…</p>
+        </div>
+      </section>
     </section>
 
     <!-- Statements Tab -->

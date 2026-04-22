@@ -6,7 +6,7 @@ import type {
   AccountConfigsResponse,
   TransactionsResponse,
   AccountBalanceResponse,
-  CategoriesResponse
+  CategoriesResponse,
 } from '../../shared/api-contracts.js';
 import {
   getDashboardTotals,
@@ -52,10 +52,13 @@ router.get('/summary', (req: Request<object, DashboardSummaryResponse, object, S
     
     // Default to current (most recent) financial year if not specified
     const selectedFY = financialYear || (financialYears.length > 0 ? financialYears[0] : undefined);
-    
+
+    // Tax-liability entity scoping is resolved inside `getTaxLiabilities`
+    // from each account's `vat.applicable` / `corpTax.applicable`
+    // flags, so the dashboard summary route itself is entity-agnostic.
     const filters = {
       account: selectedAccount,
-      financialYear: selectedFY
+      financialYear: selectedFY,
     };
 
     const fyNormalized = selectedFY ? normalizeFinancialYear(selectedFY) : undefined;
@@ -254,7 +257,7 @@ router.get('/transactions', (req: Request<object, TransactionsResponse, object, 
       amount: t.amount,
       account: t.account,
       type: t.type,
-      category: transactionCategoryWithPayroll(t.description, t.amount, t.account, t.type),
+      category: transactionCategoryWithPayroll(t.description, t.amount, t.account, t.type, t.hash),
       linkedTransactionId: t.linked_transaction_id ?? undefined
     }));
 

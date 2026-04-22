@@ -7,6 +7,9 @@
 import type {
   AccountName,
   CurrencyCode,
+  EntityId,
+  Jurisdiction,
+  Tbc,
 } from '../shared/api-contracts.js';
 import { ACCOUNTS } from '../shared/api-contracts.js';
 
@@ -21,7 +24,7 @@ export type {
   TransactionsResponse,
 } from '../shared/api-contracts.js';
 
-export type { AccountName, CurrencyCode };
+export type { AccountName, CurrencyCode, EntityId, Jurisdiction };
 export { ACCOUNTS };
 
 // ─── Internal types (never serialised over HTTP) ─────────────────────────────
@@ -162,12 +165,44 @@ export type AccountCategory = 'business' | 'personal';
 export type AccountOwnership = AccountCategory;
 
 /**
- * Per-tax-type flags for business accounts.
- * Only business accounts can have these — enforced by the discriminated union below.
+ * Per-tax-type configuration for business accounts, scoped by jurisdiction
+ * (Roadmap 1.1 / Phase 4). Each business account declares:
+ *
+ *   - `jurisdiction`: which country's rules govern its income.
+ *   - `vat.applicable`: whether the account's income is inside its
+ *     jurisdiction's VAT net conceptually (false for UK credit cards /
+ *     savings which hold no revenue).
+ *   - `vat.rate`: the jurisdiction's standard rate (0.20 UK, 0.05 UAE).
+ *   - `vat.registered`: whether the *entity* is currently VAT-registered
+ *     in its jurisdiction. Obligation seeders require this to be `true`
+ *     before emitting rows.
+ *   - `corpTax.applicable`: whether the jurisdiction imposes a CT-style
+ *     business income tax on this account's income.
+ *   - `corpTax.qualifyingFreeZone`: UAE-only gate. `true` = QFZP (0%),
+ *     `false` = non-QFZP (9% above threshold). For UK this is always
+ *     `false` (UK has no free-zone regime). `'TBC'` means the UAE entity
+ *     has not yet answered whether it qualifies — obligation seeders
+ *     refuse to emit rows while this is `'TBC'`.
+ *
+ * This shape replaces the pre-Phase-4 flat booleans (`vatApplicable`,
+ * `corpTaxApplicable`) so AED income can never silently leak into a UK
+ * VAT or CT aggregate.
  */
+export interface VatConfig {
+  applicable: boolean;
+  rate: number;
+  registered: boolean;
+}
+
+export interface CorpTaxConfig {
+  applicable: boolean;
+  qualifyingFreeZone: boolean | Tbc;
+}
+
 export interface BusinessTaxConfig {
-  vatApplicable: boolean;
-  corpTaxApplicable: boolean;
+  jurisdiction: Jurisdiction;
+  vat: VatConfig;
+  corpTax: CorpTaxConfig;
 }
 
 interface BaseAccountConfig {
@@ -175,6 +210,13 @@ interface BaseAccountConfig {
   label: string;
   type: AccountType;
   currency: CurrencyCode;
+  /**
+   * Legal entity this account belongs to. `null` means the account is
+   * personal and falls outside either corporate registry (Roadmap 1.1).
+   * Business accounts MUST have a non-null entityId; personal accounts
+   * MUST have `null`. Enforced by the runtime tests in types.test.ts.
+   */
+  entityId: EntityId | null;
   canMakeOutgoingPayments: boolean;
   excludeTransfersFromIncome: boolean;
   showTaxLiabilities: boolean;
@@ -201,8 +243,13 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     label: 'Barclays Current',
     type: 'current',
     currency: 'GBP',
+    entityId: 'autonize-it-ltd',
     category: 'business',
-    business: { vatApplicable: true, corpTaxApplicable: true },
+    business: {
+      jurisdiction: 'UK',
+      vat: { applicable: true, rate: 0.2, registered: true },
+      corpTax: { applicable: true, qualifyingFreeZone: false },
+    },
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: true,
     showTaxLiabilities: true,
@@ -212,8 +259,13 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     label: 'Barclays Savings',
     type: 'savings',
     currency: 'GBP',
+    entityId: 'autonize-it-ltd',
     category: 'business',
-    business: { vatApplicable: false, corpTaxApplicable: false },
+    business: {
+      jurisdiction: 'UK',
+      vat: { applicable: false, rate: 0.2, registered: true },
+      corpTax: { applicable: false, qualifyingFreeZone: false },
+    },
     canMakeOutgoingPayments: false,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
@@ -223,8 +275,13 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     label: 'Capital on Tap',
     type: 'credit-card',
     currency: 'GBP',
+    entityId: 'autonize-it-ltd',
     category: 'business',
-    business: { vatApplicable: false, corpTaxApplicable: false },
+    business: {
+      jurisdiction: 'UK',
+      vat: { applicable: false, rate: 0.2, registered: true },
+      corpTax: { applicable: false, qualifyingFreeZone: false },
+    },
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
@@ -235,8 +292,13 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     label: 'Barclaycard',
     type: 'credit-card',
     currency: 'GBP',
+    entityId: 'autonize-it-ltd',
     category: 'business',
-    business: { vatApplicable: false, corpTaxApplicable: false },
+    business: {
+      jurisdiction: 'UK',
+      vat: { applicable: false, rate: 0.2, registered: true },
+      corpTax: { applicable: false, qualifyingFreeZone: false },
+    },
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
@@ -246,6 +308,7 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     label: 'NatWest',
     type: 'current',
     currency: 'GBP',
+    entityId: null,
     category: 'personal',
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
@@ -256,6 +319,7 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     label: 'NatWest Savings',
     type: 'savings',
     currency: 'GBP',
+    entityId: null,
     category: 'personal',
     canMakeOutgoingPayments: false,
     excludeTransfersFromIncome: false,
@@ -266,6 +330,7 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     label: 'Monzo Joint',
     type: 'current',
     currency: 'GBP',
+    entityId: null,
     category: 'personal',
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
@@ -274,10 +339,29 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
   'emirates-islamic': {
     name: 'emirates-islamic',
     label: 'Emirates Islamic',
-    type: 'savings',
+    type: 'current',
     currency: 'AED',
+    entityId: 'autonize-it-fzco',
     category: 'business',
-    business: { vatApplicable: false, corpTaxApplicable: false },
+    business: {
+      jurisdiction: 'UAE',
+      /**
+       * UAE VAT is 5% and registration-gated. The FZCO is not yet VAT-
+       * registered (per the La Fosse self-bill agreement); applicable
+       * stays `true` so the Warnings Engine can surface threshold
+       * breaches, but `registered: false` keeps VAT obligation seeders
+       * silent until the status flips.
+       */
+      vat: { applicable: true, rate: 0.05, registered: false },
+      /**
+       * UAE CT applies in principle; `qualifyingFreeZone: 'TBC'` means
+       * the FZCO has not yet formally elected QFZP status with its
+       * accountant. CT obligation seeders treat `'TBC'` as a hard gate
+       * and refuse to emit rows — this is a regression lock against
+       * prematurely generating UAE CT liabilities.
+       */
+      corpTax: { applicable: true, qualifyingFreeZone: 'TBC' },
+    },
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
@@ -287,6 +371,7 @@ export const ACCOUNT_CONFIG: Record<AccountName, AccountConfig> = {
     label: 'Santander Everyday',
     type: 'credit-card',
     currency: 'GBP',
+    entityId: null,
     category: 'personal',
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
@@ -317,13 +402,6 @@ export function validateAccount(account: string | undefined): AccountName {
 }
 
 /**
- * Type guard: narrows AccountConfig to BusinessAccountConfig.
- */
-export function isBusinessConfig(c: AccountConfig): c is BusinessAccountConfig {
-  return c.category === 'business';
-}
-
-/**
  * Get business accounts that can make outgoing payments (for VAT, Corp Tax, etc.)
  */
 export function getBusinessPaymentAccounts(): AccountName[] {
@@ -331,6 +409,22 @@ export function getBusinessPaymentAccounts(): AccountName[] {
     const config = ACCOUNT_CONFIG[account];
     return config.category === 'business' && config.canMakeOutgoingPayments;
   });
+}
+
+/**
+ * Get every account that belongs to a specific legal entity (Roadmap 1.1).
+ * Pass `null` to enumerate personal (non-entity) accounts.
+ */
+export function getAccountsByEntity(entityId: EntityId | null): AccountName[] {
+  return ACCOUNTS.filter(a => ACCOUNT_CONFIG[a].entityId === entityId);
+}
+
+/**
+ * Resolve the legal entity an account belongs to, or `null` if the
+ * account is personal (Roadmap 1.1).
+ */
+export function getEntityIdForAccount(account: AccountName): EntityId | null {
+  return ACCOUNT_CONFIG[account].entityId;
 }
 
 /**
@@ -358,28 +452,6 @@ export function getBusinessAndPersonalPaymentAccounts(): AccountName[] {
 }
 
 /**
- * Accounts whose income is subject to VAT.
- * Double gate: must be category === 'business' AND business.vatApplicable === true.
- */
-export function getVatApplicableAccounts(): AccountName[] {
-  return ACCOUNTS.filter(a => {
-    const c = ACCOUNT_CONFIG[a];
-    return isBusinessConfig(c) && c.business.vatApplicable;
-  });
-}
-
-/**
- * Accounts whose income is subject to Corporation Tax.
- * Double gate: must be category === 'business' AND business.corpTaxApplicable === true.
- */
-export function getCorpTaxApplicableAccounts(): AccountName[] {
-  return ACCOUNTS.filter(a => {
-    const c = ACCOUNT_CONFIG[a];
-    return isBusinessConfig(c) && c.business.corpTaxApplicable;
-  });
-}
-
-/**
  * Check if an account is a credit card
  */
 export function isCreditCard(account: AccountName): boolean {
@@ -395,13 +467,32 @@ export function isBusinessAccount(account: string): boolean {
 }
 
 /**
- * Cross-account transfer pairing (same amount / opposite sign) is only for business-to-business
- * movements. Payouts to personal accounts (e.g. director salary/dividends) stay as expense/income.
+ * Cross-account transfer pairing (same amount / opposite sign) is only
+ * valid for movements **within the same legal entity**. Pairing an
+ * expense on one entity's account against an income on another entity's
+ * account would silently net the two rows out and destroy audit-critical
+ * information: that a genuine cross-border money movement happened,
+ * which has to be classified (loan / capital contribution / inter-
+ * company service fee) by a human or the Warnings Engine (Roadmap 1.1 /
+ * Phase 5, feeding Roadmap 1.8).
+ *
+ * Rules (short-circuit in this exact order):
+ *   1. Same account pair → `false` (nothing to pair).
+ *   2. Either side not a business account → `false` (director payouts
+ *      stay as expense/income).
+ *   3. Both business BUT `entityId` differs → `false` (inter-company
+ *      movement; Phase 8 Warnings Engine surfaces the pair for
+ *      per-transaction classification via category override instead).
+ *   4. Both business AND same `entityId` → `true`.
  */
 export function isCrossAccountBusinessToBusinessTransfer(
   expenseAccount: string,
   incomeAccount: string,
 ): boolean {
   if (expenseAccount === incomeAccount) return false;
-  return isBusinessAccount(expenseAccount) && isBusinessAccount(incomeAccount);
+  if (!isBusinessAccount(expenseAccount) || !isBusinessAccount(incomeAccount)) return false;
+  const fromEntity = ACCOUNT_CONFIG[expenseAccount as AccountName].entityId;
+  const toEntity = ACCOUNT_CONFIG[incomeAccount as AccountName].entityId;
+  return fromEntity !== null && toEntity !== null && fromEntity === toEntity;
 }
+

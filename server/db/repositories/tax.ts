@@ -15,9 +15,13 @@ import {
   buildHmrcNarrativeCaseSql,
   type HmrcNarrativeKey,
 } from '../../config/payees.js';
-import { getBusinessPaymentAccounts } from '../../types.js';
+import {
+  businessPaymentAccounts,
+  corpTaxApplicableAccounts,
+  vatApplicableAccounts,
+} from '../../domain/accounts/index.js';
 import { round2 } from '../../utils/math.js';
-import { buildVatAccountFilter, buildCorpTaxAccountFilter } from '../utils/tax-account-filter.js';
+import { buildAccountInFilter } from '../utils/tax-account-filter.js';
 import {
   findExpenseTransactionsByDescriptionPatterns,
   type ExpenseTransactionMatch,
@@ -271,8 +275,12 @@ function calculateDirectorDividendTax(salaryPaidInPeriod: number, dividends: num
 export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilities {
   const db = getDb();
   const { clause, params } = buildDashboardFilters(filters);
-  const corpTaxFilter = buildCorpTaxAccountFilter();
-  const vatFilter = buildVatAccountFilter();
+  // VAT/CT scope is already determined by per-account flags:
+  // `vat.registered=false` (FZCO) and `corpTax.qualifyingFreeZone='TBC'`
+  // (FZCO) both exclude the UAE entity from their respective indexes.
+  // No separate entity filter is needed — and it would be redundant.
+  const corpTaxFilter = buildAccountInFilter(corpTaxApplicableAccounts());
+  const vatFilter = buildAccountInFilter(vatApplicableAccounts());
   
   // Get income for the selected financial year (for Corp Tax) — always scoped to corpTax accounts
   const incomeResult = db.prepare(`
@@ -321,7 +329,7 @@ export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilitie
 
   const vatPayments = findHmrcPayments({
     patterns: HMRC_PATTERNS.VAT,
-    accounts: getBusinessPaymentAccounts(),
+    accounts: businessPaymentAccounts(),
     startDate: formatDateISO(twelveMonthsAgo),
     endDate: formatDateISO(today),
   });

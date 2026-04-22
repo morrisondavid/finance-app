@@ -1,8 +1,11 @@
 import { describe, it, expect, afterAll, vi, beforeEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { getVatApplicableAccounts, getCorpTaxApplicableAccounts } from '../../types.js';
-import { buildVatAccountFilter, buildCorpTaxAccountFilter } from '../utils/tax-account-filter.js';
+import {
+  vatApplicableAccounts,
+  corpTaxApplicableAccounts,
+} from '../../domain/accounts/index.js';
+import { buildAccountInFilter } from '../utils/tax-account-filter.js';
 import { createInMemoryTestDb } from '../test-harness/in-memory-db.js';
 
 /**
@@ -52,14 +55,14 @@ beforeEach(() => {
 });
 
 describe('VAT income queries exclude non-vatApplicable accounts', () => {
-  const vatAccounts = getVatApplicableAccounts();
+  const vatAccounts = vatApplicableAccounts();
 
   it('MIN(date) query only considers vatApplicable accounts', () => {
     insertIncome('monzo-joint', '2019-06-15', 500);
     insertIncome('natwest', '2020-03-01', 300);
     insertIncome('barclays-current', '2022-04-19', 1000);
 
-    const vatFilter = buildVatAccountFilter();
+    const vatFilter = buildAccountInFilter(vatApplicableAccounts());
     const result = harness.db.prepare(
       `SELECT MIN(date) as minDate FROM transactions WHERE type = 'income' ${vatFilter.clause}`
     ).get(...vatFilter.params) as { minDate: string | null };
@@ -73,7 +76,7 @@ describe('VAT income queries exclude non-vatApplicable accounts', () => {
     insertIncome('natwest', '2023-02-10', 2000);
     insertIncome('barclays-savings', '2023-01-25', 1000);
 
-    const vatFilter = buildVatAccountFilter();
+    const vatFilter = buildAccountInFilter(vatApplicableAccounts());
     const result = harness.db.prepare(`
       SELECT COALESCE(SUM(amount), 0) as total
       FROM transactions WHERE type = 'income' AND date >= ? AND date <= ? ${vatFilter.clause}
@@ -90,7 +93,7 @@ describe('VAT income queries exclude non-vatApplicable accounts', () => {
     insertIncome('monzo-joint', '2023-06-01', 10000);
     insertIncome('natwest', '2023-06-15', 5000);
 
-    const vatFilter = buildVatAccountFilter();
+    const vatFilter = buildAccountInFilter(vatApplicableAccounts());
     const result = harness.db.prepare(`
       SELECT COALESCE(SUM(amount), 0) as total
       FROM transactions WHERE type = 'income' AND date >= ? AND date <= ? ${vatFilter.clause}
@@ -101,7 +104,7 @@ describe('VAT income queries exclude non-vatApplicable accounts', () => {
 });
 
 describe('Corporation Tax income queries exclude non-corpTaxApplicable accounts', () => {
-  const corpTaxAccounts = getCorpTaxApplicableAccounts();
+  const corpTaxAccounts = corpTaxApplicableAccounts();
 
   it('FY income SUM only includes corpTaxApplicable accounts', () => {
     insertIncome('barclays-current', '2023-06-01', 8000);
@@ -109,7 +112,7 @@ describe('Corporation Tax income queries exclude non-corpTaxApplicable accounts'
     insertIncome('natwest', '2023-07-01', 2000);
     insertIncome('capital-on-tap', '2023-06-20', 500);
 
-    const corpTaxFilter = buildCorpTaxAccountFilter();
+    const corpTaxFilter = buildAccountInFilter(corpTaxApplicableAccounts());
     const result = harness.db.prepare(`
       SELECT COALESCE(SUM(amount), 0) as total
       FROM transactions WHERE type = 'income' AND date >= ? AND date <= ? ${corpTaxFilter.clause}
@@ -126,7 +129,7 @@ describe('Corporation Tax income queries exclude non-corpTaxApplicable accounts'
     insertIncome('barclays-current', '2023-06-01', 8000);
     insertIncome('natwest', '2023-06-15', 4000);
 
-    const corpTaxFilter = buildCorpTaxAccountFilter();
+    const corpTaxFilter = buildAccountInFilter(corpTaxApplicableAccounts());
 
     const withDashboardFilter = harness.db.prepare(`
       SELECT COALESCE(SUM(amount), 0) as total

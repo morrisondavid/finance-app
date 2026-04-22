@@ -14,6 +14,7 @@ import { initBudgetSheet, loadBudgetSheet } from './modules/budget-sheet';
 import { initObligations, loadObligations } from './modules/obligations';
 import { initDeadlines, loadDeadlines } from './modules/deadlines';
 import { initDebt, loadDebt } from './modules/debt';
+import { initWarnings, loadWarnings } from './modules/warnings';
 import { initRecurring } from './modules/recurring';
 import { fetchAccountConfig } from './utils/api';
 
@@ -69,6 +70,8 @@ function initializeTabNavigation(): void {
         void loadDeadlines();
       } else if (target === 'debt') {
         void loadDebt();
+      } else if (target === 'warnings') {
+        void loadWarnings();
       } else if (target === 'statements') {
         loadStatements();
       }
@@ -94,6 +97,7 @@ async function initializeApp(): Promise<void> {
   initObligations();
   initDeadlines();
   initDebt();
+  initWarnings();
   initStatements();
   initUpload({
     onUploadSuccess: () => {

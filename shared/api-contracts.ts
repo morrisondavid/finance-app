@@ -8,10 +8,18 @@
  */
 
 import { z } from 'zod';
+import { CATEGORY_NAMES } from './category-names.js';
 
 // ============================================
 // Base Type Schemas
 // ============================================
+
+/**
+ * Canonical category name, matched against the shared `CATEGORY_NAMES`
+ * tuple so additions to the category enum are rejected by Zod without
+ * a manual schema bump.
+ */
+export const CategoryNameSchema = z.enum(CATEGORY_NAMES);
 
 export const TransactionTypeSchema = z.enum(['income', 'expense', 'transfer']);
 
@@ -1084,6 +1092,257 @@ export const DeadlineFeedItemSchema = z.object({
 export const DeadlineFeedResponseSchema = z.object({
   items: z.array(DeadlineFeedItemSchema),
 });
+
+// ============================================
+// Company / Entity Registry (Roadmap 1.1)
+// ============================================
+
+/**
+ * Canonical identifiers for the two legally-distinct entities this app
+ * accounts for. The registry row (and every downstream FK on accounts,
+ * contracts, invoices, obligations) uses these exact strings.
+ */
+export const EntityIdSchema = z.enum(['autonize-it-ltd', 'autonize-it-fzco']);
+export type EntityId = z.infer<typeof EntityIdSchema>;
+
+export const JurisdictionSchema = z.enum(['UK', 'UAE']);
+export type Jurisdiction = z.infer<typeof JurisdictionSchema>;
+
+export const EntityKindSchema = z.enum(['ltd', 'fzco', 'sole_trader', 'other']);
+export type EntityKind = z.infer<typeof EntityKindSchema>;
+
+/**
+ * `TBC` is a first-class value in `autonize-it/company.csv` and is
+ * preserved verbatim through every parse/serialize round-trip so the
+ * Warnings Engine (1.8) can surface "this field is still unresolved"
+ * items without the parser silently coercing it to `null`.
+ */
+export const TbcSchema = z.literal('TBC');
+export type Tbc = z.infer<typeof TbcSchema>;
+
+/** ISO yyyy-mm-dd, or the literal `TBC`. */
+export const IsoDateOrTbcSchema = z.union([IsoDateSchema, TbcSchema]);
+
+/** `true`, `false`, or the literal `TBC`. */
+export const BooleanOrTbcSchema = z.union([z.boolean(), TbcSchema]);
+
+/** Any non-empty string, or the literal `TBC`. Empty becomes `null` elsewhere. */
+export const StringOrTbcSchema = z.union([z.string().min(1), TbcSchema]);
+
+/**
+ * Columns every company row carries regardless of jurisdiction.
+ * Jurisdiction-specific identifiers live on the discriminated branches.
+ */
+const CompanyCommonFields = {
+  id: EntityIdSchema,
+  legal_name: z.string().min(1),
+  trading_name: z.string().min(1),
+  kind: EntityKindSchema,
+  regulator: z.string().min(1),
+  formation_date: IsoDateOrTbcSchema.nullable(),
+  address: z.string().min(1),
+  currency: CurrencyCodeSchema,
+  email: z.string().min(1),
+  logo_path: z.string().nullable(),
+  accountant_name: StringOrTbcSchema.nullable(),
+  accountant_email: StringOrTbcSchema.nullable(),
+  /**
+   * True iff the entity is VAT-registered in its own jurisdiction.
+   * `TBC` allowed for entities whose registration status is still
+   * pending accountant review.
+   */
+  vat_registered: BooleanOrTbcSchema,
+  active: z.boolean(),
+  /** ISO date the row was last touched. Allowed nullable for legacy rows. */
+  updated_at: IsoDateSchema.nullable(),
+} as const;
+
+/**
+ * UK-shaped company row. `company_number` + `vat_number` are required-
+ * shaped fields (nullable only to cover pre-registration edge cases);
+ * `license_number`, `registration_number`, `iban`, `swift_bic`, and
+ * `qfzp_elected` are UAE-only and must be `null` on a UK row.
+ */
+export const UkCompanySchema = z.object({
+  ...CompanyCommonFields,
+  jurisdiction: z.literal('UK'),
+  kind: z.literal('ltd'),
+  company_number: z.string().min(1),
+  vat_number: z.string().nullable(),
+  license_number: z.null(),
+  registration_number: z.null(),
+  bank_sort_code: z.string().nullable(),
+  bank_account_number: z.string().nullable(),
+  iban: z.null(),
+  swift_bic: z.null(),
+  /**
+   * UK CT registration is effectively automatic on company formation
+   * (HMRC notifies the entity); we model it as a boolean for symmetry
+   * with the UAE side, and allow `TBC` for documentation completeness.
+   */
+  ct_registered: BooleanOrTbcSchema,
+  qfzp_elected: z.null(),
+});
+export type UkCompany = z.infer<typeof UkCompanySchema>;
+
+/**
+ * UAE-shaped (IFZA free-zone) company row. `license_number` +
+ * `registration_number` are required; `iban` + `swift_bic` carry AED
+ * bank details; `ct_registered` and `qfzp_elected` gate UAE CT
+ * obligation emission — both must be explicit booleans before the CT
+ * auto-seeder emits a single row.
+ */
+export const UaeCompanySchema = z.object({
+  ...CompanyCommonFields,
+  jurisdiction: z.literal('UAE'),
+  kind: z.literal('fzco'),
+  company_number: z.null(),
+  vat_number: z.null(),
+  license_number: z.string().min(1),
+  registration_number: z.string().min(1),
+  bank_sort_code: z.null(),
+  bank_account_number: z.null(),
+  iban: StringOrTbcSchema.nullable(),
+  swift_bic: StringOrTbcSchema.nullable(),
+  ct_registered: BooleanOrTbcSchema,
+  qfzp_elected: BooleanOrTbcSchema.nullable(),
+});
+export type UaeCompany = z.infer<typeof UaeCompanySchema>;
+
+/**
+ * Discriminated union over `jurisdiction`. Downstream code that branches
+ * on jurisdiction gets narrowed types for free (no casts, no asserts).
+ */
+export const CompanySchema = z.discriminatedUnion('jurisdiction', [
+  UkCompanySchema,
+  UaeCompanySchema,
+]);
+export type Company = z.infer<typeof CompanySchema>;
+
+export const CompaniesListResponseSchema = z.object({
+  companies: z.array(CompanySchema),
+});
+export type CompaniesListResponse = z.infer<typeof CompaniesListResponseSchema>;
+
+// ============================================
+// Warnings — Phase 7 / Roadmap 1.1 Entity Foundation slice
+// ============================================
+// These schemas are the minimal subset of the Warnings Engine (Roadmap
+// 1.8) that Roadmap 1.1 needs to pay for itself: they surface the
+// unresolved `TBC` fields, FZCO tax-registration blockers, UAE VAT
+// threshold crossings, and unclassified inter-company movements that
+// the Phase 1–6 work has now made detectable. The envelope shape
+// (`id / code / severity / title / detail / recommended_action /
+// sources`) is deliberately aligned with the full 1.8 spec so the
+// future Warnings tab can consume this route verbatim without a
+// schema migration.
+
+export const WarningSeveritySchema = z.enum(['info', 'warn', 'critical']);
+export type WarningSeverity = z.infer<typeof WarningSeveritySchema>;
+
+export const EntityFoundationWarningCodeSchema = z.enum([
+  'company-tbc-fields',
+  'fzco-ct-status-unknown',
+  'fzco-vat-voluntary-threshold-crossed',
+  'fzco-vat-mandatory-threshold-crossed',
+  'ifza-license-renewal-due',
+  'inter-company-movement-unclassified',
+]);
+export type EntityFoundationWarningCode = z.infer<typeof EntityFoundationWarningCodeSchema>;
+
+export const EntityFoundationWarningSchema = z.object({
+  id: z.string().min(1),
+  code: EntityFoundationWarningCodeSchema,
+  severity: WarningSeveritySchema,
+  title: z.string().min(1),
+  detail: z.string().min(1),
+  recommended_action: z.string().min(1),
+  sources: z.array(z.string().min(1)).min(1),
+});
+export type EntityFoundationWarning = z.infer<typeof EntityFoundationWarningSchema>;
+
+export const EntityFoundationWarningsResponseSchema = z.object({
+  warnings: z.array(EntityFoundationWarningSchema),
+});
+export type EntityFoundationWarningsResponse = z.infer<typeof EntityFoundationWarningsResponseSchema>;
+
+// ============================================
+// Transaction category overrides
+// (Roadmap 1.1 Phase 8)
+// ============================================
+// Manual per-transaction category assignments, keyed by transaction
+// hash. When present, these take precedence over the description-
+// based pattern lookup in `server/utils/categorizer.ts`.
+//
+// The primary driver is inter-company classification (see
+// `INTER_COMPANY_CATEGORIES`) — the user classifies a detected UK
+// Ltd ↔ UAE FZCO pair via the Warnings tab and both hashes get an
+// override row. The CSV is general-purpose, though: any future
+// "recategorise this specific transaction" use case can write here.
+
+export const TransactionCategoryOverrideRowSchema = z.object({
+  hash: z.string().min(1),
+  category: CategoryNameSchema,
+  notes: z.string().nullable(),
+  classified_at: IsoDateSchema,
+});
+export type TransactionCategoryOverrideRow = z.infer<
+  typeof TransactionCategoryOverrideRowSchema
+>;
+
+// ============================================
+// Inter-company movement pairs (response DTOs)
+// ============================================
+
+export const InterCompanyMovementTransactionSchema = z.object({
+  hash: z.string().min(1),
+  date: IsoDateSchema,
+  account: z.string().min(1),
+  amount: z.number(),
+  description: z.string(),
+  entityId: EntityIdSchema.nullable(),
+});
+export type InterCompanyMovementTransaction = z.infer<
+  typeof InterCompanyMovementTransactionSchema
+>;
+
+export const InterCompanyMovementPairSchema = z.object({
+  expense: InterCompanyMovementTransactionSchema,
+  income: InterCompanyMovementTransactionSchema,
+  /**
+   * Resolved classification for the pair — non-null when at least
+   * one side of the pair has an override row whose category is in
+   * {@link INTER_COMPANY_CATEGORIES}. The expense side takes
+   * precedence when both are classified.
+   */
+  classification: CategoryNameSchema.nullable(),
+});
+export type InterCompanyMovementPair = z.infer<typeof InterCompanyMovementPairSchema>;
+
+export const InterCompanyMovementsResponseSchema = z.object({
+  pairs: z.array(InterCompanyMovementPairSchema),
+  classified: z.number().int().min(0),
+  unclassified: z.number().int().min(0),
+  total: z.number().int().min(0),
+});
+export type InterCompanyMovementsResponse = z.infer<
+  typeof InterCompanyMovementsResponseSchema
+>;
+
+export const InterCompanyClassifyRequestSchema = z.object({
+  expenseHash: z.string().min(1),
+  incomeHash: z.string().min(1),
+  /**
+   * Null clears any existing classification for the pair (removes
+   * both override rows). A non-null value must be in
+   * `INTER_COMPANY_CATEGORIES` — general-purpose categories are
+   * rejected at this endpoint even though the underlying CSV can
+   * store them.
+   */
+  category: CategoryNameSchema.nullable(),
+  notes: z.string().max(500).nullable().optional(),
+});
+export type InterCompanyClassifyRequest = z.infer<typeof InterCompanyClassifyRequestSchema>;
 
 // ============================================
 // Inferred TypeScript Types

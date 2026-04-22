@@ -195,3 +195,82 @@ describe('categorizer', () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase 8 — Per-transaction category overrides (hash-keyed)
+// ─────────────────────────────────────────────────────────────────────
+
+import { afterEach, beforeEach } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import {
+  writeOverridesCsvFile,
+  getOverridesCsvPath,
+} from '../domain/transaction-overrides/csv-io.js';
+import { __resetOverrideRegistryForTests } from '../domain/transaction-overrides/registry.js';
+
+describe('categorizeTransaction — override threading', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'catz-ovr-'));
+    __resetOverrideRegistryForTests(tmpDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    __resetOverrideRegistryForTests();
+  });
+
+  it('override wins over pattern match', () => {
+    writeOverridesCsvFile(getOverridesCsvPath(tmpDir), [
+      {
+        hash: 'h-loan',
+        category: 'Inter-company Loan',
+        notes: null,
+        classified_at: '2026-04-21',
+      },
+    ]);
+    // Description matches Wise (Transfers pattern), but override says loan.
+    expect(categorizeTransaction('WISE AUTONIZE IT', { hash: 'h-loan' })).toBe(
+      'Inter-company Loan',
+    );
+  });
+
+  it('falls through to pattern when hash has no override', () => {
+    expect(categorizeTransaction('NatWest', { hash: 'unknown' })).toBe('Housing');
+  });
+
+  it('omitting the opts arg is fully backwards compatible (no override consulted)', () => {
+    writeOverridesCsvFile(getOverridesCsvPath(tmpDir), [
+      {
+        hash: 'h-loan',
+        category: 'Inter-company Loan',
+        notes: null,
+        classified_at: '2026-04-21',
+      },
+    ]);
+    // Same description with no hash → pattern match.
+    expect(categorizeTransaction('NatWest')).toBe('Housing');
+  });
+
+  it('different categories for different hashes on identical descriptions', () => {
+    writeOverridesCsvFile(getOverridesCsvPath(tmpDir), [
+      {
+        hash: 'h1',
+        category: 'Inter-company Loan',
+        notes: null,
+        classified_at: '2026-04-21',
+      },
+      {
+        hash: 'h2',
+        category: 'Capital Contribution',
+        notes: null,
+        classified_at: '2026-04-21',
+      },
+    ]);
+    expect(categorizeTransaction('WISE', { hash: 'h1' })).toBe('Inter-company Loan');
+    expect(categorizeTransaction('WISE', { hash: 'h2' })).toBe('Capital Contribution');
+  });
+});

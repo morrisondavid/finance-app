@@ -1,13 +1,13 @@
 import { getDb } from '../connection.js';
 import { VAT, getVatQuarterForDate, type VatQuarterRange } from '../../config/tax-rates.js';
 import { HMRC_PATTERNS } from '../../config/payees.js';
-import { getBusinessPaymentAccounts } from '../../types.js';
+import { businessPaymentAccounts, vatApplicableAccounts } from '../../domain/accounts/index.js';
 import { findHmrcPayments, type HmrcPaymentMatch } from './tax.js';
 import { insertAutoObligation } from './obligations.js';
 import { isDismissed } from './obligation-dismissals.js';
 import { reconcileVatQuarter, type VatQuarterReconciliation } from '../../utils/vat-reconciliation.js';
 import { getPreviousFyStartDate } from '../utils/financial-year.js';
-import { buildVatAccountFilter, type AccountFilterResult } from '../utils/tax-account-filter.js';
+import { buildAccountInFilter, type AccountFilterResult } from '../utils/tax-account-filter.js';
 import {
   matchPaymentsToSlots,
   shiftIsoDate,
@@ -50,14 +50,18 @@ export interface VatReconciliationRow {
 export function buildVatReconciliationSet(
   referenceDate: Date = new Date(),
 ): VatReconciliationRow[] {
-  const vatFilter = buildVatAccountFilter();
+  // VAT seeder is scoped by the registry's `vatApplicable` index:
+  // the only gate is `vat.applicable && vat.registered`. A future
+  // VAT-registered FZCO account would be added to the index by
+  // flipping its flag, not by a separate entity filter here.
+  const vatFilter = buildAccountInFilter(vatApplicableAccounts());
 
   const earliestTxDate = findEarliestTxDate(vatFilter);
   if (!earliestTxDate) return [];
 
   const allPayments = findHmrcPayments({
     patterns: HMRC_PATTERNS.VAT,
-    accounts: getBusinessPaymentAccounts(),
+    accounts: businessPaymentAccounts(),
     startDate: '0000-01-01',
     endDate: '9999-12-31',
   });

@@ -14,6 +14,11 @@ import {
   DismissalsListResponseSchema,
   DebtCreateBodySchema,
   DebtUpdateBodySchema,
+  EntityIdSchema,
+  JurisdictionSchema,
+  CompanySchema,
+  UkCompanySchema,
+  UaeCompanySchema,
 } from './api-contracts.js';
 
 describe('HmrcPaymentMatchSchema', () => {
@@ -142,7 +147,11 @@ describe('AccountConfigsResponseSchema', () => {
   it('strips extra server-only fields (business config) without failing', () => {
     const withBusinessTaxConfig = {
       ...validBusinessConfig,
-      business: { vatApplicable: true, corpTaxApplicable: true },
+      business: {
+        jurisdiction: 'UK',
+        vat: { applicable: true, rate: 0.2, registered: true },
+        corpTax: { applicable: true, qualifyingFreeZone: false },
+      },
       quarterOverlapMonths: 1,
     };
     const result = AccountConfigsResponseSchema.safeParse([withBusinessTaxConfig]);
@@ -625,5 +634,216 @@ describe('DebtCreateBodySchema mortgage fields', () => {
       propertyId: null,
     });
     expect(result.success).toBe(true);
+  });
+});
+
+// ============================================
+// Company / Entity Registry (Roadmap 1.1)
+// ============================================
+
+describe('EntityIdSchema', () => {
+  it('accepts the two canonical entity ids', () => {
+    expect(EntityIdSchema.safeParse('autonize-it-ltd').success).toBe(true);
+    expect(EntityIdSchema.safeParse('autonize-it-fzco').success).toBe(true);
+  });
+
+  it('rejects unknown entity ids', () => {
+    expect(EntityIdSchema.safeParse('autonize-it-us').success).toBe(false);
+    expect(EntityIdSchema.safeParse('').success).toBe(false);
+  });
+});
+
+describe('JurisdictionSchema', () => {
+  it('accepts UK and UAE only', () => {
+    expect(JurisdictionSchema.safeParse('UK').success).toBe(true);
+    expect(JurisdictionSchema.safeParse('UAE').success).toBe(true);
+    expect(JurisdictionSchema.safeParse('US').success).toBe(false);
+    expect(JurisdictionSchema.safeParse('uk').success).toBe(false);
+  });
+});
+
+describe('UkCompanySchema', () => {
+  const validUk = {
+    id: 'autonize-it-ltd',
+    legal_name: 'Autonize IT Limited',
+    trading_name: 'Autonize IT Ltd',
+    kind: 'ltd',
+    jurisdiction: 'UK',
+    regulator: 'Companies House',
+    formation_date: 'TBC',
+    address: '53 Heath Park Road, Romford, RM2 5UL',
+    currency: 'GBP',
+    email: 'dmorrison@autonize-it.com',
+    logo_path: 'autonize-it/logo.svg',
+    accountant_name: 'TBC',
+    accountant_email: 'TBC',
+    vat_registered: true,
+    active: true,
+    updated_at: '2026-04-22',
+    company_number: '08842112',
+    vat_number: '292 1465 96',
+    license_number: null,
+    registration_number: null,
+    bank_sort_code: '20-25-19',
+    bank_account_number: '63648923',
+    iban: null,
+    swift_bic: null,
+    ct_registered: true,
+    qfzp_elected: null,
+  };
+
+  it('accepts the canonical UK Ltd row', () => {
+    expect(UkCompanySchema.safeParse(validUk).success).toBe(true);
+  });
+
+  it('rejects a UK row with a non-null license_number (UAE-only field)', () => {
+    const result = UkCompanySchema.safeParse({ ...validUk, license_number: '73348' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a UK row with a non-null iban (UAE-only field)', () => {
+    const result = UkCompanySchema.safeParse({ ...validUk, iban: 'GB00...' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a UK row with a non-null qfzp_elected (UAE-only field)', () => {
+    const result = UkCompanySchema.safeParse({ ...validUk, qfzp_elected: true });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts a UK row with ct_registered as TBC', () => {
+    expect(UkCompanySchema.safeParse({ ...validUk, ct_registered: 'TBC' }).success).toBe(true);
+  });
+
+  it('rejects a UK row with an empty company_number', () => {
+    expect(UkCompanySchema.safeParse({ ...validUk, company_number: '' }).success).toBe(false);
+  });
+});
+
+describe('UaeCompanySchema', () => {
+  const validUae = {
+    id: 'autonize-it-fzco',
+    legal_name: 'Autonize IT Software Development – FZCO',
+    trading_name: 'Autonize IT FZCO',
+    kind: 'fzco',
+    jurisdiction: 'UAE',
+    regulator: 'IFZA (International Free Zone Authority)',
+    formation_date: '2025-11-04',
+    address: 'DSO-IFZA, IFZA Properties, Dubai Silicon Oasis, Dubai, UAE',
+    currency: 'AED',
+    email: 'dmorrison@autonize-it.com',
+    logo_path: 'autonize-it/logo.svg',
+    accountant_name: 'TBC',
+    accountant_email: 'TBC',
+    vat_registered: false,
+    active: true,
+    updated_at: '2026-04-22',
+    company_number: null,
+    vat_number: null,
+    license_number: '73348',
+    registration_number: '71347',
+    bank_sort_code: null,
+    bank_account_number: null,
+    iban: 'TBC',
+    swift_bic: 'TBC',
+    ct_registered: 'TBC',
+    qfzp_elected: 'TBC',
+  };
+
+  it('accepts the canonical UAE FZCO row', () => {
+    expect(UaeCompanySchema.safeParse(validUae).success).toBe(true);
+  });
+
+  it('rejects a UAE row with a non-null company_number (UK-only field)', () => {
+    const result = UaeCompanySchema.safeParse({ ...validUae, company_number: '08842112' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a UAE row with a non-null bank_sort_code (UK-only field)', () => {
+    const result = UaeCompanySchema.safeParse({ ...validUae, bank_sort_code: '20-25-19' });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts a UAE row with explicit boolean ct_registered and qfzp_elected', () => {
+    const result = UaeCompanySchema.safeParse({
+      ...validUae,
+      ct_registered: true,
+      qfzp_elected: false,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects an invalid ct_registered value', () => {
+    const result = UaeCompanySchema.safeParse({ ...validUae, ct_registered: 'maybe' });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('CompanySchema discriminated union', () => {
+  it('narrows on jurisdiction to the UK shape', () => {
+    const result = CompanySchema.safeParse({
+      id: 'autonize-it-ltd',
+      legal_name: 'Autonize IT Limited',
+      trading_name: 'Autonize IT Ltd',
+      kind: 'ltd',
+      jurisdiction: 'UK',
+      regulator: 'Companies House',
+      formation_date: 'TBC',
+      address: '53 Heath Park Road, Romford, RM2 5UL',
+      currency: 'GBP',
+      email: 'dmorrison@autonize-it.com',
+      logo_path: null,
+      accountant_name: null,
+      accountant_email: null,
+      vat_registered: true,
+      active: true,
+      updated_at: null,
+      company_number: '08842112',
+      vat_number: null,
+      license_number: null,
+      registration_number: null,
+      bank_sort_code: null,
+      bank_account_number: null,
+      iban: null,
+      swift_bic: null,
+      ct_registered: true,
+      qfzp_elected: null,
+    });
+    expect(result.success).toBe(true);
+    if (result.success && result.data.jurisdiction === 'UK') {
+      expect(result.data.company_number).toBe('08842112');
+    }
+  });
+
+  it('refuses an object with a mismatched jurisdiction/identifier combination', () => {
+    const result = CompanySchema.safeParse({
+      id: 'autonize-it-fzco',
+      legal_name: 'Autonize IT FZCO',
+      trading_name: 'Autonize IT FZCO',
+      kind: 'fzco',
+      jurisdiction: 'UAE',
+      regulator: 'IFZA',
+      formation_date: '2025-11-04',
+      address: 'Dubai',
+      currency: 'AED',
+      email: 'x@y.com',
+      logo_path: null,
+      accountant_name: null,
+      accountant_email: null,
+      vat_registered: false,
+      active: true,
+      updated_at: null,
+      company_number: '08842112',
+      vat_number: null,
+      license_number: '73348',
+      registration_number: '71347',
+      bank_sort_code: null,
+      bank_account_number: null,
+      iban: null,
+      swift_bic: null,
+      ct_registered: 'TBC',
+      qfzp_elected: 'TBC',
+    });
+    expect(result.success).toBe(false);
   });
 });

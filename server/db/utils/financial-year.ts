@@ -14,7 +14,16 @@ export interface FinancialYearRange {
 }
 
 /**
- * Dashboard filter options
+ * Dashboard filter options.
+ *
+ * Entity scoping was intentionally removed: per-account flags in the
+ * accounts registry (`vat.registered`, `corpTax.qualifyingFreeZone`)
+ * already answer every question a UI entity selector could ask, and
+ * an explicit `entityId` option here was a parallel scoping vocabulary
+ * that changed nothing observable at the API boundary. When the UAE
+ * FZCO becomes VAT-registered or the QFZP status is resolved, its
+ * accounts will enter the relevant registry indexes and appear in the
+ * aggregates automatically — no filter surgery required.
  */
 export interface DashboardFilters {
   account?: string;
