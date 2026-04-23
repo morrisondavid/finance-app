@@ -84,263 +84,245 @@ route*, *under which contract generation*, or *when that generation
 ends*. That invisibility is what lets a contract wind down in 30 days
 with the forecast still showing green.
 
-**Shape of the real-world data (both shapes are first-class)**
+Both real-world shapes are first-class. Most engagements are
+**agency-mediated** (a recruitment agency is the payer + self-bill
+issuer, the end client is where the work actually happens, e.g. La
+Fosse → Edwin); some are **direct** (no agency, client pays
+directly, e.g. Delta Capita). The schema serves both without forcing
+one into the shape of the other.
 
-Most engagements are **agency-mediated**: a recruitment agency (e.g.
-La Fosse) is the payer and self-bill issuer; the end client (e.g. The
-Edwin Group) is where the work actually happens and where day-to-day
-comms go. Some are **direct**: no agency, the client pays directly
-(Delta Capita). The schema must serve both without forcing one into
-the shape of the other.
+Ships in four phases: **A — Foundation** (registries + renewal
+deadlines) SHIPPED; **B — Templates**, **C — Payment Matcher
+timeline**, and **D — UI** remain.
 
-**Template routing derived from `kind`**
+#### 1.2.A Foundation: registries + renewal deadlines ✅ SHIPPED
 
-| Template | `kind = direct` (Delta Capita) | `kind = agency` (La Fosse / Edwin) |
-|---|---|---|
-| Leave / sickness / time-off notice | primary contact | **end-client contact** (agency silent) |
-| Invoice cover note | primary contact | **end-client contact** |
-| Renewal discussion | n/a — client handles direct | **agency primary contact** (end client not copied) |
-| Timesheet submission | n/a (supplier-issues invoices) | **agency primary contact** |
+The three data-model pieces that everything downstream hangs off:
 
-The routing engine is a pure function of `(template_kind,
-client.kind, client.*_contact_*)`. Unit-tested exhaustively.
+- **`clients` canonical registry** (`server/domain/clients/`) — Zod
+  discriminated union `DirectClientSchema | AgencyClientSchema` via
+  a single flat CSV. End-client fields are `null` for `kind =
+  direct` and required for `kind = agency`; the registry exposes
+  `byId`, `byKind`, and `active` indexes plus a pure
+  `resolveTemplatePath(clientId, kind)` convention helper.
+- **`master-agreements` minimal loader**
+  (`server/domain/master-agreements/`) — read-only, memoized, no
+  indexes. Kept deliberately smaller than a full canonical registry
+  (not listed in the `all-registries.manifest` sweep); consumed
+  only by `contracts/registry.ts` at build time.
+- **`contracts` canonical registry** (`server/domain/contracts/`) —
+  build-time FK join to `clients + company + master-agreements`.
+  Indexes: `byId`, `byClient`, `byClientAndEntity` (sorted by
+  `start_date` for positional reasoning), `byMaster`, `active`.
+  Queries: `findContractForTransaction(clientId, entityId, date)`
+  and an atomic `upsertContract` write path.
+- **Renewal deadline auto-seeder**
+  (`server/domain/contracts/deadline-seeder.ts`) — for every active
+  contract with an `end_date`, seeds a deadline with `id =
+  contract-renewal-${contract.id}`, `type = 'contract-renewal'`,
+  `dueDate = end_date − renewal_warning_days`. Runs at server
+  startup; idempotent; user-completed rows are never reopened
+  (`upsertDeadline` in `server/db/repositories/deadlines.ts` short-
+  circuits when `completedDate !== null`). The new
+  `contract-renewal` value on `DeadlineTypeSchema` flows through
+  the existing `buildDeadlineFeed()` → list / calendar / ICS feed
+  with no rendering changes.
 
-**Schema — `clients/clients.csv`**
+**Schema cleanups applied during implementation** (versus the
+original draft in an earlier revision of this section):
+
+- `master` contracts were split out into `clients/master-
+  agreements.csv` rather than overloading `clients/contracts.csv`
+  with rows whose rate / invoice / working-pattern columns were all
+  `n/a`. Keeps `contracts.csv` dense and lets the master ↔ contract
+  relationship be enforced by FK.
+- The `type` column was dropped entirely. Earlier drafts tried
+  `master | sow | renewal | single`, then collapsed to
+  `sow | single | extension`, but every candidate value was either
+  redundant with `master_id` ("under a master?" → `master_id !==
+  null`) or derivable from the `byClientAndEntity` index ("is this
+  the next one?" → positional). An SOW issued to follow a prior
+  SOW is *also* an extension, so the partition wasn't clean — the
+  column was encoding two independent dimensions badly. The old
+  `extended_hire_end_date` column is replaced by a separate
+  follow-on contract row, which warning logic, deadlines, and
+  payment matching pick up for free.
+- Nullable fields replaced `n-a` magic strings. `conduct_regs` and
+  `engagement_tax_status` are `null` on non-UK-issued contracts;
+  the registry build enforces "these fields must be `null` when
+  `issuing_entity.jurisdiction !== 'UK'`" as an invariant.
+- `*_template_path` columns removed. Template files live at
+  `clients/templates/{client_id}/{kind}.md` by convention; the
+  resolver is a pure function of `(clientId, templateKind)`. One
+  fewer thing to keep in sync; no schema drift when templates are
+  added.
+- `TBC` is a first-class string value on nullable-or-TBC columns
+  (client contacts, VAT number, etc.). It survives CSV round-trip
+  byte-for-byte so the Warnings Engine (1.8) can distinguish
+  "unresolved" from `null` / "not applicable". Matches the pattern
+  already used by `autonize-it/company.csv`.
+
+**Shipped schemas**
+
+`clients/clients.csv` header order:
 
 ```
 id, legal_name, trading_name, kind (direct | agency),
 vat_number, billing_address,
-
--- contacts (primary / secondary / HR / accounts are all at
--- client-facing level; for agency kind these are the AGENCY's
--- contacts, not the end-client's)
 primary_contact_name, primary_contact_email,
 secondary_contact_name, secondary_contact_email,
 hr_contact_name, hr_contact_email,
 accounts_contact_name, accounts_contact_email,
-cc_emails,                                  -- comma-separated catch-all
-
--- end-client block (nullable; only populated when kind=agency)
-end_client_legal_name, end_client_address,
+cc_emails,
+end_client_legal_name, end_client_address,             -- required iff kind=agency
 end_client_primary_contact_name, end_client_primary_contact_email,
 end_client_secondary_contact_name, end_client_secondary_contact_email,
-
--- operational
-holiday_system_url,                         -- external portal, if any
-client_assigned_email,                      -- e.g. david.morrison@ext.deltacapita.com
-
--- template paths (markdown files with {{handlebars}} variables)
-leave_template_path,
-sickness_template_path,
-invoice_cover_template_path,
-renewal_template_path,                      -- only used when kind=agency
-timesheet_template_path,                    -- only used when kind=agency
-
+holiday_system_url, client_assigned_email,
 active, updated_at
 ```
 
-**Schema — `clients/contracts.csv`**
-
-Time-bounded per renewal — the same payer can hold multiple contract
-rows across entities over time. The current La Fosse/Edwin renewal is
-one row with `issuing_entity_id = autonize-it-fzco`; earlier La Fosse
-renewals that paid into Barclays (if back-seeded later) are separate
-rows with `issuing_entity_id = autonize-it-ltd`.
+`clients/master-agreements.csv`:
 
 ```
-id, client_id,
-issuing_entity_id,                           -- FK to company.csv
-type (master | sow | renewal | single),
-reference,                                   -- human id (e.g. DMORRISON02, LF-2026-03)
-start_date, end_date,
-extended_hire_end_date,                      -- optional extension window
+id, client_id, reference,
+start_date, end_date,                                  -- end_date nullable
+company_notice_weeks, supplier_notice_weeks,
+jurisdiction, signed_at, docusign_envelope,
+active, updated_at
+```
 
--- working pattern: seven booleans, not a string enum
-works_monday, works_tuesday, works_wednesday,
-works_thursday, works_friday, works_saturday, works_sunday,
+`clients/contracts.csv`:
 
--- commercial terms
-day_rate, day_rate_currency,                 -- rate CCY may differ from entity default
-invoice_currency,                            -- invoice-denominated CCY
+```
+id, client_id, issuing_entity_id,
+master_id,                                             -- FK to master-agreements (nullable)
+reference,
+start_date, end_date,                                  -- end_date nullable
+works_monday..works_sunday,                            -- seven booleans; default Mon–Fri true
+day_rate, day_rate_currency,
+invoice_currency,
 invoice_cadence (weekly | monthly),
 invoice_mechanism (supplier-issued | self-bill),
 payment_terms_days,
-
--- notice / renewal
 company_notice_weeks, supplier_notice_weeks,
-renewal_warning_days,                        -- default 30
-
--- contextual
+renewal_warning_days,                                  -- default 30
 job_title, job_description, work_location,
-conduct_regs (opted-in | opted-out | n-a),
-engagement_tax_status (outside-ir35 | inside-ir35 | n-a-non-uk-supplier),
-jurisdiction,                                -- governing law
-
--- provenance
-signed_at, docusign_envelope,
-
+conduct_regs (opted-in | opted-out, nullable),         -- null iff issuing entity is non-UK
+engagement_tax_status (outside-ir35 | inside-ir35, nullable),
+jurisdiction, signed_at, docusign_envelope,
 active, updated_at
 ```
 
-Seven boolean `works_*` columns rather than a free-text pattern —
-flexible enough for Mon–Fri, four-day weeks, weekends-only
-consulting, anything. Default at seed time is `works_monday..
-works_friday = true`, `works_saturday = works_sunday = false`.
+**Seed data — committed with this feature**
 
-**Renewals — first-class, not an afterthought**
+Two client rows (`delta-capita` direct, `la-fosse` agency → Edwin
+Group), one master-agreement row (`dc-master-2025`), two contract
+rows (`dc-sow-2026` under `dc-master-2025` running 2026-03-02 →
+2027-03-01; `lf-2026-mar` single-contract running 2026-01-06 →
+2026-03-31). All issued by `autonize-it-ltd` for this seed; FZCO
+contracts start at the planned March 2026 cutover and get added
+once the first FZCO engagement is signed.
 
-- Each contract's `end_date` auto-seeds a `deadlines/deadlines.csv`
-  entry at `end_date − renewal_warning_days` with `category =
-  contract-renewal`.
-- Seeded deadlines flow into the existing Tier 0 calendar via the
-  shipped `buildDeadlineFeed()` — no new rendering code.
-- Renewal-warning window is per-contract (`renewal_warning_days`,
-  default 30).
-- When a new row with a later `start_date` is added for the same
-  `client_id + issuing_entity_id`, the prior row's `active` flips to
-  `false` and its renewal deadline is archived (not deleted — history
-  matters for payer↔contract matching on historical transactions).
+Running `syncContractRenewalDeadlines()` on first boot seeds two
+deadlines:
 
-**Payment matcher update — timeline-aware**
+- `contract-renewal-lf-2026-mar` due **2026-01-30** (60 days before
+  2026-03-31) — expected to appear red on the calendar on first run
+  of this feature, documented in release notes so it isn't
+  mistaken for a bug.
+- `contract-renewal-dc-sow-2026` due **2026-12-31** (60 days before
+  2027-03-01).
 
-- Match rule: `(payer_name heuristic matches) AND (transaction.date
-  ∈ [contract.start_date, contract.end_date OR
-  contract.extended_hire_end_date]) AND
-  (transaction.account.entity_id = contract.issuing_entity_id)`.
-- A La Fosse payment landing on Barclays in **March 2026 or later** =
-  anomaly → warn "payment from known payer outside any active
-  contract window; expected on FZCO".
-- A La Fosse payment landing on Emirates Islamic **before March
-  2026** = anomaly → warn "payment predates contract start".
+**Acceptance criteria — 1.2.A** (all met)
+
+- `clients`, `contracts`, and `master-agreements` modules pass
+  every gate / invariant / lifecycle / manifest test. Contracts
+  registry fails to build if any FK is dangling (client, issuing
+  entity, or master), if master.client_id disagrees with
+  contract.client_id, or if a non-UK issuer's contract sets
+  `conduct_regs` / `engagement_tax_status`.
+- `upsertDeadline` is idempotent and never clobbers a user-
+  completed deadline's `completedDate`. Regression-locked with
+  three dedicated cases in `deadlines.test.ts`.
+- The deadline-seeder integration test
+  (`server/domain/contracts/deadline-seeder.test.ts`) runs against
+  an in-memory SQLite DB with stub upstream registries, confirming
+  both the first-boot seed and the mark-done-then-re-seed
+  idempotence paths.
+
+#### 1.2.B Templates — remaining
+
+Rendering + recipient resolution on top of the shipped registries:
+
+- Markdown templates at `clients/templates/{client_id}/{kind}.md`
+  with `{{handlebars}}` interpolation (`{{client.legal_name}}`,
+  `{{end_client.legal_name}}`, `{{contract.start_date}}`,
+  `{{consultant.email}}`, leave-/sickness-specific dates, etc.).
+- Recipient resolution is a pure function of `(template_kind,
+  client.kind, contact fields)`:
+
+  | Template | `kind = direct` (Delta Capita) | `kind = agency` (La Fosse / Edwin) |
+  |---|---|---|
+  | Leave / sickness / time-off notice | primary contact | **end-client contact** (agency silent) |
+  | Invoice cover note | primary contact | **end-client contact** |
+  | Renewal discussion | n/a — client handles direct | **agency primary contact** (end client not copied) |
+  | Timesheet submission | n/a (supplier-issues invoices) | **agency primary contact** |
+
+- Preview in the UI before send; actual delivery stays in 2.3
+  (Alert Queue delivery adaptors).
+- Acceptance tests: leave template for Delta Capita resolves to
+  Lily primary + Philip / Will / Dan on CC, La Fosse untouched;
+  leave template for La Fosse/Edwin resolves to Aidan only, La
+  Fosse excluded; renewal template on a `direct` client raises a
+  structured `DirectClientHasNoAgencyRenewalFlow` error.
+
+#### 1.2.C Payment matcher — timeline-aware
+
+Make the existing payer-name heuristic contract-aware:
+
+- Match rule extends to `(payer_name heuristic matches) AND
+  (transaction.date ∈ [contract.start_date, contract.end_date])
+  AND (transaction.account.entity_id = contract.issuing_entity_id)`.
+  Extension rows (type `extension`) naturally extend the matching
+  window.
+- A La Fosse payment landing on Barclays in **April 2026 or later**
+  = anomaly → warn "payment from known payer outside any active
+  contract window; expected on FZCO" (once the FZCO cutover
+  contract is added).
+- A La Fosse payment landing on Emirates Islamic before the
+  relevant FZCO contract's `start_date` = anomaly → warn "payment
+  predates contract start".
 - Both are warnings, not hard errors — late payments for prior
   contracts and advance payments for new contracts are legitimate
   and require manual classification.
 
-**Template rendering engine**
+Acceptance test: a Barclays deposit with narrative matching La
+Fosse, dated after `lf-2026-mar.end_date`, emits the anomaly
+warning rather than silently attributing to any contract.
 
-- Markdown files with `{{handlebars}}` interpolation:
-  `{{client.legal_name}}`, `{{end_client.legal_name}}`,
-  `{{contract.start_date}}`, `{{contract.end_date}}`, `{{leave.start}}`,
-  `{{leave.end}}`, `{{leave.days_count}}`, `{{consultant.email}}`.
-- Recipient resolution is a pure function of `(template_kind,
-  client.kind, contact fields)` — see the routing table above.
-- Previewable in the UI before send; delivery itself lives in 2.3
-  (Alert Queue delivery adaptors).
+#### 1.2.D UI — Clients page
 
-**Seed data — 2 client rows + 3 contract rows committed with this feature**
+List view with the `kind` discriminator visible. La Fosse row shows
+the Edwin Group as end client in a nested block. Edit forms honour
+the discriminated union (agency-only fields hidden / validated
+when `kind = direct`).
 
-`clients/clients.csv`
-
-| column | Row 1 — Delta Capita | Row 2 — La Fosse |
-|---|---|---|
-| `id` | `delta-capita` | `la-fosse` |
-| `legal_name` | Delta Capita Ltd | La Fosse Associates Limited |
-| `trading_name` | Delta Capita | La Fosse |
-| `kind` | `direct` | `agency` |
-| `vat_number` | *(TBC)* | 360 0265 37 |
-| `billing_address` | 2nd Floor, 40 Bank Street, Canary Wharf, London, E14 5NR | 1st Floor, 11-19 Artillery Row, London, SW1P 1RT |
-| `primary_contact_name` | Lily Lovegrove-Saville | *(TBC — La Fosse account manager)* |
-| `primary_contact_email` | lily.lovegrove@deltacapita.com | *(TBC)* |
-| `secondary_contact_name` | Philip Coleman | *(TBC)* |
-| `secondary_contact_email` | philip.coleman@deltacapita.com | *(TBC)* |
-| `hr_contact_name` | William Swift | *(n/a)* |
-| `hr_contact_email` | william.swift@deltacapita.com | *(n/a)* |
-| `cc_emails` | hrandrecruitment@deltacapita.com, dan.hedley@deltacapita.com | *(n/a)* |
-| `end_client_legal_name` | *(n/a — direct)* | The Edwin Group Ltd |
-| `end_client_address` | *(n/a)* | First Floor (South), Cathedral Buildings, Dean Street, Newcastle Upon Tyne, NE1 1PG |
-| `end_client_primary_contact_name` | *(n/a)* | Aidan Gray |
-| `end_client_primary_contact_email` | *(n/a)* | *(TBC)* |
-| `holiday_system_url` | *(TBC — whichever DC portal logs contractor leave)* | *(n/a — no external portal; leave routed via email to Aidan Gray)* |
-| `client_assigned_email` | david.morrison@ext.deltacapita.com | *(TBC if one exists for Edwin)* |
-| `leave_template_path` | `clients/templates/delta-capita/leave.md` | `clients/templates/la-fosse/leave.md` |
-| `sickness_template_path` | `clients/templates/delta-capita/sickness.md` | `clients/templates/la-fosse/sickness.md` |
-| `invoice_cover_template_path` | `clients/templates/delta-capita/invoice-cover.md` | *(n/a — self-bill)* |
-| `renewal_template_path` | *(n/a — direct)* | `clients/templates/la-fosse/renewal.md` |
-| `timesheet_template_path` | *(n/a — supplier-issues)* | `clients/templates/la-fosse/timesheet.md` |
-| `active` | `true` | `true` |
-
-`clients/contracts.csv` (three rows)
-
-| column | Row 1 — DC master | Row 2 — DC current SOW | Row 3 — La Fosse current |
-|---|---|---|---|
-| `id` | `dc-master-2025` | `dc-sow-dmorrison02` | `lf-2026-mar` |
-| `client_id` | `delta-capita` | `delta-capita` | `la-fosse` |
-| `issuing_entity_id` | `autonize-it-ltd` | `autonize-it-ltd` | `autonize-it-fzco` |
-| `type` | `master` | `sow` | `renewal` |
-| `reference` | DC-Contractor Contract | DMORRISON02 | La Fosse PSC Candidate Contract (Opt-Out) |
-| `start_date` | 2025-06-23 | 2026-01-01 | 2026-03-02 |
-| `end_date` | *(open — governed by SOWs)* | 2026-04-30 | 2026-04-30 |
-| `extended_hire_end_date` | *(n/a)* | *(n/a)* | 2026-06-30 |
-| `works_monday..friday` | *(n/a — master)* | all `true` | all `true` |
-| `works_saturday/sunday` | *(n/a)* | `false` | `false` |
-| `day_rate` | *(n/a)* | 550.00 | 500.00 |
-| `day_rate_currency` | GBP | GBP | GBP |
-| `invoice_currency` | GBP | GBP | GBP *(deposits AED on Emirates Islamic)* |
-| `invoice_cadence` | *(n/a)* | `monthly` | `weekly` |
-| `invoice_mechanism` | *(n/a)* | `supplier-issued` | `self-bill` |
-| `payment_terms_days` | *(n/a)* | 30 | 30 |
-| `company_notice_weeks` | 4 | 4 | 2 |
-| `supplier_notice_weeks` | 4 | 4 | 2 |
-| `renewal_warning_days` | 30 | 30 | 30 |
-| `job_title` | *(n/a)* | Full Stack Developer | Full Stack Engineer |
-| `work_location` | *(n/a)* | Remote + occasional London | Remote + occasional London / Sheffield / Newcastle |
-| `conduct_regs` | *(n/a)* | opted-in | opted-out |
-| `engagement_tax_status` | *(n/a)* | outside-ir35 | n-a-non-uk-supplier |
-| `jurisdiction` | England | England | England |
-| `signed_at` | 2025-06-23 | 2025-12-22 | 2026-04-02 |
-| `docusign_envelope` | `EE549B3A-2693-487E-89EE-C22C27F43FCC` | `FFD1FFDF-734E-49E5-A762-A7676D39ABF8` | *(n/a — PDF only)* |
-
-Notes on seed data:
-
-- La Fosse's `primary_contact_*` is `TBC` — the user will fill in
-  their account manager's name and email after ship. Until filled,
-  the Warnings Engine (1.8) flags the contract as having unresolved
-  template recipients.
-- Aidan Gray's email at Edwin is `TBC` for the same reason.
-- A historical placeholder row `dc-sow-2025` (`reference =
-  "unattached"`, `start_date = 2025-06-23`, `end_date =
-  2025-12-31`) can be added as a fourth contract row to give
-  invoices DC-001..DC-006 a contract FK to hang off — recommended
-  at ship time; prior SOW document can be attached later.
-- Historical La Fosse renewals (paying into Barclays prior to March
-  2026) are **not** seeded in 1.2. Documented as a Tier 3 data-
-  quality cleanup: when those contracts are located, back-seeding
-  them rebuilds prior-year payment↔contract matching retroactively.
-
-**Acceptance criteria**
-
-- Clients page lists both clients with their `kind` discriminator
-  visible; La Fosse row shows Edwin Group as end client in a nested
-  block.
-- The La Fosse contract end date (2026-04-30) surfaces as a red
-  item on the calendar **on first run of this feature** (currently
-  9 days away). Expected behaviour — documented in release notes
-  so it is not mistaken for a bug.
-- Unit test: leave template for Delta Capita resolves recipients to
-  `lily.lovegrove@deltacapita.com` primary, with Philip + Will + Dan
-  on CC; La Fosse is not referenced.
-- Unit test: leave template for La Fosse/Edwin contract resolves
-  recipients to `end_client_primary_contact_email` (Aidan Gray); La
-  Fosse contacts are excluded entirely.
-- Unit test: renewal template for La Fosse resolves to La Fosse
-  `primary_contact_email`; Edwin is excluded entirely.
-- Unit test: applying a renewal template to a `direct` client row
-  raises a structured error (`DirectClientHasNoAgencyRenewalFlow`);
-  caller is expected to handle.
-- Payment-matcher test: a Barclays deposit of £10k with narrative
-  matching La Fosse, dated 2026-05-15, emits the anomaly warning
-  rather than silently attributing to any contract.
-
-**Non-goals**
+#### Non-goals
 
 - Actual email sending — lives in 2.3 (Alert Queue delivery).
 - External holiday-system integration (e.g. DC's contractor
-  portal) — stays as `holiday_system_url` + a manual-cleared flag on
-  the leave entry.
+  portal) — stays as `holiday_system_url` + a manual-cleared flag
+  on the leave entry.
 - CRM features (activity log, pipeline, notes) — explicitly out of
   scope.
-- Auto-fill of end-client contacts from public company registries —
-  Tier 3.
+- Auto-fill of end-client contacts from public company registries
+  — Tier 3.
+- Historical La Fosse renewals (paying into Barclays prior to
+  March 2026) back-seeded into `clients/contracts.csv` — Tier 3
+  data-quality cleanup. When those contracts are located, back-
+  seeding them rebuilds prior-year payment↔contract matching
+  retroactively; the registry's build-time FK validation makes
+  this a safe drop-in edit.
 
 ### 1.3 Invoicing System
 

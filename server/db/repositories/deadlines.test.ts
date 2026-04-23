@@ -28,6 +28,7 @@ import {
   getAllDeadlines,
   getDeadline,
   updateDeadline,
+  upsertDeadline,
   deleteDeadline,
   markDeadlineDone,
   unmarkDeadlineDone,
@@ -207,6 +208,61 @@ describe('deadlines repository', () => {
       getDeadlinesCsvPath(harness.current!.deadlinesDir),
     );
     expect(csvRow.title).toBe('Direct write');
+  });
+
+  describe('upsertDeadline', () => {
+    it('creates a row when the id is new', () => {
+      const d = upsertDeadline({
+        id: 'cr-alpha',
+        type: 'contract-renewal',
+        title: 'Alpha renewal',
+        dueDate: '2026-05-01',
+        recurrence: 'one-off',
+      });
+      expect(d.id).toBe('cr-alpha');
+      expect(d.completedDate).toBeNull();
+    });
+
+    it('updates in place when the id already exists', () => {
+      upsertDeadline({
+        id: 'cr-beta',
+        type: 'contract-renewal',
+        title: 'Beta renewal',
+        dueDate: '2026-05-01',
+        recurrence: 'one-off',
+      });
+      const updated = upsertDeadline({
+        id: 'cr-beta',
+        type: 'contract-renewal',
+        title: 'Beta renewal (extended)',
+        dueDate: '2026-08-01',
+        recurrence: 'one-off',
+      });
+      expect(updated.title).toBe('Beta renewal (extended)');
+      expect(updated.dueDate).toBe('2026-08-01');
+      expect(getAllDeadlines().filter(d => d.id === 'cr-beta')).toHaveLength(1);
+    });
+
+    it('preserves completedDate on re-upsert (no un-doing)', () => {
+      upsertDeadline({
+        id: 'cr-gamma',
+        type: 'contract-renewal',
+        title: 'Gamma renewal',
+        dueDate: '2026-05-01',
+        recurrence: 'one-off',
+      });
+      markDeadlineDone('cr-gamma', '2026-04-25');
+      const reseed = upsertDeadline({
+        id: 'cr-gamma',
+        type: 'contract-renewal',
+        title: 'Gamma renewal (re-seeded)',
+        dueDate: '2026-06-01',
+        recurrence: 'one-off',
+      });
+      expect(reseed.completedDate).toBe('2026-04-25');
+      expect(reseed.title).toBe('Gamma renewal');
+      expect(reseed.dueDate).toBe('2026-05-01');
+    });
   });
 
   it('getAllDeadlines sorts by due date ascending', () => {

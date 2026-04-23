@@ -1011,6 +1011,7 @@ export const DeadlineTypeSchema = z.enum([
   'driving-license',
   'insurance-cert',
   'tax-filing',
+  'contract-renewal',
   'other',
 ]);
 
@@ -1224,6 +1225,249 @@ export const CompaniesListResponseSchema = z.object({
   companies: z.array(CompanySchema),
 });
 export type CompaniesListResponse = z.infer<typeof CompaniesListResponseSchema>;
+
+// ============================================
+// Clients, Master Agreements, Contracts (§1.2 Phase A)
+// ============================================
+//
+// Three cooperating tables under `clients/`:
+//
+// - `clients.csv`         — who pays / who work happens for (direct | agency)
+// - `master-agreements.csv` — the legal umbrella above SOWs (e.g. the DC
+//                            contractor framework). Minimal columns only.
+// - `contracts.csv`       — time-bounded engagement rows with commercial
+//                            terms (`sow | single | extension`). `renewal`
+//                            is positional — the 2nd+ row in a series for
+//                            the same `(client_id, issuing_entity_id)` is
+//                            the renewal; no dedicated `type`.
+
+export const ClientIdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9][a-z0-9-]*$/);
+export type ClientId = z.infer<typeof ClientIdSchema>;
+
+export const ClientKindSchema = z.enum(['direct', 'agency']);
+export type ClientKind = z.infer<typeof ClientKindSchema>;
+
+/**
+ * Template kinds — canonical list. `resolveTemplatePath()` uses this to
+ * derive the template file path by convention
+ * (`clients/templates/{client_id}/{kind}.md`), eliminating the per-client
+ * template-path columns that appeared in the original §1.2 draft.
+ */
+export const TemplateKindSchema = z.enum([
+  'leave',
+  'sickness',
+  'invoice-cover',
+  'renewal',
+  'timesheet',
+]);
+export type TemplateKind = z.infer<typeof TemplateKindSchema>;
+
+/**
+ * Columns every client row carries regardless of `kind`. Contact fields
+ * at this level are the CLIENT-facing contacts — for agency-kind rows
+ * these are the AGENCY's contacts; the end-client block below carries
+ * the end-client's contacts.
+ */
+const ClientCommonFields = {
+  id: ClientIdSchema,
+  legal_name: z.string().min(1),
+  trading_name: z.string().min(1),
+  vat_number: StringOrTbcSchema.nullable(),
+  billing_address: z.string().min(1),
+  primary_contact_name: StringOrTbcSchema,
+  primary_contact_email: StringOrTbcSchema,
+  secondary_contact_name: StringOrTbcSchema.nullable(),
+  secondary_contact_email: StringOrTbcSchema.nullable(),
+  hr_contact_name: StringOrTbcSchema.nullable(),
+  hr_contact_email: StringOrTbcSchema.nullable(),
+  accounts_contact_name: StringOrTbcSchema.nullable(),
+  accounts_contact_email: StringOrTbcSchema.nullable(),
+  /** Comma-separated catch-all CC list; empty serialises to null. */
+  cc_emails: z.string().nullable(),
+  holiday_system_url: StringOrTbcSchema.nullable(),
+  client_assigned_email: StringOrTbcSchema.nullable(),
+  active: z.boolean(),
+  updated_at: IsoDateSchema.nullable(),
+} as const;
+
+/**
+ * Direct client — no agency in the middle. All `end_client_*` columns
+ * must be `null` on a direct row.
+ */
+export const DirectClientSchema = z.object({
+  ...ClientCommonFields,
+  kind: z.literal('direct'),
+  end_client_legal_name: z.null(),
+  end_client_address: z.null(),
+  end_client_primary_contact_name: z.null(),
+  end_client_primary_contact_email: z.null(),
+  end_client_secondary_contact_name: z.null(),
+  end_client_secondary_contact_email: z.null(),
+});
+export type DirectClient = z.infer<typeof DirectClientSchema>;
+
+/**
+ * Agency client — the payer (and self-bill issuer) is an agency; the
+ * actual end client (where the work is delivered) is captured in the
+ * end-client block. `end_client_legal_name` + `_address` are required;
+ * end-client contacts may start as TBC pending the user filling them in
+ * after ship (Warnings Engine flags unresolved recipients).
+ */
+export const AgencyClientSchema = z.object({
+  ...ClientCommonFields,
+  kind: z.literal('agency'),
+  end_client_legal_name: z.string().min(1),
+  end_client_address: z.string().min(1),
+  end_client_primary_contact_name: StringOrTbcSchema,
+  end_client_primary_contact_email: StringOrTbcSchema,
+  end_client_secondary_contact_name: StringOrTbcSchema.nullable(),
+  end_client_secondary_contact_email: StringOrTbcSchema.nullable(),
+});
+export type AgencyClient = z.infer<typeof AgencyClientSchema>;
+
+/**
+ * Discriminated union over `kind`. Downstream code that branches on
+ * client kind gets narrowed types for free.
+ */
+export const ClientSchema = z.discriminatedUnion('kind', [
+  DirectClientSchema,
+  AgencyClientSchema,
+]);
+export type Client = z.infer<typeof ClientSchema>;
+
+export const ClientsListResponseSchema = z.object({
+  clients: z.array(ClientSchema),
+});
+export type ClientsListResponse = z.infer<typeof ClientsListResponseSchema>;
+
+/**
+ * Master-agreement id — slug shape identical to other registry ids so
+ * they survive URL paths and filenames.
+ */
+export const MasterAgreementIdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9][a-z0-9-]*$/);
+export type MasterAgreementId = z.infer<typeof MasterAgreementIdSchema>;
+
+/**
+ * Legal umbrella above individual SOWs. Intentionally minimal — no
+ * commercial terms, no working-pattern columns, no invoice cadence.
+ * Those live on the contract rows that reference this master by FK.
+ */
+export const MasterAgreementSchema = z.object({
+  id: MasterAgreementIdSchema,
+  client_id: ClientIdSchema,
+  reference: z.string().min(1),
+  start_date: IsoDateSchema,
+  /** `null` = open-ended (master stays in force until terminated). */
+  end_date: IsoDateSchema.nullable(),
+  company_notice_weeks: z.number().int().nonnegative(),
+  supplier_notice_weeks: z.number().int().nonnegative(),
+  /** Governing law as free text (e.g. `England`, `Dubai`). */
+  jurisdiction: z.string().min(1),
+  signed_at: IsoDateSchema,
+  docusign_envelope: z.string().nullable(),
+  active: z.boolean(),
+  updated_at: IsoDateSchema.nullable(),
+});
+export type MasterAgreement = z.infer<typeof MasterAgreementSchema>;
+
+export const ContractIdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9][a-z0-9-]*$/);
+export type ContractId = z.infer<typeof ContractIdSchema>;
+
+export const InvoiceCadenceSchema = z.enum(['weekly', 'monthly']);
+export type InvoiceCadence = z.infer<typeof InvoiceCadenceSchema>;
+
+export const InvoiceMechanismSchema = z.enum(['supplier-issued', 'self-bill']);
+export type InvoiceMechanism = z.infer<typeof InvoiceMechanismSchema>;
+
+export const ConductRegsSchema = z.enum(['opted-in', 'opted-out']);
+export type ConductRegs = z.infer<typeof ConductRegsSchema>;
+
+export const EngagementTaxStatusSchema = z.enum([
+  'outside-ir35',
+  'inside-ir35',
+]);
+export type EngagementTaxStatus = z.infer<typeof EngagementTaxStatusSchema>;
+
+/**
+ * Engagement row with full commercial terms. Joins to `clients` via
+ * `client_id`, to `company` via `issuing_entity_id`, and optionally to
+ * `master-agreements` via `master_id` (nullable — agency engagements
+ * like La Fosse typically have no master above them).
+ *
+ * There is deliberately no `type` column. "Is this under a master?" is
+ * answered by `master_id !== null`; "is this a renewal / extension of
+ * a prior engagement?" is positional (look up prior rows in the
+ * `byClientAndEntity` index). Earlier drafts had a
+ * `sow | single | extension` enum, but each value was either redundant
+ * with `master_id` or derivable from positional ordering — an SOW
+ * issued to follow a prior SOW is also an extension, so the partition
+ * wasn't clean.
+ *
+ * `conduct_regs` + `engagement_tax_status` are nullable rather than
+ * carrying magic `n-a` enum values — they apply to UK engagements only
+ * and must be `null` on non-UK rows (enforced as a registry invariant,
+ * not at the Zod level, to keep this schema orthogonal to jurisdiction).
+ */
+export const ContractSchema = z.object({
+  id: ContractIdSchema,
+  client_id: ClientIdSchema,
+  issuing_entity_id: EntityIdSchema,
+  master_id: MasterAgreementIdSchema.nullable(),
+  /** Human reference from the paperwork (e.g. `DMORRISON02`). */
+  reference: z.string().min(1),
+  start_date: IsoDateSchema,
+  end_date: IsoDateSchema.nullable(),
+  works_monday: z.boolean(),
+  works_tuesday: z.boolean(),
+  works_wednesday: z.boolean(),
+  works_thursday: z.boolean(),
+  works_friday: z.boolean(),
+  works_saturday: z.boolean(),
+  works_sunday: z.boolean(),
+  day_rate: z.number().nonnegative(),
+  day_rate_currency: CurrencyCodeSchema,
+  invoice_currency: CurrencyCodeSchema,
+  invoice_cadence: InvoiceCadenceSchema,
+  invoice_mechanism: InvoiceMechanismSchema,
+  payment_terms_days: z.number().int().nonnegative(),
+  company_notice_weeks: z.number().int().nonnegative(),
+  supplier_notice_weeks: z.number().int().nonnegative(),
+  renewal_warning_days: z.number().int().nonnegative(),
+  job_title: z.string().min(1),
+  job_description: z.string().nullable(),
+  work_location: z.string().min(1),
+  conduct_regs: ConductRegsSchema.nullable(),
+  engagement_tax_status: EngagementTaxStatusSchema.nullable(),
+  /** Governing law as free text (e.g. `England`). */
+  jurisdiction: z.string().min(1),
+  signed_at: IsoDateSchema,
+  docusign_envelope: z.string().nullable(),
+  active: z.boolean(),
+  updated_at: IsoDateSchema.nullable(),
+});
+export type Contract = z.infer<typeof ContractSchema>;
+
+export const ContractsListResponseSchema = z.object({
+  contracts: z.array(ContractSchema),
+});
+export type ContractsListResponse = z.infer<typeof ContractsListResponseSchema>;
+
+export const MasterAgreementsListResponseSchema = z.object({
+  masterAgreements: z.array(MasterAgreementSchema),
+});
+export type MasterAgreementsListResponse = z.infer<typeof MasterAgreementsListResponseSchema>;
 
 // ============================================
 // Warnings — Phase 7 / Roadmap 1.1 Entity Foundation slice

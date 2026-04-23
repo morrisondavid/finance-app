@@ -1,0 +1,2 @@
+id,client_id,reference,start_date,end_date,company_notice_weeks,supplier_notice_weeks,jurisdiction,signed_at,docusign_envelope,active,updated_at
+dc-master-2025,delta-capita,CONTRACTOR-FRAMEWORK-2025,2025-11-03,,1,1,England,2025-11-03,,true,2026-04-21

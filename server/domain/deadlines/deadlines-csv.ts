@@ -42,6 +42,7 @@ const VALID_TYPES = new Set<DeadlineType>([
   'driving-license',
   'insurance-cert',
   'tax-filing',
+  'contract-renewal',
   'other',
 ]);
 

@@ -32,6 +32,7 @@ const NON_REGISTRY_DIRS = new Set<string>([
   '_shared',
   'deadlines',
   'inter-company',
+  'master-agreements',
   'payees',
   'warnings',
 ]);
@@ -88,10 +89,12 @@ describe('canonical registries sweep', () => {
   it('finds every canonical registry manifest currently in the tree', () => {
     const expected = new Set([
       'accounts',
-      'people',
+      'clients',
+      'company',
+      'contracts',
       'merchants',
       'payroll',
-      'company',
+      'people',
       'transaction-overrides',
     ]);
     const found = new Set<string>();

@@ -9,9 +9,11 @@
  *
  * Complete semantics are deliberately simpler than
  * obligation-state.csv: a single nullable `completedDate` column with
- * a tiny pair of routes (`POST /complete`, `DELETE /complete`). There
- * is no auto-seeder writing to deadlines, so we don't need the
- * `source=user`/`source=auto` split that `obligation-state.csv` uses.
+ * a tiny pair of routes (`POST /complete`, `DELETE /complete`). Auto
+ * seeders (currently: contract-renewal) write via {@link upsertDeadline},
+ * which never clobbers a user-set `completedDate`, so we still don't
+ * need the `source=user`/`source=auto` split that
+ * `obligation-state.csv` uses.
  */
 
 import crypto from 'crypto';
@@ -209,6 +211,39 @@ export function createDeadline(input: DeadlineCreateInput): Deadline {
   if (!row) throw new Error('Failed to create deadline');
   exportDeadlinesFromDbToFile();
   return row;
+}
+
+/**
+ * Insert-or-update a deadline by explicit id. Intended for auto-seeders
+ * that can be rerun idempotently (e.g. the contract-renewal seeder) —
+ * the caller owns the id and computes every row from the upstream
+ * source of truth each time.
+ *
+ * Completion state is user-owned: if the caller-computed row has been
+ * marked done (`completedDate !== null` in storage) we DO NOT overwrite
+ * it on subsequent seeds. The seeder's job is to make sure a deadline
+ * exists with the current due date; the user's job is to mark it done
+ * once they've actioned it. Subsequent seeds of the same id after
+ * completion are no-ops.
+ */
+export function upsertDeadline(
+  input: DeadlineCreateInput & { id: string },
+): Deadline {
+  assertValidDeadlineInput(input);
+  const existing = getDeadline(input.id);
+  if (existing === null) {
+    return createDeadline(input);
+  }
+  if (existing.completedDate !== null) return existing;
+
+  return updateDeadline(input.id, {
+    type: input.type,
+    title: input.title,
+    dueDate: input.dueDate,
+    recurrence: input.recurrence,
+    notes: input.notes !== undefined ? input.notes : existing.notes,
+    url: input.url !== undefined ? input.url : existing.url,
+  });
 }
 
 export function updateDeadline(id: string, patch: DeadlineUpdateInput): Deadline {

@@ -38,6 +38,7 @@ import { deriveAndInsertAutoCtObligations } from './repositories/ct-auto-seed.js
 import { deriveAndInsertAutoTtpObligations } from './repositories/hmrc-ttp-auto-seed.js';
 import { deriveAndWriteAutoObligationStates } from './repositories/obligation-state-matcher.js';
 import { loadDeadlinesFromCsv } from './repositories/deadlines.js';
+import { syncContractRenewalDeadlines } from '../domain/contracts/deadline-seeder.js';
 
 // Re-export from connection
 export { 
@@ -195,6 +196,18 @@ export async function initDatabase(): Promise<void> {
 
   migrateDeadlinesIfNeeded();
   loadDeadlinesFromCsv();
+
+  // Contract-renewal deadline seeder — idempotent; see
+  // server/domain/contracts/deadline-seeder.ts for the write semantics
+  // (completed deadlines are never reopened).
+  try {
+    const seeded = syncContractRenewalDeadlines();
+    if (seeded.length > 0) {
+      console.log(`[Database] Seeded ${seeded.length} contract-renewal deadline(s)`);
+    }
+  } catch (err) {
+    console.error('[Database] Contract-renewal deadline seed failed:', err);
+  }
 
   console.log(`[Database] Ready: ${result.files} files, ${result.transactions} transactions (${result.duplicates} duplicates removed, ${transferPairs} transfer pairs detected)`);
 }
