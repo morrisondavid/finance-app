@@ -1576,10 +1576,40 @@ export type TemplatePreviewResponse = z.infer<typeof TemplatePreviewResponseSche
  * cadence or the calendar month for monthly cadence, clipped to the
  * contract's `[start_date, end_date]`.
  */
+/**
+ * Per-contract accrual snapshot.
+ *
+ * Two windows live on this row because they answer different
+ * questions:
+ *
+ *   - `owed_window_start` .. today (inclusive) is the **owed** window.
+ *     It starts the day after the most recent matched invoice payment,
+ *     falling back to the first of the current calendar month when no
+ *     payment has been matched. `worked_days_to_date`,
+ *     `accrued_to_date`, and `leave_days_in_period` are all counted
+ *     across this window. This is the figure the tile surfaces as
+ *     "worked / leave / accrued since last payment" and it is the
+ *     user's mental model for "how much money is coming my way?".
+ *
+ *   - `period_start` .. `period_end` is the **projection** window —
+ *     always the calendar month containing today, clipped to the
+ *     contract's own `[start_date, end_date]`. `worked_days_remaining`
+ *     and `projected_period_total` are computed across this window,
+ *     independently of the owed window. The Retained / VAT / CT
+ *     aggregate banner reads `projected_period_total` and therefore
+ *     keeps its calendar-month semantics.
+ *
+ * `projected_period_total` is NOT `accrued + remaining` any more; the
+ * two windows can straddle multiple months (e.g. the FZCO case where
+ * an invoice has been issued but not yet paid) so summing them would
+ * silently double-count.
+ */
 export const AccrualResponseSchema = z.object({
   contract_id: ContractIdSchema,
   period_start: IsoDateSchema,
   period_end: IsoDateSchema,
+  owed_window_start: IsoDateSchema,
+  owed_window_end: IsoDateSchema,
   worked_days_to_date: z.number().int().nonnegative(),
   accrued_to_date: z.number().nonnegative(),
   worked_days_remaining: z.number().int().nonnegative(),
@@ -1616,10 +1646,38 @@ export type AggregateAccrualEntityRollup = z.infer<
   typeof AggregateAccrualEntityRollupSchema
 >;
 
+/**
+ * Cross-entity monthly totals for the Contracts tab hero tile — the
+ * "how much am I actually keeping this month, across everything" view.
+ *
+ * Populated only when every per-entity rollup shares the same currency
+ * (true today: La Fosse pays the FZCO in GBP under self-bill). When
+ * currencies diverge — e.g. a future AED-invoiced contract — this
+ * field is set to `null` because a meaningful single-currency sum
+ * requires FX conversion, which is deferred to Roadmap 3.2.
+ *
+ * Reconciles by definition:
+ * `incoming_period_total === retained_period + vat_reserve_period + ct_reserve_period`
+ * and each field is the straight sum of the per-entity field it mirrors.
+ */
+export const AggregateAccrualTotalsSchema = z.object({
+  currency: CurrencyCodeSchema,
+  contract_count: z.number().int().nonnegative(),
+  entity_count: z.number().int().nonnegative(),
+  accrued_to_date: z.number().nonnegative(),
+  projected_period_total: z.number().nonnegative(),
+  incoming_period_total: z.number().nonnegative(),
+  vat_reserve_period: z.number().nonnegative(),
+  ct_reserve_period: z.number().nonnegative(),
+  retained_period: z.number().nonnegative(),
+});
+export type AggregateAccrualTotals = z.infer<typeof AggregateAccrualTotalsSchema>;
+
 export const AggregateAccrualResponseSchema = z.object({
   today: IsoDateSchema,
   contracts: z.array(AccrualResponseSchema),
   entities: z.array(AggregateAccrualEntityRollupSchema),
+  totals: AggregateAccrualTotalsSchema.nullable(),
 });
 export type AggregateAccrualResponse = z.infer<typeof AggregateAccrualResponseSchema>;
 

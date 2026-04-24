@@ -3,6 +3,10 @@
  * Initializes all modules and starts the app
  */
 
+// Country flag sprites (ISO 3166-1 alpha-2 codes, e.g. `fi fi-gb`, `fi fi-ae`).
+// Pure CSS, ~130 KB min.css, no JS runtime. Used by the Contracts tab entity
+// rollups to mark jurisdiction at a glance.
+import 'flag-icons/css/flag-icons.min.css';
 import { setState } from './modules/state';
 import { initTabs } from './modules/tabs';
 import { initDashboard, loadDashboard, populateAccountSelectors } from './modules/dashboard';

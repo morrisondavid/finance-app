@@ -1,32 +1,29 @@
 /**
  * Pure per-contract income accrual.
  *
- * "What will this contract invoice for, if the current period ended
- * right now?" — the snapshot the Contracts tab renders.
+ * Two reporting windows live on every response because they answer
+ * different questions — see {@link AccrualResponseSchema} for the
+ * canonical statement of what each field means.
  *
- * The algorithm is a thin composition over Phase 0 primitives:
+ *   - Window A (the "owed" window) starts the day after the most
+ *     recent matched invoice payment and runs up to `today`. When no
+ *     payment has been matched (new contracts, UAE FZCO before the
+ *     first payment lands, etc.) it falls back to the first of the
+ *     current calendar month. This window drives
+ *     `worked_days_to_date`, `accrued_to_date`, and
+ *     `leave_days_in_period`. It is clamped to the contract's own
+ *     `start_date` / `end_date` at both ends.
  *
- *   1. Pick the reporting window: always the calendar month containing
- *      `today`, regardless of `invoice_cadence`. This gives a consistent
- *      "what will I receive this month?" figure on every tile; the
- *      cadence badge on the contract meta row still tells the user
- *      *how* they invoice (weekly self-bill vs monthly supplier-issued).
- *      Clipped to the contract's own `[start_date, end_date]`.
- *   2. Build the weekday mask from the contract's `works_*` flags.
- *   3. Collect leave dates overlapping the period into an
- *      `excludeDates` set — every leave row reduces billable days
- *      (there is no `paid` flag; outside-IR35 contracting has no
- *      paid-leave concept).
- *   4. Count working days from `period_start..today` (`worked_days_to_date`)
- *      and `tomorrow..period_end` (`worked_days_remaining`). Both
- *      counts honour the mask and `excludeDates`.
- *   5. `accrued_to_date = worked_days_to_date * day_rate`.
- *   6. `projected_period_total = (worked_days_to_date + worked_days_remaining) * day_rate`.
+ *   - Window B (the "projection" window) is always the calendar month
+ *     containing `today`, clipped to the contract's
+ *     `[start_date, end_date]`. It drives `worked_days_remaining` and
+ *     `projected_period_total`, and keeps the Retained / VAT / CT
+ *     aggregate banner on calendar-month semantics.
  *
- * The function is total: even pathological inputs (contract entirely
- * outside the billing period, `today` before the contract starts, zero
- * masked days) return a well-formed {@link AccrualResponse} with zeroed
- * counts. No I/O, no registries.
+ * The `lastPaymentDate` input is a simple string passed in by the
+ * route layer — the actual transaction lookup lives in
+ * {@link ../contracts/last-payment.ts} and the DB glue lives in the
+ * route. This function is pure and has no I/O.
  */
 
 import type {
@@ -42,22 +39,21 @@ import {
   contractWeekdayMask,
   countWorkingDays,
 } from '../working-days/index.js';
+import { resolveAccrualWindowStart } from './last-payment.js';
 
 export interface ComputeAccrualInput {
   readonly contract: Contract;
   readonly leaveRows: readonly LeaveRow[];
   /** ISO `YYYY-MM-DD`; pinned by callers so results are deterministic. */
   readonly today: string;
-}
-
-/**
- * Reporting window is always the calendar month containing `today`.
- * The `contract` parameter is retained for forward-compat (future
- * overrides for short SOWs that span < 1 month) but is currently
- * unused — cadence no longer influences the window.
- */
-function pickPeriod(_contract: Contract, today: string): { start: string; end: string } {
-  return monthRange(today);
+  /**
+   * ISO date of the most recent matched invoice payment for this
+   * contract, or `null` when none has been matched. `null` is the
+   * right value for brand-new contracts (including FZCO before the
+   * first payment lands) and causes the owed window to fall back to
+   * the first of the current calendar month.
+   */
+  readonly lastPaymentDate: string | null;
 }
 
 /** Clip `[start, end]` against `[lower, upper?]`. Returns null if empty. */
@@ -72,6 +68,12 @@ function clip(
   return clippedEnd < clippedStart ? null : { start: clippedStart, end: clippedEnd };
 }
 
+/**
+ * Build the set of leave dates relevant to one window. The two windows
+ * (owed / projection) may overlap, may be disjoint, or may coincide —
+ * we filter at the window level so a leave row in one window but not
+ * the other is counted correctly on each axis.
+ */
 function leaveDatesIn(
   leaveRows: readonly LeaveRow[],
   contractId: string,
@@ -88,77 +90,125 @@ function leaveDatesIn(
 }
 
 export function computeAccrual(input: ComputeAccrualInput): AccrualResponse {
-  const { contract, leaveRows, today } = input;
-
-  const rawPeriod = pickPeriod(contract, today);
-  const clipped = clip(
-    rawPeriod.start,
-    rawPeriod.end,
-    contract.start_date,
-    contract.end_date,
-  );
+  const { contract, leaveRows, today, lastPaymentDate } = input;
 
   const mask = contractWeekdayMask(contract);
   const day_rate = contract.day_rate;
   const currency = contract.invoice_currency;
 
-  if (clipped === null) {
-    return {
-      contract_id: contract.id,
-      period_start: rawPeriod.start,
-      period_end: rawPeriod.end,
-      worked_days_to_date: 0,
-      accrued_to_date: 0,
-      worked_days_remaining: 0,
-      projected_period_total: 0,
-      leave_days_in_period: 0,
-      day_rate,
-      currency,
-    };
-  }
-
-  const period_start = clipped.start;
-  const period_end = clipped.end;
-
-  const excludeDates = leaveDatesIn(
-    leaveRows,
-    contract.id,
-    period_start,
-    period_end,
+  // Window B — projection, always the calendar month containing
+  // `today`, clipped to the contract. Drives `projected_period_total`
+  // and the aggregate banner.
+  const rawProjection = monthRange(today);
+  const clippedProjection = clip(
+    rawProjection.start,
+    rawProjection.end,
+    contract.start_date,
+    contract.end_date,
   );
-  const leave_days_in_period = excludeDates.size;
 
-  const toDateEnd = today < period_start ? null : today > period_end ? period_end : today;
-  const worked_days_to_date =
-    toDateEnd === null
-      ? 0
-      : countWorkingDays({
-          start: period_start,
-          end: toDateEnd,
-          mask,
-          excludeDates,
-        });
+  // Window A — owed since last payment. Start defers to
+  // `resolveAccrualWindowStart` so the fallback policy (month-start on
+  // null payment, clamp to contract.start_date) is authored once and
+  // re-used by other consumers.
+  const owedStart = resolveAccrualWindowStart({
+    contract,
+    lastPaymentDate,
+    today,
+  });
+  // Upper bound: today, clipped to contract end when the contract has
+  // already ended. A contract that ended before today owes nothing
+  // past its end date.
+  const contractEndCap = contract.end_date ?? today;
+  const owedEndRaw = today < contractEndCap ? today : contractEndCap;
+  // Sentinel for a degenerate window (start > end): owedStart ahead of
+  // both today and contract end. When owedStart > owedEndRaw we simply
+  // report zeros for the owed axis — this happens when a payment was
+  // logged today (or the clamp to contract.start_date moves the
+  // window past `today`).
+  const owedValid = owedStart <= owedEndRaw;
 
-  const tomorrow = shiftIsoDate(today, 1);
-  const remainingStart = tomorrow < period_start ? period_start : tomorrow;
-  const worked_days_remaining =
-    remainingStart > period_end
+  // Projection accumulators. Zero when the projection window is empty.
+  let period_start: string;
+  let period_end: string;
+  let worked_days_remaining: number;
+  let projected_period_total: number;
+  if (clippedProjection === null) {
+    period_start = rawProjection.start;
+    period_end = rawProjection.end;
+    worked_days_remaining = 0;
+    projected_period_total = 0;
+  } else {
+    period_start = clippedProjection.start;
+    period_end = clippedProjection.end;
+    // Leave in the projection window feeds `projected_period_total` via
+    // excludeDates (the whole month's working days minus booked leave
+    // × day_rate is "what you'll invoice this month").
+    const projectionLeaveDates = leaveDatesIn(
+      leaveRows,
+      contract.id,
+      period_start,
+      period_end,
+    );
+    const projectedWorkingDays = countWorkingDays({
+      start: period_start,
+      end: period_end,
+      mask,
+      excludeDates: projectionLeaveDates,
+    });
+    projected_period_total = projectedWorkingDays * day_rate;
+    // `worked_days_remaining` is the forward-looking subset: tomorrow
+    // through projection end. Used by the per-contract endpoint only;
+    // no aggregate banner consumer today.
+    const tomorrow = shiftIsoDate(today, 1);
+    const remainingStart = tomorrow < period_start ? period_start : tomorrow;
+    worked_days_remaining = remainingStart > period_end
       ? 0
       : countWorkingDays({
           start: remainingStart,
           end: period_end,
           mask,
-          excludeDates,
+          excludeDates: projectionLeaveDates,
         });
+  }
 
-  const accrued_to_date = worked_days_to_date * day_rate;
-  const projected_period_total =
-    (worked_days_to_date + worked_days_remaining) * day_rate;
+  // Owed window accumulators. Independent of the projection window.
+  let owed_window_start: string;
+  let owed_window_end: string;
+  let worked_days_to_date: number;
+  let accrued_to_date: number;
+  let leave_days_in_period: number;
+  if (!owedValid) {
+    owed_window_start = owedStart;
+    owed_window_end = owedStart;
+    worked_days_to_date = 0;
+    accrued_to_date = 0;
+    leave_days_in_period = 0;
+  } else {
+    owed_window_start = owedStart;
+    owed_window_end = owedEndRaw;
+    const owedLeaveDates = leaveDatesIn(
+      leaveRows,
+      contract.id,
+      owed_window_start,
+      owed_window_end,
+    );
+    leave_days_in_period = owedLeaveDates.size;
+    worked_days_to_date = countWorkingDays({
+      start: owed_window_start,
+      end: owed_window_end,
+      mask,
+      excludeDates: owedLeaveDates,
+    });
+    accrued_to_date = worked_days_to_date * day_rate;
+  }
 
   return {
     contract_id: contract.id,
     period_start,
     period_end,
+    owed_window_start,
+    owed_window_end,
     worked_days_to_date,
     accrued_to_date,
     worked_days_remaining,

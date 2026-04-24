@@ -38,6 +38,32 @@ import {
   setLeaveWorkingDaysDirForTests,
 } from '../domain/leave/index.js';
 import { invalidateContractRegistry } from '../domain/contracts/registry.js';
+import type { ContractId } from '../../shared/api-contracts.js';
+
+// The real resolver reads from the SQLite `transactions` table, which
+// isn't initialised by this test file (it only exercises the CSV-backed
+// registries). Mock the module so every test runs against a caller-
+// controlled `Map<ContractId, string | null>` instead of the DB.
+//
+// `lastPaymentOverrides` is the shared state the tests mutate: default
+// is an empty map (no matched payments → owed window falls back to
+// month-start, which is equivalent to the pre-shipment behaviour). The
+// new "matched income" tests at the bottom populate it before exercising
+// the endpoint.
+const lastPaymentOverrides = new Map<ContractId, string | null>();
+vi.mock('../domain/contracts/last-payment-resolver.js', () => ({
+  resolveLastPaymentsForContracts: ({
+    contracts,
+  }: {
+    contracts: ReadonlyArray<{ id: ContractId }>;
+  }): Map<ContractId, string | null> => {
+    const out = new Map<ContractId, string | null>();
+    for (const c of contracts) {
+      out.set(c.id, lastPaymentOverrides.get(c.id) ?? null);
+    }
+    return out;
+  },
+}));
 
 function mkTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'contracts-routes-'));
@@ -112,6 +138,7 @@ describe('/api/contracts routes', () => {
   beforeEach(() => {
     writeEmptyLeaveCsv(tmpDir);
     invalidateLeaveRegistry();
+    lastPaymentOverrides.clear();
   });
 
   describe('GET /api/contracts', () => {
@@ -244,6 +271,62 @@ describe('/api/contracts routes', () => {
       if (!fzco) throw new Error('fzco rollup missing');
       expect(fzco.vat_reserve_period).toBe(0);
       expect(fzco.incoming_period_total).toBeCloseTo(fzco.projected_period_total, 6);
+    });
+
+    it('returns a combined totals block that reconciles with the entity rollups', async () => {
+      const response = await fetch(`${baseUrl}/api/contracts/income-accrual`);
+      const body = await response.json() as {
+        entities: Array<{
+          currency: string;
+          contract_count: number;
+          accrued_to_date: number;
+          projected_period_total: number;
+          incoming_period_total: number;
+          vat_reserve_period: number;
+          ct_reserve_period: number;
+          retained_period: number;
+        }>;
+        totals: {
+          currency: string;
+          contract_count: number;
+          entity_count: number;
+          accrued_to_date: number;
+          projected_period_total: number;
+          incoming_period_total: number;
+          vat_reserve_period: number;
+          ct_reserve_period: number;
+          retained_period: number;
+        } | null;
+      };
+      expect(body.totals).not.toBeNull();
+      if (body.totals === null) throw new Error('totals missing');
+
+      const sumOf = (key: keyof typeof body.entities[number]) =>
+        body.entities.reduce((acc, e) => acc + (e[key] as number), 0);
+
+      expect(body.totals.entity_count).toBe(body.entities.length);
+      expect(body.totals.contract_count).toBe(
+        body.entities.reduce((acc, e) => acc + e.contract_count, 0),
+      );
+      expect(body.totals.accrued_to_date).toBeCloseTo(sumOf('accrued_to_date'), 6);
+      expect(body.totals.projected_period_total).toBeCloseTo(
+        sumOf('projected_period_total'),
+        6,
+      );
+      expect(body.totals.incoming_period_total).toBeCloseTo(
+        sumOf('incoming_period_total'),
+        6,
+      );
+      expect(body.totals.vat_reserve_period).toBeCloseTo(sumOf('vat_reserve_period'), 6);
+      expect(body.totals.ct_reserve_period).toBeCloseTo(sumOf('ct_reserve_period'), 6);
+      expect(body.totals.retained_period).toBeCloseTo(sumOf('retained_period'), 6);
+
+      // Self-reconciliation: incoming == retained + VAT + CT
+      expect(
+        body.totals.retained_period +
+          body.totals.vat_reserve_period +
+          body.totals.ct_reserve_period,
+      ).toBeCloseTo(body.totals.incoming_period_total, 6);
     });
   });
 
@@ -485,6 +568,107 @@ describe('/api/contracts routes', () => {
         },
       );
       expect(response.status).toBe(404);
+    });
+  });
+
+  describe('GET /api/contracts/:id/income-accrual — since-last-payment semantics', () => {
+    it('rebases worked/accrued onto the day AFTER the matched invoice payment', async () => {
+      // PINNED_TODAY = 2026-04-06 (Mon). Last payment = 2026-03-31 (Tue).
+      // Owed window = [2026-04-01, 2026-04-06] = Wed 1, Thu 2, Fri 3,
+      // Mon 6 = 4 working days at £550 = £2,200. Projection window
+      // stays the full April (22 days × £550 = £12,100).
+      lastPaymentOverrides.set('dc-sow-2026', '2026-03-31');
+      const response = await fetch(
+        `${baseUrl}/api/contracts/dc-sow-2026/income-accrual`,
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.owed_window_start).toBe('2026-04-01');
+      expect(body.owed_window_end).toBe('2026-04-06');
+      expect(body.worked_days_to_date).toBe(4);
+      expect(body.accrued_to_date).toBe(4 * 550);
+      expect(body.projected_period_total).toBe(22 * 550);
+    });
+
+    it('falls back to month-start when no payment is matched (FZCO-shaped)', async () => {
+      // No override seeded → mock returns null → resolveAccrualWindowStart
+      // falls back to month-start. lf-2026-apr starts 2026-03-02 and
+      // PINNED_TODAY = 2026-04-06, so owed window = [2026-04-01, 2026-04-06].
+      const response = await fetch(
+        `${baseUrl}/api/contracts/lf-2026-apr/income-accrual`,
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.owed_window_start).toBe('2026-04-01');
+      expect(body.owed_window_end).toBe('2026-04-06');
+      // period_start (projection) should coincide with owed_window_start
+      // when no payment is matched, because both resolve to month-start.
+      expect(body.period_start).toBe(body.owed_window_start);
+    });
+  });
+
+  describe('GET /api/contracts/income-accrual — aggregate preserves totals with mixed payment states', () => {
+    it('per-entity retained/VAT/CT totals are invariant to last-payment matching', async () => {
+      // Without any overrides, owed falls back to month-start.
+      const before = await (
+        await fetch(`${baseUrl}/api/contracts/income-accrual`)
+      ).json() as {
+        entities: Array<{
+          issuing_entity_id: string;
+          projected_period_total: number;
+          retained_period: number;
+          vat_reserve_period: number;
+          ct_reserve_period: number;
+          incoming_period_total: number;
+        }>;
+      };
+
+      // Now seed a matched payment for DC only. Accrued should drop,
+      // but projection (and therefore every Retained/VAT/CT figure) must
+      // stay identical — those read off projection, not owed.
+      lastPaymentOverrides.set('dc-sow-2026', '2026-04-03');
+      const after = await (
+        await fetch(`${baseUrl}/api/contracts/income-accrual`)
+      ).json() as typeof before;
+
+      for (const entityId of ['autonize-it-ltd', 'autonize-it-fzco']) {
+        const b = before.entities.find(e => e.issuing_entity_id === entityId);
+        const a = after.entities.find(e => e.issuing_entity_id === entityId);
+        expect(b).toBeDefined();
+        expect(a).toBeDefined();
+        if (b === undefined || a === undefined) throw new Error('entity missing');
+        expect(a.projected_period_total).toBeCloseTo(b.projected_period_total, 6);
+        expect(a.retained_period).toBeCloseTo(b.retained_period, 6);
+        expect(a.vat_reserve_period).toBeCloseTo(b.vat_reserve_period, 6);
+        expect(a.ct_reserve_period).toBeCloseTo(b.ct_reserve_period, 6);
+        expect(a.incoming_period_total).toBeCloseTo(b.incoming_period_total, 6);
+      }
+    });
+
+    it('per-contract accrued reflects the seeded matched payment on DC only', async () => {
+      lastPaymentOverrides.set('dc-sow-2026', '2026-04-03');
+      const body = await (
+        await fetch(`${baseUrl}/api/contracts/income-accrual`)
+      ).json() as {
+        contracts: Array<{
+          contract_id: string;
+          owed_window_start: string;
+          accrued_to_date: number;
+          day_rate: number;
+        }>;
+      };
+      const dc = body.contracts.find(c => c.contract_id === 'dc-sow-2026');
+      const fzco = body.contracts.find(c => c.contract_id === 'lf-2026-apr');
+      expect(dc).toBeDefined();
+      expect(fzco).toBeDefined();
+      if (dc === undefined || fzco === undefined) throw new Error('contract missing');
+      // DC owed window starts the day after 2026-04-03, i.e. 2026-04-04.
+      expect(dc.owed_window_start).toBe('2026-04-04');
+      // 2026-04-04 = Sat, 2026-04-05 = Sun, 2026-04-06 = Mon (today) →
+      // 1 working day at £550.
+      expect(dc.accrued_to_date).toBe(1 * 550);
+      // FZCO has no override → month-start fallback, unchanged.
+      expect(fzco.owed_window_start).toBe('2026-04-01');
     });
   });
 

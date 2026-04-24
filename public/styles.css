@@ -4447,7 +4447,35 @@ body {
   margin-bottom: 24px;
 }
 
+/*
+ * Section divider between the aggregate rollup tiles (company / after-tax
+ * hero) and the individual contract tiles. Keeps the eye from conflating
+ * "company-level monthly totals" with "one engagement" — they answer
+ * different questions and should read as different sections.
+ */
+.contracts-section-divider {
+  border-top: 1px solid var(--color-border);
+  padding-top: 16px;
+  margin: 8px 0 16px;
+}
+
+.contracts-section-heading {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--color-text-muted);
+}
+
+.contracts-section-sub {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
 .contracts-aggregate-tile {
+  position: relative;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -4456,6 +4484,135 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/*
+ * Country-flag badge (ISO 3166-1 alpha-2 sprite from `flag-icons`) in
+ * the top-right of each entity rollup tile. Marks jurisdiction at a
+ * glance — the user was having to read the subtitle to remember which
+ * tile was UK vs UAE.
+ *
+ * 4:3 sprite. Slight border + subtle shadow so it reads as a badge
+ * rather than a raw image, and so it pops against either the default
+ * white tile or the pinked "ended contracts" tone.
+ */
+/*
+ * Selector is intentionally chained (`.fi.contracts-aggregate-tile__flag`)
+ * so it beats the `flag-icons` package's default `.fi { position: relative }`
+ * on specificity. `flag-icons` CSS is imported from main.ts and can end
+ * up cascading *after* styles.css, which would otherwise revert the
+ * position to `relative` and flatten the badge into the heading.
+ */
+.fi.contracts-aggregate-tile__flag {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 22px;
+  height: 16px;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  background-size: cover;
+}
+
+/*
+ * Hero "retained this month across everything" tile. Spans the full
+ * grid width and elevates visual weight so the user's headline
+ * mental-model number sits above the per-entity breakdown.
+ *
+ * Base styling is the neutral / pre-verdict blue. The `--positive`
+ * and `--negative` modifiers override border/background/accent colours
+ * to deliver the "does retained income cover fixed monthly expenses?"
+ * dopamine cue (green = yes, red = no).
+ */
+.contracts-aggregate-tile--combined {
+  grid-column: 1 / -1;
+  background: linear-gradient(
+    180deg,
+    rgba(37, 99, 235, 0.06) 0%,
+    var(--color-surface) 65%
+  );
+  border-color: rgba(37, 99, 235, 0.35);
+  box-shadow: 0 2px 12px rgba(37, 99, 235, 0.08);
+  padding: 20px 22px;
+}
+
+/* Dopamine-hit state — retained income clears the fixed monthly bills. */
+.contracts-aggregate-tile--combined.contracts-aggregate-tile--positive {
+  background: linear-gradient(
+    180deg,
+    rgba(22, 163, 74, 0.10) 0%,
+    var(--color-surface) 65%
+  );
+  border-color: rgba(22, 163, 74, 0.45);
+  box-shadow: 0 2px 16px rgba(22, 163, 74, 0.12);
+}
+.contracts-aggregate-tile--combined.contracts-aggregate-tile--positive
+  .contracts-aggregate-tile__retained-amount {
+  color: #15803d;
+}
+
+/* Warning state — retained income falls short of fixed monthly bills. */
+.contracts-aggregate-tile--combined.contracts-aggregate-tile--negative {
+  background: linear-gradient(
+    180deg,
+    rgba(220, 38, 38, 0.10) 0%,
+    var(--color-surface) 65%
+  );
+  border-color: rgba(220, 38, 38, 0.45);
+  box-shadow: 0 2px 16px rgba(220, 38, 38, 0.12);
+}
+.contracts-aggregate-tile--combined.contracts-aggregate-tile--negative
+  .contracts-aggregate-tile__retained-amount {
+  color: #b91c1c;
+}
+
+/*
+ * Verdict line — "covers £X of bills, £Y left over" (green) or "£Y
+ * short" (red). Sits directly under the hero retained figure so the
+ * user's eye reads number-then-verdict in one sweep.
+ */
+.contracts-aggregate-tile__verdict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  padding: 8px 12px;
+  border-radius: 8px;
+  line-height: 1.35;
+}
+.contracts-aggregate-tile__verdict strong {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.contracts-aggregate-tile__verdict-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.contracts-aggregate-tile--positive .contracts-aggregate-tile__verdict {
+  background: rgba(22, 163, 74, 0.12);
+  color: #166534;
+}
+.contracts-aggregate-tile--positive .contracts-aggregate-tile__verdict-icon {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.contracts-aggregate-tile--negative .contracts-aggregate-tile__verdict {
+  background: rgba(220, 38, 38, 0.12);
+  color: #991b1b;
+}
+.contracts-aggregate-tile--negative .contracts-aggregate-tile__verdict-icon {
+  background: #dc2626;
+  color: #ffffff;
 }
 
 /* Legacy label/value — kept for any callers that haven't migrated. */
@@ -4485,6 +4642,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  /* Reserve space so the trading name never runs under the flag badge. */
+  padding-right: 32px;
 }
 
 .contracts-aggregate-tile__trading-name {
@@ -4520,10 +4679,19 @@ body {
   color: var(--color-text);
 }
 
-.contracts-aggregate-tile__claim--none {
-  display: block;
-  grid-template-columns: none;
-  font-style: italic;
+/*
+ * Placeholder rows (e.g. VAT when not registered, CT when QFZP
+ * qualifying) stay in the grid so the Incoming row aligns vertically
+ * across every tile. The amount column shows a muted em-dash and the
+ * label is dimmed to communicate "not applicable" rather than zero.
+ */
+.contracts-aggregate-tile__claim--placeholder {
+  opacity: 0.55;
+}
+
+.contracts-aggregate-tile__claim--placeholder .contracts-aggregate-tile__claim-amount {
+  font-weight: 400;
+  color: var(--color-text-muted);
 }
 
 .contracts-aggregate-tile__claim-label {
@@ -4576,6 +4744,21 @@ body {
 .contracts-aggregate-tile__retained-note {
   font-size: 0.75rem;
   color: var(--color-text-muted);
+}
+
+/*
+ * Hero variant of the retained block, used inside the combined tile.
+ * The retained number sits *above* the stacked claims in the hero
+ * layout (label-less, visually dominant), whereas per-entity tiles
+ * keep it below with a "Retained" label.
+ */
+.contracts-aggregate-tile__retained--hero .contracts-aggregate-tile__retained-amount {
+  font-size: 2.5rem;
+  letter-spacing: -0.5px;
+}
+
+.contracts-aggregate-tile__retained--hero .contracts-aggregate-tile__retained-note {
+  font-size: 0.8rem;
 }
 
 .contracts-empty {

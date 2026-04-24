@@ -24,7 +24,9 @@ import type {
   Client,
   Company,
   Contract,
+  CurrencyCode,
   EntityId,
+  ExpensesSheetResponse,
   LeaveRequest,
   LeaveRow,
   LeaveType,
@@ -33,6 +35,7 @@ import type {
 } from '../../../shared/api-contracts.js';
 
 const LIST_ID = 'contracts-list';
+const LIST_DIVIDER_ID = 'contracts-list-divider';
 const BANNER_ID = 'contracts-aggregate-banner';
 const MODAL_ID = 'contracts-leave-modal';
 const SCOPE_ID = 'contracts-leave-scope';
@@ -62,6 +65,17 @@ let perContract: Map<string, AccrualResponse> = new Map();
 let openDrawerIds: Set<string> = new Set();
 let leaveByContract: Map<string, LeaveRow[]> = new Map();
 let previewDebounce: ReturnType<typeof setTimeout> | null = null;
+/**
+ * Total fixed monthly outgoings across every account — the same headline
+ * number the Fixed Expenses tab shows under "spend". Sourced from
+ * `/api/expenses/overview` (`summary.totalMonthlyOutgoings`, which is
+ * defined as identical to `insight.totalFixedMonthlyExpenses` in
+ * `shared/expenses-insight.ts`). Used by the combined hero tile as the
+ * threshold for the "does retained income cover the bills?" visual cue.
+ * `null` when the fetch failed or hasn't run — the hero tile falls back
+ * to the neutral blue style when the threshold is unknown.
+ */
+let fixedMonthlyExpenses: number | null = null;
 
 function getEl(id: string): HTMLElement | null {
   return document.getElementById(id);
@@ -102,6 +116,26 @@ function clientKindLabel(contract: Contract): string {
 function contractDateRange(contract: Contract): string {
   const end = contract.end_date === null ? 'open-ended' : formatIsoDateUkLong(contract.end_date);
   return `${formatIsoDateUkLong(contract.start_date)} → ${end}`;
+}
+
+/**
+ * Hover text for the "Worked / Leave since last payment" stats.
+ *
+ * Renders the owed window as a human-readable date range so the user
+ * can see exactly what days feed the figure without having to mentally
+ * reconstruct "since last payment". When owed_window_start coincides
+ * with period_start, we're in the fallback case (no matched payment
+ * yet) — call that out explicitly so the user knows the number isn't
+ * anchored to a specific invoice.
+ */
+function owedWindowTooltip(accrual: AccrualResponse): string {
+  const start = formatIsoDateUkLong(accrual.owed_window_start);
+  const end = formatIsoDateUkLong(accrual.owed_window_end);
+  const anchoredToMonthStart = accrual.owed_window_start === accrual.period_start;
+  const suffix = anchoredToMonthStart
+    ? ' (no matched payment — counting from the start of this month)'
+    : '';
+  return `${start} – ${end}${suffix}`;
 }
 
 /** A contract is "ended" once its end_date is strictly before today. */
@@ -192,6 +226,44 @@ async function deleteJson(url: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
+ * Map `Company.jurisdiction` onto an ISO 3166-1 alpha-2 country code
+ * suitable for the `flag-icons` CSS sprite (`fi-<code>`). Centralised
+ * so adding a new jurisdiction is a one-file change and the compiler
+ * flags any missed mapping.
+ *
+ * Returns `null` when the jurisdiction isn't something we have a flag
+ * for, so the caller can omit the flag cleanly rather than render a
+ * broken "missing sprite" box.
+ */
+function jurisdictionFlagCode(jurisdiction: Company['jurisdiction']): string | null {
+  switch (jurisdiction) {
+    case 'UK':
+      return 'gb';
+    case 'UAE':
+      return 'ae';
+    default:
+      return null;
+  }
+}
+
+/**
+ * Small flag badge rendered in the top-right of each entity rollup
+ * tile. Pure CSS sprite from the `flag-icons` package — no <img>, no
+ * JS runtime. `aria-label` keeps it announced for screen readers; the
+ * sprite itself is decorative.
+ */
+function jurisdictionFlagHtml(company: Company): string {
+  const code = jurisdictionFlagCode(company.jurisdiction);
+  if (code === null) return '';
+  return `<span
+    class="fi fi-${code} contracts-aggregate-tile__flag"
+    role="img"
+    aria-label="${escapeHtml(company.jurisdiction)} jurisdiction"
+    title="${escapeHtml(company.jurisdiction)}"
+  ></span>`;
+}
+
+/**
  * Jurisdiction label for the aggregate tile subtitle. Short, matches
  * the `UK · Ltd` / `UAE · FZCO` mental model the user carries.
  */
@@ -214,6 +286,216 @@ function entityHeadline(entityId: EntityId, company: Company | undefined): strin
   return company ? company.trading_name : entityId;
 }
 
+/**
+ * One row of the stacked "claims" list (Incoming / VAT / CT). Centralised
+ * so the combined hero tile and each per-entity tile share the exact
+ * same markup — which is what guarantees the "Incoming" row lines up
+ * vertically across every tile in the grid.
+ *
+ * `amount` is already formatted (so callers can choose whether to
+ * prefix with "−"); `placeholder = true` hides the amount and renders
+ * a muted em-dash in the slot, preserving height without implying a
+ * real zero.
+ */
+function claimRowHtml(args: {
+  modifier: 'incoming' | 'vat' | 'ct';
+  label: string;
+  amount: string;
+  note: string;
+  placeholder?: boolean;
+}): string {
+  const { modifier, label, amount, note, placeholder = false } = args;
+  const classes = [
+    'contracts-aggregate-tile__claim',
+    `contracts-aggregate-tile__claim--${modifier}`,
+    placeholder ? 'contracts-aggregate-tile__claim--placeholder' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return `<div class="${classes}">
+    <span class="contracts-aggregate-tile__claim-label">${escapeHtml(label)}</span>
+    <span class="contracts-aggregate-tile__claim-amount">${placeholder ? '—' : amount}</span>
+    <span class="contracts-aggregate-tile__claim-note">${escapeHtml(note)}</span>
+  </div>`;
+}
+
+/**
+ * Three fixed slots — Incoming, VAT, CT — so every tile has the same
+ * number of rows and the Incoming line sits at the same offset
+ * regardless of whether VAT/CT apply.
+ */
+function claimsBlockHtml(entry: {
+  currency: CurrencyCode;
+  projected_period_total: number;
+  incoming_period_total: number;
+  vat_reserve_period: number;
+  ct_reserve_period: number;
+}): string {
+  const ctPercent = Math.round(
+    (entry.ct_reserve_period / Math.max(entry.projected_period_total, 1e-9)) * 100,
+  );
+  const rows = [
+    claimRowHtml({
+      modifier: 'incoming',
+      label: 'Incoming',
+      amount: formatCurrency(entry.incoming_period_total, entry.currency),
+      note: 'hits the account',
+    }),
+    entry.vat_reserve_period > 0
+      ? claimRowHtml({
+          modifier: 'vat',
+          label: 'VAT',
+          amount: `−${formatCurrency(entry.vat_reserve_period, entry.currency)}`,
+          note: 'to HMRC',
+        })
+      : claimRowHtml({
+          modifier: 'vat',
+          label: 'VAT',
+          amount: '',
+          note: 'not registered',
+          placeholder: true,
+        }),
+    entry.ct_reserve_period > 0
+      ? claimRowHtml({
+          modifier: 'ct',
+          label: 'CT reserve',
+          amount: `−${formatCurrency(entry.ct_reserve_period, entry.currency)}`,
+          note: `(${ctPercent}%)`,
+        })
+      : claimRowHtml({
+          modifier: 'ct',
+          label: 'CT reserve',
+          amount: '',
+          note: 'QFZP qualifying',
+          placeholder: true,
+        }),
+  ];
+  return `<div class="contracts-aggregate-tile__claims">${rows.join('')}</div>`;
+}
+
+/**
+ * Compose the "covers / short of fixed expenses" verdict line for the
+ * combined hero tile. Returns the HTML snippet plus a modifier class
+ * so the tile can restyle itself green (surplus) or red (shortfall).
+ *
+ * - `retained >= expenses` → `--positive` ("covers £X of fixed expenses,
+ *   £Y left over").
+ * - `retained <  expenses` → `--negative` ("£Y short of covering £X
+ *   fixed expenses this month").
+ * - `expenses === null`    → `--neutral` (fetch failed; no verdict —
+ *   we stay silent rather than guess).
+ *
+ * The threshold deliberately ignores fixed *income* per the user's
+ * mental model: "if retained contracting income alone clears the
+ * monthly bills, that's a dopamine hit". Passive / salary / rental
+ * income on top is a bonus, not what gates the green state.
+ */
+function retainedVerdict(
+  retained: number,
+  currency: CurrencyCode,
+  expenses: number | null,
+): { modifier: 'positive' | 'negative' | 'neutral'; html: string } {
+  if (expenses === null) {
+    return { modifier: 'neutral', html: '' };
+  }
+  const expensesLabel = formatCurrency(expenses, currency);
+  if (retained >= expenses) {
+    const surplus = formatCurrency(retained - expenses, currency);
+    return {
+      modifier: 'positive',
+      html: `<div class="contracts-aggregate-tile__verdict">
+        <span class="contracts-aggregate-tile__verdict-icon" aria-hidden="true">✓</span>
+        Covers ${expensesLabel} of fixed monthly expenses —
+        <strong>${surplus}</strong> left over.
+      </div>`,
+    };
+  }
+  const shortfall = formatCurrency(expenses - retained, currency);
+  return {
+    modifier: 'negative',
+    html: `<div class="contracts-aggregate-tile__verdict">
+      <span class="contracts-aggregate-tile__verdict-icon" aria-hidden="true">!</span>
+      <strong>${shortfall}</strong> short of covering ${expensesLabel} fixed
+      monthly expenses this month.
+    </div>`,
+  };
+}
+
+/**
+ * Hero tile — the headline "retained across everything this month"
+ * number. Spans the full grid width. Only emitted when `totals` is
+ * non-null (i.e. every entity shares a currency; FX conversion for
+ * mixed-currency totals is deferred to Roadmap 3.2).
+ *
+ * When `fixedMonthlyExpenses` is known, the tile flips between a
+ * green "covers your bills" state and a red "short of your bills"
+ * state — the dopamine hit / warning the user asked for.
+ */
+function combinedTileHtml(
+  totals: NonNullable<AggregateAccrualResponse['totals']>,
+  expenses: number | null,
+): string {
+  const retained = formatCurrency(totals.retained_period, totals.currency);
+  const accrued = formatCurrency(totals.accrued_to_date, totals.currency);
+  const entityNoun = totals.entity_count === 1 ? 'entity' : 'entities';
+  const contractNoun = totals.contract_count === 1 ? 'contract' : 'contracts';
+  const verdict = retainedVerdict(totals.retained_period, totals.currency, expenses);
+  const classes = [
+    'contracts-aggregate-tile',
+    'contracts-aggregate-tile--combined',
+    `contracts-aggregate-tile--${verdict.modifier}`,
+  ].join(' ');
+  return `<div class="${classes}">
+    <div class="contracts-aggregate-tile__head">
+      <div class="contracts-aggregate-tile__trading-name">This month, retained after tax</div>
+      <div class="contracts-aggregate-tile__subtitle">
+        across ${totals.entity_count} ${entityNoun} · ${totals.contract_count} ${contractNoun}
+      </div>
+    </div>
+    <div class="contracts-aggregate-tile__retained contracts-aggregate-tile__retained--hero">
+      <div class="contracts-aggregate-tile__retained-amount">${retained}</div>
+      <div class="contracts-aggregate-tile__retained-note">
+        Yours to keep — VAT and CT reserved separately.
+      </div>
+    </div>
+    ${verdict.html}
+    <div class="contracts-aggregate-tile__divider"></div>
+    ${claimsBlockHtml(totals)}
+    <div class="contracts-aggregate-tile__sub">accrued ${accrued}</div>
+  </div>`;
+}
+
+function entityTileHtml(entry: AggregateAccrualResponse['entities'][number]): string {
+  const company = companiesById.get(entry.issuing_entity_id);
+  const headline = entityHeadline(entry.issuing_entity_id, company);
+  const subtitle = company ? entitySubtitle(company, entry.contract_count) : '';
+  const flag = company ? jurisdictionFlagHtml(company) : '';
+  const retained = formatCurrency(entry.retained_period, entry.currency);
+  const accrued = formatCurrency(entry.accrued_to_date, entry.currency);
+
+  return `<div class="contracts-aggregate-tile">
+    ${flag}
+    <div class="contracts-aggregate-tile__head">
+      <div class="contracts-aggregate-tile__trading-name">${escapeHtml(headline)}</div>
+      ${
+        subtitle
+          ? `<div class="contracts-aggregate-tile__subtitle">${escapeHtml(subtitle)}</div>`
+          : ''
+      }
+    </div>
+    ${claimsBlockHtml(entry)}
+    <div class="contracts-aggregate-tile__divider"></div>
+    <div class="contracts-aggregate-tile__retained">
+      <div class="contracts-aggregate-tile__retained-label">Retained</div>
+      <div class="contracts-aggregate-tile__retained-amount">${retained}</div>
+      <div class="contracts-aggregate-tile__retained-note">
+        Yours to keep — VAT and CT reserved separately.
+      </div>
+    </div>
+    <div class="contracts-aggregate-tile__sub">accrued ${accrued}</div>
+  </div>`;
+}
+
 function renderAggregateBanner(): void {
   const el = getEl(BANNER_ID);
   if (!el) return;
@@ -221,74 +503,12 @@ function renderAggregateBanner(): void {
     el.innerHTML = '';
     return;
   }
-  el.innerHTML = aggregate.entities
-    .map(entry => {
-      const company = companiesById.get(entry.issuing_entity_id);
-      const headline = entityHeadline(entry.issuing_entity_id, company);
-      const subtitle = company ? entitySubtitle(company, entry.contract_count) : '';
-
-      const incoming = formatCurrency(entry.incoming_period_total, entry.currency);
-      const vat = formatCurrency(entry.vat_reserve_period, entry.currency);
-      const ct = formatCurrency(entry.ct_reserve_period, entry.currency);
-      const retained = formatCurrency(entry.retained_period, entry.currency);
-      const accrued = formatCurrency(entry.accrued_to_date, entry.currency);
-
-      const hasNoReserves =
-        entry.vat_reserve_period === 0 && entry.ct_reserve_period === 0;
-
-      const claimsHtml = hasNoReserves
-        ? `<div class="contracts-aggregate-tile__claim contracts-aggregate-tile__claim--none">
-             No VAT or CT (QFZP qualifying)
-           </div>`
-        : `${
-            entry.vat_reserve_period > 0
-              ? `<div class="contracts-aggregate-tile__claim contracts-aggregate-tile__claim--vat">
-                   <span class="contracts-aggregate-tile__claim-label">VAT</span>
-                   <span class="contracts-aggregate-tile__claim-amount">−${vat}</span>
-                   <span class="contracts-aggregate-tile__claim-note">to HMRC</span>
-                 </div>`
-              : ''
-          }${
-            entry.ct_reserve_period > 0
-              ? `<div class="contracts-aggregate-tile__claim contracts-aggregate-tile__claim--ct">
-                   <span class="contracts-aggregate-tile__claim-label">CT reserve</span>
-                   <span class="contracts-aggregate-tile__claim-amount">−${ct}</span>
-                   <span class="contracts-aggregate-tile__claim-note">(${Math.round(
-                     (entry.ct_reserve_period / Math.max(entry.projected_period_total, 1e-9)) * 100,
-                   )}%)</span>
-                 </div>`
-              : ''
-          }`;
-
-      return `<div class="contracts-aggregate-tile">
-        <div class="contracts-aggregate-tile__head">
-          <div class="contracts-aggregate-tile__trading-name">${escapeHtml(headline)}</div>
-          ${
-            subtitle
-              ? `<div class="contracts-aggregate-tile__subtitle">${escapeHtml(subtitle)}</div>`
-              : ''
-          }
-        </div>
-        <div class="contracts-aggregate-tile__claims">
-          <div class="contracts-aggregate-tile__claim contracts-aggregate-tile__claim--incoming">
-            <span class="contracts-aggregate-tile__claim-label">Incoming</span>
-            <span class="contracts-aggregate-tile__claim-amount">${incoming}</span>
-            <span class="contracts-aggregate-tile__claim-note">hits the account</span>
-          </div>
-          ${claimsHtml}
-        </div>
-        <div class="contracts-aggregate-tile__divider"></div>
-        <div class="contracts-aggregate-tile__retained">
-          <div class="contracts-aggregate-tile__retained-label">Retained</div>
-          <div class="contracts-aggregate-tile__retained-amount">${retained}</div>
-          <div class="contracts-aggregate-tile__retained-note">
-            Yours to keep — VAT and CT reserved separately.
-          </div>
-        </div>
-        <div class="contracts-aggregate-tile__sub">accrued ${accrued}</div>
-      </div>`;
-    })
-    .join('');
+  const combined =
+    aggregate.totals !== null
+      ? combinedTileHtml(aggregate.totals, fixedMonthlyExpenses)
+      : '';
+  const entities = aggregate.entities.map(entityTileHtml).join('');
+  el.innerHTML = combined + entities;
 }
 
 /**
@@ -389,12 +609,12 @@ function renderTile(contract: Contract): string {
         <div class="contracts-stat__label">Day rate</div>
         <div class="contracts-stat__value">${formatCurrency(contract.day_rate, contract.day_rate_currency)}</div>
       </div>
-      <div>
-        <div class="contracts-stat__label">Worked this month</div>
-        <div class="contracts-stat__value">${worked}${accrual ? ` / ${accrual.worked_days_to_date + accrual.worked_days_remaining}` : ''} d</div>
+      <div${accrual ? ` title="${escapeHtml(owedWindowTooltip(accrual))}"` : ''}>
+        <div class="contracts-stat__label">Worked since last payment</div>
+        <div class="contracts-stat__value">${worked} d</div>
       </div>
-      <div>
-        <div class="contracts-stat__label">Leave this month</div>
+      <div${accrual ? ` title="${escapeHtml(owedWindowTooltip(accrual))}"` : ''}>
+        <div class="contracts-stat__label">Leave since last payment</div>
         <div class="contracts-stat__value">${leaveInPeriod} d</div>
       </div>
       <div class="contracts-stat--income">
@@ -463,6 +683,14 @@ function renderDrawer(contractId: string): string {
 function renderList(): void {
   const el = getEl(LIST_ID);
   if (!el) return;
+  // The "Your contracts" divider only makes sense when there's an
+  // aggregate banner above it to divide from; hide it in the empty
+  // state so we don't leave an orphaned border-top floating at the
+  // top of the tab.
+  const divider = getEl(LIST_DIVIDER_ID);
+  if (divider !== null) {
+    divider.style.display = contracts.length === 0 ? 'none' : '';
+  }
   if (contracts.length === 0) {
     el.innerHTML = '<div class="contracts-empty">No contracts configured yet.</div>';
     return;
@@ -980,19 +1208,37 @@ export function initContracts(): void {
   });
 }
 
+/**
+ * Best-effort fetch of the fixed-monthly-expenses threshold. Returns
+ * `null` (rather than throwing) on failure so a slow / missing expenses
+ * endpoint never blocks the Contracts tab from rendering — the combined
+ * hero tile simply falls back to its neutral state.
+ */
+async function fetchFixedMonthlyExpenses(): Promise<number | null> {
+  try {
+    const res = await getJson<ExpensesSheetResponse>('/api/expenses/overview');
+    return res.summary.totalMonthlyOutgoings;
+  } catch (err) {
+    console.warn('[contracts] fixed-expenses threshold unavailable:', err);
+    return null;
+  }
+}
+
 export async function loadContracts(): Promise<void> {
   try {
-    const [listRes, clientsRes, companiesRes, accrualRes] = await Promise.all([
+    const [listRes, clientsRes, companiesRes, accrualRes, expenses] = await Promise.all([
       getJson<{ contracts: Contract[] }>('/api/contracts'),
       getJson<{ clients: Client[] }>('/api/clients'),
       getJson<{ companies: Company[] }>('/api/company'),
       getJson<AggregateAccrualResponse>('/api/contracts/income-accrual'),
+      fetchFixedMonthlyExpenses(),
     ]);
     contracts = listRes.contracts;
     clientsById = new Map(clientsRes.clients.map(c => [c.id, c]));
     companiesById = new Map(companiesRes.companies.map(c => [c.id, c]));
     aggregate = accrualRes;
     perContract = new Map(accrualRes.contracts.map(row => [row.contract_id, row]));
+    fixedMonthlyExpenses = expenses;
     renderAggregateBanner();
     renderList();
   } catch (err) {

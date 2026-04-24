@@ -32,6 +32,7 @@ import {
   AccrualResponseSchema,
   AggregateAccrualEntityRollupSchema,
   AggregateAccrualResponseSchema,
+  AggregateAccrualTotalsSchema,
   ContractIdSchema,
   ContractsListResponseSchema,
   LeaveCreateResponseSchema,
@@ -42,6 +43,7 @@ import {
   TemplatePreviewResponseSchema,
   type AccrualResponse,
   type AggregateAccrualEntityRollup,
+  type AggregateAccrualTotals,
   type Contract,
   type EntityId,
   type LeaveRow,
@@ -52,6 +54,7 @@ import {
   listActiveContracts,
 } from '../domain/contracts/queries.js';
 import { computeAccrual } from '../domain/contracts/income-accrual.js';
+import { resolveLastPaymentsForContracts } from '../domain/contracts/last-payment-resolver.js';
 import {
   deleteLeaveRow,
   findLeaveById,
@@ -175,21 +178,70 @@ function rollupByEntity(rows: readonly AccrualResponse[]): AggregateAccrualEntit
   });
 }
 
+/**
+ * Cross-entity monthly totals for the Contracts-tab hero tile.
+ *
+ * Null when the rollup is empty, or when entities disagree on
+ * `currency` — summing mixed currencies into a single headline number
+ * without FX would silently lie, and cross-currency conversion is
+ * Roadmap 3.2's job, not this endpoint's.
+ */
+function totalsAcrossEntities(
+  entities: readonly AggregateAccrualEntityRollup[],
+): AggregateAccrualTotals | null {
+  if (entities.length === 0) return null;
+  const currency = entities[0].currency;
+  if (!entities.every(e => e.currency === currency)) return null;
+
+  const base = {
+    currency,
+    contract_count: 0,
+    entity_count: entities.length,
+    accrued_to_date: 0,
+    projected_period_total: 0,
+    incoming_period_total: 0,
+    vat_reserve_period: 0,
+    ct_reserve_period: 0,
+    retained_period: 0,
+  };
+  for (const e of entities) {
+    base.contract_count += e.contract_count;
+    base.accrued_to_date += e.accrued_to_date;
+    base.projected_period_total += e.projected_period_total;
+    base.incoming_period_total += e.incoming_period_total;
+    base.vat_reserve_period += e.vat_reserve_period;
+    base.ct_reserve_period += e.ct_reserve_period;
+    base.retained_period += e.retained_period;
+  }
+  return AggregateAccrualTotalsSchema.parse(base);
+}
+
 router.get('/income-accrual', (_req: Request, res: Response) => {
   try {
     const today = todayIsoLocal();
     const active = listActiveContracts();
     const allLeaveRows = allLeave();
+    const lastPayments = resolveLastPaymentsForContracts({
+      contracts: active,
+      today,
+    });
     const perContract = active.map(contract =>
       AccrualResponseSchema.parse(
-        computeAccrual({ contract, leaveRows: allLeaveRows, today }),
+        computeAccrual({
+          contract,
+          leaveRows: allLeaveRows,
+          today,
+          lastPaymentDate: lastPayments.get(contract.id) ?? null,
+        }),
       ),
     );
     const entities = rollupByEntity(perContract);
+    const totals = totalsAcrossEntities(entities);
     const body = AggregateAccrualResponseSchema.parse({
       today,
       contracts: perContract,
       entities,
+      totals,
     });
     res.json(body);
   } catch (error) {
@@ -218,8 +270,17 @@ router.get('/:id/income-accrual', (req: Request<{ id: string }>, res: Response) 
   try {
     const today = todayIsoLocal();
     const leaveRows = leaveForContract(contract.id);
+    const lastPayments = resolveLastPaymentsForContracts({
+      contracts: [contract],
+      today,
+    });
     const body = AccrualResponseSchema.parse(
-      computeAccrual({ contract, leaveRows, today }),
+      computeAccrual({
+        contract,
+        leaveRows,
+        today,
+        lastPaymentDate: lastPayments.get(contract.id) ?? null,
+      }),
     );
     res.json(body);
   } catch (error) {
