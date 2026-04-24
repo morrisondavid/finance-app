@@ -21,6 +21,7 @@
       <button class="tab" data-tab="obligations">Obligations</button>
       <button class="tab" data-tab="deadlines">Deadlines</button>
       <button class="tab" data-tab="contracts">Contracts</button>
+      <button class="tab" data-tab="clients">Clients</button>
       <button class="tab" data-tab="debt">Debt</button>
       <button class="tab" data-tab="warnings">Warnings</button>
       <button class="tab" data-tab="statements">Statements</button>
@@ -725,6 +726,45 @@
             <div class="modal-footer">
               <button type="button" class="btn" id="contracts-leave-modal-cancel">Cancel</button>
               <button type="submit" class="btn btn-primary">Book Leave</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- Clients Tab -->
+    <section id="clients" class="tab-content">
+      <div class="clients-header">
+        <div>
+          <h2 class="clients-title">Clients</h2>
+        </div>
+      </div>
+
+      <div class="clients-section">
+        <h3 class="clients-section-heading">End clients</h3>
+        <p class="clients-section-sub">The relationships that actually pay for work delivered. Edit a tile to update legal names, contact details, VAT numbers and CC lists used across templates.</p>
+        <div id="clients-end-list" class="clients-grid"></div>
+      </div>
+
+      <div class="clients-section">
+        <h3 class="clients-section-heading">Agencies</h3>
+        <p class="clients-section-sub">Intermediaries who broker an end-client relationship (they issue and pay against our work, but the engagement lives with the end client).</p>
+        <div id="clients-agencies-list" class="clients-grid"></div>
+      </div>
+
+      <div class="modal-overlay" id="clients-edit-modal" style="display:none">
+        <div class="modal modal--wide">
+          <div class="modal-header">
+            <h3 id="clients-edit-modal-title">Edit client</h3>
+            <button type="button" class="modal-close" id="clients-edit-modal-close">&times;</button>
+          </div>
+          <form id="clients-edit-form" class="modal-body clients-modal-body">
+            <p class="clients-modal-hint">Only fields that changed are sent to the server. Empty nullable fields are stored as blank; the literal string <code>TBC</code> is a first-class placeholder for contact fields you haven't confirmed yet.</p>
+            <div id="clients-edit-form-fields" class="clients-form-fields"></div>
+            <div id="clients-edit-error" class="clients-form-error" style="display:none"></div>
+            <div class="modal-footer">
+              <button type="button" class="btn" id="clients-edit-modal-cancel">Cancel</button>
+              <button type="submit" class="btn btn-primary">Save changes</button>
             </div>
           </form>
         </div>

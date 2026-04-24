@@ -1346,6 +1346,47 @@ export const ClientsListResponseSchema = z.object({
 export type ClientsListResponse = z.infer<typeof ClientsListResponseSchema>;
 
 /**
+ * Update-patch schemas for `PUT /api/clients/:id`.
+ *
+ * Identity columns (`id`, `updated_at`) are server-managed and not
+ * patchable — `id` is the URL parameter and `updated_at` is stamped on
+ * write. Every other column is optional; callers send only the fields
+ * that changed.
+ *
+ * `kind` stays required (and literal) so the discriminated union lines
+ * up with `ClientSchema`. Flipping `direct` ↔ `agency` is out of scope:
+ * it would invalidate every contract + template override pinned to the
+ * row, so the route rejects a kind mismatch explicitly rather than
+ * silently rewriting the discriminator.
+ *
+ * For `DirectClientUpdateSchema`, the `end_client_*` fields remain
+ * `z.null()` (matching `DirectClientSchema`) — an update that tries to
+ * set them is a kind-flip in disguise and fails validation here.
+ */
+export const DirectClientUpdateSchema = DirectClientSchema
+  .omit({ id: true, updated_at: true })
+  .partial()
+  .extend({ kind: z.literal('direct') });
+export type DirectClientUpdate = z.infer<typeof DirectClientUpdateSchema>;
+
+export const AgencyClientUpdateSchema = AgencyClientSchema
+  .omit({ id: true, updated_at: true })
+  .partial()
+  .extend({ kind: z.literal('agency') });
+export type AgencyClientUpdate = z.infer<typeof AgencyClientUpdateSchema>;
+
+export const ClientUpdateSchema = z.discriminatedUnion('kind', [
+  DirectClientUpdateSchema,
+  AgencyClientUpdateSchema,
+]);
+export type ClientUpdate = z.infer<typeof ClientUpdateSchema>;
+
+export const ClientUpdateResponseSchema = z.object({
+  client: ClientSchema,
+});
+export type ClientUpdateResponse = z.infer<typeof ClientUpdateResponseSchema>;
+
+/**
  * Master-agreement id — slug shape identical to other registry ids so
  * they survive URL paths and filenames.
  */

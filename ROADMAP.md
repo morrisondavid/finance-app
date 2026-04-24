@@ -8,7 +8,7 @@
 >
 > **What's shipped (Tier 1):** the **Multi-Entity Foundation (1.1)** — UK Ltd + UAE FZCO modelled end-to-end through `accounts` / `company` / `tax-rules.ts` with per-entity VAT / CT scoping, inter-company classification, and Wise as a first-class intermediary — and **Clients, Contracts & Renewals — Phase A (1.2.A)** — canonical `clients` / `contracts` registries with build-time FK joins and a `contract-renewal` deadline auto-seeder. Detail in the sections below.
 >
-> **What's left (Tier 1):** the business now spans two legally distinct entities — **Autonize IT Limited** (UK, operational since 2014) and **Autonize IT Software Development – FZCO** (UAE, operational from March 2026) — most engagements agency-mediated (La Fosse → Edwin) and some direct (Delta Capita), with both self-billed and supplier-issued mechanisms in play. Remaining Tier 1 work: **1.2.B** templates + recipient routing, **1.2.C** timeline-aware payment matcher, **1.2.D** Clients page UI, **1.2.E** Contracts tab (books leave against any / all active contracts, writes a minimum-viable leave ledger, surfaces per-contract period income accrual); then invoicing (outbound + self-bill), the full working-days ledger, cash-flow forecast, warnings engine, debt-strategy advisor, and the agent / notification layer.
+> **What's left (Tier 1):** the business now spans two legally distinct entities — **Autonize IT Limited** (UK, operational since 2014) and **Autonize IT Software Development – FZCO** (UAE, operational from March 2026) — most engagements agency-mediated (La Fosse → Edwin) and some direct (Delta Capita), with both self-billed and supplier-issued mechanisms in play. Remaining Tier 1 work: **1.2.B** templates + recipient routing, **1.2.C** timeline-aware payment matcher, **1.2.E** Contracts tab (books leave against any / all active contracts, writes a minimum-viable leave ledger, surfaces per-contract period income accrual); then invoicing (outbound + self-bill), the full working-days ledger, cash-flow forecast, warnings engine, debt-strategy advisor, and the agent / notification layer.
 
 ---
 
@@ -292,12 +292,9 @@ Acceptance test: a Barclays deposit with narrative matching La
 Fosse, dated after `lf-2026-mar.end_date`, emits the anomaly
 warning rather than silently attributing to any contract.
 
-#### 1.2.D UI — Clients page
+#### 1.2.D UI — Clients page ✅ SHIPPED
 
-List view with the `kind` discriminator visible. La Fosse row shows
-the Edwin Group as end client in a nested block. Edit forms honour
-the discriminated union (agency-only fields hidden / validated
-when `kind = direct`).
+End-client-first tiled view over `/api/clients` + `/api/warnings/entity-foundation`. `partitionClientsForUi` projects each registry row onto the UI: direct rows surface once (Delta Capita — edits the client row), agency rows surface twice (Edwin Group — edits the `la-fosse` row's end-client block; La Fosse — edits the agency-level fields). `PUT /api/clients/:id` is the only write path, backed by a narrow `updateClient` helper that merges → validates → atomically rewrites the CSV → invalidates the registry; kind flips are rejected explicitly so pinned contracts and template overrides can't be orphaned. Kind-aware edit modal drives every field from a single declarative descriptor, and `client-tbc-fields` warnings surface as per-tile badges so unresolved contacts are visible before opening the form.
 
 #### 1.2.E Contracts Tab
 

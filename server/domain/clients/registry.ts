@@ -33,7 +33,7 @@ import { getClientsCsvPath, readClientsCsvFile } from './csv-io.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DEFAULT_CLIENTS_DIR = path.join(__dirname, '../../../clients');
+export const DEFAULT_CLIENTS_DIR = path.join(__dirname, '../../../clients');
 
 export interface ClientRegistry {
   /** Every configured client, in CSV order. */

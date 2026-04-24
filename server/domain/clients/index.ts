@@ -39,6 +39,12 @@ export {
 } from './queries.js';
 
 export {
+  updateClient,
+  type UpdateClientInput,
+  type UpdateClientResult,
+} from './mutations.js';
+
+export {
   makeTestClientRegistry,
   type ClientRegistryFixtureInput,
 } from './fixtures.js';
