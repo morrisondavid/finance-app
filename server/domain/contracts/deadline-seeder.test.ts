@@ -31,7 +31,9 @@ import { buildContractRegistryFromData } from './registry.js';
 import { parseContractRow } from './csv-io.js';
 import {
   dcSowRow,
+  dcSowInactiveRow,
   lfContractRow,
+  lfFzcoContractRow,
   makeStubClients,
   makeStubCompanies,
   makeStubMasters,
@@ -119,5 +121,47 @@ describe('syncContractRenewalDeadlines (integration)', () => {
     expect(contractRenewalDeadlineTitle(contract, 'La Fosse')).toBe(
       'La Fosse renewal (LAF-TEG-001)',
     );
+  });
+
+  it('skips inactive contracts — no renewal deadline seeded', () => {
+    const clients = makeStubClients();
+    const contracts = buildContractRegistryFromData(
+      [parseContractRow(dcSowInactiveRow), parseContractRow(lfContractRow)],
+      {
+        clients,
+        companies: makeStubCompanies(),
+        masters: makeStubMasters(),
+      },
+    );
+    const seeded = syncContractRenewalDeadlines({ contracts, clients });
+    expect(seeded).toEqual(['contract-renewal-lf-2026-mar']);
+
+    const byId = new Map(getAllDeadlines().map(d => [d.id, d]));
+    expect(byId.has('contract-renewal-dc-sow-2025-prior')).toBe(false);
+  });
+
+  it('same client split across two issuing_entity_ids gets two distinct deadlines', () => {
+    const clients = makeStubClients();
+    const contracts = buildContractRegistryFromData(
+      [parseContractRow(lfContractRow), parseContractRow(lfFzcoContractRow)],
+      {
+        clients,
+        companies: makeStubCompanies(),
+        masters: makeStubMasters(),
+      },
+    );
+    const seeded = syncContractRenewalDeadlines({ contracts, clients });
+    expect([...seeded].sort()).toEqual([
+      'contract-renewal-lf-2026-apr',
+      'contract-renewal-lf-2026-mar',
+    ]);
+
+    const byId = new Map(getAllDeadlines().map(d => [d.id, d]));
+    const lfUk = byId.get('contract-renewal-lf-2026-mar');
+    const lfFzco = byId.get('contract-renewal-lf-2026-apr');
+    expect(lfUk!.dueDate).toBe('2026-01-30'); // 2026-03-31 − 60
+    expect(lfFzco!.dueDate).toBe('2026-03-31'); // 2026-04-30 − 30
+    expect(lfUk!.title).toBe('La Fosse renewal (LAF-TEG-001)');
+    expect(lfFzco!.title).toBe('La Fosse renewal (LAF-TEG-002)');
   });
 });

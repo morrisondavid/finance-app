@@ -17,6 +17,8 @@
 import express, { Request, Response } from 'express';
 import { getDb } from '../db/connection.js';
 import { allCompanies } from '../domain/company/index.js';
+import { allClients } from '../domain/clients/index.js';
+import { allContracts } from '../domain/contracts/queries.js';
 import { deriveEntityFoundationWarnings } from '../domain/warnings/entity-foundation.js';
 import { sumFzcoTrailing12mIncomeAed } from '../domain/warnings/fzco-income.js';
 import { countUnclassifiedInterCompanyPairs } from '../domain/warnings/inter-company-count.js';
@@ -37,6 +39,8 @@ router.get('/entity-foundation', (_req: Request, res: Response) => {
 
     const warnings = deriveEntityFoundationWarnings({
       companies: allCompanies(),
+      clients: allClients(),
+      contracts: allContracts(),
       fzcoTrailing12mIncomeAed: sumFzcoTrailing12mIncomeAed(db, today),
       interCompanyMovementCount: countUnclassifiedInterCompanyPairs(db),
       today,

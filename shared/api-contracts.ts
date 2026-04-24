@@ -1253,8 +1253,9 @@ export type ClientKind = z.infer<typeof ClientKindSchema>;
 
 /**
  * Template kinds — canonical list. `resolveTemplatePath()` uses this to
- * derive the template file path by convention
- * (`clients/templates/{client_id}/{kind}.md`), eliminating the per-client
+ * derive the template file path by convention: a per-client override
+ * at `clients/templates/{client_id}/{kind}.hbs` if present, otherwise
+ * the shared `clients/templates/{kind}.hbs`. Eliminates the per-client
  * template-path columns that appeared in the original §1.2 draft.
  */
 export const TemplateKindSchema = z.enum([
@@ -1470,6 +1471,159 @@ export const MasterAgreementsListResponseSchema = z.object({
 export type MasterAgreementsListResponse = z.infer<typeof MasterAgreementsListResponseSchema>;
 
 // ============================================
+// Leave registry + Contracts tab (§1.2.E)
+// ============================================
+//
+// A LeaveRow is a single calendar day of non-working time against one
+// contract. Intentionally minimal: the outside-IR35 contractor doesn't
+// invoice for leave, so there's no `paid` flag or `unpaid` subclass —
+// every leave day is effectively unpaid by construction (no work → no
+// line item). `type` is a personal-records-only classification (holiday
+// vs sick) so the contractor can tally their own days; it does NOT feed
+// back into the client-facing template body (see §1.2.B — the leave
+// email says "I'll be out on these dates" regardless of reason).
+//
+// Calendar events that everybody is off for (public holidays, firm-wide
+// closures) are NOT leave rows — they live in a separate
+// `working-days/public-holidays.csv` that feeds `excludeDates` on the
+// working-days iterator, keeping this registry focused on the
+// contractor's own choices.
+
+/** Slug: lowercase letters, digits, hyphens; must start with a letter or digit. */
+export const LeaveIdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9][a-z0-9-]*$/);
+export type LeaveId = z.infer<typeof LeaveIdSchema>;
+
+export const LeaveTypeSchema = z.enum(['holiday', 'sick']);
+export type LeaveType = z.infer<typeof LeaveTypeSchema>;
+
+export const LeaveRowSchema = z.object({
+  id: LeaveIdSchema,
+  contract_id: ContractIdSchema,
+  date: IsoDateSchema,
+  type: LeaveTypeSchema,
+  notes: z.string().nullable(),
+  /**
+   * True iff the leave has also been logged in the agency/end-client
+   * HR system (e.g. La Fosse's holiday portal). Purely informational —
+   * surfaces a tick in the leave log so the contractor can see which
+   * entries still need double-booking into the client-side system.
+   */
+  external_logged: z.boolean(),
+  created_at: IsoDateSchema,
+  updated_at: IsoDateSchema,
+});
+export type LeaveRow = z.infer<typeof LeaveRowSchema>;
+
+export const LeaveListResponseSchema = z.object({
+  leave: z.array(LeaveRowSchema),
+});
+export type LeaveListResponse = z.infer<typeof LeaveListResponseSchema>;
+
+/**
+ * Body of `POST /api/contracts/:id/leave`. A single request books one
+ * or more days of the same type against one contract; booking the same
+ * range across multiple contracts is the frontend's job (it issues one
+ * POST per selected contract and parallelises with `Promise.all`).
+ */
+export const LeaveRequestSchema = z.object({
+  dates: z.array(IsoDateSchema).min(1),
+  type: LeaveTypeSchema,
+  notes: z.string().nullable().optional(),
+  external_logged: z.boolean().optional(),
+});
+export type LeaveRequest = z.infer<typeof LeaveRequestSchema>;
+
+export const LeaveCreateResponseSchema = z.object({
+  leave: z.array(LeaveRowSchema),
+  created: z.number().int().nonnegative(),
+});
+export type LeaveCreateResponse = z.infer<typeof LeaveCreateResponseSchema>;
+
+/**
+ * Body of `POST /api/contracts/:id/leave-preview`. Same shape as
+ * {@link LeaveRequestSchema} minus `external_logged` (the preview never
+ * writes); returns the rendered template that *would* be sent if the
+ * caller then POSTed to `/leave`.
+ */
+export const TemplatePreviewRequestSchema = z.object({
+  dates: z.array(IsoDateSchema).min(1),
+  type: LeaveTypeSchema,
+  notes: z.string().nullable().optional(),
+});
+export type TemplatePreviewRequest = z.infer<typeof TemplatePreviewRequestSchema>;
+
+export const TemplatePreviewResponseSchema = z.object({
+  subject: z.string(),
+  body: z.string(),
+  recipients: z.object({
+    to: z.array(z.string()),
+    cc: z.array(z.string()),
+  }),
+});
+export type TemplatePreviewResponse = z.infer<typeof TemplatePreviewResponseSchema>;
+
+/**
+ * Per-contract income-accrual snapshot. Pure composition over the
+ * contract row + its leave rows + `today`: no invoice or transaction
+ * data — this is "what will the invoice say if the period ended now?".
+ * See `server/domain/contracts/income-accrual.ts` for the algorithm.
+ *
+ * `period_start..period_end` is the Monday-Sunday week for weekly
+ * cadence or the calendar month for monthly cadence, clipped to the
+ * contract's `[start_date, end_date]`.
+ */
+export const AccrualResponseSchema = z.object({
+  contract_id: ContractIdSchema,
+  period_start: IsoDateSchema,
+  period_end: IsoDateSchema,
+  worked_days_to_date: z.number().int().nonnegative(),
+  accrued_to_date: z.number().nonnegative(),
+  worked_days_remaining: z.number().int().nonnegative(),
+  projected_period_total: z.number().nonnegative(),
+  leave_days_in_period: z.number().int().nonnegative(),
+  day_rate: z.number().nonnegative(),
+  currency: CurrencyCodeSchema,
+});
+export type AccrualResponse = z.infer<typeof AccrualResponseSchema>;
+
+/**
+ * Aggregate accrual for the Contracts tab banner: one row per active
+ * contract plus per-issuing-entity rollups so the UI can show "£X
+ * projected across UK Ltd, £Y projected across UAE FZCO" without
+ * re-deriving it from the per-contract rows.
+ */
+export const AggregateAccrualEntityRollupSchema = z.object({
+  issuing_entity_id: EntityIdSchema,
+  currency: CurrencyCodeSchema,
+  accrued_to_date: z.number().nonnegative(),
+  projected_period_total: z.number().nonnegative(),
+  contract_count: z.number().int().nonnegative(),
+  /**
+   * Retained-after-claims figures derived from {@link calculateRetainedReserves}
+   * — always reconcile as
+   * `incoming_period_total === retained_period + vat_reserve_period + ct_reserve_period`.
+   */
+  incoming_period_total: z.number().nonnegative(),
+  vat_reserve_period: z.number().nonnegative(),
+  ct_reserve_period: z.number().nonnegative(),
+  retained_period: z.number().nonnegative(),
+});
+export type AggregateAccrualEntityRollup = z.infer<
+  typeof AggregateAccrualEntityRollupSchema
+>;
+
+export const AggregateAccrualResponseSchema = z.object({
+  today: IsoDateSchema,
+  contracts: z.array(AccrualResponseSchema),
+  entities: z.array(AggregateAccrualEntityRollupSchema),
+});
+export type AggregateAccrualResponse = z.infer<typeof AggregateAccrualResponseSchema>;
+
+// ============================================
 // Warnings — Phase 7 / Roadmap 1.1 Entity Foundation slice
 // ============================================
 // These schemas are the minimal subset of the Warnings Engine (Roadmap
@@ -1487,6 +1641,8 @@ export type WarningSeverity = z.infer<typeof WarningSeveritySchema>;
 
 export const EntityFoundationWarningCodeSchema = z.enum([
   'company-tbc-fields',
+  'client-tbc-fields',
+  'contract-ending-soon',
   'fzco-ct-status-unknown',
   'fzco-vat-voluntary-threshold-crossed',
   'fzco-vat-mandatory-threshold-crossed',

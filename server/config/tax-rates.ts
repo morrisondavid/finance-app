@@ -1,16 +1,19 @@
 /**
- * UK Tax Rates and Thresholds
- * 
- * These values are for the 2023/24 and 2024/25 tax years.
- * Update these when HMRC announces new rates.
- * 
+ * Tax Rates and Thresholds (UK + UAE)
+ *
+ * These values are for the 2023/24 and 2024/25 tax years (UK) and the
+ * post-2023 UAE Corporate Tax regime. Update these when HMRC / the UAE
+ * Federal Tax Authority announces new rates.
+ *
  * Sources:
  * - https://www.gov.uk/corporation-tax-rates
  * - https://www.gov.uk/income-tax-rates
  * - https://www.gov.uk/tax-on-dividends
+ * - https://tax.gov.ae/en/taxes/corporate.tax.aspx
  */
 
 import { formatDateISO } from '../../shared/date-format.js';
+import type { Company } from '../../shared/api-contracts.js';
 
 // =============================================================================
 // VAT
@@ -165,6 +168,18 @@ export const CORPORATION_TAX = {
   
   /** Marginal relief fraction (3/200) for profits between thresholds */
   MARGINAL_RELIEF_FRACTION: 3 / 200,
+} as const;
+
+// =============================================================================
+// UAE Corporation Tax (post-2023 regime)
+// =============================================================================
+
+export const UAE_CORPORATION_TAX = {
+  /** QFZP (Qualifying Free Zone Person) qualifying-income rate. */
+  QUALIFYING_RATE: 0,
+
+  /** Non-qualifying / above-threshold rate. */
+  NON_QUALIFYING_RATE: 0.09,
 } as const;
 
 // =============================================================================
@@ -376,4 +391,86 @@ export function calculateIncomeTaxOnNonDividend(
     atHigher * INCOME_TAX.HIGHER_RATE +
     atAdditional * INCOME_TAX.ADDITIONAL_RATE
   );
+}
+
+// =============================================================================
+// Retained-after-claims reserves (forward-looking "this is the company's")
+// =============================================================================
+
+/**
+ * Shape of the per-entity claim stack surfaced on the Contracts-tab
+ * aggregate banner. `retained_period` is the figure we want users to
+ * anchor on — what the company actually keeps after the two claims
+ * that were never theirs (VAT in transit to HMRC, CT to be paid on
+ * future return).
+ *
+ * All four monetary figures share the company's invoice currency, and
+ * reconcile: `incoming_period_total === retained_period + vat_reserve_period + ct_reserve_period`.
+ */
+export interface RetainedClaim {
+  /** Net fees + VAT (what actually lands in the bank account). */
+  readonly incoming_period_total: number;
+  /** VAT portion of `incoming_period_total`. Zero if the entity is not VAT-registered. */
+  readonly vat_reserve_period: number;
+  /**
+   * Corporation Tax reserve on **net** revenue — flat pessimistic
+   * buffer. UK Ltd uses {@link CORPORATION_TAX.MAIN_RATE}; UAE FZCO
+   * uses {@link UAE_CORPORATION_TAX} (qualifying or non-qualifying
+   * depending on `qfzp_elected`).
+   */
+  readonly ct_reserve_period: number;
+  /** `incoming_period_total − vat_reserve_period − ct_reserve_period`. */
+  readonly retained_period: number;
+  /** Applied CT rate (e.g. 0.25, 0.09, 0). Surfaced so the UI can render the label. */
+  readonly ct_rate_applied: number;
+  /** Applied VAT rate (0.2 when registered, else 0). */
+  readonly vat_rate_applied: number;
+}
+
+/**
+ * Compute the claim stack for a single entity given its projected
+ * **net** revenue for the period.
+ *
+ * Rules:
+ *   - VAT: apply {@link VAT.RATE} when the company is UK Ltd and
+ *     `vat_registered === true` (strict — `TBC` does not apply VAT).
+ *   - UK Ltd CT reserve: flat {@link CORPORATION_TAX.MAIN_RATE}. This
+ *     is the conservative forward-looking bucket, distinct from the
+ *     marginal-relief engine in {@link calculateCorporationTax}.
+ *   - UAE FZCO CT reserve: {@link UAE_CORPORATION_TAX.QUALIFYING_RATE}
+ *     when `qfzp_elected === true` (QFZP qualifying income), else
+ *     {@link UAE_CORPORATION_TAX.NON_QUALIFYING_RATE}.
+ *   - Retained = incoming − VAT − CT reserve.
+ */
+export function calculateRetainedReserves(
+  projectedNet: number,
+  company: Company,
+): RetainedClaim {
+  const netFloor = Math.max(0, projectedNet);
+
+  const vatRate =
+    company.jurisdiction === 'UK' && company.vat_registered === true
+      ? VAT.RATE
+      : 0;
+
+  const ctRate =
+    company.jurisdiction === 'UK'
+      ? CORPORATION_TAX.MAIN_RATE
+      : company.qfzp_elected === true
+        ? UAE_CORPORATION_TAX.QUALIFYING_RATE
+        : UAE_CORPORATION_TAX.NON_QUALIFYING_RATE;
+
+  const vatReserve = netFloor * vatRate;
+  const incoming = netFloor + vatReserve;
+  const ctReserve = netFloor * ctRate;
+  const retained = incoming - vatReserve - ctReserve;
+
+  return {
+    incoming_period_total: incoming,
+    vat_reserve_period: vatReserve,
+    ct_reserve_period: ctReserve,
+    retained_period: retained,
+    ct_rate_applied: ctRate,
+    vat_rate_applied: vatRate,
+  };
 }

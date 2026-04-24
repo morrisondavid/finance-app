@@ -1,4 +1,4 @@
-import { escapeHtml } from '../utils/dom';
+import { escapeHtml, openModal as openModalEl, closeModal as closeModalEl } from '../utils/dom';
 import { formatCurrency, formatIsoDateUkLong } from '../utils/formatting';
 import { daysUntil, daysLabel, todayIsoLocal } from '../../../shared/iso-date.js';
 
@@ -425,18 +425,16 @@ function renderRegistry(obligations: ObligationItem[], dismissals: DismissalItem
 }
 
 function openModal(title: string): void {
-  const modal = document.getElementById('obligations-modal');
   const titleEl = document.getElementById('obligations-modal-title');
-  if (modal) modal.style.display = 'flex';
   if (titleEl) titleEl.textContent = title;
+  openModalEl('obligations-modal');
 }
 
 function closeModal(): void {
-  const modal = document.getElementById('obligations-modal');
   const form = document.getElementById('obligations-form') as HTMLFormElement | null;
-  if (modal) modal.style.display = 'none';
   if (form) form.reset();
   editingId = null;
+  closeModalEl('obligations-modal');
 }
 
 function openEditModal(id: string, obligations: ObligationItem[]): void {

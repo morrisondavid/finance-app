@@ -35,7 +35,9 @@
  */
 
 import type {
+  Client,
   Company,
+  Contract,
   EntityFoundationWarning,
   EntityFoundationWarningCode,
   WarningSeverity,
@@ -44,6 +46,7 @@ import {
   UAE_VAT_VOLUNTARY_AED,
   UAE_VAT_MANDATORY_AED,
 } from '../../config/tax-rules.js';
+import { daysBetween, toIsoDate } from '../../../shared/iso-date.js';
 
 const IFZA_RENEWAL_WINDOW_DAYS = 60;
 const MS_PER_DAY = 86_400_000;
@@ -51,6 +54,20 @@ const MS_PER_DAY = 86_400_000;
 export interface EntityFoundationWarningInput {
   /** Every row in `company.csv`, loaded via the CompanyRegistry. */
   readonly companies: readonly Company[];
+  /**
+   * Every row in `clients/clients.csv`, loaded via the ClientRegistry.
+   * Scanned for unresolved `TBC` contact fields so the Warnings tab
+   * flags them alongside the entity-level warnings.
+   */
+  readonly clients: readonly Client[];
+  /**
+   * Every row in `clients/contracts.csv`, loaded via the
+   * ContractRegistry. Scanned for active contracts whose `end_date`
+   * has entered the per-contract `renewal_warning_days` window; these
+   * emit `contract-ending-soon` warnings so the user isn't blindsided
+   * by an imminent expiry.
+   */
+  readonly contracts: readonly Contract[];
   /**
    * Trailing-12-month income on the FZCO entity, in AED. The UAE VAT
    * threshold check is a pure comparison against this number; the
@@ -87,6 +104,25 @@ export function deriveEntityFoundationWarnings(
         sources: ['autonize-it/company.csv', `entity:${company.id}`],
       });
     }
+  }
+
+  for (const client of input.clients) {
+    const tbcFields = collectClientTbcFields(client);
+    if (tbcFields.length > 0) {
+      warnings.push({
+        id: warningId('client-tbc-fields', client.id),
+        code: 'client-tbc-fields',
+        severity: 'warn',
+        title: `Unresolved TBC fields on ${client.trading_name}`,
+        detail: `The following fields are still marked "TBC" in clients/clients.csv and block template previews / leave emails: ${tbcFields.join(', ')}.`,
+        recommended_action: 'Fill in the missing contact details in clients/clients.csv so leave, sickness, invoice-cover and renewal templates can render.',
+        sources: ['clients/clients.csv', `client:${client.id}`],
+      });
+    }
+  }
+
+  for (const warning of collectContractEndingSoon(input.contracts, input.clients, input.today)) {
+    warnings.push(warning);
   }
 
   const fzco = input.companies.find(c => c.jurisdiction === 'UAE' && c.id === 'autonize-it-fzco');
@@ -178,6 +214,88 @@ function collectTbcFields(company: Company): string[] {
     if (company.qfzp_elected === 'TBC') fields.push('qfzp_elected');
   }
   return fields;
+}
+
+/**
+ * Only surface the contact fields that actually block downstream
+ * features (email templates, leave preview). Ancillary TBC values
+ * like `vat_number` on a direct client aren't urgent and would just
+ * create noise in the Warnings tab.
+ */
+function collectClientTbcFields(client: Client): string[] {
+  const fields: string[] = [];
+  if (client.kind === 'direct') {
+    if (client.primary_contact_name === 'TBC') fields.push('primary_contact_name');
+    if (client.primary_contact_email === 'TBC') fields.push('primary_contact_email');
+  } else {
+    if (client.primary_contact_name === 'TBC') fields.push('primary_contact_name');
+    if (client.primary_contact_email === 'TBC') fields.push('primary_contact_email');
+    if (client.end_client_primary_contact_name === 'TBC') fields.push('end_client_primary_contact_name');
+    if (client.end_client_primary_contact_email === 'TBC') fields.push('end_client_primary_contact_email');
+  }
+  return fields;
+}
+
+/**
+ * Emit one `contract-ending-soon` warning per active contract whose
+ * `end_date` is within its `renewal_warning_days` window (or already
+ * past). Severity bands (matched by the Contracts tab's tile badge):
+ *
+ *   - `daysLeft < 0`        → `critical` (overdue, still active)
+ *   - `0 <= daysLeft <= 14` → `critical` (imminent)
+ *   - `daysLeft > 14`       → `warn`     (approaching)
+ *
+ * Skipped entirely when the contract is inactive, open-ended, or
+ * still outside its `renewal_warning_days` window.
+ */
+function collectContractEndingSoon(
+  contracts: readonly Contract[],
+  clients: readonly Client[],
+  today: Date,
+): EntityFoundationWarning[] {
+  const todayIso = toIsoDate(today);
+  const clientById = new Map(clients.map(c => [c.id, c]));
+  const out: EntityFoundationWarning[] = [];
+
+  for (const contract of contracts) {
+    if (!contract.active) continue;
+    if (contract.end_date === null) continue;
+    const daysLeft = daysBetween(contract.end_date, todayIso);
+    if (daysLeft > contract.renewal_warning_days) continue;
+
+    const client = clientById.get(contract.client_id);
+    const clientLabel = client?.trading_name ?? contract.client_id;
+    const severity: WarningSeverity =
+      daysLeft < 0 || daysLeft <= 14 ? 'critical' : 'warn';
+
+    const detail = daysLeft < 0
+      ? `Contract ${contract.reference} with ${clientLabel} ended ${Math.abs(daysLeft)} day${Math.abs(daysLeft) === 1 ? '' : 's'} ago on ${contract.end_date} but is still marked active.`
+      : `Contract ${contract.reference} with ${clientLabel} ends in ${daysLeft} day${daysLeft === 1 ? '' : 's'} on ${contract.end_date}.`;
+
+    const title = daysLeft < 0
+      ? `Contract ${contract.reference} is overdue for renewal`
+      : `Contract ${contract.reference} is approaching renewal`;
+
+    const recommended_action = daysLeft < 0
+      ? `Flip ${contract.id} to active=false in clients/contracts.csv once the engagement is truly over, or add the successor contract so the deadline clears.`
+      : `Confirm renewal intent with ${clientLabel} and sign the successor contract before ${contract.end_date}.`;
+
+    out.push({
+      id: warningId('contract-ending-soon', contract.id),
+      code: 'contract-ending-soon',
+      severity,
+      title,
+      detail,
+      recommended_action,
+      sources: [
+        'clients/contracts.csv',
+        `entity:${contract.issuing_entity_id}`,
+        `contract:${contract.id}`,
+      ],
+    });
+  }
+
+  return out;
 }
 
 function buildFzcoCtDetail(

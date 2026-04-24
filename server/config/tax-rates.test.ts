@@ -4,11 +4,15 @@ import {
   CORPORATION_TAX,
   DIVIDEND_TAX,
   VAT_QUARTERS,
+  UAE_CORPORATION_TAX,
   calculateCorporationTax,
   calculateDividendTax,
+  calculateRetainedReserves,
   getVatQuarterForDate,
   getCurrentVatQuarter,
 } from './tax-rates.js';
+import { parseCompanyRow } from '../domain/company/csv-io.js';
+import { ukRow, uaeRow, rowFromHeaders } from '../domain/company/test-helpers.js';
 
 describe('Tax Constants', () => {
   describe('VAT', () => {
@@ -328,6 +332,102 @@ describe('getVatQuarterForDate', () => {
       const result = getVatQuarterForDate(new Date('2024-02-29'));
       expect(result.quarter).toBe(2);
       expect(result.endDate).toBe('2024-04-30');
+    });
+  });
+});
+
+describe('calculateRetainedReserves', () => {
+  const ukVatRegistered = parseCompanyRow(ukRow);
+  const ukNotVatRegistered = parseCompanyRow(
+    rowFromHeaders({ ...ukRow, vat_registered: 'false' }),
+  );
+  const fzcoQualifying = parseCompanyRow(
+    rowFromHeaders({ ...uaeRow, qfzp_elected: 'true' }),
+  );
+  const fzcoNonQualifying = parseCompanyRow(
+    rowFromHeaders({ ...uaeRow, qfzp_elected: 'false' }),
+  );
+  const fzcoTbc = parseCompanyRow(uaeRow); // qfzp_elected='TBC' → treated as non-qualifying
+
+  describe('UK Ltd, VAT-registered', () => {
+    it('applies 20% VAT and 25% CT on £10,000 net', () => {
+      const r = calculateRetainedReserves(10000, ukVatRegistered);
+      expect(r.incoming_period_total).toBeCloseTo(12000, 6);
+      expect(r.vat_reserve_period).toBeCloseTo(2000, 6);
+      expect(r.ct_reserve_period).toBeCloseTo(2500, 6);
+      expect(r.retained_period).toBeCloseTo(7500, 6);
+      expect(r.vat_rate_applied).toBe(VAT.RATE);
+      expect(r.ct_rate_applied).toBe(CORPORATION_TAX.MAIN_RATE);
+    });
+
+    it('reconciles: incoming === retained + vat + ct_reserve', () => {
+      const r = calculateRetainedReserves(10000, ukVatRegistered);
+      expect(r.retained_period + r.vat_reserve_period + r.ct_reserve_period)
+        .toBeCloseTo(r.incoming_period_total, 6);
+    });
+  });
+
+  describe('UK Ltd, NOT VAT-registered (edge)', () => {
+    it('adds no VAT but still reserves 25% CT', () => {
+      const r = calculateRetainedReserves(10000, ukNotVatRegistered);
+      expect(r.vat_reserve_period).toBe(0);
+      expect(r.vat_rate_applied).toBe(0);
+      expect(r.incoming_period_total).toBeCloseTo(10000, 6);
+      expect(r.ct_reserve_period).toBeCloseTo(2500, 6);
+      expect(r.retained_period).toBeCloseTo(7500, 6);
+    });
+  });
+
+  describe('UAE FZCO, QFZP qualifying', () => {
+    it('applies zero VAT and zero CT on £11,000 net', () => {
+      const r = calculateRetainedReserves(11000, fzcoQualifying);
+      expect(r.incoming_period_total).toBeCloseTo(11000, 6);
+      expect(r.vat_reserve_period).toBe(0);
+      expect(r.ct_reserve_period).toBe(0);
+      expect(r.retained_period).toBeCloseTo(11000, 6);
+      expect(r.ct_rate_applied).toBe(UAE_CORPORATION_TAX.QUALIFYING_RATE);
+      expect(r.vat_rate_applied).toBe(0);
+    });
+  });
+
+  describe('UAE FZCO, non-qualifying', () => {
+    it('applies 9% CT on £10,000 net — retained is 91%', () => {
+      const r = calculateRetainedReserves(10000, fzcoNonQualifying);
+      expect(r.vat_reserve_period).toBe(0);
+      expect(r.incoming_period_total).toBeCloseTo(10000, 6);
+      expect(r.ct_reserve_period).toBeCloseTo(900, 6);
+      expect(r.retained_period).toBeCloseTo(9100, 6);
+      expect(r.ct_rate_applied).toBe(UAE_CORPORATION_TAX.NON_QUALIFYING_RATE);
+    });
+
+    it('treats qfzp_elected=TBC as non-qualifying (9% CT)', () => {
+      const r = calculateRetainedReserves(10000, fzcoTbc);
+      expect(r.ct_rate_applied).toBe(UAE_CORPORATION_TAX.NON_QUALIFYING_RATE);
+      expect(r.ct_reserve_period).toBeCloseTo(900, 6);
+    });
+  });
+
+  describe('edge cases', () => {
+    it('returns all-zero on zero projection', () => {
+      const r = calculateRetainedReserves(0, ukVatRegistered);
+      expect(r.incoming_period_total).toBe(0);
+      expect(r.vat_reserve_period).toBe(0);
+      expect(r.ct_reserve_period).toBe(0);
+      expect(r.retained_period).toBe(0);
+    });
+
+    it('floors negative projections at zero (defensive)', () => {
+      const r = calculateRetainedReserves(-500, ukVatRegistered);
+      expect(r.incoming_period_total).toBe(0);
+      expect(r.retained_period).toBe(0);
+    });
+
+    it('reconciles for every jurisdiction/VAT/QFZP combination', () => {
+      for (const company of [ukVatRegistered, ukNotVatRegistered, fzcoQualifying, fzcoNonQualifying, fzcoTbc]) {
+        const r = calculateRetainedReserves(7777.77, company);
+        expect(r.retained_period + r.vat_reserve_period + r.ct_reserve_period)
+          .toBeCloseTo(r.incoming_period_total, 6);
+      }
     });
   });
 });

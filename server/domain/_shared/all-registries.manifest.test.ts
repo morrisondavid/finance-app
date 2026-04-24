@@ -35,6 +35,8 @@ const NON_REGISTRY_DIRS = new Set<string>([
   'master-agreements',
   'payees',
   'warnings',
+  'working-days',
+  'templates',
 ]);
 
 /**
@@ -92,6 +94,7 @@ describe('canonical registries sweep', () => {
       'clients',
       'company',
       'contracts',
+      'leave',
       'merchants',
       'payroll',
       'people',

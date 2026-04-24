@@ -20,7 +20,7 @@ const base = {
   works_friday: true,
   works_saturday: false,
   works_sunday: false,
-  day_rate: 600,
+  day_rate: 550,
   day_rate_currency: 'GBP' as const,
   invoice_currency: 'GBP' as const,
   invoice_cadence: 'monthly' as const,

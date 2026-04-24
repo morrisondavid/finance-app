@@ -13,6 +13,7 @@ import { initAdHocExpenses, loadAdHocExpenses } from './modules/ad-hoc-expenses'
 import { initBudgetSheet, loadBudgetSheet } from './modules/budget-sheet';
 import { initObligations, loadObligations } from './modules/obligations';
 import { initDeadlines, loadDeadlines } from './modules/deadlines';
+import { initContracts, loadContracts } from './modules/contracts';
 import { initDebt, loadDebt } from './modules/debt';
 import { initWarnings, loadWarnings } from './modules/warnings';
 import { initRecurring } from './modules/recurring';
@@ -68,6 +69,8 @@ function initializeTabNavigation(): void {
         void loadObligations();
       } else if (target === 'deadlines') {
         void loadDeadlines();
+      } else if (target === 'contracts') {
+        void loadContracts();
       } else if (target === 'debt') {
         void loadDebt();
       } else if (target === 'warnings') {
@@ -96,6 +99,7 @@ async function initializeApp(): Promise<void> {
   initBudgetSheet();
   initObligations();
   initDeadlines();
+  initContracts();
   initDebt();
   initWarnings();
   initStatements();

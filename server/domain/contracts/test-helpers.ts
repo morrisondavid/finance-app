@@ -81,7 +81,7 @@ export const dcSowRow = rowFromHeaders({
   works_friday: 'true',
   works_saturday: 'false',
   works_sunday: 'false',
-  day_rate: '600',
+  day_rate: '550',
   day_rate_currency: 'GBP',
   invoice_currency: 'GBP',
   invoice_cadence: 'monthly',
@@ -116,7 +116,7 @@ export const lfContractRow = rowFromHeaders({
   works_friday: 'true',
   works_saturday: 'false',
   works_sunday: 'false',
-  day_rate: '550',
+  day_rate: '500',
   day_rate_currency: 'GBP',
   invoice_currency: 'GBP',
   invoice_cadence: 'weekly',
@@ -148,6 +148,48 @@ export const lfExtensionRow = rowFromHeaders({
   start_date: '2026-04-01',
   end_date: '2026-06-30',
   signed_at: '2026-03-15',
+});
+
+/**
+ * La Fosse engagement paid through the FZCO — same client as
+ * {@link lfContractRow} but `issuing_entity_id` flips to UAE, which
+ * means the (client_id, issuing_entity_id) pair is a fresh series in
+ * `byClientAndEntity`, not a positional renewal of the UK Ltd row.
+ *
+ * UK-only fields (`conduct_regs`, `engagement_tax_status`) are empty
+ * because the registry's UK-only-field gate rejects them on a non-UK
+ * issuer.
+ */
+export const lfFzcoContractRow = rowFromHeaders({
+  id: 'lf-2026-apr',
+  client_id: 'la-fosse',
+  issuing_entity_id: 'autonize-it-fzco',
+  master_id: '',
+  reference: 'LAF-TEG-002',
+  start_date: '2026-03-02',
+  end_date: '2026-04-30',
+  works_monday: 'true',
+  works_tuesday: 'true',
+  works_wednesday: 'true',
+  works_thursday: 'true',
+  works_friday: 'true',
+  works_saturday: 'false',
+  works_sunday: 'false',
+  day_rate: '500',
+  day_rate_currency: 'GBP',
+  invoice_currency: 'GBP',
+  invoice_cadence: 'weekly',
+  invoice_mechanism: 'self-bill',
+  payment_terms_days: '30',
+  company_notice_weeks: '2',
+  supplier_notice_weeks: '2',
+  renewal_warning_days: '30',
+  job_title: 'Full Stack Engineer',
+  work_location: 'Remote with occasional office visits',
+  jurisdiction: 'England',
+  signed_at: '2026-04-02',
+  active: 'true',
+  updated_at: '2026-04-24',
 });
 
 export const dcSowInactiveRow = rowFromHeaders({

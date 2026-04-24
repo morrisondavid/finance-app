@@ -78,24 +78,28 @@ describe('listActiveClients', () => {
 });
 
 describe('resolveTemplatePath', () => {
-  it('derives leave template path by convention', () => {
-    expect(resolveTemplatePath('delta-capita', 'leave')).toBe(
-      'clients/templates/delta-capita/leave.md',
-    );
+  it('returns per-client override path first, shared default second', () => {
+    expect(resolveTemplatePath('delta-capita', 'leave')).toEqual([
+      'clients/templates/delta-capita/leave.hbs',
+      'clients/templates/leave.hbs',
+    ]);
   });
 
-  it('derives renewal template path by convention', () => {
-    expect(resolveTemplatePath('la-fosse', 'renewal')).toBe(
-      'clients/templates/la-fosse/renewal.md',
-    );
+  it('derives renewal paths with the same structure', () => {
+    expect(resolveTemplatePath('la-fosse', 'renewal')).toEqual([
+      'clients/templates/la-fosse/renewal.hbs',
+      'clients/templates/renewal.hbs',
+    ]);
   });
 
   it('does not differentiate by client kind — convention is uniform', () => {
-    expect(resolveTemplatePath('delta-capita', 'invoice-cover')).toBe(
-      'clients/templates/delta-capita/invoice-cover.md',
-    );
-    expect(resolveTemplatePath('la-fosse', 'invoice-cover')).toBe(
-      'clients/templates/la-fosse/invoice-cover.md',
-    );
+    expect(resolveTemplatePath('delta-capita', 'invoice-cover')).toEqual([
+      'clients/templates/delta-capita/invoice-cover.hbs',
+      'clients/templates/invoice-cover.hbs',
+    ]);
+    expect(resolveTemplatePath('la-fosse', 'invoice-cover')).toEqual([
+      'clients/templates/la-fosse/invoice-cover.hbs',
+      'clients/templates/invoice-cover.hbs',
+    ]);
   });
 });

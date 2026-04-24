@@ -74,3 +74,37 @@ export function todayIsoLocal(now: Date = new Date()): string {
   const day = String(now.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
+
+/**
+ * Inclusive Monday..Sunday range containing the given ISO date. Uses ISO
+ * 8601 week semantics (week starts Monday). Both endpoints are returned
+ * as ISO `YYYY-MM-DD` strings.
+ *
+ * Example: `isoWeekRange('2026-01-01')` (a Thursday) returns
+ * `{ start: '2025-12-29', end: '2026-01-04' }`.
+ */
+export function isoWeekRange(iso: string): { start: string; end: string } {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  // getUTCDay: 0=Sun..6=Sat. ISO weeks start on Monday, so shift to Mon=0.
+  const daysSinceMonday = (dt.getUTCDay() + 6) % 7;
+  const start = shiftIsoDate(iso, -daysSinceMonday);
+  const end = shiftIsoDate(start, 6);
+  return { start, end };
+}
+
+/**
+ * Inclusive first..last range of the calendar month containing the given
+ * ISO date. Handles leap years and variable month lengths.
+ *
+ * Example: `monthRange('2024-02-15')` returns
+ * `{ start: '2024-02-01', end: '2024-02-29' }`.
+ */
+export function monthRange(iso: string): { start: string; end: string } {
+  const [y, m] = iso.split('-').map(Number);
+  const start = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-01`;
+  // Day 0 of the next month == last day of this month (pure UTC arithmetic).
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const end = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  return { start, end };
+}

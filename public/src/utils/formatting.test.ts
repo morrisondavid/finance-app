@@ -7,7 +7,15 @@ import {
   formatMonthYear,
   formatQuarterName,
   formatIsoDateUk,
-} from './formatting';
+  formatIsoDateUkLong,
+} from './formatting.js';
+import * as sharedFormatting from '../../../shared/formatting.js';
+
+// Tests for `formatCurrency`, `currencySymbol`, `formatMonthYear`,
+// `formatIsoDateUk`, and `formatIsoDateUkLong` live in
+// `shared/formatting.test.ts` — those helpers have been lifted to the
+// shared module. The shim identity tests below ensure the re-exports in
+// this file do not silently diverge from the shared originals.
 
 describe('round2', () => {
   it('rounds to two decimal places for typical fractional values', () => {
@@ -30,62 +38,18 @@ describe('round2', () => {
 
   it('handles large magnitudes', () => {
     expect(round2(1_234_567.896)).toBe(1_234_567.9);
-    // IEEE-754: -99_999_999.995 * 100 is not exactly half, so rounding stays just below -100M
     expect(round2(-99_999_999.995)).toBe(-99_999_999.99);
     expect(round2(-1_234_567.891)).toBe(-1_234_567.89);
   });
 
   it('applies Math.round at the scaled hundredths boundary (asymmetric for ±0.125)', () => {
-    // Positive half rounds up; negative half rounds toward +∞ per ECMA-262 (e.g. -12.5 → -12)
     expect(round2(0.125)).toBe(0.13);
     expect(round2(-0.125)).toBe(-0.12);
   });
 
   it('documents floating-point limits around binary representation (not true bank rounding)', () => {
-    // 1.005 * 100 is not exactly 100.5 in IEEE-754; result follows multiply-then-round
     expect(round2(1.005)).toBe(1);
     expect(round2(2.675)).toBe(2.68);
-  });
-});
-
-describe('formatCurrency', () => {
-  it('formats positive amounts as en-GB GBP', () => {
-    expect(formatCurrency(0)).toBe('£0.00');
-    expect(formatCurrency(1)).toBe('£1.00');
-    expect(formatCurrency(1234.56)).toBe('£1,234.56');
-  });
-
-  it('formats negative amounts with a leading minus before the symbol', () => {
-    expect(formatCurrency(-1)).toBe('-£1.00');
-    expect(formatCurrency(-1234.56)).toBe('-£1,234.56');
-  });
-
-  it('formats large values with grouping separators', () => {
-    expect(formatCurrency(1_000_000.01)).toBe('£1,000,000.01');
-  });
-
-  it('formats AED amounts when currency is AED', () => {
-    const result = formatCurrency(4200, 'AED');
-    expect(result).toContain('4,200');
-    expect(result).toContain('AED');
-  });
-
-  it('defaults to GBP when no currency is specified', () => {
-    expect(formatCurrency(100)).toBe('£100.00');
-  });
-});
-
-describe('currencySymbol', () => {
-  it('returns £ for GBP', () => {
-    expect(currencySymbol('GBP')).toBe('£');
-  });
-
-  it('returns AED for AED', () => {
-    expect(currencySymbol('AED')).toBe('AED');
-  });
-
-  it('defaults to £ when no argument is provided', () => {
-    expect(currencySymbol()).toBe('£');
   });
 });
 
@@ -98,22 +62,6 @@ describe('formatAccountName', () => {
 
   it('handles single-segment names', () => {
     expect(formatAccountName('savings')).toBe('Savings');
-  });
-});
-
-describe('formatMonthYear', () => {
-  it('maps YYYY-MM to short month and year', () => {
-    expect(formatMonthYear('2024-11')).toBe('Nov 2024');
-    expect(formatMonthYear('2025-03')).toBe('Mar 2025');
-  });
-
-  it('handles January and December', () => {
-    expect(formatMonthYear('2024-01')).toBe('Jan 2024');
-    expect(formatMonthYear('2026-12')).toBe('Dec 2026');
-  });
-
-  it('handles months with single-digit string parts', () => {
-    expect(formatMonthYear('2024-06')).toBe('Jun 2024');
   });
 });
 
@@ -138,14 +86,12 @@ describe('formatQuarterName', () => {
   });
 });
 
-describe('formatIsoDateUk', () => {
-  it('formats YYYY-MM-DD as en-GB day-first', () => {
-    expect(formatIsoDateUk('2025-03-07')).toMatch(/7\/3\/2025|07\/03\/2025/);
-  });
-
-  it('returns the input unchanged when not a plain ISO date or calendar-invalid', () => {
-    expect(formatIsoDateUk('')).toBe('');
-    expect(formatIsoDateUk('2025-02-30')).toBe('2025-02-30');
-    expect(formatIsoDateUk('n/a')).toBe('n/a');
+describe('shared re-export shim', () => {
+  it('re-exports currency + date helpers that reference-equal the shared originals', () => {
+    expect(formatCurrency).toBe(sharedFormatting.formatCurrency);
+    expect(currencySymbol).toBe(sharedFormatting.currencySymbol);
+    expect(formatMonthYear).toBe(sharedFormatting.formatMonthYear);
+    expect(formatIsoDateUk).toBe(sharedFormatting.formatIsoDateUk);
+    expect(formatIsoDateUkLong).toBe(sharedFormatting.formatIsoDateUkLong);
   });
 });

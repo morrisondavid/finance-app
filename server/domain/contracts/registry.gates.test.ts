@@ -18,6 +18,7 @@ import {
   dcSowRow,
   lfContractRow,
   lfExtensionRow,
+  lfFzcoContractRow,
   dcSowInactiveRow,
   rowFromHeaders,
 } from './test-helpers.js';
@@ -163,6 +164,23 @@ describe('contracts registry gates', () => {
       const reg = buildWithStubs(tmpDir);
       const series = reg.indexes.byClientAndEntity.get('la-fosse|autonize-it-ltd') ?? [];
       expect(series.map(c => c.id)).toEqual(['lf-2026-mar', 'lf-extension-1']);
+    });
+
+    it('splits one client across two issuing entities into two distinct series keys', () => {
+      // La Fosse flips from UK Ltd to FZCO at 2026-03-02 (see contracts.csv).
+      // Each entity is its own series — not a positional renewal — so
+      // byClientAndEntity has two keys even though the client_id matches.
+      seedCsv(tmpDir, [lfContractRow, lfFzcoContractRow]);
+      const reg = buildWithStubs(tmpDir);
+      const ukSeries = reg.indexes.byClientAndEntity.get('la-fosse|autonize-it-ltd');
+      const fzcoSeries = reg.indexes.byClientAndEntity.get('la-fosse|autonize-it-fzco');
+      expect(ukSeries?.map(c => c.id)).toEqual(['lf-2026-mar']);
+      expect(fzcoSeries?.map(c => c.id)).toEqual(['lf-2026-apr']);
+      // byClient still groups them together (client-level view):
+      expect(reg.indexes.byClient.get('la-fosse')?.map(c => c.id)).toEqual([
+        'lf-2026-mar',
+        'lf-2026-apr',
+      ]);
     });
   });
 

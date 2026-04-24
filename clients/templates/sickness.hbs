@@ -1,0 +1,13 @@
+---
+subject: Off sick today — {{leave.range_label}}
+---
+Hi {{recipient_name}},
+
+Just a quick note — I'm not well and won't be working on:
+
+{{#each leave.dates}}  - {{this}}
+{{/each}}
+I'll let you know as soon as I'm back at my desk.
+
+Best,
+{{consultant.name}}

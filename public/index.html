@@ -20,6 +20,7 @@
       <button class="tab" data-tab="budget">Budget</button>
       <button class="tab" data-tab="obligations">Obligations</button>
       <button class="tab" data-tab="deadlines">Deadlines</button>
+      <button class="tab" data-tab="contracts">Contracts</button>
       <button class="tab" data-tab="debt">Debt</button>
       <button class="tab" data-tab="warnings">Warnings</button>
       <button class="tab" data-tab="statements">Statements</button>
@@ -612,6 +613,115 @@
             <div class="modal-footer">
               <button type="button" class="btn" id="deadlines-modal-cancel">Cancel</button>
               <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- Contracts Tab -->
+    <section id="contracts" class="tab-content">
+      <div class="contracts-header">
+        <div>
+          <h2 class="contracts-title">Contracts</h2>
+          <p class="contracts-subtitle">Active engagements and period income accrual. Booking leave here only updates your ledger and projected income — emails aren't sent, the preview panel is a copy-paste aid for your own mail client.</p>
+        </div>
+        <div class="contracts-header-actions">
+          <button type="button" class="btn btn-primary" id="contracts-book-all-btn">Book Leave…</button>
+        </div>
+      </div>
+
+      <div id="contracts-aggregate-banner" class="contracts-aggregate"></div>
+
+      <div id="contracts-list"></div>
+
+      <div class="modal-overlay" id="contracts-agency-modal" style="display:none">
+        <div class="modal">
+          <div class="modal-header">
+            <h3 id="contracts-agency-modal-title">Agency</h3>
+            <button type="button" class="modal-close" id="contracts-agency-modal-close">&times;</button>
+          </div>
+          <div class="modal-body" id="contracts-agency-modal-body"></div>
+        </div>
+      </div>
+
+      <div class="modal-overlay" id="contracts-renew-modal" style="display:none">
+        <div class="modal modal--wide">
+          <div class="modal-header">
+            <h3 id="contracts-renew-modal-title">Renew contract</h3>
+            <button type="button" class="modal-close" id="contracts-renew-modal-close">&times;</button>
+          </div>
+          <form id="contracts-renew-form" class="modal-body contracts-modal-body">
+            <p class="contracts-modal-hint">Renewal isn't fully wired up yet — submitting will validate your input server-side and return a placeholder response. Once the flow is finished this form will create a new contract row and supersede the current one.</p>
+            <fieldset class="contracts-fieldset">
+              <legend>Dates</legend>
+              <div class="contracts-form-grid">
+                <label>Start date
+                  <input name="startDate" type="date" required />
+                </label>
+                <label>End date
+                  <input name="endDate" type="date" required />
+                </label>
+                <label>Day rate
+                  <input name="dayRate" type="number" min="0" step="1" placeholder="Optional — carries over if blank" />
+                </label>
+              </div>
+            </fieldset>
+            <fieldset class="contracts-fieldset">
+              <legend>Signed contract PDF</legend>
+              <label class="contracts-full-width">Attach PDF
+                <input name="contractFile" type="file" accept="application/pdf" />
+              </label>
+              <p class="contracts-modal-sub">File handling is a stub — the PDF will be retained for the next shipment that writes it to <code>clients/contracts/</code>.</p>
+            </fieldset>
+            <div class="modal-footer">
+              <button type="button" class="btn" id="contracts-renew-modal-cancel">Cancel</button>
+              <button type="submit" class="btn btn-primary">Submit renewal</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="modal-overlay" id="contracts-leave-modal" style="display:none">
+        <div class="modal modal--wide">
+          <div class="modal-header">
+            <h3 id="contracts-leave-modal-title">Book Leave</h3>
+            <button type="button" class="modal-close" id="contracts-leave-modal-close">&times;</button>
+          </div>
+          <form id="contracts-leave-form" class="modal-body contracts-modal-body">
+            <p class="contracts-modal-hint">Records leave locally against the selected contracts so projections reflect it. Emails aren't sent — use <strong>Copy email</strong> to paste into your own client.</p>
+
+            <fieldset class="contracts-fieldset">
+              <legend>Contracts</legend>
+              <div id="contracts-leave-scope" class="contracts-scope"></div>
+            </fieldset>
+
+            <fieldset class="contracts-fieldset">
+              <legend>Dates</legend>
+              <div class="contracts-form-grid">
+                <label>Start date
+                  <input name="startDate" type="date" required />
+                </label>
+                <label>End date
+                  <input name="endDate" type="date" required />
+                </label>
+                <label>Type
+                  <select name="type" required>
+                    <option value="holiday" selected>Holiday</option>
+                    <option value="sick">Sick</option>
+                  </select>
+                </label>
+              </div>
+              <label class="contracts-full-width">Notes
+                <textarea name="notes" rows="2" placeholder="Optional — for your own records"></textarea>
+              </label>
+            </fieldset>
+
+            <div id="contracts-leave-previews" class="contracts-previews"></div>
+
+            <div class="modal-footer">
+              <button type="button" class="btn" id="contracts-leave-modal-cancel">Cancel</button>
+              <button type="submit" class="btn btn-primary">Book Leave</button>
             </div>
           </form>
         </div>

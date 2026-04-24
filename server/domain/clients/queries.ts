@@ -48,20 +48,30 @@ export function listActiveClients(
 }
 
 /**
- * Resolve the on-disk path for a template file by convention.
+ * Resolve the on-disk paths a renderer should try for a given template,
+ * in preference order. Returns two candidates:
  *
- * The convention is `clients/templates/{client_id}/{kind}.md`. Every
- * template kind resolves to the same shape regardless of `client.kind`;
- * whether a particular template is meaningful for a direct vs agency
- * client is a routing concern handled in Phase B, not here.
+ * 1. `clients/templates/{client_id}/{kind}.hbs` — per-client override.
+ * 2. `clients/templates/{kind}.hbs` — shared default used by every
+ *    client when no override is committed.
+ *
+ * The shared default is the primary file in this shipment (per §1.2.B
+ * — DC and La Fosse share the same body; client-specific data flows
+ * through `{{client.*}}` context variables). Overrides are supported
+ * by the resolver but none are committed yet — we add them only when
+ * a genuine tone divergence appears.
  *
  * This function is pure: no filesystem access, no registry access. The
- * returned path is relative to the repository root. Callers that need
- * to actually read the file prefix an absolute root.
+ * returned paths are relative to the repository root. Callers that
+ * need to actually read the file prefix an absolute root and pick the
+ * first candidate that exists.
  */
 export function resolveTemplatePath(
   clientId: ClientId,
   kind: TemplateKind,
-): string {
-  return `clients/templates/${clientId}/${kind}.md`;
+): readonly [overridePath: string, sharedPath: string] {
+  return [
+    `clients/templates/${clientId}/${kind}.hbs`,
+    `clients/templates/${kind}.hbs`,
+  ] as const;
 }

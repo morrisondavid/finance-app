@@ -22,6 +22,7 @@ import {
   dcSowRow,
   lfContractRow,
   lfExtensionRow,
+  lfFzcoContractRow,
   dcSowInactiveRow,
 } from './test-helpers.js';
 
@@ -142,6 +143,54 @@ describe('findContractForTransaction', () => {
       full,
     );
     expect(c).toBeNull();
+  });
+
+  describe('same client split across two issuing entities', () => {
+    // Same client_id 'la-fosse' on both rows; the UK Ltd row covers
+    // 2026-01-06 → 2026-03-01 (ended/superseded), the FZCO row picks
+    // up 2026-03-02 → 2026-04-30. entityId must be the discriminator,
+    // not date alone.
+    const splitReg = makeTestContractRegistry({
+      contracts: [
+        parseContractRow({ ...lfContractRow, end_date: '2026-03-01', active: 'false' }),
+        parseContractRow(lfFzcoContractRow),
+      ],
+      clients,
+      companies,
+      masters,
+    });
+
+    it('matches the UK Ltd row for a UK Ltd transaction inside its window', () => {
+      const c = findContractForTransaction(
+        { clientId: 'la-fosse', issuingEntityId: 'autonize-it-ltd', date: '2026-02-15' },
+        splitReg,
+      );
+      expect(c?.id).toBe('lf-2026-mar');
+    });
+
+    it('matches the FZCO row for a FZCO transaction inside its window', () => {
+      const c = findContractForTransaction(
+        { clientId: 'la-fosse', issuingEntityId: 'autonize-it-fzco', date: '2026-04-15' },
+        splitReg,
+      );
+      expect(c?.id).toBe('lf-2026-apr');
+    });
+
+    it('never crosses entities — FZCO query on a UK Ltd-era date returns null', () => {
+      const c = findContractForTransaction(
+        { clientId: 'la-fosse', issuingEntityId: 'autonize-it-fzco', date: '2026-02-15' },
+        splitReg,
+      );
+      expect(c).toBeNull();
+    });
+
+    it('never crosses entities — UK Ltd query on a FZCO-era date returns null', () => {
+      const c = findContractForTransaction(
+        { clientId: 'la-fosse', issuingEntityId: 'autonize-it-ltd', date: '2026-04-15' },
+        splitReg,
+      );
+      expect(c).toBeNull();
+    });
   });
 
   it('distinguishes across fixtures (purity)', () => {

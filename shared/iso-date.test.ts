@@ -6,6 +6,8 @@ import {
   daysUntil,
   daysLabel,
   todayIsoLocal,
+  isoWeekRange,
+  monthRange,
 } from './iso-date.js';
 
 describe('toIsoDate', () => {
@@ -120,5 +122,64 @@ describe('todayIsoLocal', () => {
   it('does not roll over after 00:00 UTC on late-evening UK dates', () => {
     const ukLateEvening = new Date(2026, 3, 21, 23, 45, 0);
     expect(todayIsoLocal(ukLateEvening)).toBe('2026-04-21');
+  });
+});
+
+describe('isoWeekRange', () => {
+  it('returns Monday..Sunday for a mid-week day', () => {
+    // 2026-04-22 is a Wednesday
+    expect(isoWeekRange('2026-04-22')).toEqual({ start: '2026-04-20', end: '2026-04-26' });
+  });
+
+  it('returns the same week when called on its Monday', () => {
+    expect(isoWeekRange('2026-04-20')).toEqual({ start: '2026-04-20', end: '2026-04-26' });
+  });
+
+  it('returns the same week when called on its Sunday', () => {
+    expect(isoWeekRange('2026-04-26')).toEqual({ start: '2026-04-20', end: '2026-04-26' });
+  });
+
+  it('spans the year boundary correctly (2026-01-01 is a Thursday)', () => {
+    expect(isoWeekRange('2026-01-01')).toEqual({ start: '2025-12-29', end: '2026-01-04' });
+  });
+
+  it('handles a Monday at the start of the year', () => {
+    // 2024-01-01 is a Monday
+    expect(isoWeekRange('2024-01-01')).toEqual({ start: '2024-01-01', end: '2024-01-07' });
+  });
+
+  it('is DST-safe across the UK spring-forward boundary (2026-03-29 is a Sunday)', () => {
+    expect(isoWeekRange('2026-03-29')).toEqual({ start: '2026-03-23', end: '2026-03-29' });
+    expect(isoWeekRange('2026-03-30')).toEqual({ start: '2026-03-30', end: '2026-04-05' });
+  });
+});
+
+describe('monthRange', () => {
+  it('returns first..last day of a 31-day month', () => {
+    expect(monthRange('2026-01-15')).toEqual({ start: '2026-01-01', end: '2026-01-31' });
+  });
+
+  it('returns first..last day of a 30-day month', () => {
+    expect(monthRange('2026-04-15')).toEqual({ start: '2026-04-01', end: '2026-04-30' });
+  });
+
+  it('handles February in a non-leap year (28 days)', () => {
+    expect(monthRange('2025-02-10')).toEqual({ start: '2025-02-01', end: '2025-02-28' });
+  });
+
+  it('handles February in a leap year (29 days)', () => {
+    expect(monthRange('2024-02-10')).toEqual({ start: '2024-02-01', end: '2024-02-29' });
+  });
+
+  it('returns the same range when called on the first day', () => {
+    expect(monthRange('2026-07-01')).toEqual({ start: '2026-07-01', end: '2026-07-31' });
+  });
+
+  it('returns the same range when called on the last day', () => {
+    expect(monthRange('2026-07-31')).toEqual({ start: '2026-07-01', end: '2026-07-31' });
+  });
+
+  it('handles December (year boundary does not affect range)', () => {
+    expect(monthRange('2026-12-15')).toEqual({ start: '2026-12-01', end: '2026-12-31' });
   });
 });

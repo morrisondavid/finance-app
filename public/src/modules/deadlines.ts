@@ -21,7 +21,7 @@ import listPlugin from '@fullcalendar/list';
 import interactionPlugin from '@fullcalendar/interaction';
 import multiMonthPlugin from '@fullcalendar/multimonth';
 
-import { escapeHtml } from '../utils/dom';
+import { escapeHtml, openModal, closeModal as closeModalEl } from '../utils/dom';
 import { formatIsoDateUkLong } from '../utils/formatting';
 import {
   daysUntil,
@@ -339,22 +339,20 @@ export async function loadDeadlines(): Promise<void> {
 
 function openCreateModal(): void {
   editingId = null;
-  const modal = document.getElementById('deadlines-modal');
   const form = document.getElementById('deadlines-form') as HTMLFormElement | null;
   const title = document.getElementById('deadlines-modal-title');
-  if (!modal || !form || !title) return;
+  if (!form || !title) return;
   title.textContent = 'Add deadline';
   form.reset();
   (form.elements.namedItem('dueDate') as HTMLInputElement).value = todayIsoLocal();
-  modal.style.display = 'flex';
+  openModal('deadlines-modal');
 }
 
 function openEditModal(d: Deadline): void {
   editingId = d.id;
-  const modal = document.getElementById('deadlines-modal');
   const form = document.getElementById('deadlines-form') as HTMLFormElement | null;
   const title = document.getElementById('deadlines-modal-title');
-  if (!modal || !form || !title) return;
+  if (!form || !title) return;
   title.textContent = 'Edit deadline';
   (form.elements.namedItem('title') as HTMLInputElement).value = d.title;
   (form.elements.namedItem('dueDate') as HTMLInputElement).value = d.dueDate;
@@ -362,12 +360,11 @@ function openEditModal(d: Deadline): void {
   (form.elements.namedItem('recurrence') as HTMLSelectElement).value = d.recurrence;
   (form.elements.namedItem('url') as HTMLInputElement).value = d.url ?? '';
   (form.elements.namedItem('notes') as HTMLTextAreaElement).value = d.notes ?? '';
-  modal.style.display = 'flex';
+  openModal('deadlines-modal');
 }
 
 function closeModal(): void {
-  const modal = document.getElementById('deadlines-modal');
-  if (modal) modal.style.display = 'none';
+  closeModalEl('deadlines-modal');
   editingId = null;
 }
 

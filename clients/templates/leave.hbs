@@ -1,0 +1,13 @@
+---
+subject: Planned leave — {{leave.range_label}}
+---
+Hi {{recipient_name}},
+
+Quick heads-up — I'll be out on the following day(s):
+
+{{#each leave.dates}}  - {{this}}
+{{/each}}
+I'll be back at my desk on the next working day.
+
+Best,
+{{consultant.name}}

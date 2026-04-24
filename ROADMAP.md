@@ -4,42 +4,27 @@
 >
 > Everything below is organized around one principle: closing the gap between "I can see what happened" and "nothing can surprise me."
 >
-> **What's shipped (Tier 0):** the obligations registry, HMRC auto-seeders (VAT, CT, SA, HMRC TTP), budgets, recurring detection, overdue hero, missed-obligation detector (annual / one-off non-tax items with Mark Paid + auto-match), multi-currency / FX foundations (GBP + AED), and the Deadlines tab + calendar view with ICS export.
+> **What's shipped (Tier 0):** obligations registry, HMRC auto-seeders (VAT / CT / SA / TTP), budgets, recurring detection, overdue hero, missed-obligation detector, multi-currency foundations (GBP + AED), and the Deadlines tab + calendar + ICS export.
 >
-> **What's shipped (Tier 1 so far):** the **Multi-Entity Foundation (1.1)** — UK Ltd and UAE FZCO are first-class entities across config, query, and warning surfaces; every `ACCOUNT_CONFIG` row (including the new `wise-ltd` intermediary) carries an `entityId`; jurisdiction-scoped tax rules live in `tax-rules.ts`; the entity-foundation warnings endpoint ships six branches (TBC fields, FZCO CT status, UAE VAT thresholds, IFZA renewal, inter-company classification); the Warnings tab lets you classify every UK ↔ UAE movement (loan / capital / service fee) with description-based false-positive suppression; and the IFZA license renewal is on the deadlines + ICS feed.
+> **What's shipped (Tier 1):** the **Multi-Entity Foundation (1.1)** — UK Ltd + UAE FZCO modelled end-to-end through `accounts` / `company` / `tax-rules.ts` with per-entity VAT / CT scoping, inter-company classification, and Wise as a first-class intermediary — and **Clients, Contracts & Renewals — Phase A (1.2.A)** — canonical `clients` / `contracts` registries with build-time FK joins and a `contract-renewal` deadline auto-seeder. Detail in the sections below.
 >
-> **What's left (Tier 1):** the business now spans two legally distinct entities — **Autonize IT Limited** (UK, operational since 2014) and **Autonize IT Software Development – FZCO** (UAE, operational from March 2026) — and most engagements are agency-mediated (La Fosse for the current Edwin Group work) while some are direct (Delta Capita), with some self-billed and others supplier-issued. With the multi-entity foundation now in place, the remaining Tier 1 work is the income-side layer that makes all of that legible to the forecast: a clients / contracts / renewals registry to anchor every income stream, an invoicing system that handles both outbound generation and inbound self-bill ingestion in whichever currency the contract specifies, a working-days ledger so income becomes continuously derivable, a real forecast on top of it, a ranked warnings surface, a debt-strategy advisor, and finally the agent / notification layer.
+> **What's left (Tier 1):** the business now spans two legally distinct entities — **Autonize IT Limited** (UK, operational since 2014) and **Autonize IT Software Development – FZCO** (UAE, operational from March 2026) — most engagements agency-mediated (La Fosse → Edwin) and some direct (Delta Capita), with both self-billed and supplier-issued mechanisms in play. Remaining Tier 1 work: **1.2.B** templates + recipient routing, **1.2.C** timeline-aware payment matcher, **1.2.D** Clients page UI, **1.2.E** Contracts tab (books leave against any / all active contracts, writes a minimum-viable leave ledger, surfaces per-contract period income accrual); then invoicing (outbound + self-bill), the full working-days ledger, cash-flow forecast, warnings engine, debt-strategy advisor, and the agent / notification layer.
 
 ---
 
 ## Tier 0 — Certainty Layer ("Nothing Can Surprise Me") ✅ COMPLETE
 
-Tier 0 is now fully shipped. The obligations registry (manual + HMRC
-auto-seeders for VAT / CT / SA / TTP), overdue hero, missed-obligation
-detector, and the Deadlines tab + calendar view are all live. The
-certainty layer is visible at a glance, and every tracked obligation or
-reminder is either surfaced on the Obligations tab, the Deadlines tab,
-or both via the unified `/api/deadlines/feed` endpoint.
-
 ### 0.1 Deadlines Tab + Calendar View ✅ SHIPPED
 
-- Dedicated **Deadlines tab** with a List view and a FullCalendar-based
-  **Calendar view**, toggleable per session.
-- Non-financial deadlines modelled in their own `deadlines/deadlines.csv`
-  with CRUD at `/api/deadlines` (create, update, delete, mark done,
-  reopen).
-- Unified feed at `/api/deadlines/feed` merges non-financial deadlines
-  with financial obligations so one list + one calendar show
-  everything — driven by a single pure `buildDeadlineFeed()` function
-  that both the feed endpoint and the ICS exporter consume.
-- **ICS subscription** at `/api/deadlines.ics` for Google Calendar /
-  Apple Calendar with stable UIDs and a `SEQUENCE` derived from
-  `updatedAt` so edits propagate to subscribers instead of
-  de-duplicating.
-- Companies House confirmation statement seeded in
-  `deadlines/deadlines.csv` as the canonical non-financial example.
-- Regression-locked with 53 tests across CSV I/O, repository, feed
-  builder, ICS builder, and the full HTTP routes.
+- **Deadlines tab** with List + FullCalendar Calendar views.
+- Non-financial deadlines in `deadlines/deadlines.csv`; CRUD at
+  `/api/deadlines`.
+- Unified `/api/deadlines/feed` merges non-financial deadlines with
+  financial obligations via a pure `buildDeadlineFeed()` reused by
+  the feed endpoint and the ICS exporter.
+- **ICS subscription** at `/api/deadlines.ics` with stable UIDs and
+  a `SEQUENCE` derived from `updatedAt` so edits propagate to
+  subscribers.
 
 ---
 
@@ -47,33 +32,25 @@ or both via the unified `/api/deadlines/feed` endpoint.
 
 ### 1.1 Multi-Entity Foundation ✅ SHIPPED
 
-- `autonize-it/company.csv` is the canonical entity registry with UK
-  Ltd + UAE FZCO rows fully populated; every `ACCOUNT_CONFIG` entry
-  carries an `entityId` (including the new `wise-ltd` intermediary);
-  `emirates-islamic` is modelled as a `current` account.
-- `server/config/tax-rules.ts` centralises UK VAT / CT / SA parameters
-  alongside the UAE thresholds (`UAE_VAT_VOLUNTARY_AED = 187_500`,
-  `UAE_VAT_MANDATORY_AED = 375_000`, `UAE_CT_SMALL_BUSINESS_AED =
-  375_000`). `buildAccountInFilter` drives every VAT / CT SQL query
+- **Entity registry** at `autonize-it/company.csv` (UK Ltd + UAE
+  FZCO). Every account carries an `entityId` including the
+  `wise-ltd` intermediary.
+- **Jurisdiction-scoped tax rules** at `server/config/tax-rules.ts`
+  cover UK VAT / CT / SA + UAE VAT / CT thresholds. Every VAT / CT
+  SQL query routes through `buildAccountInFilter(accounts)` driven
   off the `accounts` registry's `vatApplicable(ByEntity)` /
   `corpTaxApplicable(ByEntity)` indexes.
-- Cross-entity business-to-business transfers flow through the
-  inter-company pair-finder rather than netting out, with
-  `INTER_COMPANY_EXCLUSION_PATTERNS` (DIVIDENDS / SALARY / PAYE / HMRC
-  / VAT RETURN / CORPORATION TAX) suppressing description-based false
-  positives.
-- Wise ships as first-class account `wise-ltd` with its own CSV
-  parser; `detectTransfers()` auto-pairs the Barclays → Wise leg, so
-  Wise → Emirates Islamic is the primary cross-entity candidate.
-- `/api/warnings/entity-foundation` exposes six regression-locked
-  branches (residual `TBC` fields, FZCO CT status unknown, UAE VAT
-  voluntary / mandatory thresholds, IFZA license renewal window,
-  aggregate inter-company unclassified count). The Warnings tab UI
-  classifies each pair (loan / capital / service fee) via
+- **Inter-company pair-finder** handles cross-entity transfers
+  (Barclays ↔ Wise ↔ Emirates Islamic) instead of netting them out,
+  with `INTER_COMPANY_EXCLUSION_PATTERNS` suppressing
+  description-based false positives. Classifications
+  (loan / capital / service fee) live in
   `autonize-it/transaction-category-overrides.csv`.
-- IFZA license renewal seeded in `deadlines/deadlines.csv` (annual,
-  2025-11-04 anniversary) so it surfaces on the list, calendar, and
-  ICS feed in addition to the warning branch.
+- **`/api/warnings/entity-foundation`** emits six branches (TBC
+  fields, FZCO CT status, UAE VAT thresholds × 2, IFZA renewal
+  window, unclassified inter-company count).
+- **IFZA license renewal** seeded in `deadlines/deadlines.csv` and
+  on the unified feed + ICS.
 
 ### 1.2 Clients, Contracts & Renewals
 
@@ -91,76 +68,36 @@ Fosse → Edwin); some are **direct** (no agency, client pays
 directly, e.g. Delta Capita). The schema serves both without forcing
 one into the shape of the other.
 
-Ships in four phases: **A — Foundation** (registries + renewal
+Ships in five phases: **A — Foundation** (registries + renewal
 deadlines) SHIPPED; **B — Templates**, **C — Payment Matcher
-timeline**, and **D — UI** remain.
+timeline**, **D — Clients page UI**, and **E — Contracts tab +
+minimum-viable leave writer + period-scoped income accrual**
+remain.
 
 #### 1.2.A Foundation: registries + renewal deadlines ✅ SHIPPED
 
-The three data-model pieces that everything downstream hangs off:
+Four shipped artefacts:
 
 - **`clients` canonical registry** (`server/domain/clients/`) — Zod
-  discriminated union `DirectClientSchema | AgencyClientSchema` via
-  a single flat CSV. End-client fields are `null` for `kind =
-  direct` and required for `kind = agency`; the registry exposes
-  `byId`, `byKind`, and `active` indexes plus a pure
-  `resolveTemplatePath(clientId, kind)` convention helper.
+  discriminated union `DirectClientSchema | AgencyClientSchema`
+  backed by a flat CSV; indexes `byId` / `byKind` / `active` plus a
+  pure `resolveTemplatePath(clientId, kind)` helper.
 - **`master-agreements` minimal loader**
   (`server/domain/master-agreements/`) — read-only, memoized, no
-  indexes. Kept deliberately smaller than a full canonical registry
-  (not listed in the `all-registries.manifest` sweep); consumed
-  only by `contracts/registry.ts` at build time.
+  indexes; consumed only by `contracts/registry.ts` at build time.
 - **`contracts` canonical registry** (`server/domain/contracts/`) —
-  build-time FK join to `clients + company + master-agreements`.
-  Indexes: `byId`, `byClient`, `byClientAndEntity` (sorted by
-  `start_date` for positional reasoning), `byMaster`, `active`.
-  Queries: `findContractForTransaction(clientId, entityId, date)`
-  and an atomic `upsertContract` write path.
+  build-time FK join to `clients + company + master-agreements`;
+  indexes `byId` / `byClient` / `byClientAndEntity` (sorted by
+  `start_date`) / `byMaster` / `active`; queries
+  `findContractForTransaction(clientId, entityId, date)` and an
+  atomic `upsertContract` write path.
 - **Renewal deadline auto-seeder**
   (`server/domain/contracts/deadline-seeder.ts`) — for every active
-  contract with an `end_date`, seeds a deadline with `id =
+  contract with an `end_date`, seeds `id =
   contract-renewal-${contract.id}`, `type = 'contract-renewal'`,
-  `dueDate = end_date − renewal_warning_days`. Runs at server
-  startup; idempotent; user-completed rows are never reopened
-  (`upsertDeadline` in `server/db/repositories/deadlines.ts` short-
-  circuits when `completedDate !== null`). The new
-  `contract-renewal` value on `DeadlineTypeSchema` flows through
-  the existing `buildDeadlineFeed()` → list / calendar / ICS feed
-  with no rendering changes.
-
-**Schema cleanups applied during implementation** (versus the
-original draft in an earlier revision of this section):
-
-- `master` contracts were split out into `clients/master-
-  agreements.csv` rather than overloading `clients/contracts.csv`
-  with rows whose rate / invoice / working-pattern columns were all
-  `n/a`. Keeps `contracts.csv` dense and lets the master ↔ contract
-  relationship be enforced by FK.
-- The `type` column was dropped entirely. Earlier drafts tried
-  `master | sow | renewal | single`, then collapsed to
-  `sow | single | extension`, but every candidate value was either
-  redundant with `master_id` ("under a master?" → `master_id !==
-  null`) or derivable from the `byClientAndEntity` index ("is this
-  the next one?" → positional). An SOW issued to follow a prior
-  SOW is *also* an extension, so the partition wasn't clean — the
-  column was encoding two independent dimensions badly. The old
-  `extended_hire_end_date` column is replaced by a separate
-  follow-on contract row, which warning logic, deadlines, and
-  payment matching pick up for free.
-- Nullable fields replaced `n-a` magic strings. `conduct_regs` and
-  `engagement_tax_status` are `null` on non-UK-issued contracts;
-  the registry build enforces "these fields must be `null` when
-  `issuing_entity.jurisdiction !== 'UK'`" as an invariant.
-- `*_template_path` columns removed. Template files live at
-  `clients/templates/{client_id}/{kind}.md` by convention; the
-  resolver is a pure function of `(clientId, templateKind)`. One
-  fewer thing to keep in sync; no schema drift when templates are
-  added.
-- `TBC` is a first-class string value on nullable-or-TBC columns
-  (client contacts, VAT number, etc.). It survives CSV round-trip
-  byte-for-byte so the Warnings Engine (1.8) can distinguish
-  "unresolved" from `null` / "not applicable". Matches the pattern
-  already used by `autonize-it/company.csv`.
+  `dueDate = end_date − renewal_warning_days`. Idempotent;
+  user-completed rows are never reopened. Flows through the
+  existing `buildDeadlineFeed()` → list / calendar / ICS feed.
 
 **Shipped schemas**
 
@@ -213,68 +150,121 @@ jurisdiction, signed_at, docusign_envelope,
 active, updated_at
 ```
 
-**Seed data — committed with this feature**
-
-Two client rows (`delta-capita` direct, `la-fosse` agency → Edwin
-Group), one master-agreement row (`dc-master-2025`), two contract
-rows (`dc-sow-2026` under `dc-master-2025` running 2026-03-02 →
-2027-03-01; `lf-2026-mar` single-contract running 2026-01-06 →
-2026-03-31). All issued by `autonize-it-ltd` for this seed; FZCO
-contracts start at the planned March 2026 cutover and get added
-once the first FZCO engagement is signed.
-
-Running `syncContractRenewalDeadlines()` on first boot seeds two
-deadlines:
+**Seeded renewal deadlines** (produced on first boot by
+`syncContractRenewalDeadlines()`):
 
 - `contract-renewal-lf-2026-mar` due **2026-01-30** (60 days before
-  2026-03-31) — expected to appear red on the calendar on first run
-  of this feature, documented in release notes so it isn't
-  mistaken for a bug.
+  2026-03-31).
 - `contract-renewal-dc-sow-2026` due **2026-12-31** (60 days before
   2027-03-01).
 
-**Acceptance criteria — 1.2.A** (all met)
-
-- `clients`, `contracts`, and `master-agreements` modules pass
-  every gate / invariant / lifecycle / manifest test. Contracts
-  registry fails to build if any FK is dangling (client, issuing
-  entity, or master), if master.client_id disagrees with
-  contract.client_id, or if a non-UK issuer's contract sets
-  `conduct_regs` / `engagement_tax_status`.
-- `upsertDeadline` is idempotent and never clobbers a user-
-  completed deadline's `completedDate`. Regression-locked with
-  three dedicated cases in `deadlines.test.ts`.
-- The deadline-seeder integration test
-  (`server/domain/contracts/deadline-seeder.test.ts`) runs against
-  an in-memory SQLite DB with stub upstream registries, confirming
-  both the first-boot seed and the mark-done-then-re-seed
-  idempotence paths.
-
 #### 1.2.B Templates — remaining
 
-Rendering + recipient resolution on top of the shipped registries:
+Rendering + recipient resolution on top of the shipped registries.
+The near-term consumer is **1.2.E**'s leave-booking flow, so `leave`
+is the first template kind to land; `sickness`, `invoice-cover`, and
+`renewal` follow in the same module with identical signatures.
 
-- Markdown templates at `clients/templates/{client_id}/{kind}.md`
-  with `{{handlebars}}` interpolation (`{{client.legal_name}}`,
-  `{{end_client.legal_name}}`, `{{contract.start_date}}`,
-  `{{consultant.email}}`, leave-/sickness-specific dates, etc.).
-- Recipient resolution is a pure function of `(template_kind,
-  client.kind, contact fields)`:
+**File convention.** Handlebars-style template files at
+`clients/templates/{kind}.hbs` (shared across every client — one
+template per kind, diverged through `{{client.*}}` context
+variables rather than file copies). A per-client override at
+`clients/templates/{client_id}/{kind}.hbs` is supported by
+`resolveTemplatePath(clientId, kind)` but **no overrides are
+committed on first ship** (YAGNI — DC and La Fosse share body and
+diverge only through context). Kinds shipping in 1.2.B: `leave`,
+`sickness`, `invoice-cover`, `renewal`. `.hbs` extension (not
+`.md`) because the file is a template — the rendered output happens
+to be short plain-text bodies, but the source is machine-processed,
+not a human-authored document.
 
-  | Template | `kind = direct` (Delta Capita) | `kind = agency` (La Fosse / Edwin) |
-  |---|---|---|
-  | Leave / sickness / time-off notice | primary contact | **end-client contact** (agency silent) |
-  | Invoice cover note | primary contact | **end-client contact** |
-  | Renewal discussion | n/a — client handles direct | **agency primary contact** (end client not copied) |
-  | Timesheet submission | n/a (supplier-issues invoices) | **agency primary contact** |
+**Engine.** Minimal `{{handlebars}}`-style interpolation —
+`{{client.legal_name}}`, `{{contract.reference}}`,
+`{{leave.range_label}}`, `{{recipient_name}}`, plus `{{#each
+leave.dates}}` blocks for per-day bullet rendering and `{{#if
+path}}…{{/if}}` for truthy-field gating. No inverse `{{#else}}`, no
+nested helpers, no partials. Hand-rolled or a zero-dep micro-lib;
+template logic is explicitly out of scope (all branching happens in
+the recipient resolver and the context builder, not in the `.hbs`
+file).
 
-- Preview in the UI before send; actual delivery stays in 2.3
-  (Alert Queue delivery adaptors).
-- Acceptance tests: leave template for Delta Capita resolves to
-  Lily primary + Philip / Will / Dan on CC, La Fosse untouched;
-  leave template for La Fosse/Edwin resolves to Aidan only, La
-  Fosse excluded; renewal template on a `direct` client raises a
-  structured `DirectClientHasNoAgencyRenewalFlow` error.
+**Context schema.** Typed Zod schema at
+`server/domain/templates/schema.ts` so templates cannot silently
+drift from contract shape:
+
+```
+{
+  client,        -- full Client row (direct | agency discriminated)
+  contract,      -- full Contract row, joined to issuing entity
+  consultant,    -- { name, email } from company.csv
+  leave: {       -- populated only for kind = 'leave' | 'sickness'
+    dates: string[],             -- ISO, sorted, one entry per working day
+    range_label: string,         -- "Mon 4 May – Fri 8 May 2026" etc.
+    type: 'holiday' | 'sick',    -- personal-records only; never surfaced in body
+  } | null,
+  recipient_name,-- pre-resolved salutation name (direct primary / agency end-client primary)
+  today,         -- ISO date the render was kicked off
+}
+```
+
+**Rendering surface.** One pure function:
+
+```
+renderTemplate({ kind, client, contract, context })
+  → { subject, body, recipients: { to: string[], cc: string[] } }
+```
+
+No I/O side effects. File read is performed by the wrapper (or
+cached at module load); `renderTemplate` itself is a pure function
+of its inputs. Called by 1.2.E's preview path today, by 2.3's send
+adaptor later.
+
+**Recipient resolution.** Lifted into a named pure function
+`resolveRecipients(kind, client) → { to, cc }`. The existing matrix
+becomes the acceptance test:
+
+| Template | `kind = direct` (Delta Capita) | `kind = agency` (La Fosse / Edwin) |
+|---|---|---|
+| Leave / sickness / time-off notice | primary contact | **end-client contact** (agency silent) |
+| Invoice cover note | primary contact | **end-client contact** |
+| Renewal discussion | n/a — client handles direct | **agency primary contact** (end client not copied) |
+| Timesheet submission | n/a (supplier-issues invoices) | **agency primary contact** |
+
+`client.cc_emails` (comma-separated) is appended verbatim to `cc`
+in every case; `client.hr_contact_email` /
+`client.accounts_contact_email` only route when the template kind
+calls for them.
+
+**Structured errors.** Every failure mode is a named error type,
+not a string:
+
+- `DirectClientHasNoAgencyRenewalFlow` — raised when a `renewal`
+  template is requested against a `kind = direct` client.
+- `TimesheetNotApplicableForSupplierIssued` — raised when a
+  `timesheet` template is requested against a contract whose
+  `invoice_mechanism = supplier-issued`.
+- `TemplateMissing` — the `.hbs` file for `(clientId, kind)` is
+  absent on disk (neither per-client override nor shared fallback).
+- `TemplateContextInvalid` — the resolved context failed the Zod
+  schema (typically a `TBC` field leaking through for a template
+  that requires a concrete value).
+
+**Acceptance tests.**
+
+- `renderTemplate({ kind: 'leave', client: deltaCapita, ... })`
+  resolves `to = ['lily.lovegrove@deltacapita.com']` and
+  `cc = ['philip.coleman@...', 'william.swift@...',
+  'hrandrecruitment@deltacapita.com', 'dan.hedley@deltacapita.com']`;
+  La Fosse untouched.
+- `renderTemplate({ kind: 'leave', client: laFosse, ... })`
+  resolves `to = ['<aidan end-client email>']` with La Fosse
+  excluded from both `to` and `cc` entirely.
+- `renderTemplate({ kind: 'renewal', client: deltaCapita, ... })`
+  throws `DirectClientHasNoAgencyRenewalFlow`.
+
+**Non-goals.** Template editor UI, template versioning, template
+inheritance, email delivery (stays in 2.3), per-environment
+template overrides.
 
 #### 1.2.C Payment matcher — timeline-aware
 
@@ -283,8 +273,10 @@ Make the existing payer-name heuristic contract-aware:
 - Match rule extends to `(payer_name heuristic matches) AND
   (transaction.date ∈ [contract.start_date, contract.end_date])
   AND (transaction.account.entity_id = contract.issuing_entity_id)`.
-  Extension rows (type `extension`) naturally extend the matching
-  window.
+  Follow-on rows (a new contract for the same `(client_id,
+  issuing_entity_id)` pair starting at or after the prior row's
+  `end_date`) naturally extend the matching window — resolution is
+  positional via the `byClientAndEntity` index, not a `type` column.
 - A La Fosse payment landing on Barclays in **April 2026 or later**
   = anomaly → warn "payment from known payer outside any active
   contract window; expected on FZCO" (once the FZCO cutover
@@ -306,6 +298,166 @@ List view with the `kind` discriminator visible. La Fosse row shows
 the Edwin Group as end client in a nested block. Edit forms honour
 the discriminated union (agency-only fields hidden / validated
 when `kind = direct`).
+
+#### 1.2.E Contracts Tab
+
+**The first UI consumer of the contracts spine.** A dedicated
+top-level tab that answers two questions on every render: *what am
+I on the hook for right now?* and *if I book N days off, what does
+that do to my income this period?* Leave-booking writes into the
+ledger schema from 1.4, so this is also the point at which leave
+first becomes real data rather than intent.
+
+- **UI location:** new top-level `Contracts` tab registered in
+  `[public/src/modules/tabs.ts](public/src/modules/tabs.ts)`, next
+  to Deadlines. Module at
+  `[public/src/modules/contracts.ts](public/src/modules/contracts.ts)`.
+- **List view:** all contracts, active-first, inactive collapsed
+  under a disclosure. Per row: `id`, client legal name, issuing
+  entity badge (UK Ltd / FZCO), reference, `day_rate` + currency,
+  `start_date → end_date`, invoice cadence + mechanism, and three
+  live figures — **worked-days-to-date** (period), **accrued-to-
+  date** (native currency, GBP equivalent shown when they differ),
+  and **projected period total**. Aggregate "Accrued this period"
+  banner across all active contracts at the top of the tab,
+  broken down per `issuing_entity_id`.
+- **Detail drawer:** expanding a row reveals the full contract
+  field set plus the contract's own leave log (rows from
+  `working-days/leave.csv` filtered by `contract_id`). Future-
+  dated leave rows expose an inline remove action; past-dated rows
+  are read-only.
+- **"Book Leave" flow:**
+  - Scope selector: single contract (default when launched from a
+    row) OR multi-select across all active contracts (default "all
+    active" when launched from the aggregate header button).
+  - Date picker: inclusive start/end range or single-date toggle.
+    Days that no selected contract works (per each contract's
+    `works_*` mask) render greyed out but remain selectable if the
+    user explicitly opts in.
+  - Leave type selector: two values only — `holiday | sick` — for
+    the contractor's own record-keeping. No `paid` flag and no
+    `unpaid | company-closure | bank-holiday | public-holiday`:
+    outside-IR35 contracting has no paid-leave concept (no work →
+    no invoice line → effectively unpaid), company closures are
+    booked as `holiday`, and public holidays / bank holidays are
+    calendar events handled by a separate
+    `working-days/public-holidays.csv` feeding `excludeDates`, not
+    leave rows.
+  - **Per-contract template preview panel.** For each selected
+    contract, calls
+    `renderTemplate({ kind: 'leave', client, contract, context })`
+    from 1.2.B and renders the resolved `To:` / `CC:` list above
+    the interpolated template body in a read-only pane. The
+    preview is purely informational in 1.2.E — actual email send
+    lives in 2.3.
+  - Confirm writes N rows to `working-days/leave.csv` (one row
+    per `date × contract_id`), then refreshes the accrual numbers
+    in place without a full tab reload.
+- **Minimum-viable leave writer (carve-out from 1.4).** Full 1.4
+  remains the home of the working-days ledger, but 1.2.E needs a
+  place to persist the leave rows it creates. The subset that
+  ships here is deliberately narrow:
+  - `working-days/leave.csv` with the columns defined in 1.4
+    (`id, contract_id, date, type, notes, external_logged,
+    created_at, updated_at`) — schema landed by 1.2.E, populated
+    by 1.2.E and (later) 1.4.
+  - Atomic upsert keyed on `id = {contract_id}-{date}`.
+  - CSV I/O module and a canonical `server/domain/leave/` registry
+    (queries + fixtures + manifest test) following the 3.6
+    pattern.
+  - HTTP surface: `POST /api/contracts/:id/leave` (accepts a
+    `{ dates: string[], type, notes? }` body),
+    `DELETE /api/contracts/:id/leave/:leaveId`,
+    `GET /api/contracts/:id/leave` (read the per-contract log for
+    the detail drawer).
+  - Everything else 1.4 specifies — public-holiday auto-seeder,
+    per-month calendar UI, reconciliation vs invoices'
+    `days_billed`, implied-leave seeding from the 9 historical DC
+    months, UK/UAE jurisdiction routing — continues to extend
+    this spine without reshaping it.
+- **Minimal income accrual endpoint** (the forecast link the
+  roadmap's current "1.5 is far away" gap leaves missing):
+  - `GET /api/contracts/:id/income-accrual` returns
+    `{ contract_id, period_start, period_end, worked_days_to_date,
+    accrued_to_date, worked_days_remaining, projected_period_total,
+    leave_days_in_period, day_rate, currency }`.
+  - `period_start..period_end` is the current invoice period
+    derived from `invoice_cadence` (weekly: ISO week Monday →
+    Sunday; monthly: calendar month) clipped to
+    `[contract.start_date, contract.end_date]`.
+  - `worked_days` = weekday mask from `works_*` booleans minus
+    every leave row overlapping the period. Since the schema has
+    no `paid` flag (outside-IR35: no leave is billable), one
+    `leave_days_in_period` counter is sufficient — there is no
+    paid-vs-unpaid split to surface.
+  - Aggregate endpoint `GET /api/contracts/income-accrual` returns
+    the same shape per active contract plus a roll-up per
+    `issuing_entity_id` (UK Ltd GBP, FZCO GBP, FZCO AED-equivalent
+    once such a contract exists).
+- **Dependencies.** Requires 1.2.A (shipped) and 1.2.B (templates)
+  to land first — the preview panel is a hard dependency on
+  `renderTemplate` / `resolveRecipients`. Does **not** block on
+  full 1.4; the MV leave writer above is sufficient.
+
+**Acceptance criteria:**
+
+- `GET /api/contracts/income-accrual` on first boot returns both
+  seeded contracts (`dc-sow-2026`, `lf-2026-mar`) with zero leave
+  rows and the day counts expected for the current ISO week /
+  calendar month against their respective `works_*` masks.
+- Booking 3 `holiday` days (Mon–Wed) for `lf-2026-mar` writes 3
+  rows to `working-days/leave.csv`, reduces
+  `worked_days_remaining` by 3, and reduces
+  `projected_period_total` by `3 × £550 = £1,650` on that
+  contract's next accrual read.
+- Booking 1 day scoped to "all active contracts" on a Monday that
+  both contracts work writes 2 leave rows (one per contract)
+  sharing the same `date` but distinct `contract_id`, and reduces
+  both contracts' projections independently.
+- Booking a date outside `[contract.start_date, contract.end_date]`
+  returns a 422 with a structured `LeaveOutsideContractWindow`
+  error rather than silently writing.
+- Leave template preview for `dc-sow-2026` resolves
+  `to = ['lily.lovegrove@deltacapita.com']` and
+  `cc = ['philip.coleman@...', 'william.swift@...',
+  'hrandrecruitment@deltacapita.com', 'dan.hedley@deltacapita.com']`.
+- Leave template preview for `lf-2026-mar` resolves
+  `to = ['<aidan end-client email>']` with La Fosse excluded from
+  both `to` and `cc`.
+- Removing a future-dated leave row from the detail drawer
+  restores the accrual numbers to their pre-booking state on the
+  next read.
+
+**Non-goals (carved out to respect the additive-structure
+decision):**
+
+- Full monthly-grid leave calendar UI — stays in 1.4.
+- Public-holiday auto-population per jurisdiction — stays in 1.4.
+- Reconciliation of ledger-derived `days_worked` against issued
+  invoices' `days_billed` — stays in 1.4.
+- Implied-leave seeding from the 9 historical DC months — stays
+  in 1.4.
+- Actual email send of drafted templates — stays in 2.3 (Alert
+  Queue).
+- External holiday-portal sync (DC contractor portal, Edwin
+  timesheets) — Tier 3.
+- Multi-period / rolling 30 / 60 / 90-day cross-account forecast
+  — stays in 1.5. The accrual endpoint here is deliberately
+  scoped to the **current** invoicing period only; it answers
+  "what will this contract invoice for this week / this month?"
+  and nothing beyond the period boundary.
+
+**Follow-ups shipped on top of 1.2.E:**
+
+- **Retained-after-tax aggregate** (shipped). Per-entity banner
+  tiles now lead with **Retained** — incoming (net + VAT) minus
+  VAT-to-HMRC minus a flat CT reserve (UK Ltd 25% via
+  `CORPORATION_TAX.MAIN_RATE`; FZCO 0% when QFZP-qualifying, 9%
+  otherwise via `UAE_CORPORATION_TAX`) — so gross projected income
+  stops masquerading as the company's money. All math sits in
+  `calculateRetainedReserves` alongside the existing tax helpers.
+  Personal take-home (salary + dividend + personal tax) deferred
+  until a pay plan is confirmed with the accountant.
 
 #### Non-goals
 
@@ -514,7 +666,7 @@ downstream features can still be wired against the schema.
 **Acceptance criteria**
 
 - Generate a DC-style invoice from `(contract_id =
-  dc-sow-dmorrison02, period = 2026-04-01..2026-04-30, days = 20)`
+  dc-sow-2026, period = 2026-04-01..2026-04-30, days = 20)`
   → produces a PDF with UK Ltd header, SVG logo rasterised to PNG,
   VAT line at 20%, BACS details footer. Filename `UK-0011.pdf` (or
   next in sequence), written to `invoices/generated/`.
@@ -557,8 +709,7 @@ contract, per entity.
 ```
 id, contract_id,                             -- entity + currency derived transitively
 date,
-type (holiday | sick | unpaid | bank-holiday | public-holiday | company-closure),
-paid,                                        -- boolean; bank-holidays often paid, unpaid rarely
+type (holiday | sick),                       -- personal-records only; 2 values
 notes,
 external_logged,                             -- cleared when user has logged in client's portal
 created_at, updated_at
@@ -569,9 +720,18 @@ created_at, updated_at
   minus automatic public-holiday rows.
 - Ledger is leave-only. "Working" is the default, not a row. This
   halves the row count versus storing every day.
-- Jurisdiction-aware public holidays: UK public holidays auto-apply
-  to contracts with `issuing_entity_id = autonize-it-ltd`; UAE
-  public holidays auto-apply to contracts with `issuing_entity_id =
+- No `paid` column: outside-IR35 contracting has no paid-leave
+  concept (no work → no invoice line → effectively unpaid), so
+  every leave row reduces billable income symmetrically. Downstream
+  callers that historically branched on `paid` (e.g. a future
+  `countUnpaidLeave(period)` helper) collapse into a single
+  `countLeaveIn(period, contract)` function.
+- Public holidays + company closures are **not** leave rows. They
+  live in a separate `working-days/public-holidays.csv` feeding
+  `excludeDates` on the working-days iterator — a calendar event,
+  not a personal choice. UK public holidays auto-apply to contracts
+  with `issuing_entity_id = autonize-it-ltd`; UAE public holidays
+  auto-apply to contracts with `issuing_entity_id =
   autonize-it-fzco`. Two calendar feeds, not one.
 
 **UI**
@@ -589,26 +749,27 @@ created_at, updated_at
 
 - **Invoice auto-fill** (1.3 generator): at invoice generation time,
   `days_billed = workingDays(period, contract) −
-  unpaidLeave(period, contract)`. No recall-from-memory.
+  countLeaveIn(period, contract)`. No recall-from-memory. All leave
+  is non-billable by construction (no `paid` split), so the helper
+  is a straight count rather than a filtered sum.
 - **Self-bill reconciliation** (1.3 reconciler): parsed La Fosse
   self-bill's `days` field compared against ledger-derived
   `days_worked`; mismatch → warning in 1.8.
 - **Forecast accrual** (1.5): `accrued_to_date(contract) = day_rate
   × workedDays_since_last_invoice`. Real-time per contract per
   entity, not invoice-lagged.
-- **Solvency-warning input** (1.8): scheduled unpaid leave
-  immediately shows up as a per-entity dip in projected income.
-  Log six unpaid days in August for the FZCO contract and the
-  August reservoir gap for *next FZCO invoice* widens
-  automatically.
+- **Solvency-warning input** (1.8): scheduled leave immediately
+  shows up as a per-entity dip in projected income. Log six days
+  off in August for the FZCO contract and the August reservoir gap
+  for *next FZCO invoice* widens automatically.
 
 **Seed data — implied leave rows reverse-computed from DC invoices**
 
 For each DC-invoice month, `expected_working_days = Mon-Fri in
 month − UK bank holidays`; `implied_leave = expected − invoiced_days`.
 These become seed rows in `working-days/leave.csv` with `type =
-holiday` (safe default; user can recategorise to sick / unpaid
-individually after ship).
+holiday` (safe default; user can recategorise to `sick`
+individually after ship — the only other leave type).
 
 | month | expected Mon-Fri (− UK bank hols) | invoiced days | implied leave |
 |---|---:|---:|---:|
@@ -632,12 +793,13 @@ individually after ship).
 - Forecast for current month splits into DC contribution (UK Ltd,
   GBP) and La Fosse/Edwin contribution (FZCO, GBP-denominated →
   AED-deposited). Both visible per entity.
-- Logging 3 unpaid days for `lf-2026-mar` contract reduces FZCO
+- Logging 3 leave days for `lf-2026-mar` contract reduces FZCO
   projected income by `3 × £500 = £1,500` for the affected month.
 - UK public holidays (8 per calendar year) auto-excluded from DC
   working days; UAE public holidays auto-excluded from La Fosse
-  working days. Public-holiday rows present in the ledger but
-  `paid = true`, `external_logged = true` by default.
+  working days. Public-holiday rows live in
+  `working-days/public-holidays.csv` feeding `excludeDates`, not in
+  `leave.csv`.
 
 **Non-goals**
 
@@ -867,6 +1029,329 @@ targets rather than a generic nudge.
 ---
 
 ## Tier 2 — AI Agent Layer ("Proactive Guardian")
+
+### 2.0 Structured Data for AI Consumption (agent prerequisite)
+
+Before Open Close (2.3 + 2.4) or any external AI assistant
+(ChatGPT / Claude / MCP bridges) can be trusted with real analysis
+of this data, the app needs a small, well-named set of endpoints
+whose field semantics are unambiguous.
+
+**Motivation (real incident, 2026-04-24).** A first-pass AI analysis
+driven by the existing API read `currentBalance` on three credit-card
+accounts as £36k+ of cash when those fields actually held £36k+ of
+*available credit*. The same pass quoted the naive `net × 25%`
+Corporation Tax estimate as a live liability and ignored that the
+accountant has reduced CT by ~80% two years running. Both mistakes
+were possible because the current JSON conflates distinct concepts
+under shared field names. No UI change can protect the agent layer
+from this — the primitives themselves have to carry their own
+semantics.
+
+**Design philosophy.** A single mega `/api/ai/snapshot` is *not* the
+right primary surface: it breaks sub-domain isolation, forces over-
+fetching, and re-introduces the "what does this field mean for *this*
+account?" ambiguity inside a larger blob. The pattern that has
+actually worked for LLM tool-use elsewhere (MCP, OpenAI
+function-calling, Claude tool-use) is:
+
+1. Fix the semantic drift at the primitive level (2.0.A + 2.0.B).
+2. Ship a handful of small, well-scoped composed views the agent
+   actually needs (2.0.C–2.0.E).
+3. *Then* ship a thin `/api/ai/snapshot` that orchestrates the
+   composed views — documented as "prefer slices when you only need
+   a slice" (2.0.F).
+4. Ship an `/api/ai/manifest` (OpenAPI-style) so any AI consumer can
+   auto-discover the tool menu instead of guessing field meanings
+   (2.0.F).
+
+**Gate.** Blocks 2.1, 2.2, 2.3, 2.4. No Open Close work should start
+until 2.0 acceptance criteria pass.
+
+#### 2.0.A Balance semantics — explicit discriminator
+
+Problem: `/api/dashboard/balance/:account` returns `currentBalance`
+with three different meanings depending on the account:
+
+- **Cash held** (Barclays Current, Barclays Savings, NatWest,
+  NatWest Savings, Monzo Joint, Emirates Islamic, Wise).
+- **Credit remaining** (Capital on Tap, Barclaycard — because
+  `openingBalance` was seeded with the credit limit and purchase
+  transactions are negative).
+- **Debt owed** as a negative number (Santander Everyday — seeded
+  at zero, usage logged as negative).
+
+Add an explicit discriminator to every balance response:
+
+```json
+{
+  "account": "capital-on-tap",
+  "balanceSemantics": "credit-remaining",
+  "cashBalance": null,
+  "creditLimit": 30000,
+  "creditUsed": 1247.30,
+  "creditRemaining": 28752.70,
+  "debtOwed": 1247.30,
+  "openingBalance": 30000,
+  "currentBalance": 28752.70
+}
+```
+
+`balanceSemantics` values: `cash`, `credit-remaining`, `debt-owed`,
+`passthrough`. The legacy `openingBalance` / `currentBalance` fields
+stay for back-compat, but the agent reads from the explicit fields.
+
+Same cleanup on `/api/debts`: add `debtKind: 'amortising-loan' |
+'revolving-credit' | 'mortgage'` and let the response shape switch
+on it. `paidSinceOpening` and `payoffProgress` are meaningless for a
+revolving credit card; emitting them either as `null` or not at all
+removes the class of mistake entirely.
+
+#### 2.0.B Accountant-adjusted tax liability
+
+Problem: the auto-CT obligation is `net × CORPORATION_TAX.MAIN_RATE`.
+Two consecutive years, the lived-experience outcome has been
+naive ~£30k → actual ~£5k (~83% reduction via expense optimisation).
+The naive figure is useful as a ceiling, but surfacing it as
+`expectedAmount` with no context scares both humans and AIs into
+over-reserving £30–40k of phantom liability.
+
+Add to `autonize-it/company.csv`:
+
+- `historical_effective_ct_rate` — rolling average over the last N
+  filed years (nullable until a filed year exists).
+- `historical_effective_vat_rate` — same pattern for VAT if the
+  accountant legitimately optimises input VAT reclaim.
+
+The obligations calculator emits **both** figures on every CT row,
+never one or the other:
+
+```json
+{
+  "type": "corporation-tax",
+  "expectedAmount": 8166.50,
+  "naiveAmount": 48666.50,
+  "adjustmentBasis": "historical_effective_ct_rate: 0.17 (2-year mean)",
+  "adjustmentSource": "company.historical_effective_ct_rate"
+}
+```
+
+Rule: the naive figure is never discarded. The UI and the agent see
+both, so the accountant's value-add is legible at a glance and the
+adjusted figure can never silently drift from the naive one.
+
+#### 2.0.C Expected-receipts calendar
+
+Problem: `/api/contracts/income-accrual` answers "how much have I
+earned this month?", not "when does the money hit which account?".
+For worst-case reasoning, landing dates matter more than accrual
+totals — "£25k arrives May 31st" and "£25k arrives June 15th" are
+the same accrual but very different survival stories.
+
+New endpoint `GET /api/contracts/expected-receipts`:
+
+```json
+{
+  "items": [
+    {
+      "contract_id": "dc-sow-2026",
+      "period": "2026-04",
+      "amount_net": 12100,
+      "amount_incl_vat": 14520,
+      "currency": "GBP",
+      "issuing_entity_id": "autonize-it-ltd",
+      "invoice_status": "accrued-not-yet-issued",
+      "expected_invoice_date": "2026-05-01",
+      "payment_terms_days": 30,
+      "expected_landing_date": "2026-05-31",
+      "expected_landing_account": "barclays-current"
+    }
+  ],
+  "by_month": { "2026-05": { "gbp": 25520 } }
+}
+```
+
+Derived purely from `contracts.csv` × `invoice_cadence` ×
+`payment_terms_days` × the already-computed accrual. No new source
+of truth.
+
+#### 2.0.D Contract renewal monetary exposure
+
+Problem: the `contract-ending-soon` warning says "6 days" but not
+"£12,100 gross / £9,075 retained per month at risk, which is 100%
+of this entity's active revenue". The date alone panics; the monetary
+figure makes it actionable.
+
+Enrich the existing warning payload:
+
+```json
+{
+  "code": "contract-ending-soon",
+  "contract_id": "dc-sow-2026",
+  "end_date": "2026-04-30",
+  "days_until": 6,
+  "monthly_exposure_gross": 12100,
+  "monthly_exposure_retained": 9075,
+  "percent_of_entity_revenue": 100
+}
+```
+
+Reuses `calculateRetainedReserves` from 1.2.E — no new tax logic,
+just exposure arithmetic.
+
+#### 2.0.E Composed AI views (slice-shaped)
+
+Three small composed endpoints, each with a single clear purpose.
+These are the *primary* surface for agent reads:
+
+- `GET /api/ai/liquidity` — per-entity and global: `cash`,
+  `creditRemaining`, `debtOwed`, `earmarkedForTax`. Reduces over
+  2.0.A balances + existing tax-reserve fields from 1.2.E.
+- `GET /api/ai/pipeline` — expected receipts (2.0.C) + upcoming
+  obligations (existing) merged onto a single dated timeline, per
+  account. Answers "what lands when?" in one call.
+- `GET /api/ai/runway` — N-day zero-new-income projection per
+  entity: what is the balance on day N if no new contracts land?
+  Fed by 2.0.C + recurring detector + obligations. Day-resolution,
+  not month-bucketed.
+
+#### 2.0.F Snapshot + manifest
+
+- `GET /api/ai/snapshot` — thin composition of 2.0.E with a header
+  (`today`, `generated_at`, `schema_version`, `warnings_summary`).
+  Documented as "single-shot reasoning only; prefer slice-specific
+  views when you need just one concern". This is *not* the primary
+  agent surface — it is a convenience wrapper.
+- `GET /api/ai/manifest` — generated OpenAPI-shaped catalogue of
+  every `/api/ai/*` endpoint (and the enriched warnings / balances /
+  obligations feeds) with field-level `description`, `semanticUnit`
+  (`GBP-cash`, `GBP-credit-remaining`, `days`, `percent`, etc.) and
+  example values. **Generated, not hand-written** — drifting schema
+  can't silently mislead a future agent. This is what an MCP bridge
+  or ChatGPT plugin would consume first.
+
+#### 2.0.G MCP server (thin adaptor over the slice endpoints)
+
+Once 2.0.A–F are stable, wrap the same slice endpoints as a first-
+class **Model Context Protocol** server so that any MCP-aware client
+(Cursor, Claude Desktop, ChatGPT via bridge, future Open Close, any
+new IDE that adopts the spec) can attach with zero bespoke
+integration. The REST surface stays — it powers the web UI and stays
+the canonical business logic. MCP is a **delivery channel**, not a
+competing implementation.
+
+**Design rules (non-negotiable).**
+
+- MCP is a **thin adaptor**. Target ≤ ~300 lines of glue. If the
+  adaptor starts re-implementing business logic it has drifted from
+  its role — back it out and move logic into the slice endpoints.
+- Tool / resource descriptors are **generated** from
+  `shared/api-contracts.ts` Zod schemas via `zod-to-json-schema`.
+  Hand-written descriptors are banned so the MCP surface cannot
+  drift from the REST contracts it wraps (same rule as
+  `/api/ai/manifest` in 2.0.F).
+- **Resources vs tools split is load-bearing**, not decorative:
+  - **Resources (read-only, safe to expose to any LLM):** `finance://liquidity`,
+    `finance://pipeline`, `finance://runway`, `finance://snapshot`,
+    `finance://warnings`, `finance://contracts`,
+    `finance://contracts/{id}`, `finance://obligations/upcoming`,
+    `finance://debts`. Every resource is a pure projection of a
+    2.0.E slice endpoint.
+  - **Tools (mutations, human-in-loop required):** `book_leave`,
+    `mark_contract_renewed`, `dismiss_warning`,
+    `set_account_opening_balance`, `upload_statement`. Each tool
+    descriptor carries explicit confirmation metadata (tool
+    annotation flagging destructive / irreversible behaviour) so
+    Cursor / Claude Desktop prompt the user before execution. Query-
+    only tools (`compute_runway`, `project_receipts`) are allowed but
+    should prefer resources where the call is parameter-free.
+- **Two transports, same server:**
+  - `stdio` for local use (Cursor attaching to the dev server,
+    Claude Desktop, on-device Open Close). Zero-auth, filesystem-
+    speed, the default.
+  - `HTTP+SSE` (or the current MCP streamable-HTTP transport) for
+    remote use (WhatsApp agent, hosted Open Close, ChatGPT bridge).
+    Gated behind a static bearer token read from env; off by
+    default.
+
+**File layout.**
+
+```text
+server/mcp/
+  server.ts              creates an MCP Server, registers transports
+  resources.ts           finance://* handlers (each = thin wrapper
+                         over a 2.0.E slice endpoint)
+  tools.ts               book_leave / mark_contract_renewed / etc.
+                         (each = thin wrapper over existing
+                         /api/* mutation routes, with MCP
+                         confirmation annotations)
+  descriptors.ts         auto-generates tool + resource schemas
+                         from shared/api-contracts.ts (Zod →
+                         JSON Schema) — *this file is the contract
+                         drift guard*
+  transports/
+    stdio.ts
+    http-sse.ts
+  mcp-server.test.ts     contract tests: every resource URI matches
+                         the underlying REST response 1:1; every
+                         tool descriptor is generated from a Zod
+                         schema (no hand-written schemas allowed —
+                         lint rule).
+```
+
+**What this unlocks immediately.**
+
+- Cursor can answer questions about your live finances inside the
+  IDE (attach `server/mcp/server.ts` via stdio in `.cursor/mcp.json`).
+- Claude Desktop can do the same.
+- Any future agent — including Open Close (2.3/2.4) — becomes an MCP
+  *client*, so swapping the underlying model (Claude / GPT-5 /
+  Qwen / local) is a config change, not a rewrite.
+- Remote LLMs (ChatGPT via bridge) consume exactly the same surface
+  a local LLM does, with only the transport differing.
+
+**Acceptance criteria for 2.0.G.**
+
+- An unmodified Cursor client, pointed at `server/mcp/server.ts`
+  via stdio, can answer the same seven questions listed in the
+  2.0 acceptance criteria — with **no additional code** beyond MCP
+  configuration.
+- Every resource handler returns byte-identical content to its
+  underlying `/api/ai/*` slice (regression-locked in
+  `mcp-server.test.ts`).
+- No tool descriptor in `server/mcp/tools.ts` is declared by hand;
+  all are derived from Zod schemas in `shared/api-contracts.ts`.
+  A CI lint rejects hand-written descriptors.
+- Mutation tools refuse to execute without an explicit
+  confirmation annotation in their descriptor. Missing annotation
+  = tool does not register at startup.
+- `stdio` transport works with zero configuration; `HTTP+SSE`
+  transport refuses to start unless an `MCP_BEARER_TOKEN` env var
+  is set.
+
+**Order within 2.0.** 2.0.G lands *after* 2.0.A–F because it has
+nothing of its own to test until the slice endpoints and the
+generated manifest exist. It closes out 2.0.
+
+#### 2.0 acceptance criteria
+
+An AI consumer that only reads `/api/ai/manifest` and the slice
+endpoints must be able to correctly answer every one of:
+
+1. How much real cash do I have, per entity and total?
+2. How much credit headroom can I lean on, and for how long?
+3. What am I owed, and when (by account, to the day) does it land?
+4. What obligations hit in the next 30 / 60 / 90 days?
+5. What is my worst-case runway if no new contracts land?
+6. Which contracts are at risk, and what is the monetary exposure
+   of each in gross and retained terms?
+7. What is my accountant-adjusted tax bill versus the naive
+   estimate, and what is the basis of the adjustment?
+
+No field in any `/api/ai/*` response has ambiguous semantics across
+account types, debt types, or tax types. `balanceSemantics`,
+`debtKind`, `adjustmentBasis` are non-optional discriminators.
+`/api/ai/manifest` is generated from the schema, not hand-written.
 
 ### 2.1 Financial Snapshot / Commitment Approval
 
@@ -1176,193 +1661,70 @@ scheduled; it has no upstream dependency on the forecasting stack
 
 ---
 
-### 3.6 Canonical Config Registry Pattern (architecture)
+### 3.6 Canonical Config Registry Pattern (architecture) ✅ SHIPPED
 
-**Problem.** The `entityId` dropdown that shipped to the dashboard and
-did nothing was a symptom, not a bug. Config logic was fragmented across
-six places: `ACCOUNT_CONFIG` literal in `server/types.ts`, inline
-`ACCOUNTS.filter(a => ACCOUNT_CONFIG[a].category === 'business')`
-scattered across repositories, `getVatApplicableAccounts` /
-`getCorpTaxApplicableAccounts` helpers, a parallel `EntityScopedFilterOpts`
-type that threaded `entityId` through filters that didn't use it,
-`buildVatAccountFilter` / `buildCorpTaxAccountFilter` with their own gate
-logic, and a `DashboardFilters.entityId` field consumed by nobody. Six
-subtly different answers to one question — and no programmatic way to
-detect that a capability had lost all its consumers. See
-[docs/config-registries.md](docs/config-registries.md) for the full
-architectural rationale.
-
-**Shape of the fix.** Every set-wise configuration (accounts, people,
-payees, merchants, payroll, company, transaction-overrides) is migrated
-to a standard `server/domain/<name>/` module:
+Every set-wise configuration now lives at `server/domain/<name>/`
+with a standard layout:
 
 ```
 server/domain/<name>/
-  schema.ts       Zod schema + derived TS types (single source of truth for shape)
-  data.ts         the raw literal / CSV loader
-  registry.ts     build function + precomputed indexes + memoization via createRegistry
-  queries.ts      pure public query functions over the registry indexes
-  fixtures.ts     makeTest<Name>Registry for tests, routed through production build
+  schema.ts       Zod schema + derived TS types
+  data.ts         raw literal / CSV loader
+  registry.ts     build + precomputed indexes + memoization via createRegistry
+  queries.ts      pure public queries over the indexes
+  fixtures.ts     makeTest<Name>Registry, routed through the production build
   index.ts        barrel re-exports
   *.test.ts       schema / gates / invariants / lifecycle / queries / manifest
 ```
 
-Plus shared primitives under `server/domain/_shared/`:
-`create-registry.ts` (memoization + invalidation + test reset),
-`index-builders.ts` (`groupBy` / `indexBy` / `filterToIndex` /
-`mapToIndex`), `fixture-builder.ts`, and `manifest-test.ts` — the
-capability-drift detector that asserts every index in a registry has at
-least one documented live consumer, so a dead dropdown can never silently
-ship again.
+Shared primitives live under `server/domain/_shared/`:
+`create-registry.ts`, `index-builders.ts`, `fixture-builder.ts`,
+and `manifest-test.ts` — the capability-drift detector that
+asserts every index in a registry has at least one documented live
+consumer. New registries cannot merge without a manifest test;
+this is enforced repo-wide by
+`server/domain/_shared/all-registries.manifest.test.ts`.
 
-**Status — Phase A complete for `accounts`:**
+**Seven canonical registries migrated:** `accounts`, `people`,
+`payees`, `merchants`, `payroll`, `company`, `transaction-overrides`.
+The legacy `obligations` registry is the sole exception, pinned in
+the manifest-sweep's exemption list until it is migrated.
 
-- ✅ **A0** — shared primitives built + tested (37/37 passing)
-- ✅ **A1** — `docs/config-registries.md` written (pattern + test template + naming rule)
-- ✅ **A2** — `server/domain/accounts/` built (97/97 tests passing)
-- ✅ **A2b** — pre-migration parity snapshot locked (17/17 OLD vs NEW byte-for-byte)
-- ✅ **A3** — parallel idioms killed: `isBusinessConfig`, `getVatApplicableAccounts`,
-  `getCorpTaxApplicableAccounts`, `EntityScopedFilterOpts` deleted from
-  `server/types.ts`; `buildVatAccountFilter` + `buildCorpTaxAccountFilter`
-  collapsed into a single generic `buildAccountInFilter(accounts)` driven by
-  the new registry indexes; `DashboardFilters.entityId` removed (it had no
-  consumer); every dependent test file rewritten against the new API.
-- ✅ **A4** — every remaining consumer migrated to
-  `server/domain/accounts/`. `server/types.ts` shrank from 503 lines to 170:
-  `ACCOUNT_CONFIG` literal, `getAccountConfig`, `isValidAccountName`,
-  `validateAccount`, `getBusinessPaymentAccounts`, `getAccountsByEntity`,
-  `getEntityIdForAccount`, `getPersonalPaymentAccounts`,
-  `getBusinessAndPersonalPaymentAccounts`, `isCreditCard`,
-  `isBusinessAccount`, `isCrossAccountBusinessToBusinessTransfer`, plus all
-  account-related interfaces (`AccountType`, `AccountCategory`, `VatConfig`,
-  `CorpTaxConfig`, `BusinessTaxConfig`, `BusinessAccountConfig`,
-  `PersonalAccountConfig`, `AccountConfig`) all deleted. The 17 files that
-  imported any of them — `transactions`, `debts`, `budgets`, `sa-auto-seed`,
-  `ct-auto-seed`, `vat-auto-seed`, `query-builders`, `tax`, `parsers/index`,
-  `dashboard`, `statements`, `expenses`, `budgets` (route), `tax` (route),
-  `recurring-pipeline`, `ad-hoc-merchant-series`, `inter-company/pair-finder`,
-  `warnings/fzco-income` — all now import from `server/domain/accounts/`.
-  The legacy `server/types.test.ts` was deleted (coverage fully replicated
-  by `queries.test.ts`, `migration-parity.test.ts`, and
-  `registry.invariants.test.ts`).
-- ✅ **A5** — `registry.manifest.test.ts` tightened from a placeholder into
-  a real consumer manifest. Every one of the 13 indexes
-  (`business`, `personal`, `byEntity`, `vatApplicable`,
-  `vatApplicableByEntity`, `corpTaxApplicable`, `corpTaxApplicableByEntity`,
-  `outgoingPaymentsCapable`, `businessOutgoingPayments`,
-  `personalOutgoingPayments`, `excludeTransfersFromIncome`,
-  `showTaxLiabilities`, `creditCards`) is now mapped to the real files +
-  functions that consume it, so adding a new index without wiring a caller
-  will fail this test. Indexes documented as test-only (`excludeTransfersFromIncome`,
-  `showTaxLiabilities`) are honestly flagged — future production use should
-  promote them; if none emerges they are the next cleanup candidates.
-- ✅ **A6** — `tsc --noEmit` clean, **106 files / 1774 tests passing**
-  (down from 107 files after deleting the redundant `server/types.test.ts`;
-  no net regression — its 22 tests are fully absorbed by the domain
-  test suite). Live smoke: `GET /api/dashboard/accounts`,
-  `/api/dashboard/summary`, `/api/statements/accounts`,
-  `/api/tax/vat-payments` all return 200 against the running dev server.
-  **Phase A is complete for `accounts` — ready for Phase B.**
+**Pattern documentation:** full rationale, test templates, naming
+rule, registry directory index, and the UI-control code-review
+checklist (the "a UI control must change at least one visible
+field via a path not already expressed by existing config" rule
+— with the Entity dropdown post-mortem as the worked example) all
+live in
+[docs/config-registries.md](docs/config-registries.md).
 
-**Status — Phase B complete (all six registries migrated):**
-
-- ✅ **B1** — `server/config/people.ts` → `server/domain/people/` with
-  `byId` / `directors` / `saFilers` / `aliasRegexes` indexes. Every
-  consumer (`sa-auto-seed`, `sa-estimator`, `merchant-registry`, payees)
-  redirected; legacy file deleted.
-- ✅ **B2** — `server/config/payees.ts` split: `Director` folded into
-  `people.indexes.directors`; HMRC narrative patterns
-  (`HMRC_PATTERNS`, `HMRC_NARRATIVE_PATTERNS`, `buildHmrcNarrativeCaseSql`)
-  relocated to `server/domain/payees/hmrc-patterns.ts`. All tax-auto-seed
-  consumers (`tax` repo + route, `vat-auto-seed`, `sa-auto-seed`,
-  `ct-auto-seed`, `sa-estimator`) rewired.
-- ✅ **B3** — `server/utils/merchant-registry.ts` →
-  `server/domain/merchants/` with `patterns` / `byCategory` /
-  `byDisplayName` indexes + full canonical test template; `categorizer`
-  and `normalizeMerchant` call sites migrated.
-- ✅ **B4** — `server/config/payroll.ts` → `server/domain/payroll/`
-  (derived registry joining `payroll`-category obligations with directors
-  from the people registry). Indexes: `entries`, `byAccount`,
-  `byPersonAccount`, `directorsById`. Full testing template landed;
-  legacy file + test deleted.
-- ✅ **B5** — `server/domain/company/registry.ts` refactored onto
-  `createRegistry`. Methods (`getById`, `listByJurisdiction`,
-  `listEntityIds`) replaced with named indexes (`byId`, `byJurisdiction`,
-  `active`) + query functions (`allCompanies`, `companyById`,
-  `companiesByJurisdiction`, `activeCompanies`). Routes `company.ts` and
-  `warnings.ts` migrated to the new query surface.
-- ✅ **B6** — `server/domain/transaction-overrides/` brought onto
-  `createRegistry` with `byHash` index, mutable-directory handling
-  documented in the pattern doc, and its manifest test landed.
-  Four consumers (`categorizer`, `payroll/queries`,
-  `inter-company/movements-response`, `warnings/inter-company-count`)
-  migrated from `getOverrideRegistry().get(hash)` to the
-  `lookupOverride(hash)` query.
-- ✅ **B7** — `docs/config-registries.md` closed with the full registry
-  directory table: location, purpose, and the exhaustive index list for
-  all seven canonical registries (`accounts`, `people`, `payees`,
-  `merchants`, `payroll`, `company`, `transaction-overrides`), plus an
-  explicit carve-out for the one not-yet-migrated legacy registry
-  (`obligations`).
-
-**Status — Phase C complete (enforcement):**
-
-- ✅ **C1** — Every canonical registry ships a `registry.manifest.test.ts`
-  built on the shared `assertManifestConsumers` helper. Added
-  `server/domain/_shared/all-registries.manifest.test.ts`: a repo-wide
-  sweep that auto-discovers every directory under `server/domain/`
-  containing a `registry.ts` and asserts it ships a manifest test.
-  Non-registry-shaped directories (`_shared`, `deadlines`,
-  `inter-company`, `payees`, `warnings`) are explicitly listed;
-  the single legacy exception (`obligations`, not yet on `createRegistry`)
-  is pinned in an exemption list so that removing it from the list
-  instantly enforces the contract. A new registry cannot merge without
-  a manifest test.
-- ✅ **C2** — UI-control code-review checklist added to
-  `docs/config-registries.md`. The rule — _"a UI control must change at
-  least one visible field in the response via a path not already
-  expressed by existing config; if not, the control shouldn't exist"_ —
-  is now backed by a concrete six-item reviewer checklist (name the
-  field it changes, trace the path, check for parallel vocabulary,
-  require a manifest consumer, require a test that fails without the
-  control, name the question). The Entity dropdown post-mortem is the
-  worked example.
-
-**Verification.** `tsc --noEmit` clean, **133 files / 1937 tests passing**,
-including the six canonical registry test templates, the new
-registry-sweep test, and the manifest tests for every registry. Live API
-smoke (`/api/dashboard/summary`, `/api/warnings/*`, `/api/statements/accounts`,
-`/api/tax/vat-payments`) all 200. The pattern is fully in place; the only
-deferred item is **C3** (end-to-end API snapshot test for
-`/api/dashboard/summary` + `/api/warnings/*`), tracked separately.
-
-**Why this is worth the churn.** Every Tier 1 feature lands faster on
-this foundation: multi-entity scoping (1.1) is already partially
-expressed via the `accounts` registry's `byEntity` index; contracts and
-invoices (1.2 / 1.3) will route through `clients` / `contracts`
-registries in the same shape; the Warnings Engine (1.8) becomes a
-reduction over named registry indexes rather than ad-hoc scans. The
-manifest-test contract means new features cannot ship orphaned
-capabilities, full stop.
+**Why this matters forward.** Every new registry — `contracts`
+(1.2.A, already shipped under this pattern), `leave` (1.2.E),
+`income_sources` (1.7) — slots straight in; the Warnings Engine
+(1.8) becomes a reduction over named registry indexes rather than
+ad-hoc scans.
 
 ---
 
 ## Dependency Chain
 
 ```
-Tier 0 (Certainty) ✅       Tier 1 (Projection)                     Tier 2 (Agent)
+Tier 0 (Certainty) ✅       Tier 1 (Projection)                                                              Tier 2 (Agent)
 
 Obligations + Deadlines     Multi-Entity Foundation (1.1) ✅
-Multi-Entity Foundation ✅   Clients + Contracts (1.2) ────┬─→ Invoicing (1.3) ─→ Working-Days Ledger (1.4) ─┐
-                            Renewals (1.2) ───────────────┘                                                  ├─→ Forecast (1.5) ─→ Snapshot (2.1)
-                                                                                                             │                    Confidence Score (2.2)
-                                                                                                             │                    (reduction over 1.8)
-                                                                                                             ├─→ Warnings (1.8) ─→ Alert Queue (2.3)
-                                                                                                             │                    (delivery)
-                                                                                                             │                    WhatsApp (2.4)
-                                                                                                             ├─→ Worst Case (1.6)
-                                                                                                             ├─→ Income Composition (1.7)
-                                                                                                             └─→ Debt Strategy (1.9)
+Multi-Entity Foundation ✅   Clients + Contracts (1.2 A–D) ─┬─→ Contracts Tab + MV leave writer (1.2.E) ─→ Working-Days Ledger (1.4) ─┐
+                            Renewals (1.2)  ───────────────┘                          │                                              │
+                                                                                      └─→ Invoicing (1.3) ─────────────────────────→ ┤
+                                                                                                                                     │
+                                                                                                                                     ├─→ Forecast (1.5) ─┐
+                                                                                                                                     │                  │
+                                                                                                                                     ├─→ Warnings (1.8) ─┤
+                                                                                                                                     │                  ├─→ AI Primitives (2.0) ─→ Snapshot (2.1)
+                                                                                                                                     ├─→ Worst Case (1.6) ┤                          Confidence Score (2.2)
+                                                                                                                                     │                  │                          Alert Queue (2.3)
+                                                                                                                                     ├─→ Income Composition (1.7) ──┤                WhatsApp (2.4)
+                                                                                                                                     │                  │
+                                                                                                                                     └─→ Debt Strategy (1.9) ───────┘
 ```
 
 **Multi-Entity Foundation is the gate — and it is now open.** UK and UAE
@@ -1382,6 +1744,18 @@ Confidence Score and the Alert Queue become reductions over its
 output, not independent calculations, so there is exactly one place
 where "is this user safe?" is decided.
 
+**Structured Data for AI (2.0) gates all of Tier 2.** Snapshot (2.1),
+Confidence Score (2.2), Alerts (2.3) and the WhatsApp / Chat interface
+(2.4) all depend on 2.0's semantic-drift cleanup (balance / debt /
+tax discriminators), its slice endpoints (`/api/ai/liquidity`,
+`/api/ai/pipeline`, `/api/ai/runway`), the generated manifest, and
+its thin MCP adaptor (2.0.G) that exposes the same slices to any
+MCP-aware client (Cursor, Claude Desktop, ChatGPT-via-bridge, Open
+Close). No Open Close work starts before 2.0's acceptance criteria
+pass — the agent can only be as reliable as the primitives beneath
+it, and it ships *as an MCP client* against this server rather than
+re-implementing the glue.
+
 ---
 
 ## Suggested Build Order
@@ -1392,42 +1766,68 @@ where "is this user safe?" is decided.
    registry indexes, entity-foundation warnings endpoint, inter-company
    pair-finder + description-based exclusion patterns, Wise as
    intermediary, IFZA deadline seeded.
-2. **Clients, Contracts & Renewals (1.2)** — `clients.csv` and
-   `contracts.csv` with DC + La Fosse/Edwin seed rows; template
-   routing engine; renewal deadlines wired into the Tier 0
-   calendar; payment-matcher updated to be timeline + entity
-   aware.
-3. **Invoicing System (1.3)** — outbound PDF generator for
+2. **Clients, Contracts & Renewals (1.2)** — Phase A ✅ SHIPPED:
+   `clients.csv`, `clients/master-agreements.csv`, and
+   `contracts.csv` with DC + La Fosse/Edwin seed rows; canonical
+   `clients` / `contracts` registries (build-time FK join); `contract-renewal`
+   deadline auto-seeder wired into the Tier 0 calendar. Remaining:
+   **B** templates + recipient routing, **C** timeline-aware payment
+   matcher (entity-aware, date-in-effect contract resolution), **D**
+   Clients page UI, **E** Contracts tab (see step 3).
+3. **Contracts Tab (1.2.E)** — first UI consumer of the contracts
+   spine. List + detail views, Book Leave flow (single contract or
+   all active contracts, date range, `holiday | sick` type, per-
+   contract template preview via 1.2.B), minimum-viable leave writer
+   (`working-days/leave.csv` + `server/domain/leave/` registry +
+   `POST/GET/DELETE /api/contracts/:id/leave`), and the minimal
+   income-accrual endpoint (`GET /api/contracts/:id/income-accrual`
+   and its aggregate) so booked leave visibly moves a number on
+   screen. Depends on 1.2.B; does not block on full 1.4.
+4. **Invoicing System (1.3)** — outbound PDF generator for
    supplier-issued (DC shape) AND inbound parser for self-bill (La
    Fosse shape) in the same release; per-entity invoice sequences;
    FX snapshots at issue and payment; 10 DC historical rows seeded
    with their documented warnings; `pdfmake` + `sharp` wiring.
-4. **Working-Days Ledger (1.4)** — `leave.csv` + jurisdiction-
-   aware public holidays + per-month UI + reconciliation with 1.3
-   invoice day counts. Seed the reverse-computed DC leave rows.
-5. **Cash Flow Forecast (1.5)** — the single biggest behaviour
-   change the app can make. Per entity, daily resolution.
-6. **Solvency Warnings Engine (1.8)** — brought forward. Without it
+5. **Working-Days Ledger (1.4)** — extends the MV leave writer
+   shipped in 1.2.E with jurisdiction-aware public holidays
+   (UK + UAE), per-month calendar UI, reconciliation with 1.3
+   invoice day counts, and implied-leave seeding for the 9
+   historical DC months.
+6. **Cash Flow Forecast (1.5)** — the single biggest behaviour
+   change the app can make. Per entity, daily resolution. Extends
+   the period-scoped accrual endpoint from 1.2.E into a full
+   30 / 60 / 90-day cross-account projection.
+7. **Solvency Warnings Engine (1.8)** — brought forward. Without it
    the forecast has no voice; with it, 2.2 and 2.3 collapse into
    thin reductions / delivery adaptors.
-7. **Worst Case / Runway + formalised credit headroom (1.6)** —
+8. **Worst Case / Runway + formalised credit headroom (1.6)** —
    cheap once 1.5 is in.
-8. **Income Composition & Diversification (1.7)** — three metrics
+9. **Income Composition & Diversification (1.7)** — three metrics
    (client concentration, active/passive ratio, time-independence
    ratio) plus the income-sources and income-goals registries.
    Trivial to wire for contract-shaped income once 1.2 ships; the
    non-contract registries are the real work. Emits into 1.8.
-9. **Debt Strategy Advisor (1.9)** — rule-based recommendations on
-   top of the existing debt table.
-10. **Financial Snapshot (2.1)** + **Confidence Score (2.2)** — the
-    agent's two core reads; 2.2 is a reduction over 1.8.
-11. **Alert & Notification Queue (2.3)** — delivery path for 1.8.
-12. **Net Worth Snapshots (3.1)** — entity-aware from day one.
-13. **Multi-Currency extensions (3.2)** — whatever did not land in
+10. **Debt Strategy Advisor (1.9)** — rule-based recommendations on
+    top of the existing debt table.
+11. **Structured Data for AI Consumption (2.0)** — prerequisite to
+    all of Tier 2. Balance + debt + tax semantic discriminators
+    (2.0.A/B), expected-receipts calendar (2.0.C), contract-exposure
+    enrichment (2.0.D), slice endpoints (`/api/ai/liquidity`,
+    `/api/ai/pipeline`, `/api/ai/runway` in 2.0.E), thin snapshot
+    composer + generated `/api/ai/manifest` (2.0.F), and a thin MCP
+    server (2.0.G) that exposes the same slices as first-class
+    Resources + Tools with auto-generated descriptors and both
+    stdio + HTTP+SSE transports. Gates Open Close.
+12. **Financial Snapshot (2.1)** + **Confidence Score (2.2)** — the
+    agent's two core reads; 2.2 is a reduction over 1.8, both
+    consume 2.0's slice endpoints.
+13. **Alert & Notification Queue (2.3)** — delivery path for 1.8.
+14. **Net Worth Snapshots (3.1)** — entity-aware from day one.
+15. **Multi-Currency extensions (3.2)** — whatever did not land in
     1.1 / 1.3.
-14. **Historical Invoice Parser Fallbacks (3.3)** — OCR + inbound
+16. **Historical Invoice Parser Fallbacks (3.3)** — OCR + inbound
     automation.
-15. **WhatsApp / Chat Interface (2.4)** — delivery channel, ships
+17. **WhatsApp / Chat Interface (2.4)** — delivery channel, ships
     last.
 
 ---

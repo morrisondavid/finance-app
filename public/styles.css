@@ -1109,6 +1109,18 @@ body {
   background: var(--color-border);
 }
 
+.btn-ghost {
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--color-bg);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
 /* Responsive balance grid */
 @media (max-width: 768px) {
   .balance-grid {
@@ -3722,14 +3734,49 @@ body {
   display: flex; align-items: center; justify-content: center;
 }
 
+/*
+ * Neutralises the legacy `.modal` rule at ~L1037 which treats `.modal`
+ * as a full-viewport overlay (`position: fixed; top: 0; left: 0;
+ * height: 100%; display: flex; align-items: center`). Those props leak
+ * through to panels because only `background / width / max-width / …`
+ * are overridden there — the panel ends up stuck to the top-left with
+ * 100vh height and its children flex-centred. Resetting position /
+ * top / left / height / display here puts the panel back into a
+ * content-sized, overlay-centred card.
+ */
 .modal-overlay .modal {
-  background: var(--color-surface); border-radius: var(--radius);
-  padding: 0; max-width: 480px; width: 90%;
+  background: var(--color-surface);
+  border-radius: var(--radius);
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  padding: 0;
+  max-width: 480px;
+  width: 90%;
+  position: relative;
+  top: auto;
+  left: auto;
+  height: auto;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
+.modal-overlay .modal-header {
+  padding: 14px 20px 12px;
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .modal-overlay .modal-body {
-  display: flex; flex-direction: column; gap: 12px; padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px 20px;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .modal-overlay .modal-body label {
@@ -4359,4 +4406,747 @@ body {
    discover the double-click-to-zoom affordance naturally. */
 .fc .fc-daygrid-day {
   cursor: pointer;
+}
+
+/* ==========================================================================
+   Contracts Tab — tile layout for active engagements, aggregate banner,
+   and the "Record leave" modal. Everything here is scoped under
+   `.contracts-*` so it can't collide with other tabs.
+   ========================================================================== */
+
+.contracts-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.contracts-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.contracts-subtitle {
+  margin: 6px 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  max-width: 680px;
+}
+
+.contracts-header-actions {
+  flex-shrink: 0;
+}
+
+.contracts-aggregate {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.contracts-aggregate-tile {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Legacy label/value — kept for any callers that haven't migrated. */
+.contracts-aggregate-tile__label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+.contracts-aggregate-tile__value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.contracts-aggregate-tile__sub {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin-top: 0;
+}
+
+/* -- Retained-after-tax layout -- */
+
+.contracts-aggregate-tile__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.contracts-aggregate-tile__trading-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.2;
+}
+
+.contracts-aggregate-tile__subtitle {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  letter-spacing: 0.2px;
+}
+
+.contracts-aggregate-tile__claims {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.contracts-aggregate-tile__claim {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.contracts-aggregate-tile__claim--incoming {
+  color: var(--color-text);
+}
+
+.contracts-aggregate-tile__claim--none {
+  display: block;
+  grid-template-columns: none;
+  font-style: italic;
+}
+
+.contracts-aggregate-tile__claim-label {
+  color: var(--color-text-muted);
+}
+
+.contracts-aggregate-tile__claim--incoming .contracts-aggregate-tile__claim-label {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.contracts-aggregate-tile__claim-amount {
+  text-align: right;
+  font-weight: 600;
+}
+
+.contracts-aggregate-tile__claim-note {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  text-align: right;
+}
+
+.contracts-aggregate-tile__divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 2px 0;
+}
+
+.contracts-aggregate-tile__retained {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.contracts-aggregate-tile__retained-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-muted);
+}
+
+.contracts-aggregate-tile__retained-amount {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.contracts-aggregate-tile__retained-note {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.contracts-empty {
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  padding: 24px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.contracts-active {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 20px;
+}
+
+.contracts-tile {
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border-left: 4px solid var(--color-primary);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.contracts-tile.is-inactive {
+  border-left-color: var(--color-border);
+  opacity: 0.7;
+}
+
+.contracts-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md), 0 6px 18px rgba(0, 0, 0, 0.06);
+}
+
+.contracts-tile__head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.contracts-tile__title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.contracts-tile__subtitle {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.contracts-tile__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.contracts-agency-pill {
+  background: transparent;
+  border: 1px dashed var(--color-border);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.contracts-agency-pill:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: #eff6ff;
+}
+
+.contracts-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-border);
+  color: var(--color-text);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.contracts-badge--cadence {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.contracts-badge--direct {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.contracts-badge--agency {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.contracts-badge--inactive {
+  background: #f1f5f9;
+  color: var(--color-text-muted);
+}
+
+.contracts-badge--ended {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.contracts-badge--ending-warn {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.contracts-badge--ending-critical {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.contracts-tile.is-ended {
+  background: #fef2f2;
+  border-color: #fecaca;
+  border-left-color: #fecaca;
+}
+
+.contracts-tile.is-ended .contracts-tile__title,
+.contracts-tile.is-ended .contracts-stat__value {
+  color: var(--color-text-muted);
+}
+
+.contracts-ended-panel {
+  margin-top: 20px;
+  background: transparent;
+}
+
+.contracts-ended-panel > summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  border: 1px dashed var(--color-border);
+  border-radius: 6px;
+  user-select: none;
+  list-style: revert;
+}
+
+.contracts-ended-panel > summary:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-strong, var(--color-border));
+}
+
+.contracts-ended-panel[open] > summary {
+  margin-bottom: 14px;
+}
+
+.contracts-ended-panel__body {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 20px;
+}
+
+.contracts-warning-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: #fef3c7;
+  color: #b45309;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  vertical-align: middle;
+}
+
+.contracts-tile__stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  padding: 12px;
+  background: var(--color-bg);
+  border-radius: 6px;
+}
+
+.contracts-stat__label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+
+.contracts-stat__value {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.contracts-stat--income .contracts-stat__value {
+  color: var(--color-income);
+}
+
+.contracts-tile__footer {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.contracts-tile__footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.contracts-tile__footer .contracts-link-button {
+  align-self: flex-start;
+}
+
+.contracts-link-button {
+  background: transparent;
+  border: none;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 4px 0;
+}
+
+.contracts-link-button:hover {
+  text-decoration: underline;
+}
+
+.contracts-tile__drawer {
+  border-top: 1px solid var(--color-border);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.contracts-leave-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  font-size: 0.85rem;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--color-border);
+}
+
+.contracts-leave-row:last-child {
+  border-bottom: none;
+}
+
+.contracts-leave-row__type {
+  text-transform: capitalize;
+  color: var(--color-text-muted);
+}
+
+.contracts-leave-row__remove {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  color: var(--color-expense);
+  cursor: pointer;
+}
+
+.contracts-leave-row__remove:hover {
+  background: #fee2e2;
+}
+
+.contracts-leave-empty {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* Modal */
+
+/*
+ * `.modal-overlay .modal` above sets `max-width: 480px`. That selector
+ * has specificity 0,0,2,0 so a bare `.modal--wide` (0,0,1,0) can't beat
+ * it. Scope the override to `.modal-overlay .modal--wide` for the tie
+ * on specificity; source order then wins. Width needs to comfortably
+ * hold three-column date grids plus (optionally) the editable email
+ * preview stack, so 920px is the sweet spot without feeling bloated.
+ */
+.modal-overlay .modal--wide {
+  max-width: 920px;
+  width: 90vw;
+}
+
+.contracts-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.contracts-modal-hint {
+  margin: 0;
+  padding: 10px 12px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #1e3a8a;
+}
+
+.contracts-modal-sub {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.contracts-modal-sub code {
+  background: var(--color-bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.72rem;
+}
+
+.contracts-agency-details {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  font-size: 0.85rem;
+}
+
+.contracts-agency-details dt {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.contracts-agency-details dd {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.contracts-fieldset {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 12px 14px;
+}
+
+.contracts-fieldset legend {
+  padding: 0 6px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-muted);
+}
+
+.contracts-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/*
+ * Needs to beat the generic `.modal-overlay .modal-body label` rule
+ * (specificity 0,0,2,1) which would otherwise force
+ * `flex-direction: column` and stack checkbox above label.
+ */
+.modal-overlay .modal-body label.contracts-scope-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.modal-overlay .modal-body label.contracts-scope-row:hover {
+  background: var(--color-bg);
+}
+
+/*
+ * The broader `.modal-overlay .modal-body input` rule stamps padding,
+ * border, and background onto every input — including checkboxes,
+ * which then render as oversized square buttons. Restore a standard
+ * checkbox appearance here.
+ */
+.modal-overlay .modal-body .contracts-scope-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: var(--color-surface);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.contracts-scope-row__name {
+  flex: 1 1 auto;
+  color: var(--color-text);
+}
+
+.contracts-scope-row__ref {
+  font-family: 'Menlo', 'Monaco', monospace;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  background: var(--color-bg);
+  padding: 2px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.contracts-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.contracts-form-grid label,
+.contracts-full-width {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.contracts-form-grid input,
+.contracts-form-grid select,
+.contracts-full-width textarea {
+  font-size: 0.95rem;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-text);
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+}
+
+.contracts-previews {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.contracts-preview {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 14px;
+  background: var(--color-bg);
+}
+
+.contracts-preview__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.contracts-preview__title {
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.contracts-preview__copy {
+  background: transparent;
+  border: 1px solid var(--color-primary);
+  color: var(--color-primary);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.contracts-preview__copy:hover {
+  background: var(--color-primary);
+  color: white;
+}
+
+.contracts-preview__copy.is-copied {
+  background: var(--color-income);
+  border-color: var(--color-income);
+  color: white;
+}
+
+.contracts-preview__grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  font-size: 0.85rem;
+  align-items: center;
+}
+
+.contracts-preview__label {
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.5px;
+}
+
+.contracts-preview__grid input[type="text"],
+.contracts-preview__grid textarea {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  background: var(--color-surface);
+  font-family: inherit;
+}
+
+.contracts-preview__grid textarea {
+  min-height: 140px;
+  resize: vertical;
+  font-family: 'Menlo', 'Monaco', monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.contracts-preview__error {
+  color: #7f1d1d;
+  font-size: 0.85rem;
+  padding: 10px 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  line-height: 1.5;
+}
+
+.contracts-preview__error code {
+  background: rgba(127, 29, 29, 0.08);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 640px) {
+  .contracts-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .contracts-tile__stats {
+    grid-template-columns: 1fr;
+  }
+  .contracts-header {
+    flex-direction: column;
+  }
 }

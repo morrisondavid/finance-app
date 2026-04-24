@@ -23,7 +23,7 @@ describe('parseContractRow', () => {
     const c = parseContractRow(dcSowRow);
     expect(c.id).toBe('dc-sow-2026');
     expect(c.master_id).toBe('dc-master-2025');
-    expect(c.day_rate).toBe(600);
+    expect(c.day_rate).toBe(550);
     expect(c.invoice_cadence).toBe('monthly');
     expect(c.conduct_regs).toBe('opted-out');
   });
