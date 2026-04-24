@@ -458,6 +458,21 @@ decision):**
   `calculateRetainedReserves` alongside the existing tax helpers.
   Personal take-home (salary + dividend + personal tax) deferred
   until a pay plan is confirmed with the accountant.
+- **Accrual since last payment** (shipped). Per-contract owed
+  figures (`worked_days_to_date`, `leave_days_in_period`,
+  `accrued_to_date`) are now rebased onto a narrative-matched
+  last-invoice-payment date (via `findLastInvoicePaymentDate` +
+  `resolveAccrualWindowStart` in
+  `server/domain/contracts/last-payment.ts`), falling back to
+  month-start when no payment matches (new contracts, FZCO before
+  the first AED deposit lands). `projected_period_total` stays
+  pinned to the calendar month, so the Retained / VAT / CT banner
+  is numerically unchanged. Tile labels renamed to "Worked since
+  last payment" / "Leave since last payment" with a hover tooltip
+  showing the window range. Amount-tolerance fallback is
+  implemented but gated off (`enableAmountFallback: false`),
+  waiting for the invoicing ledger in 1.3 to provide a
+  deterministic invoice↔payment link.
 
 #### Non-goals
 
