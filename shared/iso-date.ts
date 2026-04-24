@@ -108,3 +108,40 @@ export function monthRange(iso: string): { start: string; end: string } {
   const end = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
   return { start, end };
 }
+
+/**
+ * Parse a `DD/MM/YYYY` string into an ISO `YYYY-MM-DD` date.
+ *
+ * Complements `toIsoDate` / `shiftIsoDate` / `monthRange` — used by
+ * PDF parsers (e.g. the La Fosse self-bill parser) and any other
+ * ingestion path that has to normalise human-formatted UK dates onto
+ * the canonical ISO surface used everywhere else in the app.
+ *
+ * Returns `null` for any input that isn't exactly three slash-separated
+ * integer parts forming a real calendar date. Deliberately strict: we
+ * would rather emit a structured parse error upstream than silently
+ * accept garbage and land a wrong `period_start`.
+ */
+export function parseIsoFromDDMMYYYY(s: string): string | null {
+  const trimmed = s.trim();
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(trimmed);
+  if (match === null) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  if (!Number.isInteger(day) || !Number.isInteger(month) || !Number.isInteger(year)) {
+    return null;
+  }
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > 31) return null;
+  // Round-trip through Date to reject impossible days (e.g. 31/02/2026).
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  if (
+    dt.getUTCFullYear() !== year
+    || dt.getUTCMonth() !== month - 1
+    || dt.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}

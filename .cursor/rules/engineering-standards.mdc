@@ -1,0 +1,29 @@
+---
+description: DRY refactors, obvious naming, and maintainable structure for all agent work in this repo
+alwaysApply: true
+---
+
+# Engineering standards (always)
+
+## DRY and reuse
+
+- Prefer **one canonical place** for behaviour (pure helpers, domain modules, shared utilities). If you touch a second call site that duplicates logic, **refactor into a shared function** and update callers unless the user explicitly forbids scope creep.
+- **Routes stay thin**: compose domain + persistence; avoid re-implementing parsing, matching, or money/date rules in HTTP handlers.
+- When adding a flow that mirrors an existing one (e.g. two upload paths), **extract a shared primitive** (e.g. one `persistX` used by both routes) instead of copying the saga.
+
+## Naming and clarity
+
+- Use **plain, obvious names** for variables and functions (`contract`, `invoiceTotal`, `matchPayerToContract`), not clever abbreviations or overloaded generics.
+- Prefer **short pure functions** with a single job over long procedures with mixed concerns.
+- Match **existing project style**: imports, file layout, error shapes, and test patterns in neighbouring files.
+
+## Maintainability
+
+- **Only change what the task needs**; no drive-by refactors or unrelated files.
+- Lock non-trivial behaviour with **tests** (domain pure functions, route contracts) when you add or change logic.
+- Avoid type escapes (`any`, unnecessary `as`); keep contracts honest with Zod/types already used in the codebase.
+
+## When in doubt
+
+- Extend an existing module or barrel export before adding a parallel tree of files.
+- If a change would duplicate a third time, **stop and consolidate** before continuing.

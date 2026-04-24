@@ -59,3 +59,9 @@ export {
   serializeClientsCsv,
   writeClientsCsvFile,
 } from './csv-io.js';
+
+export {
+  normaliseForMatch,
+  buildNarrativeTokens,
+  narrativeMatches,
+} from './narrative-match.js';

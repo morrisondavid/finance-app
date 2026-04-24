@@ -10,6 +10,7 @@ import {
   calculateRetainedReserves,
   getVatQuarterForDate,
   getCurrentVatQuarter,
+  resolveInvoiceVatRate,
 } from './tax-rates.js';
 import { parseCompanyRow } from '../domain/company/csv-io.js';
 import { ukRow, uaeRow, rowFromHeaders } from '../domain/company/test-helpers.js';
@@ -429,6 +430,42 @@ describe('calculateRetainedReserves', () => {
           .toBeCloseTo(r.incoming_period_total, 6);
       }
     });
+  });
+});
+
+describe('resolveInvoiceVatRate', () => {
+  const ukVatRegistered = parseCompanyRow(ukRow);
+  const ukNotVatRegistered = parseCompanyRow(
+    rowFromHeaders({ ...ukRow, vat_registered: 'false' }),
+  );
+  const ukVatTbc = parseCompanyRow(
+    rowFromHeaders({ ...ukRow, vat_registered: 'TBC' }),
+  );
+  const fzco = parseCompanyRow(uaeRow);
+
+  it('returns VAT.RATE for UK + vat_registered=true', () => {
+    expect(resolveInvoiceVatRate(ukVatRegistered)).toBe(VAT.RATE);
+  });
+
+  it('returns 0 for UK + vat_registered=false', () => {
+    expect(resolveInvoiceVatRate(ukNotVatRegistered)).toBe(0);
+  });
+
+  it('returns 0 for UK + vat_registered=TBC (conservative — do not charge VAT until confirmed)', () => {
+    expect(resolveInvoiceVatRate(ukVatTbc)).toBe(0);
+  });
+
+  it('returns 0 for FZCO regardless of VAT registration (UAE — out of scope of UK VAT)', () => {
+    expect(resolveInvoiceVatRate(fzco)).toBe(0);
+  });
+
+  it('is the same rule calculateRetainedReserves applies', () => {
+    // Cross-check the two call sites stay wired to the same rule.
+    const r = calculateRetainedReserves(10000, ukVatRegistered);
+    expect(r.vat_rate_applied).toBe(resolveInvoiceVatRate(ukVatRegistered));
+
+    const rFzco = calculateRetainedReserves(10000, fzco);
+    expect(rFzco.vat_rate_applied).toBe(resolveInvoiceVatRate(fzco));
   });
 });
 

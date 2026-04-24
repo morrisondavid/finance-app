@@ -40,6 +40,12 @@ export {
 } from './queries.js';
 
 export {
+  matchPayerToContract,
+  type PayerMatchResult,
+  type MatchPayerToContractInput,
+} from './payer-match.js';
+
+export {
   makeTestContractRegistry,
   type ContractRegistryFixtureInput,
 } from './fixtures.js';

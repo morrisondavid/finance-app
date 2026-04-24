@@ -7,7 +7,13 @@ import { normalizeFileOnDisk } from '../utils/filename-normalizer.js';
 import { partitionByMonth } from '../utils/csv-partitioner.js';
 import { validateAndCleanup } from '../utils/csv-validator.js';
 import { initDatabase } from '../db/index.js';
-import type { UploadedFile, UploadResponse } from '../types.js';
+import type {
+  InvoiceUploadIngestResult,
+  UploadedFile,
+  UploadResponse,
+} from '../types.js';
+import { persistIngestedSelfBillFromBuffer } from '../domain/invoices/index.js';
+import { todayIsoLocal } from '../../shared/iso-date.js';
 import { ACCOUNTS, AccountName } from '../types.js';
 import type { UploadResponse as UploadResponseContract } from '../../shared/api-contracts.js';
 import { PARSERS } from '../parsers/index.js';
@@ -331,32 +337,105 @@ router.post('/:account/:type', upload.array('files', 50), async (req: Request, r
   res.json(response);
 });
 
-// POST /api/upload/invoices - Upload invoice files
-router.post('/invoices', upload.array('files', 50), (req: Request, res: Response<UploadResponseContract | { error: string }>) => {
-  // Override params for invoice uploads
-  req.params.account = 'invoices';
-  req.params.type = 'pdf';
-  
-  const files = req.files as Express.Multer.File[] | undefined;
-  
-  if (!files || files.length === 0) {
-    res.status(400).json({ error: 'No files uploaded' });
-    return;
-  }
-  
-  const uploadedFiles: UploadedFile[] = files.map(f => ({
-    filename: f.filename,
-    size: f.size,
-    path: f.path
-  }));
-  
-  const response: UploadResponse = {
-    message: `Successfully uploaded ${files.length} invoice(s)`,
-    files: uploadedFiles
-  };
-  
-  res.json(response);
-});
+// POST /api/upload/invoices — saves each PDF, then runs the same self-bill
+// ingestion pipeline as `POST /api/invoices/ingest-self-bill`. Recognised
+// La Fosse self-bills become ledger rows + `invoices/ingested/` copies; all
+// other PDFs stay in `invoices/` as archives (same as before ingestion existed).
+router.post(
+  '/invoices',
+  upload.array('files', 50),
+  async (req: Request, res: Response<UploadResponseContract | { error: string }>) => {
+    req.params.account = 'invoices';
+    req.params.type = 'pdf';
+
+    const files = req.files as Express.Multer.File[] | undefined;
+
+    if (!files || files.length === 0) {
+      res.status(400).json({ error: 'No files uploaded' });
+      return;
+    }
+
+    const today = todayIsoLocal();
+    const ingestOutcomes: InvoiceUploadIngestResult[] = [];
+    let ingestedCount = 0;
+
+    for (const f of files) {
+      let buffer: Buffer;
+      try {
+        buffer = fs.readFileSync(f.path);
+      } catch {
+        ingestOutcomes.push({
+          filename: f.originalname,
+          outcome: 'failed',
+          code: 'read-failed',
+          message: 'Could not read uploaded file',
+        });
+        continue;
+      }
+
+      const persisted = await persistIngestedSelfBillFromBuffer(buffer, today);
+      if (persisted.ok) {
+        ingestedCount += 1;
+        ingestOutcomes.push({
+          filename: f.originalname,
+          outcome: 'ingested',
+          invoiceId: persisted.invoice.id,
+        });
+        try {
+          fs.unlinkSync(f.path);
+        } catch {
+          // Best-effort — canonical bytes live under invoices/ingested/.
+        }
+        continue;
+      }
+
+      if (
+        persisted.code === 'no-parser-match' ||
+        persisted.code === 'parse-failed' ||
+        persisted.code === 'unexpected-format' ||
+        persisted.code === 'no-contract-match'
+      ) {
+        ingestOutcomes.push({
+          filename: f.originalname,
+          outcome: 'archived-only',
+          code: persisted.code,
+          message: 'File kept in invoices/ — not a recognised self-bill layout',
+        });
+        continue;
+      }
+
+      ingestOutcomes.push({
+        filename: f.originalname,
+        outcome: 'failed',
+        code: persisted.code,
+        message:
+          typeof persisted.detail === 'string'
+            ? persisted.detail
+            : persisted.code,
+      });
+    }
+
+    const uploadedFiles: UploadedFile[] = files.map(file => ({
+      filename: file.filename,
+      size: file.size,
+      path: file.path,
+    }));
+
+    const parts: string[] = [
+      `Received ${files.length} invoice PDF(s)`,
+      ingestedCount > 0 ? `${ingestedCount} ingested as self-bill` : null,
+      ingestedCount < files.length ? 'others archived or failed (see details)' : null,
+    ].filter((p): p is string => p !== null);
+
+    const response: UploadResponse = {
+      message: parts.join(' · '),
+      files: uploadedFiles,
+      invoiceIngestResults: ingestOutcomes,
+    };
+
+    res.json(response);
+  },
+);
 
 // Error handling middleware for multer
 router.use((err: Error, _req: Request, res: Response, next: NextFunction) => {

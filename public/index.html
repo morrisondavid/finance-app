@@ -21,6 +21,7 @@
       <button class="tab" data-tab="obligations">Obligations</button>
       <button class="tab" data-tab="deadlines">Deadlines</button>
       <button class="tab" data-tab="contracts">Contracts</button>
+      <button class="tab" data-tab="invoices">Invoices</button>
       <button class="tab" data-tab="clients">Clients</button>
       <button class="tab" data-tab="debt">Debt</button>
       <button class="tab" data-tab="warnings">Warnings</button>
@@ -627,7 +628,7 @@
           <h2 class="contracts-title">Contracts</h2>
         </div>
         <div class="contracts-header-actions">
-          <button type="button" class="btn btn-primary" id="contracts-book-all-btn">Book Leave…</button>
+          <button type="button" class="btn btn-primary" id="contracts-book-all-btn">Holiday…</button>
         </div>
       </div>
 
@@ -689,7 +690,7 @@
       <div class="modal-overlay" id="contracts-leave-modal" style="display:none">
         <div class="modal modal--wide">
           <div class="modal-header">
-            <h3 id="contracts-leave-modal-title">Book Leave</h3>
+            <h3 id="contracts-leave-modal-title">Holiday</h3>
             <button type="button" class="modal-close" id="contracts-leave-modal-close">&times;</button>
           </div>
           <form id="contracts-leave-form" class="modal-body contracts-modal-body">
@@ -725,7 +726,112 @@
 
             <div class="modal-footer">
               <button type="button" class="btn" id="contracts-leave-modal-cancel">Cancel</button>
-              <button type="submit" class="btn btn-primary">Book Leave</button>
+              <button type="submit" class="btn btn-primary">Holiday</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- Invoices Tab -->
+    <section id="invoices" class="tab-content">
+      <div class="contracts-header">
+        <div>
+          <h2 class="contracts-title">Invoices</h2>
+          <p class="contracts-section-sub">Supplier-issued invoices you generate from active contracts and self-bill PDFs ingested from agency portals. Both land in the same ledger.</p>
+        </div>
+        <div class="contracts-header-actions">
+          <button type="button" class="btn btn-primary" id="invoices-generate-btn">Generate invoice…</button>
+          <button type="button" class="btn" id="invoices-ingest-btn">Ingest self-bill PDFs…</button>
+        </div>
+      </div>
+
+      <div id="invoices-status" class="contracts-aggregate" style="display:none"></div>
+
+      <div id="invoices-groups"></div>
+
+      <!-- Generate modal -->
+      <div class="modal-overlay" id="invoices-generate-modal" style="display:none">
+        <div class="modal modal--wide">
+          <div class="modal-header">
+            <h3>Generate invoice</h3>
+            <button type="button" class="modal-close" id="invoices-generate-modal-close">&times;</button>
+          </div>
+          <form id="invoices-generate-form" class="modal-body">
+            <fieldset class="contracts-fieldset">
+              <legend>Contract</legend>
+              <label class="contracts-full-width">Active contract
+                <select name="contract_id" id="invoices-generate-contract-select" required></select>
+              </label>
+            </fieldset>
+
+            <fieldset class="contracts-fieldset" id="invoices-generate-draft-fields" style="display:none">
+              <legend>Draft (review before saving)</legend>
+              <div class="contracts-form-grid">
+                <label>Invoice ID
+                  <input name="id" readonly />
+                </label>
+                <label>Invoice date
+                  <input name="invoice_date" type="date" readonly />
+                </label>
+                <label>Period start
+                  <input name="period_start" type="date" readonly />
+                </label>
+                <label>Period end
+                  <input name="period_end" type="date" />
+                </label>
+                <label>Days billed
+                  <input name="days_billed" type="number" step="0.5" min="0" />
+                </label>
+                <label>Day rate
+                  <input name="day_rate_display" readonly />
+                </label>
+                <label>Subtotal
+                  <input name="subtotal_display" readonly />
+                </label>
+                <label>VAT
+                  <input name="vat_display" readonly />
+                </label>
+                <label>Total
+                  <input name="total_display" readonly />
+                </label>
+                <label>Due date
+                  <input name="due_date" type="date" readonly />
+                </label>
+              </div>
+              <label class="contracts-full-width">Description
+                <textarea name="description" rows="2"></textarea>
+              </label>
+            </fieldset>
+
+            <div id="invoices-generate-error" class="clients-form-error" style="display:none"></div>
+
+            <div class="modal-footer">
+              <button type="button" class="btn" id="invoices-generate-modal-cancel">Cancel</button>
+              <button type="submit" class="btn btn-primary" id="invoices-generate-submit" disabled>Generate &amp; save</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Ingest modal -->
+      <div class="modal-overlay" id="invoices-ingest-modal" style="display:none">
+        <div class="modal">
+          <div class="modal-header">
+            <h3>Ingest self-bill PDFs</h3>
+            <button type="button" class="modal-close" id="invoices-ingest-modal-close">&times;</button>
+          </div>
+          <form id="invoices-ingest-form" class="modal-body">
+            <p class="clients-modal-hint">Upload one or more PDFs exactly as the agency emailed them. For each file we extract the supplier invoice number, period, days, and amounts, and file it under the matching active contract.</p>
+            <p id="invoices-ingest-context-hint" class="clients-modal-hint" style="display:none"></p>
+            <label class="contracts-full-width">Self-bill PDFs
+              <input type="file" name="pdf" accept="application/pdf" multiple required />
+            </label>
+            <div id="invoices-ingest-result" class="clients-form-hint" style="display:none"></div>
+            <div id="invoices-ingest-error" class="clients-form-error" style="display:none"></div>
+            <div class="modal-footer">
+              <button type="button" class="btn" id="invoices-ingest-modal-cancel">Cancel</button>
+              <button type="submit" class="btn btn-primary" id="invoices-ingest-submit">Ingest</button>
             </div>
           </form>
         </div>
@@ -1035,6 +1141,7 @@
 
       <div class="upload-section">
         <h2>Upload Invoices</h2>
+        <p class="upload-hint">La Fosse self-bill PDFs dropped here run the same ingestion as the Invoices tab (new ledger row + file under <code>invoices/ingested/</code>). Other PDFs stay in <code>invoices/</code> as archives only.</p>
         <div id="dropzone-invoices" class="dropzone">
           <div class="dropzone-content">
             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

@@ -6,9 +6,9 @@
 >
 > **What's shipped (Tier 0):** obligations registry, HMRC auto-seeders (VAT / CT / SA / TTP), budgets, recurring detection, overdue hero, missed-obligation detector, multi-currency foundations (GBP + AED), and the Deadlines tab + calendar + ICS export.
 >
-> **What's shipped (Tier 1):** the **Multi-Entity Foundation (1.1)** — UK Ltd + UAE FZCO modelled end-to-end through `accounts` / `company` / `tax-rules.ts` with per-entity VAT / CT scoping, inter-company classification, and Wise as a first-class intermediary — and **Clients, Contracts & Renewals — Phase A (1.2.A)** — canonical `clients` / `contracts` registries with build-time FK joins and a `contract-renewal` deadline auto-seeder. Detail in the sections below.
+> **What's shipped (Tier 1):** **Multi-Entity Foundation (1.1)** — UK Ltd + UAE FZCO end-to-end; **Clients, Contracts & Renewals** phases **A–E** including **C** (timeline-aware payer matcher with `payment-outside-contract-window` warnings); and **Invoicing §1.3 Phases 1–3** — invoice domain registry, historical DC seed rows, outbound PDF generator (supplier-issued), self-bill PDF ingestion (La Fosse), and the Invoices tab covering both flows.
 >
-> **What's left (Tier 1):** the business now spans two legally distinct entities — **Autonize IT Limited** (UK, operational since 2014) and **Autonize IT Software Development – FZCO** (UAE, operational from March 2026) — most engagements agency-mediated (La Fosse → Edwin) and some direct (Delta Capita), with both self-billed and supplier-issued mechanisms in play. Remaining Tier 1 work: **1.2.B** templates + recipient routing, **1.2.C** timeline-aware payment matcher, **1.2.E** Contracts tab (books leave against any / all active contracts, writes a minimum-viable leave ledger, surfaces per-contract period income accrual); then invoicing (outbound + self-bill), the full working-days ledger, cash-flow forecast, warnings engine, debt-strategy advisor, and the agent / notification layer.
+> **What's left (Tier 1):** the business spans two entities — **Autonize IT Limited** (UK, 2014–) and **Autonize IT Software Development – FZCO** (UAE, March 2026–) — most engagements agency-mediated (La Fosse → Edwin), some direct (Delta Capita), with both self-billed and supplier-issued mechanisms. Remaining: **1.3 Phase 4** payment reconciler; then **1.4** full working-days ledger, **1.5** cash-flow forecast, **1.7** income diversification, **1.8** warnings engine, **1.9** debt advisor, and the Tier 2 agent / notification layer.
 
 ---
 
@@ -68,11 +68,10 @@ Fosse → Edwin); some are **direct** (no agency, client pays
 directly, e.g. Delta Capita). The schema serves both without forcing
 one into the shape of the other.
 
-Ships in five phases: **A — Foundation** (registries + renewal
-deadlines) SHIPPED; **B — Templates**, **C — Payment Matcher
-timeline**, **D — Clients page UI**, and **E — Contracts tab +
-minimum-viable leave writer + period-scoped income accrual**
-remain.
+All five phases shipped: **A** (registries + renewal deadlines),
+**B** (templates + recipient routing), **C** (timeline-aware payer
+matcher), **D** (Clients page UI), **E** (Contracts tab + leave
+writer + period-scoped income accrual).
 
 #### 1.2.A Foundation: registries + renewal deadlines ✅ SHIPPED
 
@@ -158,318 +157,59 @@ active, updated_at
 - `contract-renewal-dc-sow-2026` due **2026-12-31** (60 days before
   2027-03-01).
 
-#### 1.2.B Templates — remaining
+#### 1.2.B Templates ✅ SHIPPED
 
-Rendering + recipient resolution on top of the shipped registries.
-The near-term consumer is **1.2.E**'s leave-booking flow, so `leave`
-is the first template kind to land; `sickness`, `invoice-cover`, and
-`renewal` follow in the same module with identical signatures.
+Pure `renderTemplate({ kind, client, contract, context })` and `resolveRecipients(kind, client)` built on Handlebars-style `.hbs` files at `clients/templates/{kind}.hbs` with optional per-client overrides via `resolveTemplatePath(clientId, kind)`. Kinds: `leave`, `sickness`, `invoice-cover`, `renewal`. Minimal interpolation (no partials, no inverse `{{#else}}`), typed Zod context schema in `server/domain/templates/schema.ts` so templates can't drift from contract shape, and four named structured errors (`DirectClientHasNoAgencyRenewalFlow`, `TimesheetNotApplicableForSupplierIssued`, `TemplateMissing`, `TemplateContextInvalid`). Recipient matrix routes leave/sickness/invoice-cover to the end-client contact for agency clients (La Fosse silent) and to the primary contact for direct clients (Delta Capita), with `client.cc_emails` appended verbatim. First live consumer is 1.2.E's leave preview; 2.3's send adaptor is the next.
 
-**File convention.** Handlebars-style template files at
-`clients/templates/{kind}.hbs` (shared across every client — one
-template per kind, diverged through `{{client.*}}` context
-variables rather than file copies). A per-client override at
-`clients/templates/{client_id}/{kind}.hbs` is supported by
-`resolveTemplatePath(clientId, kind)` but **no overrides are
-committed on first ship** (YAGNI — DC and La Fosse share body and
-diverge only through context). Kinds shipping in 1.2.B: `leave`,
-`sickness`, `invoice-cover`, `renewal`. `.hbs` extension (not
-`.md`) because the file is a template — the rendered output happens
-to be short plain-text bodies, but the source is machine-processed,
-not a human-authored document.
+#### 1.2.C Payment matcher — timeline-aware ✅ SHIPPED
 
-**Engine.** Minimal `{{handlebars}}`-style interpolation —
-`{{client.legal_name}}`, `{{contract.reference}}`,
-`{{leave.range_label}}`, `{{recipient_name}}`, plus `{{#each
-leave.dates}}` blocks for per-day bullet rendering and `{{#if
-path}}…{{/if}}` for truthy-field gating. No inverse `{{#else}}`, no
-nested helpers, no partials. Hand-rolled or a zero-dep micro-lib;
-template logic is explicitly out of scope (all branching happens in
-the recipient resolver and the context builder, not in the `.hbs`
-file).
-
-**Context schema.** Typed Zod schema at
-`server/domain/templates/schema.ts` so templates cannot silently
-drift from contract shape:
-
-```
-{
-  client,        -- full Client row (direct | agency discriminated)
-  contract,      -- full Contract row, joined to issuing entity
-  consultant,    -- { name, email } from company.csv
-  leave: {       -- populated only for kind = 'leave' | 'sickness'
-    dates: string[],             -- ISO, sorted, one entry per working day
-    range_label: string,         -- "Mon 4 May – Fri 8 May 2026" etc.
-    type: 'holiday' | 'sick',    -- personal-records only; never surfaced in body
-  } | null,
-  recipient_name,-- pre-resolved salutation name (direct primary / agency end-client primary)
-  today,         -- ISO date the render was kicked off
-}
-```
-
-**Rendering surface.** One pure function:
-
-```
-renderTemplate({ kind, client, contract, context })
-  → { subject, body, recipients: { to: string[], cc: string[] } }
-```
-
-No I/O side effects. File read is performed by the wrapper (or
-cached at module load); `renderTemplate` itself is a pure function
-of its inputs. Called by 1.2.E's preview path today, by 2.3's send
-adaptor later.
-
-**Recipient resolution.** Lifted into a named pure function
-`resolveRecipients(kind, client) → { to, cc }`. The existing matrix
-becomes the acceptance test:
-
-| Template | `kind = direct` (Delta Capita) | `kind = agency` (La Fosse / Edwin) |
-|---|---|---|
-| Leave / sickness / time-off notice | primary contact | **end-client contact** (agency silent) |
-| Invoice cover note | primary contact | **end-client contact** |
-| Renewal discussion | n/a — client handles direct | **agency primary contact** (end client not copied) |
-| Timesheet submission | n/a (supplier-issues invoices) | **agency primary contact** |
-
-`client.cc_emails` (comma-separated) is appended verbatim to `cc`
-in every case; `client.hr_contact_email` /
-`client.accounts_contact_email` only route when the template kind
-calls for them.
-
-**Structured errors.** Every failure mode is a named error type,
-not a string:
-
-- `DirectClientHasNoAgencyRenewalFlow` — raised when a `renewal`
-  template is requested against a `kind = direct` client.
-- `TimesheetNotApplicableForSupplierIssued` — raised when a
-  `timesheet` template is requested against a contract whose
-  `invoice_mechanism = supplier-issued`.
-- `TemplateMissing` — the `.hbs` file for `(clientId, kind)` is
-  absent on disk (neither per-client override nor shared fallback).
-- `TemplateContextInvalid` — the resolved context failed the Zod
-  schema (typically a `TBC` field leaking through for a template
-  that requires a concrete value).
-
-**Acceptance tests.**
-
-- `renderTemplate({ kind: 'leave', client: deltaCapita, ... })`
-  resolves `to = ['lily.lovegrove@deltacapita.com']` and
-  `cc = ['philip.coleman@...', 'william.swift@...',
-  'hrandrecruitment@deltacapita.com', 'dan.hedley@deltacapita.com']`;
-  La Fosse untouched.
-- `renderTemplate({ kind: 'leave', client: laFosse, ... })`
-  resolves `to = ['<aidan end-client email>']` with La Fosse
-  excluded from both `to` and `cc` entirely.
-- `renderTemplate({ kind: 'renewal', client: deltaCapita, ... })`
-  throws `DirectClientHasNoAgencyRenewalFlow`.
-
-**Non-goals.** Template editor UI, template versioning, template
-inheritance, email delivery (stays in 2.3), per-environment
-template overrides.
-
-#### 1.2.C Payment matcher — timeline-aware
-
-Make the existing payer-name heuristic contract-aware:
-
-- Match rule extends to `(payer_name heuristic matches) AND
-  (transaction.date ∈ [contract.start_date, contract.end_date])
-  AND (transaction.account.entity_id = contract.issuing_entity_id)`.
-  Follow-on rows (a new contract for the same `(client_id,
-  issuing_entity_id)` pair starting at or after the prior row's
-  `end_date`) naturally extend the matching window — resolution is
-  positional via the `byClientAndEntity` index, not a `type` column.
-- A La Fosse payment landing on Barclays in **April 2026 or later**
-  = anomaly → warn "payment from known payer outside any active
-  contract window; expected on FZCO" (once the FZCO cutover
-  contract is added).
-- A La Fosse payment landing on Emirates Islamic before the
-  relevant FZCO contract's `start_date` = anomaly → warn "payment
-  predates contract start".
-- Both are warnings, not hard errors — late payments for prior
-  contracts and advance payments for new contracts are legitimate
-  and require manual classification.
-
-Acceptance test: a Barclays deposit with narrative matching La
-Fosse, dated after `lf-2026-mar.end_date`, emits the anomaly
-warning rather than silently attributing to any contract.
+Pure `matchPayerToContract` in `server/domain/contracts/payer-match.ts`
+reuses the narrative-match helpers to identify a known client, then
+resolves `(transaction.date ∈ contract window) AND
+(transaction.account.entity_id = contract.issuing_entity_id)` via the
+existing `byClientAndEntity` index — positional resolution, no `type`
+column. Returns a discriminated union (`in-contract`,
+`outside-contract-window`, `no-known-payer`, `no-contracts-for-entity`).
+`payment-outside-contract-window` joins the
+`EntityFoundationWarningCodeSchema` and is derived in
+`server/domain/warnings/payment-outside-contract-window.ts`
+(pure `collectPaymentOutsideContractWindow` + DB-aware
+`derivePaymentOutsideContractWindowWarnings`), surfaced via the
+existing `/api/warnings/entity-foundation` endpoint alongside the
+Foundation warnings. Narrative matching remains the fallback for the
+invoice↔payment link until 1.3 Phase 4 replaces it with a
+deterministic join.
 
 #### 1.2.D UI — Clients page ✅ SHIPPED
 
 End-client-first tiled view over `/api/clients` + `/api/warnings/entity-foundation`. `partitionClientsForUi` projects each registry row onto the UI: direct rows surface once (Delta Capita — edits the client row), agency rows surface twice (Edwin Group — edits the `la-fosse` row's end-client block; La Fosse — edits the agency-level fields). `PUT /api/clients/:id` is the only write path, backed by a narrow `updateClient` helper that merges → validates → atomically rewrites the CSV → invalidates the registry; kind flips are rejected explicitly so pinned contracts and template overrides can't be orphaned. Kind-aware edit modal drives every field from a single declarative descriptor, and `client-tbc-fields` warnings surface as per-tile badges so unresolved contacts are visible before opening the form.
 
-#### 1.2.E Contracts Tab
+#### 1.2.E Contracts Tab ✅ SHIPPED
 
-**The first UI consumer of the contracts spine.** A dedicated
-top-level tab that answers two questions on every render: *what am
-I on the hook for right now?* and *if I book N days off, what does
-that do to my income this period?* Leave-booking writes into the
-ledger schema from 1.4, so this is also the point at which leave
-first becomes real data rather than intent.
-
-- **UI location:** new top-level `Contracts` tab registered in
-  `[public/src/modules/tabs.ts](public/src/modules/tabs.ts)`, next
-  to Deadlines. Module at
-  `[public/src/modules/contracts.ts](public/src/modules/contracts.ts)`.
-- **List view:** all contracts, active-first, inactive collapsed
-  under a disclosure. Per row: `id`, client legal name, issuing
-  entity badge (UK Ltd / FZCO), reference, `day_rate` + currency,
-  `start_date → end_date`, invoice cadence + mechanism, and three
-  live figures — **worked-days-to-date** (period), **accrued-to-
-  date** (native currency, GBP equivalent shown when they differ),
-  and **projected period total**. Aggregate "Accrued this period"
-  banner across all active contracts at the top of the tab,
-  broken down per `issuing_entity_id`.
-- **Detail drawer:** expanding a row reveals the full contract
-  field set plus the contract's own leave log (rows from
-  `working-days/leave.csv` filtered by `contract_id`). Future-
-  dated leave rows expose an inline remove action; past-dated rows
-  are read-only.
-- **"Book Leave" flow:**
-  - Scope selector: single contract (default when launched from a
-    row) OR multi-select across all active contracts (default "all
-    active" when launched from the aggregate header button).
-  - Date picker: inclusive start/end range or single-date toggle.
-    Days that no selected contract works (per each contract's
-    `works_*` mask) render greyed out but remain selectable if the
-    user explicitly opts in.
-  - Leave type selector: two values only — `holiday | sick` — for
-    the contractor's own record-keeping. No `paid` flag and no
-    `unpaid | company-closure | bank-holiday | public-holiday`:
-    outside-IR35 contracting has no paid-leave concept (no work →
-    no invoice line → effectively unpaid), company closures are
-    booked as `holiday`, and public holidays / bank holidays are
-    calendar events handled by a separate
-    `working-days/public-holidays.csv` feeding `excludeDates`, not
-    leave rows.
-  - **Per-contract template preview panel.** For each selected
-    contract, calls
-    `renderTemplate({ kind: 'leave', client, contract, context })`
-    from 1.2.B and renders the resolved `To:` / `CC:` list above
-    the interpolated template body in a read-only pane. The
-    preview is purely informational in 1.2.E — actual email send
-    lives in 2.3.
-  - Confirm writes N rows to `working-days/leave.csv` (one row
-    per `date × contract_id`), then refreshes the accrual numbers
-    in place without a full tab reload.
-- **Minimum-viable leave writer (carve-out from 1.4).** Full 1.4
-  remains the home of the working-days ledger, but 1.2.E needs a
-  place to persist the leave rows it creates. The subset that
-  ships here is deliberately narrow:
-  - `working-days/leave.csv` with the columns defined in 1.4
-    (`id, contract_id, date, type, notes, external_logged,
-    created_at, updated_at`) — schema landed by 1.2.E, populated
-    by 1.2.E and (later) 1.4.
-  - Atomic upsert keyed on `id = {contract_id}-{date}`.
-  - CSV I/O module and a canonical `server/domain/leave/` registry
-    (queries + fixtures + manifest test) following the 3.6
-    pattern.
-  - HTTP surface: `POST /api/contracts/:id/leave` (accepts a
-    `{ dates: string[], type, notes? }` body),
-    `DELETE /api/contracts/:id/leave/:leaveId`,
-    `GET /api/contracts/:id/leave` (read the per-contract log for
-    the detail drawer).
-  - Everything else 1.4 specifies — public-holiday auto-seeder,
-    per-month calendar UI, reconciliation vs invoices'
-    `days_billed`, implied-leave seeding from the 9 historical DC
-    months, UK/UAE jurisdiction routing — continues to extend
-    this spine without reshaping it.
-- **Minimal income accrual endpoint** (the forecast link the
-  roadmap's current "1.5 is far away" gap leaves missing):
-  - `GET /api/contracts/:id/income-accrual` returns
-    `{ contract_id, period_start, period_end, worked_days_to_date,
-    accrued_to_date, worked_days_remaining, projected_period_total,
-    leave_days_in_period, day_rate, currency }`.
-  - `period_start..period_end` is the current invoice period
-    derived from `invoice_cadence` (weekly: ISO week Monday →
-    Sunday; monthly: calendar month) clipped to
-    `[contract.start_date, contract.end_date]`.
-  - `worked_days` = weekday mask from `works_*` booleans minus
-    every leave row overlapping the period. Since the schema has
-    no `paid` flag (outside-IR35: no leave is billable), one
-    `leave_days_in_period` counter is sufficient — there is no
-    paid-vs-unpaid split to surface.
-  - Aggregate endpoint `GET /api/contracts/income-accrual` returns
-    the same shape per active contract plus a roll-up per
-    `issuing_entity_id` (UK Ltd GBP, FZCO GBP, FZCO AED-equivalent
-    once such a contract exists).
-- **Dependencies.** Requires 1.2.A (shipped) and 1.2.B (templates)
-  to land first — the preview panel is a hard dependency on
-  `renderTemplate` / `resolveRecipients`. Does **not** block on
-  full 1.4; the MV leave writer above is sufficient.
-
-**Acceptance criteria:**
-
-- `GET /api/contracts/income-accrual` on first boot returns both
-  seeded contracts (`dc-sow-2026`, `lf-2026-mar`) with zero leave
-  rows and the day counts expected for the current ISO week /
-  calendar month against their respective `works_*` masks.
-- Booking 3 `holiday` days (Mon–Wed) for `lf-2026-mar` writes 3
-  rows to `working-days/leave.csv`, reduces
-  `worked_days_remaining` by 3, and reduces
-  `projected_period_total` by `3 × £550 = £1,650` on that
-  contract's next accrual read.
-- Booking 1 day scoped to "all active contracts" on a Monday that
-  both contracts work writes 2 leave rows (one per contract)
-  sharing the same `date` but distinct `contract_id`, and reduces
-  both contracts' projections independently.
-- Booking a date outside `[contract.start_date, contract.end_date]`
-  returns a 422 with a structured `LeaveOutsideContractWindow`
-  error rather than silently writing.
-- Leave template preview for `dc-sow-2026` resolves
-  `to = ['lily.lovegrove@deltacapita.com']` and
-  `cc = ['philip.coleman@...', 'william.swift@...',
-  'hrandrecruitment@deltacapita.com', 'dan.hedley@deltacapita.com']`.
-- Leave template preview for `lf-2026-mar` resolves
-  `to = ['<aidan end-client email>']` with La Fosse excluded from
-  both `to` and `cc`.
-- Removing a future-dated leave row from the detail drawer
-  restores the accrual numbers to their pre-booking state on the
-  next read.
-
-**Non-goals (carved out to respect the additive-structure
-decision):**
-
-- Full monthly-grid leave calendar UI — stays in 1.4.
-- Public-holiday auto-population per jurisdiction — stays in 1.4.
-- Reconciliation of ledger-derived `days_worked` against issued
-  invoices' `days_billed` — stays in 1.4.
-- Implied-leave seeding from the 9 historical DC months — stays
-  in 1.4.
-- Actual email send of drafted templates — stays in 2.3 (Alert
-  Queue).
-- External holiday-portal sync (DC contractor portal, Edwin
-  timesheets) — Tier 3.
-- Multi-period / rolling 30 / 60 / 90-day cross-account forecast
-  — stays in 1.5. The accrual endpoint here is deliberately
-  scoped to the **current** invoicing period only; it answers
-  "what will this contract invoice for this week / this month?"
-  and nothing beyond the period boundary.
+Top-level `Contracts` tab (end-client-first tile layout, active contracts above, ended contracts collapsed) with per-contract accrual figures, a cross-contract Retained-after-tax banner, and a Book Leave flow scoped to one contract or all active contracts. Leave writes land in `working-days/leave.csv` via a canonical `server/domain/leave/` registry with `POST/GET/DELETE /api/contracts/:id/leave`; the accrual endpoint `GET /api/contracts/:id/income-accrual` (+ aggregate) derives `worked_days`, `accrued_to_date`, and `projected_period_total` from the contract's `works_*` weekday mask minus leave rows, with `LeaveOutsideContractWindow` as a structured 422. Leave type is `holiday | sick` only (outside-IR35 has no paid-leave concept; public holidays live in a separate `working-days/public-holidays.csv` feeding `excludeDates` in 1.4). Per-contract template preview (`renderTemplate` from 1.2.B) surfaces `To:` / `CC:` and the interpolated body as a copy-paste aid — actual send lives in 2.3.
 
 **Follow-ups shipped on top of 1.2.E:**
 
-- **Retained-after-tax aggregate** (shipped). Per-entity banner
-  tiles now lead with **Retained** — incoming (net + VAT) minus
-  VAT-to-HMRC minus a flat CT reserve (UK Ltd 25% via
-  `CORPORATION_TAX.MAIN_RATE`; FZCO 0% when QFZP-qualifying, 9%
-  otherwise via `UAE_CORPORATION_TAX`) — so gross projected income
-  stops masquerading as the company's money. All math sits in
-  `calculateRetainedReserves` alongside the existing tax helpers.
-  Personal take-home (salary + dividend + personal tax) deferred
-  until a pay plan is confirmed with the accountant.
-- **Accrual since last payment** (shipped). Per-contract owed
-  figures (`worked_days_to_date`, `leave_days_in_period`,
-  `accrued_to_date`) are now rebased onto a narrative-matched
-  last-invoice-payment date (via `findLastInvoicePaymentDate` +
+- **Retained-after-tax aggregate.** Per-entity banner tiles lead
+  with **Retained** — incoming (net + VAT) minus VAT-to-HMRC minus
+  a flat CT reserve (UK Ltd 25% via `CORPORATION_TAX.MAIN_RATE`;
+  FZCO 0% when QFZP-qualifying, 9% otherwise via
+  `UAE_CORPORATION_TAX`) — so gross projected income stops
+  masquerading as the company's money. Math lives in
+  `calculateRetainedReserves`. Personal take-home (salary +
+  dividend + personal tax) deferred until a pay plan is confirmed.
+- **Accrual since last payment.** Per-contract owed figures
+  (`worked_days_to_date`, `leave_days_in_period`,
+  `accrued_to_date`) rebase onto a narrative-matched last-invoice-
+  payment date (`findLastInvoicePaymentDate` +
   `resolveAccrualWindowStart` in
   `server/domain/contracts/last-payment.ts`), falling back to
-  month-start when no payment matches (new contracts, FZCO before
-  the first AED deposit lands). `projected_period_total` stays
-  pinned to the calendar month, so the Retained / VAT / CT banner
-  is numerically unchanged. Tile labels renamed to "Worked since
+  month-start when no payment matches. `projected_period_total`
+  stays pinned to the calendar month. Tiles show "Worked since
   last payment" / "Leave since last payment" with a hover tooltip
-  showing the window range. Amount-tolerance fallback is
-  implemented but gated off (`enableAmountFallback: false`),
-  waiting for the invoicing ledger in 1.3 to provide a
-  deterministic invoice↔payment link.
+  showing the window range. Narrative matching stays in place as
+  the fallback once 1.3's invoice-ledger provides a deterministic
+  invoice↔payment link (Phase 4).
 
 #### Non-goals
 
@@ -490,12 +230,33 @@ decision):**
 
 ### 1.3 Invoicing System
 
-**Two co-equal flows, both shipped in this release.** Supplier-issued
-(the app generates and issues the invoice PDF) for direct contracts
-like Delta Capita; self-bill ingestion (the payer issues, the app
-parses) for agency contracts like La Fosse. Neither is an enhancement
-to the other — they are parallel paths selected by the contract's
-`invoice_mechanism` column.
+**Phases 1–3 shipped ✅.** Invoice domain registry; 10 historical DC
+seed rows; outbound PDF generator (supplier-issued) powered by
+`pdfmake` with per-entity templates (UK Ltd / FZCO), per-entity
+sequences (`UK-xxxx` / `FZ-xxxx`), SVG→PNG logo rasterisation via
+`sharp`, `buildDraftInvoice` + `GET /api/invoices/draft` pre-
+populating client + contract + `calculateWorkload` output for a
+couple-of-clicks flow, `POST /api/invoices/generate`,
+`GET /api/invoices/:id/pdf`; self-bill PDF ingestion via
+`pdf-parse` + a parser registry (`SELF_BILL_PARSERS` with
+`detectSelfBillKind`; first supplier: La Fosse), orchestrated by
+`ingestSelfBill` and `POST /api/invoices/ingest-self-bill` with
+duplicate-`invoice_number` detection and atomic PDF persistence to
+`invoices/ingested/`; and the **Invoices tab** covering both flows.
+DRY primitives extracted along the way: `parseIsoFromDDMMYYYY`,
+`parseMoneyAmount`, `nextInvoiceIdForEntity`, and the
+`buildNarrativeTokens` / `narrativeMatches` helpers now shared across
+payer-match, last-payment detection, and the self-bill parsers.
+
+**Phase 4 remains:** payment reconciler — matches deposits to
+invoices, populates `invoice_payments.csv`, captures FX gain/loss,
+emits reconciler warnings for the 7 known-bad DC rows, and promotes
+`findLastInvoicePaymentDate` into the fallback chain behind the
+deterministic invoice↔payment link.
+
+**Two co-equal flows.** Supplier-issued for direct contracts (Delta
+Capita); self-bill ingestion for agency contracts (La Fosse). Parallel
+paths selected by the contract's `invoice_mechanism` column.
 
 **Schema — `invoices/invoices.csv`**
 
@@ -1724,9 +1485,8 @@ ad-hoc scans.
 Tier 0 (Certainty) ✅       Tier 1 (Projection)                                                              Tier 2 (Agent)
 
 Obligations + Deadlines     Multi-Entity Foundation (1.1) ✅
-Multi-Entity Foundation ✅   Clients + Contracts (1.2 A–D) ─┬─→ Contracts Tab + MV leave writer (1.2.E) ─→ Working-Days Ledger (1.4) ─┐
-                            Renewals (1.2)  ───────────────┘                          │                                              │
-                                                                                      └─→ Invoicing (1.3) ─────────────────────────→ ┤
+Multi-Entity Foundation ✅   Clients + Contracts (1.2 A–E) ✅─→ Working-Days Ledger (1.4) ─┐
+                            Invoicing (1.3 Phases 1–3) ✅ ──→ Payment reconciler (1.3 P4) ┤
                                                                                                                                      │
                                                                                                                                      ├─→ Forecast (1.5) ─┐
                                                                                                                                      │                  │
@@ -1778,68 +1538,57 @@ re-implementing the glue.
    registry indexes, entity-foundation warnings endpoint, inter-company
    pair-finder + description-based exclusion patterns, Wise as
    intermediary, IFZA deadline seeded.
-2. **Clients, Contracts & Renewals (1.2)** — Phase A ✅ SHIPPED:
-   `clients.csv`, `clients/master-agreements.csv`, and
-   `contracts.csv` with DC + La Fosse/Edwin seed rows; canonical
-   `clients` / `contracts` registries (build-time FK join); `contract-renewal`
-   deadline auto-seeder wired into the Tier 0 calendar. Remaining:
-   **B** templates + recipient routing, **C** timeline-aware payment
-   matcher (entity-aware, date-in-effect contract resolution), **D**
-   Clients page UI, **E** Contracts tab (see step 3).
-3. **Contracts Tab (1.2.E)** — first UI consumer of the contracts
-   spine. List + detail views, Book Leave flow (single contract or
-   all active contracts, date range, `holiday | sick` type, per-
-   contract template preview via 1.2.B), minimum-viable leave writer
-   (`working-days/leave.csv` + `server/domain/leave/` registry +
-   `POST/GET/DELETE /api/contracts/:id/leave`), and the minimal
-   income-accrual endpoint (`GET /api/contracts/:id/income-accrual`
-   and its aggregate) so booked leave visibly moves a number on
-   screen. Depends on 1.2.B; does not block on full 1.4.
-4. **Invoicing System (1.3)** — outbound PDF generator for
-   supplier-issued (DC shape) AND inbound parser for self-bill (La
-   Fosse shape) in the same release; per-entity invoice sequences;
-   FX snapshots at issue and payment; 10 DC historical rows seeded
-   with their documented warnings; `pdfmake` + `sharp` wiring.
-5. **Working-Days Ledger (1.4)** — extends the MV leave writer
+2. ~~**Clients, Contracts & Renewals (1.2)**~~ ✅ SHIPPED — all five
+   phases (A registries + renewal deadlines, B templates +
+   recipient routing, C timeline-aware payer matcher with
+   `payment-outside-contract-window` warnings, D Clients page UI,
+   E Contracts tab with leave writer + period income accrual).
+3. **Invoicing System (1.3)** — Phases 1–3 ✅ SHIPPED (registry +
+   DC seed rows; outbound PDF generator with per-entity templates
+   and sequences; self-bill ingestion with parser registry, first
+   supplier La Fosse; Invoices tab covering both flows).
+   Remaining:
+   - **Phase 4** — payment reconciler (matches deposits to
+     invoices), `invoice_payments.csv` population, FX gain-loss
+     capture, reconciler warnings for the seeded errors (stale
+     `payment_reference`, wrong `due_date`, nonsensical period),
+     and promotion of `findLastInvoicePaymentDate` into the
+     fallback chain behind the deterministic invoice↔payment link.
+4. **Working-Days Ledger (1.4)** — extends the MV leave writer
    shipped in 1.2.E with jurisdiction-aware public holidays
    (UK + UAE), per-month calendar UI, reconciliation with 1.3
    invoice day counts, and implied-leave seeding for the 9
    historical DC months.
-6. **Cash Flow Forecast (1.5)** — the single biggest behaviour
-   change the app can make. Per entity, daily resolution. Extends
-   the period-scoped accrual endpoint from 1.2.E into a full
+5. **Cash Flow Forecast (1.5)** — per entity, daily resolution.
+   Extends the period-scoped accrual endpoint from 1.2.E into a
    30 / 60 / 90-day cross-account projection.
-7. **Solvency Warnings Engine (1.8)** — brought forward. Without it
-   the forecast has no voice; with it, 2.2 and 2.3 collapse into
-   thin reductions / delivery adaptors.
-8. **Worst Case / Runway + formalised credit headroom (1.6)** —
+6. **Solvency Warnings Engine (1.8)** — brought forward. Without
+   it the forecast has no voice; with it, 2.2 and 2.3 collapse
+   into thin reductions / delivery adaptors.
+7. **Worst Case / Runway + formalised credit headroom (1.6)** —
    cheap once 1.5 is in.
-9. **Income Composition & Diversification (1.7)** — three metrics
-   (client concentration, active/passive ratio, time-independence
-   ratio) plus the income-sources and income-goals registries.
-   Trivial to wire for contract-shaped income once 1.2 ships; the
-   non-contract registries are the real work. Emits into 1.8.
-10. **Debt Strategy Advisor (1.9)** — rule-based recommendations on
-    top of the existing debt table.
-11. **Structured Data for AI Consumption (2.0)** — prerequisite to
-    all of Tier 2. Balance + debt + tax semantic discriminators
-    (2.0.A/B), expected-receipts calendar (2.0.C), contract-exposure
-    enrichment (2.0.D), slice endpoints (`/api/ai/liquidity`,
-    `/api/ai/pipeline`, `/api/ai/runway` in 2.0.E), thin snapshot
-    composer + generated `/api/ai/manifest` (2.0.F), and a thin MCP
-    server (2.0.G) that exposes the same slices as first-class
-    Resources + Tools with auto-generated descriptors and both
-    stdio + HTTP+SSE transports. Gates Open Close.
-12. **Financial Snapshot (2.1)** + **Confidence Score (2.2)** — the
-    agent's two core reads; 2.2 is a reduction over 1.8, both
-    consume 2.0's slice endpoints.
-13. **Alert & Notification Queue (2.3)** — delivery path for 1.8.
-14. **Net Worth Snapshots (3.1)** — entity-aware from day one.
-15. **Multi-Currency extensions (3.2)** — whatever did not land in
+8. **Income Composition & Diversification (1.7)** — client
+   concentration, active/passive ratio, time-independence ratio,
+   plus income-sources and income-goals registries. Emits into
+   1.8.
+9. **Debt Strategy Advisor (1.9)** — rule-based recommendations
+   on top of the existing debt table.
+10. **Structured Data for AI Consumption (2.0)** — prerequisite to
+    all of Tier 2: semantic discriminators, expected-receipts
+    calendar, slice endpoints (`/api/ai/liquidity`,
+    `/api/ai/pipeline`, `/api/ai/runway`), snapshot composer +
+    `/api/ai/manifest`, and a thin MCP server exposing the same
+    slices as Resources + Tools with both stdio + HTTP+SSE
+    transports. Gates Open Close.
+11. **Financial Snapshot (2.1)** + **Confidence Score (2.2)** —
+    the agent's two core reads; both consume 2.0's slices.
+12. **Alert & Notification Queue (2.3)** — delivery path for 1.8.
+13. **Net Worth Snapshots (3.1)** — entity-aware from day one.
+14. **Multi-Currency extensions (3.2)** — whatever did not land in
     1.1 / 1.3.
-16. **Historical Invoice Parser Fallbacks (3.3)** — OCR + inbound
+15. **Historical Invoice Parser Fallbacks (3.3)** — OCR + inbound
     automation.
-17. **WhatsApp / Chat Interface (2.4)** — delivery channel, ships
+16. **WhatsApp / Chat Interface (2.4)** — delivery channel, ships
     last.
 
 ---

@@ -8,6 +8,7 @@ import {
   todayIsoLocal,
   isoWeekRange,
   monthRange,
+  parseIsoFromDDMMYYYY,
 } from './iso-date.js';
 
 describe('toIsoDate', () => {
@@ -181,5 +182,38 @@ describe('monthRange', () => {
 
   it('handles December (year boundary does not affect range)', () => {
     expect(monthRange('2026-12-15')).toEqual({ start: '2026-12-01', end: '2026-12-31' });
+  });
+});
+
+describe('parseIsoFromDDMMYYYY', () => {
+  it('parses the canonical UK date format', () => {
+    expect(parseIsoFromDDMMYYYY('22/04/2026')).toBe('2026-04-22');
+  });
+
+  it('accepts single-digit day and month and zero-pads them', () => {
+    expect(parseIsoFromDDMMYYYY('1/2/2026')).toBe('2026-02-01');
+  });
+
+  it('tolerates surrounding whitespace', () => {
+    expect(parseIsoFromDDMMYYYY('  22/04/2026  ')).toBe('2026-04-22');
+  });
+
+  it('returns null for malformed input', () => {
+    expect(parseIsoFromDDMMYYYY('2026-04-22')).toBeNull();
+    expect(parseIsoFromDDMMYYYY('22-04-2026')).toBeNull();
+    expect(parseIsoFromDDMMYYYY('not a date')).toBeNull();
+    expect(parseIsoFromDDMMYYYY('')).toBeNull();
+  });
+
+  it('returns null for impossible calendar dates', () => {
+    expect(parseIsoFromDDMMYYYY('31/02/2026')).toBeNull();
+    expect(parseIsoFromDDMMYYYY('00/04/2026')).toBeNull();
+    expect(parseIsoFromDDMMYYYY('32/04/2026')).toBeNull();
+    expect(parseIsoFromDDMMYYYY('15/13/2026')).toBeNull();
+  });
+
+  it('accepts February 29 on a leap year but rejects it otherwise', () => {
+    expect(parseIsoFromDDMMYYYY('29/02/2024')).toBe('2024-02-29');
+    expect(parseIsoFromDDMMYYYY('29/02/2025')).toBeNull();
   });
 });

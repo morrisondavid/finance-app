@@ -22,6 +22,7 @@ import { allContracts } from '../domain/contracts/queries.js';
 import { deriveEntityFoundationWarnings } from '../domain/warnings/entity-foundation.js';
 import { sumFzcoTrailing12mIncomeAed } from '../domain/warnings/fzco-income.js';
 import { countUnclassifiedInterCompanyPairs } from '../domain/warnings/inter-company-count.js';
+import { derivePaymentOutsideContractWindowWarnings } from '../domain/warnings/payment-outside-contract-window.js';
 import { buildInterCompanyMovementsResponse } from '../domain/inter-company/movements-response.js';
 import { classifyInterCompanyPair } from '../domain/transaction-overrides/classify-pair.js';
 import {
@@ -37,7 +38,7 @@ router.get('/entity-foundation', (_req: Request, res: Response) => {
     const db = getDb();
     const today = new Date();
 
-    const warnings = deriveEntityFoundationWarnings({
+    const foundationWarnings = deriveEntityFoundationWarnings({
       companies: allCompanies(),
       clients: allClients(),
       contracts: allContracts(),
@@ -46,8 +47,11 @@ router.get('/entity-foundation', (_req: Request, res: Response) => {
       today,
     });
 
+    const paymentWindowWarnings =
+      derivePaymentOutsideContractWindowWarnings(db, today);
+
     const body = EntityFoundationWarningsResponseSchema.parse({
-      warnings,
+      warnings: [...foundationWarnings, ...paymentWindowWarnings],
     });
     res.json(body);
   } catch (error) {

@@ -11,7 +11,7 @@
  *
  * Nothing in this file sends email. The preview is a copy-paste aid
  * whose text is seeded from the server-rendered template and can be
- * tweaked in-place; the primary action (`Record leave`) only writes
+ * tweaked in-place; the primary action (`Holiday`) only writes
  * leave rows into `working-days/leave.csv`.
  */
 
@@ -33,6 +33,7 @@ import type {
   TemplatePreviewRequest,
   TemplatePreviewResponse,
 } from '../../../shared/api-contracts.js';
+import { openSelfBillIngestWithHint, openSupplierInvoiceForContract } from './invoices.js';
 
 const LIST_ID = 'contracts-list';
 const LIST_DIVIDER_ID = 'contracts-list-divider';
@@ -636,7 +637,8 @@ function renderTile(contract: Contract): string {
         <button type="button" class="btn btn-ghost" data-role="download" data-contract-id="${id}">Contract</button>
         ${contract.active
           ? `<button type="button" class="btn btn-ghost" data-role="renew" data-contract-id="${id}">Renew</button>
-             <button type="button" class="btn btn-primary" data-role="book" data-contract-id="${id}">Book Leave</button>`
+             <button type="button" class="btn btn-ghost" data-role="invoice" data-contract-id="${id}" data-invoice-mechanism="${escapeHtml(contract.invoice_mechanism)}">Invoice</button>
+             <button type="button" class="btn btn-primary" data-role="book" data-contract-id="${id}">Holiday</button>`
           : ''}
       </div>
       <button type="button" class="contracts-link-button" data-role="toggle" data-contract-id="${id}">
@@ -807,8 +809,8 @@ function openRecordLeaveModal(preselectedContractId: string | null): void {
   const title = getEl(MODAL_TITLE_ID);
   if (title) {
     title.textContent = preselectedContractId === null
-      ? 'Book Leave — all active contracts'
-      : `Book Leave — ${displayNameFor(contracts.find(c => c.id === preselectedContractId) ?? { client_id: '', id: preselectedContractId } as Contract)}`;
+      ? 'Holiday — all active contracts'
+      : `Holiday — ${displayNameFor(contracts.find(c => c.id === preselectedContractId) ?? { client_id: '', id: preselectedContractId } as Contract)}`;
   }
   const form = getEl(FORM_ID) as HTMLFormElement | null;
   if (form) form.reset();
@@ -1138,6 +1140,21 @@ async function submitRenew(ev: Event): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Invoice handoff (Contracts tile → Invoices tab modals)
+// ---------------------------------------------------------------------------
+
+function selfBillIngestHint(contractId: string): string {
+  const contract = contracts.find(c => c.id === contractId);
+  if (contract === undefined) {
+    return 'Upload one or more agency self-bill PDFs. Period and amounts are read from each file and matched to an active contract.';
+  }
+  const client = clientsById.get(contract.client_id);
+  const name = client?.trading_name ?? contract.client_id;
+  const ref = contract.reference;
+  return `Self-bill for ${name} · ${ref}. Upload one or more agency PDFs; we read supplier invoice number, period, days, and totals from each file and file on the matching contract.`;
+}
+
+// ---------------------------------------------------------------------------
 // Public entry points
 // ---------------------------------------------------------------------------
 
@@ -1153,6 +1170,13 @@ export function initContracts(): void {
       const id = actionEl.dataset.contractId;
       if (role === 'book' && id) {
         openRecordLeaveModal(id);
+      } else if (role === 'invoice' && id) {
+        const mechanism = actionEl.dataset.invoiceMechanism;
+        if (mechanism === 'self-bill') {
+          openSelfBillIngestWithHint(selfBillIngestHint(id));
+        } else {
+          void openSupplierInvoiceForContract(id);
+        }
       } else if (role === 'toggle' && id) {
         void toggleDrawer(id);
       } else if (role === 'remove') {

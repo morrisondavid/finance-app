@@ -11,7 +11,7 @@ import type {
   StatementYearsResponse,
   CheckQuarterResponse,
   AccountStatementResponse,
-  InvoicesListResponse
+  StatementInvoiceUploadsListResponse
 } from '../../shared/api-contracts.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -694,9 +694,9 @@ router.get('/download/:account/:type/:filename', (req: Request<DownloadParams>, 
 });
 
 // GET /api/statements/invoices - List invoices
-router.get('/invoices/list', (_req: Request, res: Response<InvoicesListResponse>) => {
+router.get('/invoices/list', (_req: Request, res: Response<StatementInvoiceUploadsListResponse>) => {
   const files = listFiles(INVOICES_DIR);
-  res.json(files as InvoicesListResponse);
+  res.json(files as StatementInvoiceUploadsListResponse);
 });
 
 interface InvoiceDownloadParams {

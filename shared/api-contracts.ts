@@ -549,7 +549,11 @@ export const StatementAccountsResponseSchema = z.array(AccountConfigSchema);
 export const AccountStatementResponseSchema = AccountStatementsSchema;
 
 // GET /api/statements/invoices/list
-export const InvoicesListResponseSchema = z.array(z.object({
+// NB: this lists invoice-pdf uploads for the statements module (scanned
+// docs living under `invoices/`); it is NOT the §1.3 invoice registry
+// list. The domain `GET /api/invoices` uses `InvoicesListResponseSchema`
+// defined near the other invoice schemas below.
+export const StatementInvoiceUploadsListResponseSchema = z.array(z.object({
   filename: z.string(),
   size: z.number(),
   modified: z.string()
@@ -557,6 +561,14 @@ export const InvoicesListResponseSchema = z.array(z.object({
 
 // POST /upload/:account/:type
 // POST /upload/invoices
+export const InvoiceUploadIngestResultSchema = z.object({
+  filename: z.string(),
+  outcome: z.enum(['ingested', 'archived-only', 'failed']),
+  code: z.string().optional(),
+  invoiceId: z.string().optional(),
+  message: z.string().optional(),
+});
+
 export const UploadResponseSchema = z.object({
   message: z.string(),
   files: z.array(UploadedFileSchema).optional(),
@@ -569,7 +581,8 @@ export const UploadResponseSchema = z.object({
     errors: z.array(z.string())
   })).optional(),
   validFilesProcessed: z.number().optional(),
-  duplicates: z.array(z.string()).optional()
+  duplicates: z.array(z.string()).optional(),
+  invoiceIngestResults: z.array(InvoiceUploadIngestResultSchema).optional(),
 });
 
 // ============================================
@@ -1723,6 +1736,121 @@ export const AggregateAccrualResponseSchema = z.object({
 export type AggregateAccrualResponse = z.infer<typeof AggregateAccrualResponseSchema>;
 
 // ============================================
+// Invoices — Roadmap 1.3 (§1.3 Phase 1: domain registry only)
+// ============================================
+//
+// The invoice domain is the second supplier-issued / self-bill path on
+// top of the contracts spine. Phase 1 ships the registry + read-only
+// list + seed fixtures; PDF generation (Phase 2), self-bill parsing
+// (Phase 3), and payment reconciliation (Phase 4) land later.
+//
+// Column set mirrors `invoices/invoices.csv` verbatim — see
+// ROADMAP.md §1.3.
+
+/**
+ * Invoice primary key. FZCO self-bills use `FZ-####`. Delta Capita
+ * supplier invoices use the client series `DC-###` (same value as
+ * `invoice_number`). Other UK Ltd clients may still use `UK-####`.
+ */
+export const InvoiceIdSchema = z
+  .string()
+  .regex(/^(?:(?:UK|FZ)-\d{4}|DC-\d{3})$/);
+export type InvoiceId = z.infer<typeof InvoiceIdSchema>;
+
+/**
+ * Invoice lifecycle. `overdue` is intentionally NOT a stored status —
+ * it is derived as `due_date < today AND status !== 'paid'` at read
+ * time so a single source of truth (`due_date`) drives the flag.
+ */
+export const InvoiceStatusSchema = z.enum(['draft', 'issued', 'paid', 'partial']);
+export type InvoiceStatus = z.infer<typeof InvoiceStatusSchema>;
+
+/**
+ * Reference to a rendered / received PDF relative to the `invoices/`
+ * directory. `null` for historical rows seeded before we had a PDF
+ * pipeline (including the 10 DC seed fixtures in Phase 1).
+ */
+export const InvoicePdfPathSchema = z.string().min(1).nullable();
+
+export const InvoiceSchema = z.object({
+  id: InvoiceIdSchema,
+  contract_id: ContractIdSchema,
+  client_id: ClientIdSchema,
+  issuing_entity_id: EntityIdSchema,
+  /**
+   * Printed invoice number. For Delta Capita supplier invoices this
+   * matches `id` (`DC-###`). FZCO rows typically use `FZ-####` to match
+   * `id`. Self-bills may still round-trip the supplier’s series here.
+   */
+  invoice_number: z.string().min(1),
+  /**
+   * Reference the client cites on their deposit. For supplier-issued
+   * invoices this is kept identical to `invoice_number` (writes align
+   * them). Self-bills may still use the agency’s supplier ref here
+   * (e.g. `SB-…`) for duplicate detection while `invoice_number` is
+   * the internal series.
+   */
+  payment_reference: z.string().min(1),
+  invoice_date: IsoDateSchema,
+  period_start: IsoDateSchema,
+  period_end: IsoDateSchema,
+  days_billed: z.number().nonnegative(),
+  /** Free-text narrative rendered on the PDF's Item cell. */
+  description: z.string().min(1),
+  /** Invoice-denominated currency (NOT necessarily deposit currency). */
+  currency: CurrencyCodeSchema,
+  subtotal: z.number().nonnegative(),
+  vat_rate: z.number().nonnegative(),
+  vat_amount: z.number().nonnegative(),
+  total: z.number().nonnegative(),
+  /** GBP/AED or other cross-pair captured at issue. `null` when same currency. */
+  fx_rate_at_issue: z.number().positive().nullable(),
+  /** Typically `GBP`. `null` when same currency. */
+  fx_base_currency: CurrencyCodeSchema.nullable(),
+  mechanism: InvoiceMechanismSchema,
+  pdf_path: InvoicePdfPathSchema,
+  status: InvoiceStatusSchema,
+  due_date: IsoDateSchema,
+  created_at: IsoDateSchema,
+  updated_at: IsoDateSchema.nullable(),
+});
+export type Invoice = z.infer<typeof InvoiceSchema>;
+
+/**
+ * Settled payment row against an invoice. Phase 1 seeds the schema
+ * + header-only CSV; Phase 4's reconciler is the first writer.
+ */
+export const InvoicePaymentIdSchema = z.string().min(1);
+export type InvoicePaymentId = z.infer<typeof InvoicePaymentIdSchema>;
+
+export const InvoicePaymentSchema = z.object({
+  id: InvoicePaymentIdSchema,
+  invoice_id: InvoiceIdSchema,
+  /** FK to `transactions.id` in the bank-side ledger. */
+  bank_transaction_id: z.string().min(1),
+  payment_date: IsoDateSchema,
+  /** In `deposit_currency` (may differ from `invoice.currency`). */
+  amount_paid: z.number().nonnegative(),
+  deposit_currency: CurrencyCodeSchema,
+  fx_rate_at_payment: z.number().positive().nullable(),
+  /** `amount_paid` converted back into `invoice.currency` for matching. */
+  amount_in_invoice_currency: z.number().nonnegative(),
+  /** Realised FX gain / loss between issue and payment. */
+  fx_gain_loss: z.number(),
+  /** `invoice.total - Σ(payments in invoice currency)`. */
+  residual: z.number(),
+  created_at: IsoDateSchema,
+  updated_at: IsoDateSchema.nullable(),
+});
+export type InvoicePayment = z.infer<typeof InvoicePaymentSchema>;
+
+/** Response shape of `GET /api/invoices`. */
+export const InvoicesListResponseSchema = z.object({
+  invoices: z.array(InvoiceSchema),
+});
+export type InvoicesListResponse = z.infer<typeof InvoicesListResponseSchema>;
+
+// ============================================
 // Warnings — Phase 7 / Roadmap 1.1 Entity Foundation slice
 // ============================================
 // These schemas are the minimal subset of the Warnings Engine (Roadmap
@@ -1747,6 +1875,7 @@ export const EntityFoundationWarningCodeSchema = z.enum([
   'fzco-vat-mandatory-threshold-crossed',
   'ifza-license-renewal-due',
   'inter-company-movement-unclassified',
+  'payment-outside-contract-window',
 ]);
 export type EntityFoundationWarningCode = z.infer<typeof EntityFoundationWarningCodeSchema>;
 
@@ -1903,7 +2032,7 @@ export type StatementYearsResponse = z.infer<typeof StatementYearsResponseSchema
 export type CheckQuarterResponse = z.infer<typeof CheckQuarterResponseSchema>;
 export type StatementAccountsResponse = z.infer<typeof StatementAccountsResponseSchema>;
 export type AccountStatementResponse = z.infer<typeof AccountStatementResponseSchema>;
-export type InvoicesListResponse = z.infer<typeof InvoicesListResponseSchema>;
+export type StatementInvoiceUploadsListResponse = z.infer<typeof StatementInvoiceUploadsListResponseSchema>;
 export type UploadResponse = z.infer<typeof UploadResponseSchema>;
 
 // API Request Body Types

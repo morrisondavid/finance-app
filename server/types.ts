@@ -147,11 +147,21 @@ export interface NormalizeResult {
   newPath?: string;
 }
 
+export interface InvoiceUploadIngestResult {
+  filename: string;
+  outcome: 'ingested' | 'archived-only' | 'failed';
+  code?: string;
+  invoiceId?: string;
+  message?: string;
+}
+
 export interface UploadResponse {
   message: string;
   files: import('../shared/api-contracts.js').UploadedFile[];
   account?: string;
   type?: string;
+  /** Present on `POST /api/upload/invoices` when self-bill ingestion was attempted per file. */
+  invoiceIngestResults?: InvoiceUploadIngestResult[];
 }
 
 // ─── Legacy block removed ────────────────────────────────────────────────────

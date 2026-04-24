@@ -216,12 +216,37 @@ async function handleFiles(
     }
     
     if (response.ok) {
-      statusEl.innerHTML = `<div class="success">${escapeHtml(result.message || 'Upload successful!')}</div>`;
-      
+      const baseMsg = escapeHtml(result.message || 'Upload successful!');
+      const ingest = result.invoiceIngestResults as
+        | readonly {
+            filename: string;
+            outcome: string;
+            code?: string;
+            invoiceId?: string;
+            message?: string;
+          }[]
+        | undefined;
+      let extra = '';
+      if (Array.isArray(ingest) && ingest.length > 0) {
+        const items = ingest
+          .map(row => {
+            const bits = [
+              escapeHtml(row.filename),
+              escapeHtml(row.outcome),
+              row.invoiceId !== undefined ? escapeHtml(row.invoiceId) : null,
+              row.code !== undefined ? escapeHtml(row.code) : null,
+            ].filter((b): b is string => b !== null);
+            return `<li>${bits.join(' — ')}</li>`;
+          })
+          .join('');
+        extra = `<ul class="upload-ingest-summary">${items}</ul>`;
+      }
+      statusEl.innerHTML = `<div class="success">${baseMsg}</div>${extra}`;
+
       setTimeout(() => {
         if (onSuccess) onSuccess();
         statusEl.innerHTML = '';
-      }, 2000);
+      }, 4000);
     } else {
       statusEl.innerHTML = `<div class="error">Error: ${escapeHtml(result.error || result.message || 'Upload failed')}</div>`;
     }

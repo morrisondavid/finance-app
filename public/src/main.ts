@@ -18,6 +18,7 @@ import { initBudgetSheet, loadBudgetSheet } from './modules/budget-sheet';
 import { initObligations, loadObligations } from './modules/obligations';
 import { initDeadlines, loadDeadlines } from './modules/deadlines';
 import { initContracts, loadContracts } from './modules/contracts';
+import { initInvoices, loadInvoices } from './modules/invoices';
 import { initClients, loadClients } from './modules/clients';
 import { initDebt, loadDebt } from './modules/debt';
 import { initWarnings, loadWarnings } from './modules/warnings';
@@ -76,6 +77,8 @@ function initializeTabNavigation(): void {
         void loadDeadlines();
       } else if (target === 'contracts') {
         void loadContracts();
+      } else if (target === 'invoices') {
+        void loadInvoices();
       } else if (target === 'clients') {
         void loadClients();
       } else if (target === 'debt') {
@@ -107,16 +110,17 @@ async function initializeApp(): Promise<void> {
   initObligations();
   initDeadlines();
   initContracts();
+  initInvoices();
   initClients();
   initDebt();
   initWarnings();
   initStatements();
   initUpload({
     onUploadSuccess: () => {
-      // Refresh both dashboard and statements after successful upload
       loadDashboard();
       loadStatements();
-    }
+      void loadInvoices();
+    },
   });
   
 }

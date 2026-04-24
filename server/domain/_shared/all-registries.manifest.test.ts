@@ -94,6 +94,7 @@ describe('canonical registries sweep', () => {
       'clients',
       'company',
       'contracts',
+      'invoices',
       'leave',
       'merchants',
       'payroll',

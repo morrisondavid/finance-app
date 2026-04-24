@@ -24,6 +24,12 @@
  * route layer — the actual transaction lookup lives in
  * {@link ../contracts/last-payment.ts} and the DB glue lives in the
  * route. This function is pure and has no I/O.
+ *
+ * Workload math (working-days × day_rate − leave) is delegated to
+ * {@link calculateWorkload} so the §1.3 invoice draft endpoint can
+ * reuse the identical primitive. The shape of `AccrualResponse` is
+ * unchanged — this file only orchestrates two window definitions and
+ * passes each one to `calculateWorkload`.
  */
 
 import type {
@@ -35,11 +41,8 @@ import {
   monthRange,
   shiftIsoDate,
 } from '../../../shared/iso-date.js';
-import {
-  contractWeekdayMask,
-  countWorkingDays,
-} from '../working-days/index.js';
 import { resolveAccrualWindowStart } from './last-payment.js';
+import { calculateWorkload } from './workload.js';
 
 export interface ComputeAccrualInput {
   readonly contract: Contract;
@@ -68,31 +71,8 @@ function clip(
   return clippedEnd < clippedStart ? null : { start: clippedStart, end: clippedEnd };
 }
 
-/**
- * Build the set of leave dates relevant to one window. The two windows
- * (owed / projection) may overlap, may be disjoint, or may coincide —
- * we filter at the window level so a leave row in one window but not
- * the other is counted correctly on each axis.
- */
-function leaveDatesIn(
-  leaveRows: readonly LeaveRow[],
-  contractId: string,
-  start: string,
-  end: string,
-): Set<string> {
-  const out = new Set<string>();
-  for (const row of leaveRows) {
-    if (row.contract_id !== contractId) continue;
-    if (row.date < start || row.date > end) continue;
-    out.add(row.date);
-  }
-  return out;
-}
-
 export function computeAccrual(input: ComputeAccrualInput): AccrualResponse {
   const { contract, leaveRows, today, lastPaymentDate } = input;
-
-  const mask = contractWeekdayMask(contract);
   const day_rate = contract.day_rate;
   const currency = contract.invoice_currency;
 
@@ -121,12 +101,6 @@ export function computeAccrual(input: ComputeAccrualInput): AccrualResponse {
   // past its end date.
   const contractEndCap = contract.end_date ?? today;
   const owedEndRaw = today < contractEndCap ? today : contractEndCap;
-  // Sentinel for a degenerate window (start > end): owedStart ahead of
-  // both today and contract end. When owedStart > owedEndRaw we simply
-  // report zeros for the owed axis — this happens when a payment was
-  // logged today (or the clamp to contract.start_date moves the
-  // window past `today`).
-  const owedValid = owedStart <= owedEndRaw;
 
   // Projection accumulators. Zero when the projection window is empty.
   let period_start: string;
@@ -141,67 +115,45 @@ export function computeAccrual(input: ComputeAccrualInput): AccrualResponse {
   } else {
     period_start = clippedProjection.start;
     period_end = clippedProjection.end;
-    // Leave in the projection window feeds `projected_period_total` via
-    // excludeDates (the whole month's working days minus booked leave
-    // × day_rate is "what you'll invoice this month").
-    const projectionLeaveDates = leaveDatesIn(
+    const projection = calculateWorkload({
+      contract,
       leaveRows,
-      contract.id,
-      period_start,
-      period_end,
-    );
-    const projectedWorkingDays = countWorkingDays({
       start: period_start,
       end: period_end,
-      mask,
-      excludeDates: projectionLeaveDates,
     });
-    projected_period_total = projectedWorkingDays * day_rate;
+    projected_period_total = projection.subtotal;
     // `worked_days_remaining` is the forward-looking subset: tomorrow
-    // through projection end. Used by the per-contract endpoint only;
-    // no aggregate banner consumer today.
+    // through projection end. Same leave set, different window.
     const tomorrow = shiftIsoDate(today, 1);
     const remainingStart = tomorrow < period_start ? period_start : tomorrow;
-    worked_days_remaining = remainingStart > period_end
-      ? 0
-      : countWorkingDays({
-          start: remainingStart,
-          end: period_end,
-          mask,
-          excludeDates: projectionLeaveDates,
-        });
+    const remaining = calculateWorkload({
+      contract,
+      leaveRows,
+      start: remainingStart,
+      end: period_end,
+    });
+    worked_days_remaining = remaining.workingDays;
   }
 
   // Owed window accumulators. Independent of the projection window.
-  let owed_window_start: string;
-  let owed_window_end: string;
-  let worked_days_to_date: number;
-  let accrued_to_date: number;
-  let leave_days_in_period: number;
-  if (!owedValid) {
-    owed_window_start = owedStart;
-    owed_window_end = owedStart;
-    worked_days_to_date = 0;
-    accrued_to_date = 0;
-    leave_days_in_period = 0;
-  } else {
-    owed_window_start = owedStart;
-    owed_window_end = owedEndRaw;
-    const owedLeaveDates = leaveDatesIn(
-      leaveRows,
-      contract.id,
-      owed_window_start,
-      owed_window_end,
-    );
-    leave_days_in_period = owedLeaveDates.size;
-    worked_days_to_date = countWorkingDays({
-      start: owed_window_start,
-      end: owed_window_end,
-      mask,
-      excludeDates: owedLeaveDates,
-    });
-    accrued_to_date = worked_days_to_date * day_rate;
-  }
+  // `calculateWorkload` handles the degenerate (start > end) case for
+  // us — it returns all-zeros, which is exactly the sentinel behaviour
+  // the previous hand-rolled code produced.
+  const owedWorkload = calculateWorkload({
+    contract,
+    leaveRows,
+    start: owedStart,
+    end: owedEndRaw,
+  });
+  const owedValid = owedStart <= owedEndRaw;
+  const owed_window_start = owedStart;
+  // When the window is degenerate (e.g. owedStart is after today),
+  // report an empty window by setting end = start so consumers render
+  // a zero-day range rather than an inverted one.
+  const owed_window_end = owedValid ? owedEndRaw : owedStart;
+  const worked_days_to_date = owedWorkload.workingDays;
+  const accrued_to_date = owedWorkload.subtotal;
+  const leave_days_in_period = owedValid ? owedWorkload.leaveDays : 0;
 
   return {
     contract_id: contract.id,

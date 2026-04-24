@@ -39,6 +39,10 @@ import type {
   Transaction,
 } from '../../../shared/api-contracts.js';
 import { monthRange, shiftIsoDate } from '../../../shared/iso-date.js';
+import {
+  buildNarrativeTokens,
+  narrativeMatches,
+} from '../clients/narrative-match.js';
 
 export interface FindLastPaymentInput {
   readonly contract: Contract;
@@ -77,58 +81,6 @@ export interface FindLastPaymentInput {
  */
 const FALLBACK_DAY_COUNTS: readonly number[] = [4, 5, 6, 15, 16, 17, 18, 19, 20, 21, 22, 23];
 const FALLBACK_AMOUNT_TOLERANCE = 0.05;
-
-/**
- * Normalise a string for substring matching: uppercase, strip
- * diacritics, drop anything that isn't A-Z / 0-9 / space, and collapse
- * runs of whitespace. "La Fosse Associates Ltd." becomes
- * "LA FOSSE ASSOCIATES LTD" which matches statements that render it
- * as "LAFOSSE ASSOCIATES" or "La Fosse  Associates Ltd" equally well
- * — the substring check uses the normalised token below.
- */
-function normaliseForMatch(raw: string): string {
-  return raw
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase()
-    .replace(/[^A-Z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/**
- * Build the token set used for narrative matching. Includes the
- * client's trading name (usually short and distinctive — "LA FOSSE",
- * "DELTA CAPITA"), the first word of the trading name as a looser
- * fallback (helps when the statement abbreviates to "LAFOSSE" or
- * "DELTA"), and the legal name when it differs. All tokens are
- * pre-normalised so `narrativeMatches` can do a cheap includes-check.
- */
-function buildNarrativeTokens(client: Client): readonly string[] {
-  const tokens = new Set<string>();
-  const trading = normaliseForMatch(client.trading_name);
-  if (trading.length > 0) tokens.add(trading);
-  const firstTradingWord = trading.split(' ')[0];
-  if (firstTradingWord !== undefined && firstTradingWord.length >= 4) {
-    tokens.add(firstTradingWord);
-  }
-  const legal = normaliseForMatch(client.legal_name);
-  if (legal.length > 0 && legal !== trading) tokens.add(legal);
-  return Array.from(tokens);
-}
-
-function narrativeMatches(
-  description: string,
-  tokens: readonly string[],
-): boolean {
-  if (tokens.length === 0) return false;
-  const haystack = normaliseForMatch(description);
-  if (haystack.length === 0) return false;
-  for (const token of tokens) {
-    if (haystack.includes(token)) return true;
-  }
-  return false;
-}
 
 function amountMatchesDayRate(
   amount: number,

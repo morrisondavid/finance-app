@@ -1,0 +1,1 @@
+id,invoice_id,bank_transaction_id,payment_date,amount_paid,deposit_currency,fx_rate_at_payment,amount_in_invoice_currency,fx_gain_loss,residual,created_at,updated_at

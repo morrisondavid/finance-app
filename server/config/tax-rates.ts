@@ -442,16 +442,30 @@ export interface RetainedClaim {
  *     {@link UAE_CORPORATION_TAX.NON_QUALIFYING_RATE}.
  *   - Retained = incoming − VAT − CT reserve.
  */
+/**
+ * Resolve the VAT rate that should be added to an invoice issued by
+ * `company`. UK-registered suppliers charge {@link VAT.RATE}; all
+ * other permutations (UK unregistered, UK TBC, FZCO) charge 0.
+ *
+ * Single source of truth shared by {@link calculateRetainedReserves}
+ * (aggregate accrual banner) and the §1.3 invoice generator (draft
+ * + issued invoices). Keeping this rule in one place means the
+ * "incoming" figure the user sees in the Contracts tab and the
+ * invoice total the client receives can never drift apart.
+ */
+export function resolveInvoiceVatRate(company: Company): number {
+  return company.jurisdiction === 'UK' && company.vat_registered === true
+    ? VAT.RATE
+    : 0;
+}
+
 export function calculateRetainedReserves(
   projectedNet: number,
   company: Company,
 ): RetainedClaim {
   const netFloor = Math.max(0, projectedNet);
 
-  const vatRate =
-    company.jurisdiction === 'UK' && company.vat_registered === true
-      ? VAT.RATE
-      : 0;
+  const vatRate = resolveInvoiceVatRate(company);
 
   const ctRate =
     company.jurisdiction === 'UK'
