@@ -6,14 +6,26 @@
  * construction lives here; see `loader.ts` for memoised reads.
  */
 
-import fs from 'fs';
 import path from 'path';
-import { parse } from 'csv-parse/sync';
 import {
   type MasterAgreement,
   MasterAgreementSchema,
 } from '../../../shared/api-contracts.js';
 import { escapeCsvField, atomicWriteCsv } from '../../utils/csv-helpers.js';
+import {
+  createCsvDecoders,
+  nullIfEmpty,
+  readCsvRecords,
+} from '../../utils/csv-decoders.js';
+
+const decoders = createCsvDecoders('MasterAgreement');
+const {
+  requireNonEmpty,
+  decodeIsoDate: requireIsoDate,
+  decodeNullableIsoDate,
+  decodeNonNegativeInt,
+  decodeStrictBoolean,
+} = decoders;
 
 export const MASTER_AGREEMENTS_CSV_FILENAME = 'master-agreements.csv';
 
@@ -34,55 +46,6 @@ export const MASTER_AGREEMENT_CSV_HEADERS = [
 
 export function getMasterAgreementsCsvPath(clientsDir: string): string {
   return path.join(clientsDir, MASTER_AGREEMENTS_CSV_FILENAME);
-}
-
-// ─── Cell decoders ──────────────────────────────────────────────────────────
-
-function nullIfEmpty(value: string | undefined): string | null {
-  if (value === undefined) return null;
-  const trimmed = value.trim();
-  return trimmed === '' ? null : trimmed;
-}
-
-function requireNonEmpty(value: string | undefined, field: string, rowId: string): string {
-  const v = nullIfEmpty(value);
-  if (v === null) {
-    throw new Error(`MasterAgreement ${rowId}: ${field} is required`);
-  }
-  return v;
-}
-
-function requireIsoDate(value: string | undefined, field: string, rowId: string): string {
-  const raw = requireNonEmpty(value, field, rowId);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    throw new Error(`MasterAgreement ${rowId}: ${field} must be yyyy-mm-dd, got '${raw}'`);
-  }
-  return raw;
-}
-
-function decodeNullableIsoDate(value: string | undefined, field: string, rowId: string): string | null {
-  const raw = nullIfEmpty(value);
-  if (raw === null) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    throw new Error(`MasterAgreement ${rowId}: ${field} must be yyyy-mm-dd, got '${raw}'`);
-  }
-  return raw;
-}
-
-function decodeNonNegativeInt(value: string | undefined, field: string, rowId: string): number {
-  const raw = requireNonEmpty(value, field, rowId);
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 0) {
-    throw new Error(`MasterAgreement ${rowId}: ${field} must be a non-negative integer, got '${raw}'`);
-  }
-  return n;
-}
-
-function decodeStrictBoolean(value: string | undefined, field: string, rowId: string): boolean {
-  const raw = requireNonEmpty(value, field, rowId);
-  if (raw === 'true') return true;
-  if (raw === 'false') return false;
-  throw new Error(`MasterAgreement ${rowId}: ${field} must be 'true' | 'false', got '${raw}'`);
 }
 
 // ─── Row parser ─────────────────────────────────────────────────────────────
@@ -109,19 +72,8 @@ export function parseMasterAgreementRow(row: Record<string, string>): MasterAgre
 // ─── File reader ────────────────────────────────────────────────────────────
 
 export function readMasterAgreementsCsvFile(csvPath: string): MasterAgreement[] {
-  if (!fs.existsSync(csvPath)) return [];
-  const content = fs.readFileSync(csvPath, 'utf8').trim();
-  if (content === '') return [];
-
-  const records = parse(content, {
-    columns: true,
-    skip_empty_lines: true,
-    trim: true,
-    relax_column_count: true,
-  }) as Record<string, string>[];
-
   const rows: MasterAgreement[] = [];
-  for (const row of records) {
+  for (const row of readCsvRecords(csvPath)) {
     if (!nullIfEmpty(row.id)) continue;
     rows.push(parseMasterAgreementRow(row));
   }

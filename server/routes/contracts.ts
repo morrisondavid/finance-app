@@ -75,6 +75,7 @@ import {
   TemplateMissing,
 } from '../domain/templates/index.js';
 import { todayIsoLocal } from '../../shared/iso-date.js';
+import { holidayDatesForEntity } from '../domain/working-days/public-holidays.js';
 
 const router = express.Router();
 
@@ -225,16 +226,22 @@ router.get('/income-accrual', (_req: Request, res: Response) => {
       contracts: active,
       today,
     });
-    const perContract = active.map(contract =>
-      AccrualResponseSchema.parse(
+    const yearStart = today.slice(0, 4) + '-01-01';
+    const yearEnd = today.slice(0, 4) + '-12-31';
+    const perContract = active.map(contract => {
+      const publicHolidayDates = holidayDatesForEntity(
+        contract.issuing_entity_id, yearStart, yearEnd,
+      );
+      return AccrualResponseSchema.parse(
         computeAccrual({
           contract,
           leaveRows: allLeaveRows,
           today,
           lastPaymentDate: lastPayments.get(contract.id) ?? null,
+          publicHolidayDates,
         }),
-      ),
-    );
+      );
+    });
     const entities = rollupByEntity(perContract);
     const totals = totalsAcrossEntities(entities);
     const body = AggregateAccrualResponseSchema.parse({
@@ -274,12 +281,18 @@ router.get('/:id/income-accrual', (req: Request<{ id: string }>, res: Response) 
       contracts: [contract],
       today,
     });
+    const yearStart = today.slice(0, 4) + '-01-01';
+    const yearEnd = today.slice(0, 4) + '-12-31';
+    const publicHolidayDates = holidayDatesForEntity(
+      contract.issuing_entity_id, yearStart, yearEnd,
+    );
     const body = AccrualResponseSchema.parse(
       computeAccrual({
         contract,
         leaveRows,
         today,
         lastPaymentDate: lastPayments.get(contract.id) ?? null,
+        publicHolidayDates,
       }),
     );
     res.json(body);

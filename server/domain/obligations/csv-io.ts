@@ -43,6 +43,7 @@ export const OBLIGATION_CSV_HEADERS = [
   'amount_tolerance',
   'due_date',
   'tax_type',
+  'property_id',
 ] as const;
 
 export function getObligationsSeedCsvPath(obligationsDir: string): string {
@@ -101,6 +102,7 @@ function buildCommonFields(row: Record<string, string>, rowId: string) {
     amount,
     currency: nonEmpty(row.currency) ?? 'GBP',
     notes: nonEmpty(row.notes),
+    propertyId: nonEmpty(row.property_id),
   };
 }
 

@@ -56,3 +56,9 @@ export {
 } from './queries.js';
 
 export { makeTestAccountsRegistry } from './fixtures.js';
+
+export {
+  accountBalanceForApi,
+  allAccountBalancesForApi,
+  type AccountBalanceApi,
+} from './balance-for-api.js';

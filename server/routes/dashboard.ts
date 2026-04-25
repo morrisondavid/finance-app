@@ -4,6 +4,8 @@ import { ACCOUNTS } from '../types.js';
 import {
   validateAccount,
   getAccountConfig,
+  accountBalanceForApi,
+  allAccountBalancesForApi,
   type AccountConfig,
 } from '../domain/accounts/index.js';
 import type {
@@ -96,8 +98,11 @@ router.get('/summary', (req: Request<object, DashboardSummaryResponse, object, S
       totals: getDashboardTotals(filters),
       monthly: getMonthlySummary(filters),
       byAccount: getAccountSummary({ financialYear: selectedFY }),
-      balances: getAllAccountBalances(),
-      currentAccountBalance: getAccountBalance(selectedAccount),
+      balances: allAccountBalancesForApi(getAllAccountBalances()),
+      currentAccountBalance: accountBalanceForApi(
+        selectedAccount,
+        getAccountBalance(selectedAccount),
+      ),
       taxLiabilities: getTaxLiabilities(filters),
       transactionCount: getTransactionCount(filters),
       transferCount: getTransferCount(filters),
@@ -130,7 +135,7 @@ router.get('/balance/:account', (req: Request<{ account: string }, AccountBalanc
     
     const validatedAccount = validateAccount(account);
     const balance = getAccountBalance(validatedAccount, { financialYear });
-    res.json(balance as AccountBalanceResponse);
+    res.json(accountBalanceForApi(validatedAccount, balance) as AccountBalanceResponse);
   } catch (error) {
     console.error('Error fetching balance:', error);
     res.status(500).json({ error: 'Failed to fetch balance' });
@@ -153,7 +158,9 @@ router.post('/balance/:account', (req: Request<{ account: string }, AccountBalan
     
     // Return the updated balance info
     const updated = getAccountBalance(validatedAccount);
-    res.json(updated as AccountBalanceResponse);
+    res.json(
+      accountBalanceForApi(validatedAccount, updated) as AccountBalanceResponse,
+    );
   } catch (error) {
     console.error('Error setting balance:', error);
     res.status(500).json({ error: 'Failed to set balance' });

@@ -34,6 +34,13 @@ export interface WorkloadInput {
   readonly start: string;
   /** ISO `YYYY-MM-DD`, inclusive. */
   readonly end: string;
+  /**
+   * Entity-scoped public-holiday dates to exclude from working days.
+   * These are **not** counted as personal leave (`leaveDays` stays
+   * leave-only) but **are** subtracted from `workingDays` / `subtotal`.
+   * Callers obtain this set via `holidayDatesForEntity`.
+   */
+  readonly publicHolidayDates?: ReadonlySet<string>;
 }
 
 export interface Workload {
@@ -79,7 +86,7 @@ export function leaveDatesIn(
  * clipped-to-empty windows produce zeros for both axes).
  */
 export function calculateWorkload(input: WorkloadInput): Workload {
-  const { contract, leaveRows, start, end } = input;
+  const { contract, leaveRows, start, end, publicHolidayDates } = input;
   const dayRate = contract.day_rate;
   const currency = contract.invoice_currency;
 
@@ -94,7 +101,15 @@ export function calculateWorkload(input: WorkloadInput): Workload {
   }
 
   const mask = contractWeekdayMask(contract);
-  const excludeDates = leaveDatesIn(leaveRows, contract.id, start, end);
+  const leaveDates = leaveDatesIn(leaveRows, contract.id, start, end);
+
+  const excludeDates = new Set(leaveDates);
+  if (publicHolidayDates) {
+    for (const d of publicHolidayDates) {
+      excludeDates.add(d);
+    }
+  }
+
   const workingDays = countWorkingDays({
     start,
     end,
@@ -104,7 +119,7 @@ export function calculateWorkload(input: WorkloadInput): Workload {
 
   return {
     workingDays,
-    leaveDays: excludeDates.size,
+    leaveDays: leaveDates.size,
     subtotal: workingDays * dayRate,
     dayRate,
     currency,

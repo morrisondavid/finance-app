@@ -8,9 +8,7 @@
  * correctness (period spans, due-date year typos).
  */
 
-import fs from 'fs';
 import path from 'path';
-import { parse } from 'csv-parse/sync';
 import {
   InvoiceSchema,
   InvoicePaymentSchema,
@@ -18,6 +16,20 @@ import {
   type InvoicePayment,
 } from '../../../shared/api-contracts.js';
 import { escapeCsvField, atomicWriteCsv } from '../../utils/csv-helpers.js';
+import {
+  createCsvDecoders,
+  nullIfEmpty,
+  readCsvRecords,
+} from '../../utils/csv-decoders.js';
+
+const decoders = createCsvDecoders('Invoice');
+const {
+  requireNonEmpty,
+  decodeNumber,
+  decodeNullableNumber,
+  decodeIsoDate,
+  decodeNullableIsoDate,
+} = decoders;
 
 export const INVOICES_CSV_FILENAME = 'invoices.csv';
 export const INVOICE_PAYMENTS_CSV_FILENAME = 'invoice_payments.csv';
@@ -72,58 +84,6 @@ export function getInvoicePaymentsCsvPath(invoicesDir: string): string {
   return path.join(invoicesDir, INVOICE_PAYMENTS_CSV_FILENAME);
 }
 
-// ─── Cell decoders ──────────────────────────────────────────────────────────
-
-function nullIfEmpty(value: string | undefined): string | null {
-  if (value === undefined) return null;
-  const trimmed = value.trim();
-  return trimmed === '' ? null : trimmed;
-}
-
-function requireNonEmpty(value: string | undefined, field: string, rowId: string): string {
-  const v = nullIfEmpty(value);
-  if (v === null) {
-    throw new Error(`Invoice ${rowId}: ${field} is required`);
-  }
-  return v;
-}
-
-function decodeNumber(value: string | undefined, field: string, rowId: string): number {
-  const raw = requireNonEmpty(value, field, rowId);
-  const n = Number(raw);
-  if (Number.isNaN(n)) {
-    throw new Error(`Invoice ${rowId}: ${field} must be a number, got '${raw}'`);
-  }
-  return n;
-}
-
-function decodeNullableNumber(value: string | undefined, field: string, rowId: string): number | null {
-  const raw = nullIfEmpty(value);
-  if (raw === null) return null;
-  const n = Number(raw);
-  if (Number.isNaN(n)) {
-    throw new Error(`Invoice ${rowId}: ${field} must be a number, got '${raw}'`);
-  }
-  return n;
-}
-
-function decodeIsoDate(value: string | undefined, field: string, rowId: string): string {
-  const raw = requireNonEmpty(value, field, rowId);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    throw new Error(`Invoice ${rowId}: ${field} must be yyyy-mm-dd, got '${raw}'`);
-  }
-  return raw;
-}
-
-function decodeNullableIsoDate(value: string | undefined, field: string, rowId: string): string | null {
-  const raw = nullIfEmpty(value);
-  if (raw === null) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    throw new Error(`Invoice ${rowId}: ${field} must be yyyy-mm-dd, got '${raw}'`);
-  }
-  return raw;
-}
-
 // ─── Row parsers ────────────────────────────────────────────────────────────
 
 export function parseInvoiceRow(row: Record<string, string>): Invoice {
@@ -175,18 +135,6 @@ export function parseInvoicePaymentRow(row: Record<string, string>): InvoicePaym
 }
 
 // ─── File readers ───────────────────────────────────────────────────────────
-
-function readCsvRecords(csvPath: string): Record<string, string>[] {
-  if (!fs.existsSync(csvPath)) return [];
-  const content = fs.readFileSync(csvPath, 'utf8').trim();
-  if (content === '') return [];
-  return parse(content, {
-    columns: true,
-    skip_empty_lines: true,
-    trim: true,
-    relax_column_count: true,
-  }) as Record<string, string>[];
-}
 
 export function readInvoicesCsvFile(csvPath: string): Invoice[] {
   const rows: Invoice[] = [];

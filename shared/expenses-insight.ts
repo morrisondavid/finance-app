@@ -39,6 +39,20 @@ function isQoLCategory(category: string): boolean {
   return false;
 }
 
+/**
+ * String-domain predicate for "this category is a mandatory bill / obligation",
+ * mirroring {@link NON_QOL_CATEGORIES} membership without forcing callers to
+ * narrow an arbitrary string into {@link CategoryName} themselves. Unknown
+ * categories are treated as QoL — same default as the QoL-by-complement rule
+ * above.
+ */
+export function isMandatoryCategory(category: string): boolean {
+  for (const c of NON_QOL_CATEGORIES) {
+    if (c === category) return true;
+  }
+  return false;
+}
+
 function itemCountsTowardInsight(
   item: ExpensesLineItem,
   excludedLineKeys: ReadonlySet<string> | undefined,

@@ -57,6 +57,13 @@ export interface ComputeAccrualInput {
    * the first of the current calendar month.
    */
   readonly lastPaymentDate: string | null;
+  /**
+   * Entity-scoped public-holiday dates. Forwarded to
+   * `calculateWorkload` so bank holidays reduce working days without
+   * inflating `leaveDays`. `undefined` is safe (holidays simply not
+   * excluded — backward-compatible default).
+   */
+  readonly publicHolidayDates?: ReadonlySet<string>;
 }
 
 /** Clip `[start, end]` against `[lower, upper?]`. Returns null if empty. */
@@ -72,7 +79,7 @@ function clip(
 }
 
 export function computeAccrual(input: ComputeAccrualInput): AccrualResponse {
-  const { contract, leaveRows, today, lastPaymentDate } = input;
+  const { contract, leaveRows, today, lastPaymentDate, publicHolidayDates } = input;
   const day_rate = contract.day_rate;
   const currency = contract.invoice_currency;
 
@@ -120,6 +127,7 @@ export function computeAccrual(input: ComputeAccrualInput): AccrualResponse {
       leaveRows,
       start: period_start,
       end: period_end,
+      publicHolidayDates,
     });
     projected_period_total = projection.subtotal;
     // `worked_days_remaining` is the forward-looking subset: tomorrow
@@ -131,6 +139,7 @@ export function computeAccrual(input: ComputeAccrualInput): AccrualResponse {
       leaveRows,
       start: remainingStart,
       end: period_end,
+      publicHolidayDates,
     });
     worked_days_remaining = remaining.workingDays;
   }
@@ -144,6 +153,7 @@ export function computeAccrual(input: ComputeAccrualInput): AccrualResponse {
     leaveRows,
     start: owedStart,
     end: owedEndRaw,
+    publicHolidayDates,
   });
   const owedValid = owedStart <= owedEndRaw;
   const owed_window_start = owedStart;

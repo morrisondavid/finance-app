@@ -84,21 +84,21 @@
       <div class="balance-panel">
         <div class="balance-header">
           <h3>Account Balance</h3>
-          <button id="edit-balance-btn" class="btn-small">Set Opening Balance</button>
+          <button id="edit-balance-btn" class="btn-small">Set opening balance</button>
         </div>
         <div class="balance-grid">
           <div class="balance-item">
-            <span class="balance-label">Opening Balance</span>
+            <span class="balance-label" id="balance-open-label">Opening balance</span>
             <span class="balance-value" id="opening-balance">£0.00</span>
             <span class="balance-date" id="opening-balance-date"></span>
           </div>
           <div class="balance-item">
-            <span class="balance-label">+ Transaction Total</span>
+            <span class="balance-label" id="balance-tx-total-label">+ Transaction total</span>
             <span class="balance-value" id="transaction-total">£0.00</span>
             <span class="balance-date" id="transaction-date-range"></span>
           </div>
           <div class="balance-item balance-current">
-            <span class="balance-label">= Current Balance</span>
+            <span class="balance-label" id="balance-current-label">= Current balance</span>
             <span class="balance-value" id="current-balance">£0.00</span>
           </div>
         </div>
@@ -245,12 +245,12 @@
       <!-- Opening Balance Modal -->
       <div id="balance-modal" class="modal" style="display: none;">
         <div class="modal-content">
-          <h3>Set Opening Balance</h3>
-          <p class="modal-description">Enter the account balance from your bank statement. This should be the balance at the start of your earliest transaction.</p>
+          <h3 id="balance-modal-heading">Set opening balance</h3>
+          <p class="modal-description" id="balance-modal-description">Enter the account balance from your bank statement. This should be the balance at the start of your earliest transaction.</p>
           <div class="modal-form">
-            <label for="opening-balance-input">Opening Balance (£):</label>
+            <label for="opening-balance-input" id="balance-modal-amount-label">Amount (£):</label>
             <input type="number" id="opening-balance-input" step="0.01" placeholder="0.00">
-            <label for="opening-balance-date-input">Balance Date (optional):</label>
+            <label for="opening-balance-date-input" id="balance-modal-date-label">Date (optional):</label>
             <input type="date" id="opening-balance-date-input">
           </div>
           <div class="modal-actions">
@@ -628,6 +628,7 @@
           <h2 class="contracts-title">Contracts</h2>
         </div>
         <div class="contracts-header-actions">
+          <button type="button" class="btn" id="contracts-leave-calendar-toggle">Leave calendar</button>
           <button type="button" class="btn btn-primary" id="contracts-book-all-btn">Holiday…</button>
         </div>
       </div>
@@ -639,6 +640,12 @@
       </div>
 
       <div id="contracts-list"></div>
+
+      <div id="contracts-leave-calendar-panel" class="panel" hidden>
+        <h3>Leave Calendar</h3>
+        <p class="contracts-section-sub">Click a weekday to toggle holiday for all active contracts. Public holidays shown in grey.</p>
+        <div id="contracts-leave-calendar"></div>
+      </div>
 
       <div class="modal-overlay" id="contracts-agency-modal" style="display:none">
         <div class="modal">

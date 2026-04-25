@@ -11,6 +11,11 @@
  *   POST /api/invoices/generate         — Phase 2 persists the reviewed
  *                                         draft, renders the PDF, flips
  *                                         the row to `issued`.
+ *   POST /api/invoices/reconcile        — Phase 4 runs the pure
+ *                                         `planReconciliation` matcher and
+ *                                         (when `dryRun=false`) persists
+ *                                         proposed payments via
+ *                                         `recordInvoicePayments`.
  *   GET  /api/invoices/:id/pdf          — Streams the stored PDF when
  *                                         `pdf_path` resolves on disk; otherwise
  *                                         rebuilds from the invoice row + client +
@@ -29,22 +34,41 @@ import multer from 'multer';
 import { z } from 'zod';
 import {
   allInvoices,
+  allInvoicePayments,
   buildDraftInvoice,
   createInvoice,
   findInvoiceById,
   InvoiceSchema,
+  listInvoicesByStatus,
+  listInvoicesByIssuingEntityId,
   persistIngestedSelfBillFromBuffer,
+  planReconciliation,
+  recordInvoicePayments,
   renderInvoicePdf,
   updateInvoice,
   writeInvoicePdf,
   type Invoice,
+  type ReconcileTransaction,
+  type ReconciliationPlan,
 } from '../domain/invoices/index.js';
 import { findContractById } from '../domain/contracts/index.js';
-import { findClientById } from '../domain/clients/index.js';
+import { allClients, findClientById } from '../domain/clients/index.js';
 import { companyById } from '../domain/company/index.js';
 import { leaveForContract } from '../domain/leave/index.js';
-import { todayIsoLocal } from '../../shared/iso-date.js';
+import { shiftIsoDate, todayIsoLocal } from '../../shared/iso-date.js';
+import { holidayDatesForEntity } from '../domain/working-days/public-holidays.js';
 import { DEFAULT_INVOICES_DIR } from '../domain/invoices/registry.js';
+import {
+  EntityIdSchema,
+  type Client,
+  type ClientId,
+  type EntityId,
+} from '../../shared/api-contracts.js';
+import {
+  accountsForEntity,
+  getAccountConfig,
+} from '../domain/accounts/queries.js';
+import { getDb } from '../db/connection.js';
 
 const router = Router();
 
@@ -96,13 +120,19 @@ router.get('/draft', (req: Request, res: Response) => {
     return;
   }
 
+  const today = todayIsoLocal();
+  const yearStart = today.slice(0, 4) + '-01-01';
+  const yearEnd = today.slice(0, 4) + '-12-31';
   const draft = buildDraftInvoice({
     contract,
     client,
     company,
     leaveRows: leaveForContract(contract.id),
     existingInvoices: allInvoices(),
-    today: todayIsoLocal(),
+    today,
+    publicHolidayDates: holidayDatesForEntity(
+      contract.issuing_entity_id, yearStart, yearEnd,
+    ),
   });
 
   res.json({ invoice: draft });
@@ -284,6 +314,154 @@ router.post(
     });
   },
 );
+
+// ─── POST /reconcile ────────────────────────────────────────────────────────
+
+const RECONCILE_LOOKBACK_DAYS = 180;
+
+const ReconcileBodySchema = z.object({
+  dryRun: z.boolean().optional(),
+  entityId: EntityIdSchema.optional(),
+});
+
+/**
+ * Pull income transactions for the issuing entities of `invoices` from
+ * the bank ledger, projected into the matcher's
+ * {@link ReconcileTransaction} shape. Mirrors the per-entity DB read
+ * used by `derivePaymentOutsideContractWindowWarnings`.
+ */
+function loadReconcileTransactions(
+  invoices: readonly Invoice[],
+  windowStart: string,
+  windowEnd: string,
+): readonly ReconcileTransaction[] {
+  if (invoices.length === 0) return [];
+  const entities = new Set(invoices.map(i => i.issuing_entity_id));
+  const accounts: string[] = [];
+  for (const entityId of entities) {
+    accounts.push(...accountsForEntity(entityId));
+  }
+  if (accounts.length === 0) return [];
+
+  const placeholders = accounts.map(() => '?').join(', ');
+  const rows = getDb()
+    .prepare(
+      `SELECT id, date, description, amount, account
+         FROM transactions
+         WHERE type = 'income'
+           AND account IN (${placeholders})
+           AND date >= ? AND date <= ?
+         ORDER BY date ASC`,
+    )
+    .all(...accounts, windowStart, windowEnd) as readonly {
+    id: number;
+    date: string;
+    description: string;
+    amount: number;
+    account: string;
+  }[];
+
+  const out: ReconcileTransaction[] = [];
+  for (const r of rows) {
+    const cfg = getAccountConfig(r.account as Parameters<typeof getAccountConfig>[0]);
+    if (cfg.category !== 'business') continue;
+    out.push({
+      id: String(r.id),
+      date: r.date,
+      description: r.description,
+      amount: r.amount,
+      currency: cfg.currency,
+      account: r.account,
+      entityId: cfg.entityId,
+    });
+  }
+  return out;
+}
+
+router.post('/reconcile', (req: Request, res: Response) => {
+  const parsed = ReconcileBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res
+      .status(400)
+      .json({ error: 'Invalid request', details: parsed.error.issues });
+    return;
+  }
+  const dryRun = parsed.data.dryRun ?? true;
+  const entityId: EntityId | null = parsed.data.entityId ?? null;
+
+  const issued = listInvoicesByStatus('issued');
+  const scopedInvoices = entityId === null
+    ? issued
+    : issued.filter(inv => inv.issuing_entity_id === entityId);
+
+  const today = todayIsoLocal();
+  const windowStart = shiftIsoDate(today, -RECONCILE_LOOKBACK_DAYS);
+
+  const transactions = loadReconcileTransactions(
+    scopedInvoices,
+    windowStart,
+    today,
+  );
+
+  const clientsById = new Map<ClientId, Client>(
+    allClients().map(c => [c.id, c] as const),
+  );
+  if (entityId !== null) {
+    // Even with an entity filter we keep all clients in the map — clients
+    // aren't entity-scoped and the matcher just needs to look up by id.
+    void listInvoicesByIssuingEntityId(entityId);
+  }
+
+  const plan: ReconciliationPlan = planReconciliation({
+    invoices: scopedInvoices,
+    transactions,
+    clientsById,
+    existingPayments: allInvoicePayments(),
+    options: { now: today },
+  });
+
+  if (dryRun) {
+    res.json({
+      dryRun: true,
+      plan,
+      persisted: null,
+    });
+    return;
+  }
+
+  const result = recordInvoicePayments({ payments: plan.proposedPayments });
+  if (!result.ok) {
+    if (result.code === 'duplicate-id') {
+      res.status(409).json({
+        error: 'duplicate-id',
+        invoicePaymentId: result.invoicePaymentId,
+      });
+      return;
+    }
+    if (result.code === 'duplicate-bank-tx') {
+      res.status(409).json({
+        error: 'duplicate-bank-tx',
+        bankTransactionId: result.bankTransactionId,
+      });
+      return;
+    }
+    if (result.code === 'unknown-invoice') {
+      res.status(400).json({
+        error: 'unknown-invoice',
+        invoiceId: result.invoiceId,
+      });
+      return;
+    }
+    res.status(400).json({ error: 'Invalid request', details: result.issues });
+    return;
+  }
+
+  res.json({
+    dryRun: false,
+    plan,
+    persisted: result.payments,
+  });
+});
 
 // ─── GET /:id/pdf ───────────────────────────────────────────────────────────
 

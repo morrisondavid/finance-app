@@ -13,7 +13,7 @@ function writeCsv(dir: string, filename: string, rows: string[]): void {
   const header = [
     'id', 'category', 'frequency', 'merchant', 'display_name', 'account', 'amount',
     'currency', 'notes', 'ownership_david', 'ownership_heena', 'person_id',
-    'amount_tolerance', 'due_date',
+    'amount_tolerance', 'due_date', 'tax_type', 'property_id',
   ].join(',');
   fs.writeFileSync(path.join(dir, filename), [header, ...rows].join('\n'));
 }
@@ -176,8 +176,8 @@ describe('buildObligationRegistry', () => {
 
   it('loads seed rows and categorises incoming vs outgoing', () => {
     writeCsv(tmpDir, 'obligations-seed.csv', [
-      'seed-ee,fixed-bill,monthly,EE,,barclays-current,180,GBP,,,,,,',
-      'seed-rent,rental-income,monthly,Stoneshaw,78 HS,monzo-joint,1292.72,GBP,,0.5,0.5,,,',
+      'seed-ee,fixed-bill,monthly,EE,,barclays-current,180,GBP,,,,,,,,',
+      'seed-rent,rental-income,monthly,Stoneshaw,78 HS,monzo-joint,1292.72,GBP,,0.5,0.5,,,,,p-test',
     ]);
     const reg = buildObligationRegistry(tmpDir);
     expect(reg.all).toHaveLength(2);
@@ -200,8 +200,8 @@ describe('buildObligationRegistry', () => {
 
   it('listByCategory narrows the return type', () => {
     writeCsv(tmpDir, 'obligations-seed.csv', [
-      'seed-ee,fixed-bill,monthly,EE,,barclays-current,180,GBP,,,,,,',
-      'seed-rent,rental-income,monthly,Stoneshaw,78 HS,monzo-joint,1292.72,GBP,,0.5,0.5,,,',
+      'seed-ee,fixed-bill,monthly,EE,,barclays-current,180,GBP,,,,,,,,',
+      'seed-rent,rental-income,monthly,Stoneshaw,78 HS,monzo-joint,1292.72,GBP,,0.5,0.5,,,,,p-test',
     ]);
     const reg = buildObligationRegistry(tmpDir);
     const rentals = reg.listByCategory('rental-income');

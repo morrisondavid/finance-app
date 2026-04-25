@@ -3,7 +3,7 @@
  */
 
 import type { DashboardSummary, AccountSummary } from '../types';
-import { state, setState, getSelectedCurrency } from './state';
+import { state, setState, getSelectedCurrency, getAccountConfig } from './state';
 import { fetchDashboard, fetchTransactions } from '../utils/api';
 import { formatCurrency } from '../utils/formatting';
 import { escapeHtml, escapeAttribute } from '../utils/dom';
@@ -23,6 +23,7 @@ import {
 import { renderLiabilities } from './dashboard-vat';
 import { renderBudgetDashboardPanel, renderYearlyBudgetDashboardPanel } from './dashboard-budgets';
 import { renderBudgetNudgesPanel, initBudgetNudgeInteractions } from './dashboard-budget-nudges';
+import { applyBalancePanelLabelsForAccountType } from './balance-panel-labels';
 
 // ─── Data loading ─────────────────────────────────────────────────────────────
 
@@ -226,6 +227,7 @@ function renderSummaryCards(data: DashboardSummary): void {
 
   if (data.currentAccountBalance) {
     renderBalancePanel(data.currentAccountBalance);
+    applyBalancePanelLabelsForAccountType(getAccountConfig(state.selectedAccount));
   }
 
   if (data.taxLiabilities) {

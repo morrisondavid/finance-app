@@ -19,10 +19,15 @@ import { getDb } from '../db/connection.js';
 import { allCompanies } from '../domain/company/index.js';
 import { allClients } from '../domain/clients/index.js';
 import { allContracts } from '../domain/contracts/queries.js';
+import { allInvoices } from '../domain/invoices/index.js';
 import { deriveEntityFoundationWarnings } from '../domain/warnings/entity-foundation.js';
 import { sumFzcoTrailing12mIncomeAed } from '../domain/warnings/fzco-income.js';
 import { countUnclassifiedInterCompanyPairs } from '../domain/warnings/inter-company-count.js';
 import { derivePaymentOutsideContractWindowWarnings } from '../domain/warnings/payment-outside-contract-window.js';
+import { deriveInvoiceRowWarnings } from '../domain/warnings/invoice-reconciler.js';
+import { deriveInvoiceDaysMismatchWarnings } from '../domain/warnings/invoice-days-mismatch.js';
+import { holidayDatesForEntity } from '../domain/working-days/public-holidays.js';
+import { allLeave } from '../domain/leave/index.js';
 import { buildInterCompanyMovementsResponse } from '../domain/inter-company/movements-response.js';
 import { classifyInterCompanyPair } from '../domain/transaction-overrides/classify-pair.js';
 import {
@@ -50,8 +55,34 @@ router.get('/entity-foundation', (_req: Request, res: Response) => {
     const paymentWindowWarnings =
       derivePaymentOutsideContractWindowWarnings(db, today);
 
+    const contractsById = new Map(
+      allContracts().map(c => [c.id, c] as const),
+    );
+    const invoices = allInvoices();
+    const invoiceRowWarnings = deriveInvoiceRowWarnings({
+      invoices,
+      contractsById,
+    });
+
+    const contracts = allContracts();
+    const entityIds = [...new Set(contracts.map(c => c.issuing_entity_id))];
+    const publicHolidayDatesByEntity = new Map(
+      entityIds.map(eid => [eid, holidayDatesForEntity(eid, '2025-01-01', '2027-12-31')] as const),
+    );
+    const daysMismatchWarnings = deriveInvoiceDaysMismatchWarnings({
+      invoices,
+      contractsById,
+      leaveRows: allLeave(),
+      publicHolidayDatesByEntity,
+    });
+
     const body = EntityFoundationWarningsResponseSchema.parse({
-      warnings: [...foundationWarnings, ...paymentWindowWarnings],
+      warnings: [
+        ...foundationWarnings,
+        ...paymentWindowWarnings,
+        ...invoiceRowWarnings,
+        ...daysMismatchWarnings,
+      ],
     });
     res.json(body);
   } catch (error) {

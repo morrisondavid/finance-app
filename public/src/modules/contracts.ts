@@ -34,6 +34,7 @@ import type {
   TemplatePreviewResponse,
 } from '../../../shared/api-contracts.js';
 import { openSelfBillIngestWithHint, openSupplierInvoiceForContract } from './invoices.js';
+import { initLeaveCalendar, updateLeaveCalendarContracts } from './leave-calendar.js';
 
 const LIST_ID = 'contracts-list';
 const LIST_DIVIDER_ID = 'contracts-list-divider';
@@ -77,6 +78,7 @@ let previewDebounce: ReturnType<typeof setTimeout> | null = null;
  * to the neutral blue style when the threshold is unknown.
  */
 let fixedMonthlyExpenses: number | null = null;
+let leaveCalendarInitialised = false;
 
 function getEl(id: string): HTMLElement | null {
   return document.getElementById(id);
@@ -1265,6 +1267,11 @@ export async function loadContracts(): Promise<void> {
     fixedMonthlyExpenses = expenses;
     renderAggregateBanner();
     renderList();
+    updateLeaveCalendarContracts(contracts);
+    if (!leaveCalendarInitialised) {
+      initLeaveCalendar(contracts, () => loadContracts());
+      leaveCalendarInitialised = true;
+    }
   } catch (err) {
     console.error('[contracts] failed to load', err);
     const el = getEl(LIST_ID);

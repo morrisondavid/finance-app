@@ -143,6 +143,8 @@ export const AccountBalanceSchema = z.object({
   account: z.string().optional(),
   openingBalance: z.number(),
   openingBalanceDate: z.string().nullable().optional(),
+  /** Credit cards only: same as `openingBalance` (line limit in this app’s model). */
+  creditLimit: z.number().optional(),
   transactionTotal: z.number(),
   currentBalance: z.number(),
   transactionCount: z.number(),
@@ -726,6 +728,15 @@ const ObligationBase = z.object({
   amount: z.number(),
   currency: CurrencyCodeSchema.default('GBP'),
   notes: z.string().optional(),
+  /**
+   * Optional FK to `properties/properties.csv`. Required for
+   * `category === 'rental-income'` rows (locked at the registry gate);
+   * optional for `category === 'insurance'` rows that happen to relate
+   * to a property (landlord insurance). Anything else — payroll,
+   * subscription, fixed-bill, tax-manual — leaves this null. See
+   * §1.7 in ROADMAP.md for the rent ↔ mortgage join rationale.
+   */
+  propertyId: z.string().optional(),
 });
 
 /**
@@ -1238,6 +1249,249 @@ export const CompaniesListResponseSchema = z.object({
   companies: z.array(CompanySchema),
 });
 export type CompaniesListResponse = z.infer<typeof CompaniesListResponseSchema>;
+
+// ─── Public holidays (§1.4) ─────────────────────────────────────────────────
+
+export const PublicHolidaySchema = z.object({
+  date: IsoDateSchema,
+  name: z.string().min(1),
+});
+export type PublicHoliday = z.infer<typeof PublicHolidaySchema>;
+
+export const PublicHolidaysResponseSchema = z.object({
+  holidays: z.array(PublicHolidaySchema),
+});
+export type PublicHolidaysResponse = z.infer<typeof PublicHolidaysResponseSchema>;
+
+// ─── Cash Flow Forecast (§1.5) ──────────────────────────────────────────────
+
+export const ForecastDailyPointSchema = z.object({
+  date: IsoDateSchema,
+  balance: z.number(),
+});
+export type ForecastDailyPoint = z.infer<typeof ForecastDailyPointSchema>;
+
+export const ForecastAccountSeriesSchema = z.object({
+  account: AccountNameSchema,
+  currency: CurrencyCodeSchema,
+  entityId: EntityIdSchema.nullable(),
+  daily: z.array(ForecastDailyPointSchema),
+});
+export type ForecastAccountSeries = z.infer<typeof ForecastAccountSeriesSchema>;
+
+export const ForecastEntitySummarySchema = z.object({
+  entityId: EntityIdSchema.nullable(),
+  currency: CurrencyCodeSchema,
+  current: z.number(),
+  day30: z.number(),
+  day60: z.number(),
+  day90: z.number(),
+});
+export type ForecastEntitySummary = z.infer<typeof ForecastEntitySummarySchema>;
+
+export const ForecastResponseSchema = z.object({
+  today: IsoDateSchema,
+  horizonDays: z.number().int().positive(),
+  accounts: z.array(ForecastAccountSeriesSchema),
+  entities: z.array(ForecastEntitySummarySchema),
+});
+export type ForecastResponse = z.infer<typeof ForecastResponseSchema>;
+
+/** One currency within the household holistic block (GBP and AED headlines). */
+export const RunwayHouseholdCurrencySchema = z.object({
+  currency: CurrencyCodeSchema,
+  runwayMonthsFullRecurring: z.number().nullable(),
+  runwayMonthsMandatoryRecurring: z.number().nullable(),
+  firstStressDateFullRecurring: z.string().nullable(),
+  firstStressDateMandatoryRecurring: z.string().nullable(),
+  totalCashCurrent: z.number(),
+  totalAvailableCredit: z.number(),
+});
+
+export const RunwayHouseholdSchema = z.object({
+  GBP: RunwayHouseholdCurrencySchema.optional(),
+  AED: RunwayHouseholdCurrencySchema.optional(),
+});
+
+export const RunwayStressBlockSchema = z.object({
+  entities: z.array(ForecastEntitySummarySchema),
+  accounts: z.array(ForecastAccountSeriesSchema).optional(),
+});
+
+export const RunwayResponseSchema = z.object({
+  today: IsoDateSchema,
+  horizonDays: z.number().int().positive(),
+  household: RunwayHouseholdSchema,
+  insight: ExpensesInsightSchema,
+  /** Explains scope/limitations of `insight` (e.g. rolling window, GBP-centric personal split). */
+  insightNote: z.string(),
+  stress: z.object({
+    fullRecurring: RunwayStressBlockSchema,
+    mandatoryRecurring: RunwayStressBlockSchema,
+  }),
+});
+
+export type RunwayResponse = z.infer<typeof RunwayResponseSchema>;
+
+// ============================================
+// Income Composition (§1.7)
+// ============================================
+//
+// Three single-mode-risk metrics over the existing income surface:
+// `clientConcentration`, `activePassiveRatio`, `timeIndependence`. Plus a
+// typed `riskSignals[]` array — discriminated union by `code`; each
+// variant inlines its own primitive fields next to `code` and
+// `severity` (no baked prose). Same convention as IncomingObligationSchema.
+
+export const ActivityClassSchema = z.enum(['active', 'semi-passive', 'passive']);
+export type ActivityClass = z.infer<typeof ActivityClassSchema>;
+
+export const IncomeKindSchema = z.enum(['contract', 'rental-income', 'recurring-detected']);
+export type IncomeKind = z.infer<typeof IncomeKindSchema>;
+
+export const IncomeSourceSchema = z.object({
+  kind: IncomeKindSchema,
+  id: z.string(),
+  label: z.string(),
+  monthlyAmount: z.number(),
+  currency: CurrencyCodeSchema,
+  entityId: EntityIdSchema.nullable(),
+  activityClass: ActivityClassSchema,
+  propertyId: z.string().nullable(),
+  clientId: z.string().nullable(),
+});
+export type IncomeSource = z.infer<typeof IncomeSourceSchema>;
+
+const ClientConcentrationSchema = z.object({
+  ratio: z.number(),
+  topClientId: z.string().nullable(),
+  topClientMonthly: z.number(),
+  totalActiveMonthly: z.number(),
+});
+
+const PassiveByKindSchema = z.object({
+  contract: z.number(),
+  'rental-income': z.number(),
+  'recurring-detected': z.number(),
+});
+
+const ActivePassiveRatioSchema = z.object({
+  ratio: z.number(),
+  passiveMonthly: z.number(),
+  activeMonthly: z.number(),
+  totalMonthly: z.number(),
+  passiveByKind: PassiveByKindSchema,
+});
+
+const TimeIndependenceSchema = z.object({
+  ratio: z.number(),
+  passiveMonthly: z.number(),
+  mandatoryMonthly: z.number(),
+});
+
+export const IncomeCompositionMetricsSchema = z.object({
+  clientConcentration: ClientConcentrationSchema,
+  activePassiveRatio: ActivePassiveRatioSchema,
+  timeIndependence: TimeIndependenceSchema,
+});
+export type IncomeCompositionMetrics = z.infer<typeof IncomeCompositionMetricsSchema>;
+
+const IncomeCompositionScopeSchema = z.object({
+  entityId: EntityIdSchema.nullable(),
+  currency: CurrencyCodeSchema,
+  metrics: IncomeCompositionMetricsSchema,
+});
+
+export const RiskSignalSchema = z.discriminatedUnion('code', [
+  z.object({
+    code: z.literal('client-concentration-extreme'),
+    severity: z.literal('high'),
+    currency: CurrencyCodeSchema,
+    ratio: z.number(),
+    topClientId: z.string(),
+    topClientMonthly: z.number(),
+    totalActiveMonthly: z.number(),
+    threshold: z.number(),
+  }),
+  z.object({
+    code: z.literal('client-concentration-elevated'),
+    severity: z.literal('medium'),
+    currency: CurrencyCodeSchema,
+    ratio: z.number(),
+    topClientId: z.string(),
+    topClientMonthly: z.number(),
+    totalActiveMonthly: z.number(),
+    threshold: z.number(),
+  }),
+  z.object({
+    code: z.literal('time-independence-low'),
+    severity: z.literal('high'),
+    currency: CurrencyCodeSchema,
+    ratio: z.number(),
+    passiveMonthly: z.number(),
+    mandatoryMonthly: z.number(),
+    targetRatio: z.number(),
+    additionalPassiveNeeded: z.number(),
+    mandatoryReductionNeeded: z.number(),
+  }),
+  z.object({
+    code: z.literal('time-independence-elevated'),
+    severity: z.literal('medium'),
+    currency: CurrencyCodeSchema,
+    ratio: z.number(),
+    passiveMonthly: z.number(),
+    mandatoryMonthly: z.number(),
+    targetRatio: z.number(),
+    additionalPassiveNeeded: z.number(),
+    mandatoryReductionNeeded: z.number(),
+  }),
+  z.object({
+    code: z.literal('mode-concentration-extreme'),
+    severity: z.literal('high'),
+    currency: CurrencyCodeSchema,
+    activeShare: z.number(),
+    passiveShare: z.number(),
+    totalMonthly: z.number(),
+    threshold: z.number(),
+  }),
+  z.object({
+    code: z.literal('passive-income-zero'),
+    severity: z.literal('high'),
+    currency: CurrencyCodeSchema,
+    passiveMonthly: z.literal(0),
+    mandatoryMonthly: z.number(),
+  }),
+  z.object({
+    code: z.literal('leveraged-passive-income'),
+    severity: z.enum(['high', 'medium']),
+    propertyId: z.string(),
+    grossMonthly: z.number(),
+    mortgageMonthly: z.number(),
+    netMonthly: z.number(),
+    netToGrossRatio: z.number(),
+    threshold: z.number(),
+  }),
+]);
+export type RiskSignal = z.infer<typeof RiskSignalSchema>;
+
+export const IncomeCompositionHouseholdSchema = z.object({
+  GBP: IncomeCompositionMetricsSchema.optional(),
+  AED: IncomeCompositionMetricsSchema.optional(),
+});
+
+export const IncomeCompositionResponseSchema = z.object({
+  today: IsoDateSchema,
+  /** Per-currency household rollup. Currencies absent from the system are omitted. */
+  household: IncomeCompositionHouseholdSchema,
+  /** Per-(entityId | null, currency) drill-down. */
+  byEntity: z.array(IncomeCompositionScopeSchema),
+  /** Every income source consumed by the metrics, for transparency / debugging / AI consumers. */
+  sources: z.array(IncomeSourceSchema),
+  /** Typed risk signals — §1.8 lifts these directly onto the warnings tab. */
+  riskSignals: z.array(RiskSignalSchema),
+});
+export type IncomeCompositionResponse = z.infer<typeof IncomeCompositionResponseSchema>;
+export type RunwayHouseholdCurrency = z.infer<typeof RunwayHouseholdCurrencySchema>;
 
 // ============================================
 // Clients, Master Agreements, Contracts (§1.2 Phase A)
@@ -1876,6 +2130,11 @@ export const EntityFoundationWarningCodeSchema = z.enum([
   'ifza-license-renewal-due',
   'inter-company-movement-unclassified',
   'payment-outside-contract-window',
+  'invoice-stale-payment-reference',
+  'invoice-due-date-implausible',
+  'invoice-period-invalid',
+  'invoice-unmatched-deposit',
+  'invoice-days-mismatch',
 ]);
 export type EntityFoundationWarningCode = z.infer<typeof EntityFoundationWarningCodeSchema>;
 

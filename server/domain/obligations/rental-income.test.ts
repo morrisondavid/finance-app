@@ -15,7 +15,7 @@ function mkRegistry(rows: string[]) {
   const header = [
     'id', 'category', 'frequency', 'merchant', 'display_name', 'account', 'amount',
     'currency', 'notes', 'ownership_david', 'ownership_heena', 'person_id',
-    'amount_tolerance', 'due_date',
+    'amount_tolerance', 'due_date', 'tax_type', 'property_id',
   ].join(',');
   fs.writeFileSync(path.join(tmpDir, 'obligations-seed.csv'), [header, ...rows].join('\n'));
   return { registry: buildObligationRegistry(tmpDir), cleanup: () => fs.rmSync(tmpDir, { recursive: true, force: true }) };
@@ -53,7 +53,7 @@ describe('assertRentalOwnershipIntegrity', () => {
 
   it('throws when ownership does not sum to 1', () => {
     const { registry, cleanup } = mkRegistry([
-      'bad,rental-income,monthly,X,,monzo-joint,100,GBP,,0.4,0.4,,,',
+      'bad,rental-income,monthly,X,,monzo-joint,100,GBP,,0.4,0.4,,,,,p-test',
     ]);
     try {
       expect(() => assertRentalOwnershipIntegrity(registry)).toThrow(/must sum to 1/);
@@ -68,7 +68,7 @@ describe('assertRentalMerchantsClassify', () => {
 
   it('throws when a rental merchant does not classify as Property', () => {
     const { registry, cleanup } = mkRegistry([
-      'orphan,rental-income,monthly,Zzz Unmapped Merchant,,monzo-joint,1000,GBP,,0.5,0.5,,,',
+      'orphan,rental-income,monthly,Zzz Unmapped Merchant,,monzo-joint,1000,GBP,,0.5,0.5,,,,,p-test',
     ]);
     try {
       expect(() => assertRentalMerchantsClassify(registry)).toThrow(/classifies as/);
@@ -79,7 +79,7 @@ describe('assertRentalMerchantsClassify', () => {
 describe('sumRentalIncomeForPerson', () => {
   it('splits income by per-property ownership share', () => {
     const { registry, cleanup } = mkRegistry([
-      'r1,rental-income,monthly,Stoneshaw,,monzo-joint,1000,GBP,,0.6,0.4,,,',
+      'r1,rental-income,monthly,Stoneshaw,,monzo-joint,1000,GBP,,0.6,0.4,,,,,p-test',
     ]);
     const db = makeDb();
     try {
@@ -92,7 +92,7 @@ describe('sumRentalIncomeForPerson', () => {
 
   it('ignores rows outside the window', () => {
     const { registry, cleanup } = mkRegistry([
-      'r1,rental-income,monthly,Stoneshaw,,monzo-joint,1000,GBP,,0.5,0.5,,,',
+      'r1,rental-income,monthly,Stoneshaw,,monzo-joint,1000,GBP,,0.5,0.5,,,,,p-test',
     ]);
     const db = makeDb();
     try {
@@ -104,7 +104,7 @@ describe('sumRentalIncomeForPerson', () => {
 
   it('ignores rows on a non-property account', () => {
     const { registry, cleanup } = mkRegistry([
-      'r1,rental-income,monthly,Stoneshaw,,monzo-joint,1000,GBP,,0.5,0.5,,,',
+      'r1,rental-income,monthly,Stoneshaw,,monzo-joint,1000,GBP,,0.5,0.5,,,,,p-test',
     ]);
     const db = makeDb();
     try {

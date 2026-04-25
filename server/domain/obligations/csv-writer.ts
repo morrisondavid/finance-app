@@ -60,6 +60,7 @@ function obligationToCsvRow(c: Obligation): string {
     hasAmountTolerance(c) && c.amountTolerance !== undefined ? String(c.amountTolerance) : '',
     hasDueDate(c) ? escapeCsvField(c.dueDate ?? '') : '',
     hasTaxType(c) ? escapeCsvField(c.taxType ?? '') : '',
+    escapeCsvField(c.propertyId ?? ''),
   ];
   return cells.join(',');
 }

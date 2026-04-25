@@ -4,6 +4,7 @@
  */
 
 import { state, getAccountConfig, getSelectedCurrency } from './state';
+import { applyBalancePanelLabelsForAccountType } from './balance-panel-labels';
 import { fetchTransactions, fetchVATPayments } from '../utils/api';
 import { formatCurrency } from '../utils/formatting';
 import { escapeHtml } from '../utils/dom';
@@ -35,6 +36,7 @@ export function initBalanceModal(): void {
   if (!editBtn || !modal || !cancelBtn || !saveBtn || !balanceInput || !dateInput) return;
 
   editBtn.addEventListener('click', () => {
+    applyBalancePanelLabelsForAccountType(getAccountConfig(state.selectedAccount));
     if (state.summaryData?.currentAccountBalance) {
       const balance = state.summaryData.currentAccountBalance;
       balanceInput.value = balance.openingBalance?.toString() || '';

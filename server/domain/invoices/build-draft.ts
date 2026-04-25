@@ -63,6 +63,8 @@ export interface BuildDraftInput {
    */
   readonly existingInvoices: readonly Invoice[];
   readonly today: string;
+  /** Entity-scoped public holidays forwarded to `calculateWorkload`. */
+  readonly publicHolidayDates?: ReadonlySet<string>;
 }
 
 /** `min` for two ISO date strings. */
@@ -81,8 +83,8 @@ function minIso(a: string, b: string): string {
  * surface the reason to the user and let them override manually.
  */
 export function buildDraftInvoice(input: BuildDraftInput): Invoice {
-  const { contract, client, company, leaveRows, existingInvoices, today } =
-    input;
+  const { contract, client, company, leaveRows, existingInvoices, today,
+    publicHolidayDates } = input;
 
   const contractInvoices = existingInvoices
     .filter(inv => inv.contract_id === contract.id);
@@ -103,6 +105,7 @@ export function buildDraftInvoice(input: BuildDraftInput): Invoice {
     leaveRows,
     start: periodStart,
     end: periodEnd,
+    publicHolidayDates,
   });
 
   const vatRate = resolveInvoiceVatRate(company);

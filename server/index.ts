@@ -16,6 +16,10 @@ import contractsRouter from './routes/contracts.js';
 import clientsRouter from './routes/clients.js';
 import invoicesRouter from './routes/invoices.js';
 import warningsRouter from './routes/warnings.js';
+import publicHolidaysRouter from './routes/public-holidays.js';
+import forecastRouter from './routes/forecast.js';
+import runwayRouter from './routes/runway.js';
+import incomeCompositionRouter from './routes/income-composition.js';
 import { normalizeAllFiles } from './utils/filename-normalizer.js';
 import { initDatabase, closeDatabase } from './db/index.js';
 
@@ -51,6 +55,10 @@ app.use('/api/contracts', contractsRouter);
 app.use('/api/clients', clientsRouter);
 app.use('/api/invoices', invoicesRouter);
 app.use('/api/warnings', warningsRouter);
+app.use('/api/public-holidays', publicHolidaysRouter);
+app.use('/api/forecast', forecastRouter);
+app.use('/api/runway', runwayRouter);
+app.use('/api/income-composition', incomeCompositionRouter);
 
 if (isProduction) {
   // SPA fallback — serve index.html for non-API routes

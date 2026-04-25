@@ -10,12 +10,17 @@
 import type {
   ContractId,
   EntityId,
+  InvoicePayment,
 } from '../../../shared/api-contracts.js';
 import type { Invoice, InvoiceId, InvoiceStatus } from './schema.js';
 import {
   getInvoiceRegistry,
   type InvoiceRegistry,
 } from './registry.js';
+import {
+  getInvoicePaymentRegistry,
+  type InvoicePaymentRegistry,
+} from './payments-registry.js';
 
 /** Every invoice, in CSV order. */
 export function allInvoices(
@@ -75,4 +80,33 @@ export function latestInvoiceForContract(
   const rows = reg.indexes.byContractId.get(contractId);
   if (rows === undefined || rows.length === 0) return null;
   return rows[rows.length - 1] ?? null;
+}
+
+// ─── Invoice payments ───────────────────────────────────────────────────────
+
+/** Every recorded invoice payment, in CSV order. */
+export function allInvoicePayments(
+  reg: InvoicePaymentRegistry = getInvoicePaymentRegistry(),
+): readonly InvoicePayment[] {
+  return reg.all;
+}
+
+/** Every payment row keyed back to a specific invoice. */
+export function listPaymentsForInvoice(
+  invoiceId: InvoiceId,
+  reg: InvoicePaymentRegistry = getInvoicePaymentRegistry(),
+): readonly InvoicePayment[] {
+  return reg.indexes.byInvoiceId.get(invoiceId) ?? [];
+}
+
+/**
+ * Single payment that claims a given bank transaction, or `null`. The
+ * registry enforces single-claim at build time, so callers can rely on
+ * "either one row or none" without a defensive sort.
+ */
+export function findPaymentByBankTransaction(
+  bankTransactionId: string,
+  reg: InvoicePaymentRegistry = getInvoicePaymentRegistry(),
+): InvoicePayment | null {
+  return reg.indexes.byBankTransactionId.get(bankTransactionId) ?? null;
 }

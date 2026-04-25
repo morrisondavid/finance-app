@@ -12,14 +12,24 @@
  * have to spin up the whole cross-registry join.
  */
 
-import fs from 'fs';
 import path from 'path';
-import { parse } from 'csv-parse/sync';
 import {
   type LeaveRow,
   LeaveRowSchema,
 } from '../../../shared/api-contracts.js';
 import { escapeCsvField, atomicWriteCsv } from '../../utils/csv-helpers.js';
+import {
+  createCsvDecoders,
+  nullIfEmpty,
+  readCsvRecords,
+} from '../../utils/csv-decoders.js';
+
+const decoders = createCsvDecoders('Leave');
+const {
+  requireNonEmpty,
+  decodeIsoDate: requireIsoDate,
+  decodeStrictBoolean,
+} = decoders;
 
 export const LEAVE_CSV_FILENAME = 'leave.csv';
 
@@ -43,35 +53,6 @@ export function composeLeaveId(contractId: string, isoDate: string): string {
   return `${contractId}-${isoDate}`;
 }
 
-function nullIfEmpty(value: string | undefined): string | null {
-  if (value === undefined) return null;
-  const trimmed = value.trim();
-  return trimmed === '' ? null : trimmed;
-}
-
-function requireNonEmpty(value: string | undefined, field: string, rowId: string): string {
-  const v = nullIfEmpty(value);
-  if (v === null) {
-    throw new Error(`Leave ${rowId}: ${field} is required`);
-  }
-  return v;
-}
-
-function requireIsoDate(value: string | undefined, field: string, rowId: string): string {
-  const raw = requireNonEmpty(value, field, rowId);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    throw new Error(`Leave ${rowId}: ${field} must be yyyy-mm-dd, got '${raw}'`);
-  }
-  return raw;
-}
-
-function decodeStrictBoolean(value: string | undefined, field: string, rowId: string): boolean {
-  const raw = requireNonEmpty(value, field, rowId);
-  if (raw === 'true') return true;
-  if (raw === 'false') return false;
-  throw new Error(`Leave ${rowId}: ${field} must be 'true' | 'false', got '${raw}'`);
-}
-
 export function parseLeaveRow(row: Record<string, string>): LeaveRow {
   const rowId = nullIfEmpty(row.id) ?? '<missing-id>';
 
@@ -88,19 +69,8 @@ export function parseLeaveRow(row: Record<string, string>): LeaveRow {
 }
 
 export function readLeaveCsvFile(csvPath: string): LeaveRow[] {
-  if (!fs.existsSync(csvPath)) return [];
-  const content = fs.readFileSync(csvPath, 'utf8').trim();
-  if (content === '') return [];
-
-  const records = parse(content, {
-    columns: true,
-    skip_empty_lines: true,
-    trim: true,
-    relax_column_count: true,
-  }) as Record<string, string>[];
-
   const rows: LeaveRow[] = [];
-  for (const row of records) {
+  for (const row of readCsvRecords(csvPath)) {
     if (!nullIfEmpty(row.id)) continue;
     rows.push(parseLeaveRow(row));
   }

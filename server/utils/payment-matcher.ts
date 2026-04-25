@@ -1,26 +1,22 @@
 /**
- * HMRC payment matcher — global closest-due-date wins
+ * Global-greedy slot ↔ payment pairing — single source of truth.
  *
- * Each obligation "slot" (VAT quarter / SA payment deadline / CT due date /
- * TTP installment / …) is assigned at most one HMRC payment. Pairing is
- * governed by a single rule: globally minimise the distance between each
- * assigned payment and its slot's due date, subject to a maximum proximity.
+ * Used by:
+ *   - HMRC seeders (VAT / SA / CT / TTP) via {@link matchPaymentsToSlots},
+ *     which scores pairs purely by absolute date distance to the slot's
+ *     due date, capped by `maxProximityDays`.
+ *   - The §1.3 Phase 4 invoice reconciler via {@link pairBestMatches},
+ *     which composes amount + date + narrative scores per pair.
  *
- * Algorithm (greedy global assignment):
- *   1. Enumerate every (payment, slot) pair whose distance is within
- *      `maxProximityDays`.
- *   2. Sort pairs by ascending distance, breaking ties deterministically on
- *      (payment date, slot dueDate).
- *   3. Walk the sorted list, accepting a pair only if neither its payment
- *      nor its slot has already been claimed.
+ * Both consumers share **one** algorithm: enumerate every candidate pair
+ * (whose scorer returns a non-null value), sort the pairs by ascending
+ * score with a deterministic tie-breaker, then walk the sorted list and
+ * accept a pair iff neither side has been claimed. Global greedy beats
+ * per-slot iteration: sequentially picking "closest for slot S, consume"
+ * can rob a later slot of a better-suited payment.
  *
- * Why global greedy instead of per-slot iteration: sequential "pick the
- * closest payment for slot S then consume" can steal a payment that is
- * better suited to a later slot. Global-greedy always commits the best
- * (smallest-distance) pairing first, so no slot is robbed of a payment
- * that was closer to it than to any other slot.
- *
- * The helper is pure (no DB access) so it can be unit-tested directly.
+ * Pure: no DB / fs access; both functions are unit-testable in
+ * isolation.
  */
 import type { HmrcPaymentMatch } from '../db/repositories/tax.js';
 import { daysBetween, shiftIsoDate } from '../../shared/iso-date.js';
@@ -37,11 +33,88 @@ export { shiftIsoDate };
  */
 export const DEFAULT_MAX_PROXIMITY_DAYS = 90;
 
+// ─── Generic pairing primitive ───────────────────────────────────────────────
+
 /**
- * Minimal shape a slot must expose to participate in matching. Callers keep
- * their own richer slot types (VatQuarterRange, SaSlot, CtSlot, …) and
- * project them into this shape at the call site, so the matcher stays
- * domain-agnostic.
+ * Generic input to {@link pairBestMatches}. The matcher is domain-agnostic:
+ * each consumer supplies its own slot/payment types, scoring rule, tie
+ * breaker, and slot-key extractor.
+ */
+export interface PairBestMatchesInput<S, P> {
+  readonly slots: readonly S[];
+  readonly payments: readonly P[];
+  /**
+   * Returns `null` to disqualify a (slot, payment) pair from matching at
+   * all; otherwise a numeric score where **lower wins**. Must be pure +
+   * deterministic.
+   */
+  readonly score: (slot: S, payment: P) => number | null;
+  /**
+   * Deterministic secondary ordering when two qualifying pairs share the
+   * same score. Returned strings are compared with `localeCompare`, so
+   * encode the priority you want at the start (e.g. `"YYYY-MM-DD|…"`).
+   * Default: empty string (no tie-break beyond original input order, but
+   * since `score` is the primary we still pick a stable winner).
+   */
+  readonly tieBreaker?: (slot: S, payment: P) => string;
+  /** Stable identifier used as the result-map key. Must be unique per slot. */
+  readonly slotKey: (slot: S) => string;
+}
+
+/**
+ * Assign at most one payment per slot using global-greedy: the
+ * lowest-score pair across all candidates is matched first, then
+ * iteratively the next-lowest among remaining slots/payments. Every slot
+ * appears in the returned map (value `null` when no candidate
+ * qualifies).
+ */
+export function pairBestMatches<S, P>(
+  input: PairBestMatchesInput<S, P>,
+): Map<string, P | null> {
+  const { slots, payments, score, tieBreaker, slotKey } = input;
+  const result = new Map<string, P | null>();
+  for (const s of slots) result.set(slotKey(s), null);
+  if (slots.length === 0 || payments.length === 0) return result;
+
+  interface Pair {
+    readonly sIndex: number;
+    readonly pIndex: number;
+    readonly score: number;
+    readonly tie: string;
+  }
+  const pairs: Pair[] = [];
+  for (let si = 0; si < slots.length; si++) {
+    for (let pi = 0; pi < payments.length; pi++) {
+      const sc = score(slots[si], payments[pi]);
+      if (sc === null) continue;
+      const tie = tieBreaker !== undefined ? tieBreaker(slots[si], payments[pi]) : '';
+      pairs.push({ sIndex: si, pIndex: pi, score: sc, tie });
+    }
+  }
+
+  pairs.sort((a, b) => {
+    if (a.score !== b.score) return a.score - b.score;
+    return a.tie.localeCompare(b.tie);
+  });
+
+  const takenS = new Set<number>();
+  const takenP = new Set<number>();
+  for (const { sIndex, pIndex } of pairs) {
+    if (takenS.has(sIndex) || takenP.has(pIndex)) continue;
+    takenS.add(sIndex);
+    takenP.add(pIndex);
+    result.set(slotKey(slots[sIndex]), payments[pIndex]);
+  }
+
+  return result;
+}
+
+// ─── HMRC specialisation ─────────────────────────────────────────────────────
+
+/**
+ * Minimal shape an HMRC slot must expose. Callers keep their own richer
+ * slot types (VatQuarterRange, SaSlot, CtSlot, …) and project them into
+ * this shape at the call site, so the matcher stays domain-agnostic.
  */
 export interface PaymentMatchSlot {
   /** Stable identifier, unique within the supplied slot set. */
@@ -51,9 +124,11 @@ export interface PaymentMatchSlot {
 }
 
 /**
- * Match HMRC payments to the supplied slots under the global closest-due-date
- * rule. Every slot from the input appears as a key in the returned map; the
- * value is the assigned payment or `null` when no plausible payment exists.
+ * Match HMRC payments to the supplied slots under the global
+ * closest-due-date rule (date-only scoring). Thin wrapper over
+ * {@link pairBestMatches} so VAT/SA/CT callers continue to read as if
+ * nothing changed; tie-break order preserved exactly: distance, then
+ * payment date, then slot due date.
  *
  * @param slots            Slots to assign payments to (any order; sorted internally).
  * @param payments         Candidate HMRC-pattern payments (any order).
@@ -64,45 +139,17 @@ export function matchPaymentsToSlots(
   payments: readonly HmrcPaymentMatch[],
   maxProximityDays: number,
 ): Map<string, HmrcPaymentMatch | null> {
-  const result = new Map<string, HmrcPaymentMatch | null>();
-  if (slots.length === 0) return result;
-
-  const sortedSlots = [...slots].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-  for (const s of sortedSlots) result.set(s.key, null);
-
-  if (payments.length === 0) return result;
-
-  interface Pair { sIndex: number; pIndex: number; dist: number; }
-  const pairs: Pair[] = [];
-  for (let si = 0; si < sortedSlots.length; si++) {
-    for (let pi = 0; pi < payments.length; pi++) {
-      const dist = Math.abs(dayDistance(payments[pi].date, sortedSlots[si].dueDate));
-      if (dist <= maxProximityDays) pairs.push({ sIndex: si, pIndex: pi, dist });
-    }
-  }
-
-  // Global ascending by distance, then by payment date, then by slot dueDate
-  // — all deterministic, no dependence on insertion order.
-  pairs.sort((a, b) => {
-    if (a.dist !== b.dist) return a.dist - b.dist;
-    const dateCmp = payments[a.pIndex].date.localeCompare(payments[b.pIndex].date);
-    if (dateCmp !== 0) return dateCmp;
-    return sortedSlots[a.sIndex].dueDate.localeCompare(sortedSlots[b.sIndex].dueDate);
+  const sortedSlots = [...slots].sort((a, b) =>
+    a.dueDate.localeCompare(b.dueDate),
+  );
+  return pairBestMatches<PaymentMatchSlot, HmrcPaymentMatch>({
+    slots: sortedSlots,
+    payments,
+    score: (slot, payment) => {
+      const dist = Math.abs(daysBetween(payment.date, slot.dueDate));
+      return dist > maxProximityDays ? null : dist;
+    },
+    tieBreaker: (slot, payment) => `${payment.date}|${slot.dueDate}`,
+    slotKey: s => s.key,
   });
-
-  const takenS = new Set<number>();
-  const takenP = new Set<number>();
-  for (const { sIndex, pIndex } of pairs) {
-    if (takenS.has(sIndex) || takenP.has(pIndex)) continue;
-    takenS.add(sIndex);
-    takenP.add(pIndex);
-    result.set(sortedSlots[sIndex].key, payments[pIndex]);
-  }
-
-  return result;
-}
-
-/** Signed day distance `a - b` for ISO dates (both YYYY-MM-DD). */
-function dayDistance(a: string, b: string): number {
-  return daysBetween(a, b);
 }

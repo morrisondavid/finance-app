@@ -14,7 +14,7 @@ import { parseContractRow } from './csv-io.js';
 import { parseClientRow } from '../clients/csv-io.js';
 import { dcSowRow, lfContractRow, lfFzcoContractRow } from './test-helpers.js';
 import { directRow, agencyRow } from '../clients/test-helpers.js';
-import type { Transaction } from '../../../shared/api-contracts.js';
+import type { InvoicePayment, Transaction } from '../../../shared/api-contracts.js';
 
 const deltaCapita = parseClientRow(directRow);
 const laFosse = parseClientRow(agencyRow);
@@ -183,6 +183,72 @@ describe('findLastInvoicePaymentDate — amount fallback (opt-in)', () => {
     // Narrative pass runs first and picks the newest narrative hit
     // ('2026-04-02'), not the newer amount-only row ('2026-04-10').
     expect(got).toBe('2026-04-02');
+  });
+});
+
+describe('findLastInvoicePaymentDate — ledger payments (Phase 4)', () => {
+  function mkLedgerPayment(
+    invoiceId: 'DC-001' | 'DC-002',
+    paymentDate: string,
+  ): InvoicePayment {
+    return {
+      id: `ip-${invoiceId}-${paymentDate}`,
+      invoice_id: invoiceId,
+      bank_transaction_id: `tx-${invoiceId}-${paymentDate}`,
+      payment_date: paymentDate,
+      amount_paid: 11000,
+      deposit_currency: 'GBP',
+      fx_rate_at_payment: null,
+      amount_in_invoice_currency: 11000,
+      fx_gain_loss: 0,
+      residual: 0,
+      created_at: paymentDate,
+      updated_at: null,
+    };
+  }
+
+  it('prefers the latest ledger payment date over a newer narrative hit', () => {
+    const txns: Transaction[] = [
+      mkIncome('2026-04-15', 'LA FOSSE invoice', 11000),
+    ];
+    const ledger = [
+      mkLedgerPayment('DC-001', '2026-04-05'),
+      mkLedgerPayment('DC-002', '2026-04-10'),
+    ];
+    const got = findLastInvoicePaymentDate({
+      contract: lfLtd,
+      client: laFosse,
+      incomeTransactions: txns,
+      ledgerPayments: ledger,
+      today: '2026-04-24',
+    });
+    expect(got).toBe('2026-04-10');
+  });
+
+  it('falls through to narrative match when no ledger payment is supplied', () => {
+    const txns: Transaction[] = [
+      mkIncome('2026-04-12', 'LA FOSSE invoice', 11000),
+    ];
+    const got = findLastInvoicePaymentDate({
+      contract: lfLtd,
+      client: laFosse,
+      incomeTransactions: txns,
+      ledgerPayments: [],
+      today: '2026-04-24',
+    });
+    expect(got).toBe('2026-04-12');
+  });
+
+  it('ignores ledger rows dated after `today`', () => {
+    const ledger = [mkLedgerPayment('DC-001', '2026-05-15')];
+    const got = findLastInvoicePaymentDate({
+      contract: lfLtd,
+      client: laFosse,
+      incomeTransactions: [],
+      ledgerPayments: ledger,
+      today: '2026-04-24',
+    });
+    expect(got).toBeNull();
   });
 });
 

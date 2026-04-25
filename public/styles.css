@@ -4393,6 +4393,38 @@ body {
   text-decoration: line-through;
 }
 
+/* ─── Leave calendar (§1.4) ──────────────────────────────────────── */
+
+#contracts-leave-calendar-panel {
+  margin-top: 24px;
+}
+
+#contracts-leave-calendar-panel h3 {
+  margin: 0 0 4px;
+}
+
+#contracts-leave-calendar {
+  max-width: 900px;
+}
+
+.leave-cal-holiday {
+  background: var(--color-primary, #3b82f6) !important;
+  border-color: var(--color-primary, #3b82f6) !important;
+  color: #fff !important;
+  border-radius: 3px;
+}
+
+.leave-cal-sick {
+  background: #f59e0b !important;
+  border-color: #f59e0b !important;
+  color: #fff !important;
+  border-radius: 3px;
+}
+
+.leave-cal-public-holiday {
+  background: rgba(148, 163, 184, 0.3) !important;
+}
+
 /* Year view (multiMonth) — with a 2-column layout each mini-month is
    roughly half the card width, which is plenty of room for comfortable
    typography. These tweaks just polish the type hierarchy; they do not

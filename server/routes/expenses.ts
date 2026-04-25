@@ -3,32 +3,24 @@ import {
   SimulationExclusionsPutBodySchema,
   type AdHocExpensesResponse,
   type AdHocMerchantSeriesResponse,
-  type ExpensesLineItem,
-  type ExpensesSection,
   type ExpensesSheetResponse,
-  type RecurringExpense,
   type RecurringExpensesResponse,
 } from '../../shared/api-contracts.js';
 import { ACCOUNTS } from '../types.js';
-import { isValidAccountName, getAccountConfig } from '../domain/accounts/index.js';
+import { isValidAccountName } from '../domain/accounts/index.js';
 import type { AccountName } from '../types.js';
 import {
   getTransactions,
   getAvailableFinancialYears,
   getFinancialYearRange,
 } from '../db/index.js';
-import { categoryColour, CATEGORY_NAMES } from '../utils/categorizer.js';
-import { round2, ROLLING_MONTHS, VARIANCE_EPS } from '../utils/math.js';
 import { buildExpensesSheetResponse, applySimulationExclusions } from '../../shared/expenses-sheet-build.js';
+import { buildExpensesSheetInputFromPipeline } from '../utils/expenses-pipeline-to-sheet.js';
 import {
   getFixedExpenseSimulationExclusions,
   replaceFixedExpenseSimulationExclusions,
 } from '../db/repositories/fixed-expense-simulation-exclusions.js';
-import {
-  recurringKey,
-  accKey,
-  type RawTransaction,
-} from '../utils/recurring-pipeline.js';
+import { accKey, type RawTransaction } from '../utils/recurring-pipeline.js';
 import {
   runExpensesOverviewPipeline,
   buildExpensePipelineForAccount,
@@ -63,151 +55,13 @@ interface OverviewQuery {
   financialYear?: string;
 }
 
-function computeMonthlyVariance(
-  monthlyTotals: Map<string, number>,
-  typical: number,
-): Array<{ period: string; expected: number; actual: number }> {
-  const out: Array<{ period: string; expected: number; actual: number }> = [];
-  for (const [ym, actual] of monthlyTotals) {
-    if (Math.abs(actual - typical) > VARIANCE_EPS) {
-      out.push({ period: ym, expected: round2(typical), actual: round2(actual) });
-    }
-  }
-  out.sort((a, b) => a.period.localeCompare(b.period));
-  return out;
-}
-
-function getAnnualVariance(
-  transactions: Array<{ date: string; amount: number }>,
-  typical: number,
-): Array<{ period: string; expected: number; actual: number }> {
-  const byYear = new Map<number, number>();
-  for (const t of transactions) {
-    const y = parseInt(t.date.slice(0, 4), 10);
-    byYear.set(y, Math.max(byYear.get(y) ?? 0, t.amount));
-  }
-  const out: Array<{ period: string; expected: number; actual: number }> = [];
-  for (const [year, actual] of byYear) {
-    if (Math.abs(actual - typical) > VARIANCE_EPS) {
-      out.push({ period: String(year), expected: round2(typical), actual: round2(actual) });
-    }
-  }
-  out.sort((a, b) => a.period.localeCompare(b.period));
-  return out;
-}
-
-function makeLineKey(
-  direction: 'expense' | 'income',
-  frequency: 'monthly' | 'annual',
-  e: RecurringExpense,
-): string {
-  return `${direction}|${frequency}|${recurringKey(e)}`;
-}
-
-function toLineItem(
-  e: RecurringExpense,
-  frequency: 'monthly' | 'annual',
-  accountCategory: 'personal' | 'business',
-  variance: Array<{ period: string; expected: number; actual: number }>,
-  direction: 'expense' | 'income',
-): ExpensesLineItem {
-  return {
-    lineKey: makeLineKey(direction, frequency, e),
-    merchant: e.merchant,
-    category: e.category,
-    amount: e.amount,
-    frequency,
-    sourceAccount: e.sourceAccount,
-    accountCategory,
-    isVariable: false,
-    billingDayOfMonth: e.billingDayOfMonth ?? null,
-    billingMonth: e.billingMonth ?? null,
-    variance,
-    nativeAmount: e.nativeAmount,
-    nativeCurrency: e.nativeCurrency,
-  };
-}
-
 // ─── /overview ────────────────────────────────────────────────────────────────
 
 router.get('/overview', (_req: Request<object, ExpensesSheetResponse, object, OverviewQuery>, res: Response<ExpensesSheetResponse | { error: string }>) => {
   try {
     const pipeline = runExpensesOverviewPipeline();
-
-    // Build expense sections grouped by category
-    const monthlyItemsByCategory = new Map<string, ExpensesLineItem[]>();
-    for (const e of pipeline.monthlyExpenseRecurring) {
-      const acc = pipeline.expenseAccumulators.get(recurringKey(e));
-      const variance = acc ? computeMonthlyVariance(acc.monthlyTotals, e.amount) : [];
-      const acctCat = acc?.accountCategory
-        ?? (isValidAccountName(e.sourceAccount) ? getAccountConfig(e.sourceAccount).category : 'personal');
-      const list = monthlyItemsByCategory.get(e.category) ?? [];
-      list.push(toLineItem(e, 'monthly', acctCat, variance, 'expense'));
-      monthlyItemsByCategory.set(e.category, list);
-    }
-
-    const categoryOrder = CATEGORY_NAMES;
-    const monthlyOutgoings: ExpensesSection[] = [];
-    for (const catName of categoryOrder) {
-      const items = monthlyItemsByCategory.get(catName);
-      if (!items || items.length === 0) continue;
-      items.sort((a, b) => b.amount - a.amount);
-      monthlyOutgoings.push({
-        name: catName,
-        colour: categoryColour(catName),
-        subtotal: round2(items.reduce((s, i) => s + i.amount, 0)),
-        items,
-      });
-    }
-
-    const annualByCategory = new Map<string, ExpensesLineItem[]>();
-    for (const e of pipeline.annualExpenseRecurring) {
-      const acc = pipeline.expenseAccumulators.get(recurringKey(e));
-      const variance = acc ? getAnnualVariance(acc.transactions, e.amount) : [];
-      const accountCategory = isValidAccountName(e.sourceAccount) ? getAccountConfig(e.sourceAccount).category : 'personal';
-      const list = annualByCategory.get(e.category) ?? [];
-      list.push(toLineItem(e, 'annual', accountCategory, variance, 'expense'));
-      annualByCategory.set(e.category, list);
-    }
-    const annualOutgoings: ExpensesSection[] = [];
-    for (const catName of categoryOrder) {
-      const items = annualByCategory.get(catName);
-      if (!items || items.length === 0) continue;
-      items.sort((a, b) => b.amount - a.amount);
-      annualOutgoings.push({
-        name: catName,
-        colour: categoryColour(catName),
-        subtotal: round2(items.reduce((s, i) => s + i.amount, 0)),
-        items,
-      });
-    }
-
-    // Build income line items
-    const incomeMonthlyItems: ExpensesLineItem[] = [];
-    for (const e of pipeline.monthlyIncomeRecurring) {
-      const acc = pipeline.incomeAccumulators.get(recurringKey(e));
-      const variance = acc ? computeMonthlyVariance(acc.monthlyTotals, e.amount) : [];
-      const accountCategory = isValidAccountName(e.sourceAccount) ? getAccountConfig(e.sourceAccount).category : 'personal';
-      incomeMonthlyItems.push(toLineItem(e, 'monthly', accountCategory, variance, 'income'));
-    }
-    const incomeAnnualItems: ExpensesLineItem[] = [];
-    for (const e of pipeline.annualIncomeRecurring) {
-      const acc = pipeline.incomeAccumulators.get(recurringKey(e));
-      const variance = acc ? getAnnualVariance(acc.transactions, e.amount) : [];
-      const accountCategory = isValidAccountName(e.sourceAccount) ? getAccountConfig(e.sourceAccount).category : 'personal';
-      incomeAnnualItems.push(toLineItem(e, 'annual', accountCategory, variance, 'income'));
-    }
-    incomeMonthlyItems.sort((a, b) => b.amount - a.amount);
-    incomeAnnualItems.sort((a, b) => b.amount - a.amount);
-
-    const baseline = buildExpensesSheetResponse({
-      monthlyOutgoings,
-      annualOutgoings,
-      incomeMonthlyItems,
-      incomeAnnualItems,
-      monthsCovered: pipeline.monthsCovered,
-      periodDescription: `Last ${ROLLING_MONTHS} months`,
-    });
+    const sheetInput = buildExpensesSheetInputFromPipeline(pipeline);
+    const baseline = buildExpensesSheetResponse(sheetInput);
     const persisted = new Set(getFixedExpenseSimulationExclusions());
     const response = applySimulationExclusions(baseline, persisted);
 

@@ -14,15 +14,21 @@
  * "not applicable" / `null`.
  */
 
-import fs from 'fs';
 import path from 'path';
-import { parse } from 'csv-parse/sync';
 import {
   type Company,
   UkCompanySchema,
   UaeCompanySchema,
 } from '../../../shared/api-contracts.js';
 import { escapeCsvField, atomicWriteCsv } from '../../utils/csv-helpers.js';
+import {
+  createCsvDecoders,
+  nullIfEmpty,
+  readCsvRecords,
+} from '../../utils/csv-decoders.js';
+
+const decoders = createCsvDecoders('Company');
+const { requireNonEmpty, decodeStrictBoolean } = decoders;
 
 export const COMPANY_CSV_FILENAME = 'company.csv';
 
@@ -61,23 +67,10 @@ export function getCompanyCsvPath(autonizeItDir: string): string {
 
 // ─── Cell decoders ──────────────────────────────────────────────────────────
 //
-// Every decoder has one job: turn the raw string from a CSV cell into the
-// precise TS value (including the literal 'TBC') the Zod schema expects.
-// Empty cells become `null`.
-
-function nullIfEmpty(value: string | undefined): string | null {
-  if (value === undefined) return null;
-  const trimmed = value.trim();
-  return trimmed === '' ? null : trimmed;
-}
-
-function requireNonEmpty(value: string | undefined, field: string, rowId: string): string {
-  const v = nullIfEmpty(value);
-  if (v === null) {
-    throw new Error(`Company ${rowId}: ${field} is required`);
-  }
-  return v;
-}
+// Generic decoders (`requireNonEmpty`, `decodeStrictBoolean`, …) come from
+// `server/utils/csv-decoders.ts`. The `*OrTbc` family below is unique to the
+// company registry — `TBC` is a first-class value here and must round-trip
+// byte-for-byte so warnings can distinguish "unresolved" from `null`.
 
 /** Decode a boolean column that also allows the literal 'TBC'. */
 function decodeBooleanOrTbc(
@@ -124,21 +117,6 @@ function decodeNullableDateOrTbc(
     throw new Error(`Company ${rowId}: ${field} must be yyyy-mm-dd or 'TBC', got '${raw}'`);
   }
   return raw;
-}
-
-/** Decode a strict boolean column (true | false) with no TBC allowed. */
-function decodeStrictBoolean(
-  value: string | undefined,
-  field: string,
-  rowId: string,
-): boolean {
-  const raw = nullIfEmpty(value);
-  if (raw === null) {
-    throw new Error(`Company ${rowId}: ${field} is required (true | false)`);
-  }
-  if (raw === 'true') return true;
-  if (raw === 'false') return false;
-  throw new Error(`Company ${rowId}: ${field} must be 'true' | 'false', got '${raw}'`);
 }
 
 // ─── Row parser ─────────────────────────────────────────────────────────────
@@ -212,19 +190,8 @@ export function parseCompanyRow(row: Record<string, string>): Company {
 // ─── File reader ────────────────────────────────────────────────────────────
 
 export function readCompaniesCsvFile(csvPath: string): Company[] {
-  if (!fs.existsSync(csvPath)) return [];
-  const content = fs.readFileSync(csvPath, 'utf8').trim();
-  if (content === '') return [];
-
-  const records = parse(content, {
-    columns: true,
-    skip_empty_lines: true,
-    trim: true,
-    relax_column_count: true,
-  }) as Record<string, string>[];
-
   const rows: Company[] = [];
-  for (const row of records) {
+  for (const row of readCsvRecords(csvPath)) {
     if (!nullIfEmpty(row.id)) continue;
     rows.push(parseCompanyRow(row));
   }

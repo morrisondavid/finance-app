@@ -4,11 +4,11 @@
 >
 > Everything below is organized around one principle: closing the gap between "I can see what happened" and "nothing can surprise me."
 >
-> **What's shipped (Tier 0):** obligations registry, HMRC auto-seeders (VAT / CT / SA / TTP), budgets, recurring detection, overdue hero, missed-obligation detector, multi-currency foundations (GBP + AED), and the Deadlines tab + calendar + ICS export.
+> **What's shipped (Tier 0):** obligations registry, HMRC auto-seeders (VAT / CT / SA / TTP), **budgets** (monthly + yearly vs actual on the Dashboard, plus **nudges** for high-spend merchants that do not yet have a budget line), recurring detection, overdue hero, missed-obligation detector, multi-currency foundations (GBP + AED), and the Deadlines tab + calendar + ICS export.
 >
-> **What's shipped (Tier 1):** **Multi-Entity Foundation (1.1)** — UK Ltd + UAE FZCO end-to-end; **Clients, Contracts & Renewals** phases **A–E** including **C** (timeline-aware payer matcher with `payment-outside-contract-window` warnings); and **Invoicing §1.3 Phases 1–3** — invoice domain registry, historical DC seed rows, outbound PDF generator (supplier-issued), self-bill PDF ingestion (La Fosse), and the Invoices tab covering both flows.
+> **What's shipped (Tier 1):** **Multi-Entity Foundation (1.1)**, **Clients, Contracts & Renewals (1.2)** phases A–E, **Invoicing (1.3)** Phases 1–4 (incl. payment reconciler with FX), **Working-Days Ledger (1.4)** with public holidays + leave calendar, **Cash Flow Forecast (1.5)** at `GET /api/forecast`, and **Worst Case / Runway (1.6)** at `GET /api/runway` (household-first, GBP + AED dual headline, entity drill-down, credit headroom per currency).
 >
-> **What's left (Tier 1):** the business spans two entities — **Autonize IT Limited** (UK, 2014–) and **Autonize IT Software Development – FZCO** (UAE, March 2026–) — most engagements agency-mediated (La Fosse → Edwin), some direct (Delta Capita), with both self-billed and supplier-issued mechanisms. Remaining: **1.3 Phase 4** payment reconciler; then **1.4** full working-days ledger, **1.5** cash-flow forecast, **1.7** income diversification, **1.8** warnings engine, **1.9** debt advisor, and the Tier 2 agent / notification layer.
+> **What's next (Tier 1):** **1.7** income diversification, **1.8** warnings engine — **unified tab** with multi-source items (incl. **escalating unbudgeted ad-hoc / discretionary spend** surfaced from the same signals as Dashboard nudges, with traffic-light severity), **1.9** debt advisor, and Tier 2 (agent / notifications). Context unchanged: two entities (UK Ltd + UAE FZCO), agency and direct clients, mixed self-bill and supplier-issued mechanisms.
 
 ---
 
@@ -32,690 +32,102 @@
 
 ### 1.1 Multi-Entity Foundation ✅ SHIPPED
 
-- **Entity registry** at `autonize-it/company.csv` (UK Ltd + UAE
-  FZCO). Every account carries an `entityId` including the
-  `wise-ltd` intermediary.
-- **Jurisdiction-scoped tax rules** at `server/config/tax-rules.ts`
-  cover UK VAT / CT / SA + UAE VAT / CT thresholds. Every VAT / CT
-  SQL query routes through `buildAccountInFilter(accounts)` driven
-  off the `accounts` registry's `vatApplicable(ByEntity)` /
-  `corpTaxApplicable(ByEntity)` indexes.
-- **Inter-company pair-finder** handles cross-entity transfers
-  (Barclays ↔ Wise ↔ Emirates Islamic) instead of netting them out,
-  with `INTER_COMPANY_EXCLUSION_PATTERNS` suppressing
-  description-based false positives. Classifications
-  (loan / capital / service fee) live in
-  `autonize-it/transaction-category-overrides.csv`.
-- **`/api/warnings/entity-foundation`** emits six branches (TBC
-  fields, FZCO CT status, UAE VAT thresholds × 2, IFZA renewal
-  window, unclassified inter-company count).
-- **IFZA license renewal** seeded in `deadlines/deadlines.csv` and
-  on the unified feed + ICS.
+- Two-entity company registry (UK Ltd + UAE FZCO); `entityId` on every account, including the `wise-ltd` intermediary.
+- Jurisdiction-scoped tax rules (UK VAT / CT / SA, UAE VAT / CT) drive every VAT / CT query via the `accounts` registry indexes.
+- Inter-company pair-finder for cross-entity transfers, with classification overrides for loan / capital / service-fee flows.
+- `/api/warnings/entity-foundation` surfaces TBC fields, FZCO CT status, UAE VAT thresholds, IFZA renewal, and unclassified inter-company movements.
+- IFZA license renewal flows through the unified deadlines feed + ICS.
 
-### 1.2 Clients, Contracts & Renewals
+### 1.2 Clients, Contracts & Renewals ✅ SHIPPED (Phases A–E)
 
-**Not a CRM. A structural anchor for every income-side calculation
-downstream.** Today the app sees income only as bank deposits with
-narrative strings. It has no concept of *who* is paying, *via which
-route*, *under which contract generation*, or *when that generation
-ends*. That invisibility is what lets a contract wind down in 30 days
-with the forecast still showing green.
+Structural anchor for every income-side calculation. Both **agency-mediated** (e.g. La Fosse → Edwin) and **direct** (e.g. Delta Capita) shapes are first-class.
 
-Both real-world shapes are first-class. Most engagements are
-**agency-mediated** (a recruitment agency is the payer + self-bill
-issuer, the end client is where the work actually happens, e.g. La
-Fosse → Edwin); some are **direct** (no agency, client pays
-directly, e.g. Delta Capita). The schema serves both without forcing
-one into the shape of the other.
+- **A — Registries + renewal deadlines.** Canonical `clients`, `master-agreements`, and `contracts` registries with build-time FK joins; renewal deadlines auto-seeded into the unified deadlines feed + ICS.
+- **B — Templates + recipient routing.** Pure `renderTemplate` + `resolveRecipients` over `.hbs` files (`leave`, `sickness`, `invoice-cover`, `renewal`); per-client overrides; structured errors. Consumed today by 1.2.E leave preview, by 2.3 for send.
+- **C — Timeline-aware payer matcher.** `matchPayerToContract` resolves transactions to active contracts via the `byClientAndEntity` index. `payment-outside-contract-window` joins the entity-foundation warnings feed.
+- **D — Clients page UI.** End-client-first tiled view; agency rows surface twice (agency block + end-client block); `PUT /api/clients/:id` is the sole write path with kind-flip protection; `client-tbc-fields` warnings render as per-tile badges.
+- **E — Contracts tab.** Per-contract accrual + Retained-after-tax banner; Book Leave flow writes to `working-days/leave.csv` via a canonical leave registry; `GET /api/contracts/:id/income-accrual` derives worked / accrued / projected days from the `works_*` weekday mask minus leave (and public holidays via 1.4); accrual rebases onto the last matched invoice payment.
 
-All five phases shipped: **A** (registries + renewal deadlines),
-**B** (templates + recipient routing), **C** (timeline-aware payer
-matcher), **D** (Clients page UI), **E** (Contracts tab + leave
-writer + period-scoped income accrual).
+### 1.3 Invoicing System ✅ SHIPPED (Phases 1–4)
 
-#### 1.2.A Foundation: registries + renewal deadlines ✅ SHIPPED
+One ledger (`invoices/invoices.csv`) and one **Invoices** tab, with behaviour driven by each contract's `invoice_mechanism`.
 
-Four shipped artefacts:
+- **Supplier-issued:** server draft → persist → PDF (`/api/invoices/draft`, `/generate`, `/:id/pdf`).
+- **Self-bill:** multi-PDF ingest with a parser registry (La Fosse today).
+- **Phase 4 — Payment reconciler.** `invoice_payments.csv` is the canonical bank-line ↔ invoice link. `POST /api/invoices/reconcile` runs a global-greedy match with date / amount / reference scoring, optional FX with gain/loss and residual, and warnings (stale reference, bad due / period, unmatched deposits) on the entity-foundation feed. Contracts accrual rebases on reconciled payments first, heuristics second.
 
-- **`clients` canonical registry** (`server/domain/clients/`) — Zod
-  discriminated union `DirectClientSchema | AgencyClientSchema`
-  backed by a flat CSV; indexes `byId` / `byKind` / `active` plus a
-  pure `resolveTemplatePath(clientId, kind)` helper.
-- **`master-agreements` minimal loader**
-  (`server/domain/master-agreements/`) — read-only, memoized, no
-  indexes; consumed only by `contracts/registry.ts` at build time.
-- **`contracts` canonical registry** (`server/domain/contracts/`) —
-  build-time FK join to `clients + company + master-agreements`;
-  indexes `byId` / `byClient` / `byClientAndEntity` (sorted by
-  `start_date`) / `byMaster` / `active`; queries
-  `findContractForTransaction(clientId, entityId, date)` and an
-  atomic `upsertContract` write path.
-- **Renewal deadline auto-seeder**
-  (`server/domain/contracts/deadline-seeder.ts`) — for every active
-  contract with an `end_date`, seeds `id =
-  contract-renewal-${contract.id}`, `type = 'contract-renewal'`,
-  `dueDate = end_date − renewal_warning_days`. Idempotent;
-  user-completed rows are never reopened. Flows through the
-  existing `buildDeadlineFeed()` → list / calendar / ICS feed.
+### 1.4 Working-Days Ledger ✅ SHIPPED
 
-**Shipped schemas**
+Income-side counterpart to obligations: public holidays + leave calendar + invoice day-count reconciliation.
 
-`clients/clients.csv` header order:
+- Public holidays via `date-holidays` (UK + UAE), filtered to `type === 'public'`, with the UK Summer bank holiday patched in. Served at `GET /api/public-holidays`.
+- `calculateWorkload` accepts public-holiday dates and unions them with leave into `excludeDates`; every consumer (accrual, invoice draft, projections) is holiday-aware automatically.
+- 17 implied-leave seed rows reverse-computed from historical DC invoices.
+- FullCalendar leave calendar on the Contracts tab; click a weekday to toggle leave for all active contracts.
+- `invoice-days-mismatch` warning on the entity-foundation feed when billed days disagree with the ledger.
 
-```
-id, legal_name, trading_name, kind (direct | agency),
-vat_number, billing_address,
-primary_contact_name, primary_contact_email,
-secondary_contact_name, secondary_contact_email,
-hr_contact_name, hr_contact_email,
-accounts_contact_name, accounts_contact_email,
-cc_emails,
-end_client_legal_name, end_client_address,             -- required iff kind=agency
-end_client_primary_contact_name, end_client_primary_contact_email,
-end_client_secondary_contact_name, end_client_secondary_contact_email,
-holiday_system_url, client_assigned_email,
-active, updated_at
-```
+### 1.5 Cash Flow Forecast / Runway Projection ✅ SHIPPED
 
-`clients/master-agreements.csv`:
+`GET /api/forecast?days=…&entityId=…` — pure `buildForecast` walks a daily timeline over obligations, projected recurring, unpaid invoice receipts, and un-invoiced contract accrual (1.4-aware workload). Returns per-entity 30/60/90 snapshots in each currency plus per-account daily series. API only; no UI in this phase. This is the projection spine for 1.6+ and Tier 2.
 
-```
-id, client_id, reference,
-start_date, end_date,                                  -- end_date nullable
-company_notice_weeks, supplier_notice_weeks,
-jurisdiction, signed_at, docusign_envelope,
-active, updated_at
-```
+### 1.6 Worst Case / Runway Mode ✅ SHIPPED
 
-`clients/contracts.csv`:
+`GET /api/runway?days=…&entityId=…&detail=summary|accounts` — household-first stress view answering *"if all active contract income stops today, how long can the household last?"*
 
-```
-id, client_id, issuing_entity_id,
-master_id,                                             -- FK to master-agreements (nullable)
-reference,
-start_date, end_date,                                  -- end_date nullable
-works_monday..works_sunday,                            -- seven booleans; default Mon–Fri true
-day_rate, day_rate_currency,
-invoice_currency,
-invoice_cadence (weekly | monthly),
-invoice_mechanism (supplier-issued | self-bill),
-payment_terms_days,
-company_notice_weeks, supplier_notice_weeks,
-renewal_warning_days,                                  -- default 30
-job_title, job_description, work_location,
-conduct_regs (opted-in | opted-out, nullable),         -- null iff issuing entity is non-UK
-engagement_tax_status (outside-ir35 | inside-ir35, nullable),
-jurisdiction, signed_at, docusign_envelope,
-active, updated_at
-```
-
-**Seeded renewal deadlines** (produced on first boot by
-`syncContractRenewalDeadlines()`):
-
-- `contract-renewal-lf-2026-mar` due **2026-01-30** (60 days before
-  2026-03-31).
-- `contract-renewal-dc-sow-2026` due **2026-12-31** (60 days before
-  2027-03-01).
-
-#### 1.2.B Templates ✅ SHIPPED
-
-Pure `renderTemplate({ kind, client, contract, context })` and `resolveRecipients(kind, client)` built on Handlebars-style `.hbs` files at `clients/templates/{kind}.hbs` with optional per-client overrides via `resolveTemplatePath(clientId, kind)`. Kinds: `leave`, `sickness`, `invoice-cover`, `renewal`. Minimal interpolation (no partials, no inverse `{{#else}}`), typed Zod context schema in `server/domain/templates/schema.ts` so templates can't drift from contract shape, and four named structured errors (`DirectClientHasNoAgencyRenewalFlow`, `TimesheetNotApplicableForSupplierIssued`, `TemplateMissing`, `TemplateContextInvalid`). Recipient matrix routes leave/sickness/invoice-cover to the end-client contact for agency clients (La Fosse silent) and to the primary contact for direct clients (Delta Capita), with `client.cc_emails` appended verbatim. First live consumer is 1.2.E's leave preview; 2.3's send adaptor is the next.
-
-#### 1.2.C Payment matcher — timeline-aware ✅ SHIPPED
-
-Pure `matchPayerToContract` in `server/domain/contracts/payer-match.ts`
-reuses the narrative-match helpers to identify a known client, then
-resolves `(transaction.date ∈ contract window) AND
-(transaction.account.entity_id = contract.issuing_entity_id)` via the
-existing `byClientAndEntity` index — positional resolution, no `type`
-column. Returns a discriminated union (`in-contract`,
-`outside-contract-window`, `no-known-payer`, `no-contracts-for-entity`).
-`payment-outside-contract-window` joins the
-`EntityFoundationWarningCodeSchema` and is derived in
-`server/domain/warnings/payment-outside-contract-window.ts`
-(pure `collectPaymentOutsideContractWindow` + DB-aware
-`derivePaymentOutsideContractWindowWarnings`), surfaced via the
-existing `/api/warnings/entity-foundation` endpoint alongside the
-Foundation warnings. Narrative matching remains the fallback for the
-invoice↔payment link until 1.3 Phase 4 replaces it with a
-deterministic join.
-
-#### 1.2.D UI — Clients page ✅ SHIPPED
-
-End-client-first tiled view over `/api/clients` + `/api/warnings/entity-foundation`. `partitionClientsForUi` projects each registry row onto the UI: direct rows surface once (Delta Capita — edits the client row), agency rows surface twice (Edwin Group — edits the `la-fosse` row's end-client block; La Fosse — edits the agency-level fields). `PUT /api/clients/:id` is the only write path, backed by a narrow `updateClient` helper that merges → validates → atomically rewrites the CSV → invalidates the registry; kind flips are rejected explicitly so pinned contracts and template overrides can't be orphaned. Kind-aware edit modal drives every field from a single declarative descriptor, and `client-tbc-fields` warnings surface as per-tile badges so unresolved contacts are visible before opening the form.
-
-#### 1.2.E Contracts Tab ✅ SHIPPED
-
-Top-level `Contracts` tab (end-client-first tile layout, active contracts above, ended contracts collapsed) with per-contract accrual figures, a cross-contract Retained-after-tax banner, and a Book Leave flow scoped to one contract or all active contracts. Leave writes land in `working-days/leave.csv` via a canonical `server/domain/leave/` registry with `POST/GET/DELETE /api/contracts/:id/leave`; the accrual endpoint `GET /api/contracts/:id/income-accrual` (+ aggregate) derives `worked_days`, `accrued_to_date`, and `projected_period_total` from the contract's `works_*` weekday mask minus leave rows, with `LeaveOutsideContractWindow` as a structured 422. Leave type is `holiday | sick` only (outside-IR35 has no paid-leave concept; public holidays live in a separate `working-days/public-holidays.csv` feeding `excludeDates` in 1.4). Per-contract template preview (`renderTemplate` from 1.2.B) surfaces `To:` / `CC:` and the interpolated body as a copy-paste aid — actual send lives in 2.3.
-
-**Follow-ups shipped on top of 1.2.E:**
-
-- **Retained-after-tax aggregate.** Per-entity banner tiles lead
-  with **Retained** — incoming (net + VAT) minus VAT-to-HMRC minus
-  a flat CT reserve (UK Ltd 25% via `CORPORATION_TAX.MAIN_RATE`;
-  FZCO 0% when QFZP-qualifying, 9% otherwise via
-  `UAE_CORPORATION_TAX`) — so gross projected income stops
-  masquerading as the company's money. Math lives in
-  `calculateRetainedReserves`. Personal take-home (salary +
-  dividend + personal tax) deferred until a pay plan is confirmed.
-- **Accrual since last payment.** Per-contract owed figures
-  (`worked_days_to_date`, `leave_days_in_period`,
-  `accrued_to_date`) rebase onto a narrative-matched last-invoice-
-  payment date (`findLastInvoicePaymentDate` +
-  `resolveAccrualWindowStart` in
-  `server/domain/contracts/last-payment.ts`), falling back to
-  month-start when no payment matches. `projected_period_total`
-  stays pinned to the calendar month. Tiles show "Worked since
-  last payment" / "Leave since last payment" with a hover tooltip
-  showing the window range. Narrative matching stays in place as
-  the fallback once 1.3's invoice-ledger provides a deterministic
-  invoice↔payment link (Phase 4).
-
-#### Non-goals
-
-- Actual email sending — lives in 2.3 (Alert Queue delivery).
-- External holiday-system integration (e.g. DC's contractor
-  portal) — stays as `holiday_system_url` + a manual-cleared flag
-  on the leave entry.
-- CRM features (activity log, pipeline, notes) — explicitly out of
-  scope.
-- Auto-fill of end-client contacts from public company registries
-  — Tier 3.
-- Historical La Fosse renewals (paying into Barclays prior to
-  March 2026) back-seeded into `clients/contracts.csv` — Tier 3
-  data-quality cleanup. When those contracts are located, back-
-  seeding them rebuilds prior-year payment↔contract matching
-  retroactively; the registry's build-time FK validation makes
-  this a safe drop-in edit.
-
-### 1.3 Invoicing System
-
-**Phases 1–3 shipped ✅.** Invoice domain registry; 10 historical DC
-seed rows; outbound PDF generator (supplier-issued) powered by
-`pdfmake` with per-entity templates (UK Ltd / FZCO), per-entity
-sequences (`UK-xxxx` / `FZ-xxxx`), SVG→PNG logo rasterisation via
-`sharp`, `buildDraftInvoice` + `GET /api/invoices/draft` pre-
-populating client + contract + `calculateWorkload` output for a
-couple-of-clicks flow, `POST /api/invoices/generate`,
-`GET /api/invoices/:id/pdf`; self-bill PDF ingestion via
-`pdf-parse` + a parser registry (`SELF_BILL_PARSERS` with
-`detectSelfBillKind`; first supplier: La Fosse), orchestrated by
-`ingestSelfBill` and `POST /api/invoices/ingest-self-bill` with
-duplicate-`invoice_number` detection and atomic PDF persistence to
-`invoices/ingested/`; and the **Invoices tab** covering both flows.
-DRY primitives extracted along the way: `parseIsoFromDDMMYYYY`,
-`parseMoneyAmount`, `nextInvoiceIdForEntity`, and the
-`buildNarrativeTokens` / `narrativeMatches` helpers now shared across
-payer-match, last-payment detection, and the self-bill parsers.
-
-**Phase 4 remains:** payment reconciler — matches deposits to
-invoices, populates `invoice_payments.csv`, captures FX gain/loss,
-emits reconciler warnings for the 7 known-bad DC rows, and promotes
-`findLastInvoicePaymentDate` into the fallback chain behind the
-deterministic invoice↔payment link.
-
-**Two co-equal flows.** Supplier-issued for direct contracts (Delta
-Capita); self-bill ingestion for agency contracts (La Fosse). Parallel
-paths selected by the contract's `invoice_mechanism` column.
-
-**Schema — `invoices/invoices.csv`**
-
-```
-id,                                          -- e.g. UK-0011, FZ-0001
-contract_id, client_id, issuing_entity_id,
-invoice_number,                              -- same as id, kept for parser output
-payment_reference,                           -- cited by client on deposit; usually = invoice_number, tracked separately so stale refs are visible in the reconciler
-invoice_date,
-
--- line item
-period_start, period_end, days_billed,
-description,                                 -- narrative shown on the PDF's Item cell (e.g. "David Morrison - Consultant Services, Software Development"); rendered above the formatted period range
-
--- currency and amounts (always in invoice_currency)
-currency,                                    -- invoice-denominated
-subtotal, vat_rate, vat_amount, total,
-
--- FX capture at issue (for cross-currency invoices)
-fx_rate_at_issue,                            -- GBP/AED or other cross-pair
-fx_base_currency,                            -- typically 'GBP'
-
-mechanism (supplier-issued | self-bill),
-pdf_path,                                    -- relative to invoices/
-status (draft | issued | paid | partial | overdue),
-due_date,
-
-created_at, updated_at
-```
-
-- `currency` is the invoice-denominated currency (GBP for both DC
-  and La Fosse, even though FZCO banks in AED). Deposit currency
-  may differ per payment — captured in `invoice_payments.csv`.
-- Per-entity sequences: UK Ltd uses `UK-0001`, `UK-0002`…; FZCO uses
-  `FZ-0001`, `FZ-0002`…. Never a global sequence — HMRC and FTA
-  audit trails must remain separable.
-- `description` is seeded verbatim from the existing PDF for the 10
-  historical DC rows; for new generated invoices the default template
-  is `"{consultant.name} - Consultant Services, {contract.job_title}"`
-  with the formatted `period_start - period_end` string rendered as a
-  second line in the Item cell.
-- `payment_reference` defaults to `invoice_number` at generation time;
-  the separate column exists so the reconciler can flag cases where
-  the client pastes an old reference (every DC invoice from DC-002
-  through DC-010 in the historical-rows fixture below shows exactly
-  this failure and relies on this column to surface it).
-
-**Schema — `invoices/invoice_payments.csv`**
-
-```
-id, invoice_id, bank_transaction_id,
-payment_date,
-amount_paid,                                 -- in deposit_currency
-deposit_currency,
-fx_rate_at_payment,                          -- snapshot at deposit time
-amount_in_invoice_currency,                  -- converted back for reconciliation
-fx_gain_loss,                                -- amount_paid_gbp_equivalent - invoice.total_gbp_equivalent
-residual,                                    -- invoice.total − Σ(payments converted)
-created_at, updated_at
-```
-
-- `fx_rate_at_issue − fx_rate_at_payment` × amount = realised FX
-  gain/loss per payment. Relevant to both jurisdictions' books once
-  repatriation or consolidation happens.
-
-**Outbound flow (supplier-issued, Delta Capita shape)**
-
-- Generator picks a PDF template by `contract.issuing_entity_id`:
-  - `autonize-it-ltd` template: Autonize IT Limited header,
-    Companies House 08842112, VAT 292 1465 96, BACS sort/account,
-    SVG logo rasterised to PNG.
-  - `autonize-it-fzco` template: Autonize IT Software Development –
-    FZCO header, License 73348, Registration 71347, IBAN + SWIFT
-    (once captured), **no VAT line** (not VAT-registered).
-- Logo: `autonize-it/logo.svg` committed once; rasterised at invoice
-  generation time via `sharp` (SVG→PNG).
-- PDF engine: `pdfmake` — lightweight, declarative, no Chromium
-  dependency. Rejected Puppeteer (~300MB Chromium) and pdf-lib
-  (verbose for this layout).
-- Invoice pre-fills `days_billed` from the Working-Days Ledger (1.4)
-  once that ships; until 1.4, the UI exposes a manual day count
-  input.
-- State transitions: `draft → issued → paid | partial`. `overdue` is
-  derived (`due_date < today AND status != paid`), not stored.
-
-**Inbound flow (self-bill, La Fosse shape)**
-
-- PDF parser slot in `server/invoices/parsers/`, mirroring the bank
-  parser pattern in `server/parsers/`.
-- First parser: `la-fosse.ts` — extracts invoice number, period, day
-  rate, days worked, subtotal, VAT, total, issue date, currency.
-- Ingestion routes a parsed row into `invoices.csv` with `mechanism =
-  self-bill`, `status = issued` (La Fosse considers self-bill
-  simultaneous with issue).
-- **Assertion**: if a parsed La Fosse invoice shows a non-zero VAT
-  amount against a non-VAT-registered issuer (FZCO), flag for manual
-  review. Expected to never fire per the self-billing agreement
-  (FZCO VAT = N/A), but the assertion catches parser bugs and catches
-  a silent FTA registration the user forgot to record.
-- Manual-entry form is the universal fallback for any contract
-  without an automated parser.
-
-**File / directory layout**
-
-```
-invoices/
-├── invoices.csv
-├── invoice_payments.csv
-├── templates/
-│   ├── autonize-it-ltd.pdf.json             (pdfmake doc definition)
-│   └── autonize-it-fzco.pdf.json
-├── generated/                                (outbound PDFs, path in invoices.pdf_path)
-│   └── UK-0011.pdf
-└── ingested/                                 (inbound self-bill PDFs)
-    └── LF-2026-W10.pdf
-server/invoices/
-├── generator/
-│   ├── render-ltd.ts
-│   └── render-fzco.ts
-├── parsers/
-│   ├── la-fosse.ts                           (first self-bill parser)
-│   └── ... (future)
-└── reconciler.ts
-```
-
-**Payment reconciliation**
-
-- Reuses the existing `matchPaymentsToSlots` machinery from the
-  HMRC seeders — this is not new code.
-- Matches by `(payer_name heuristic, amount within FX tolerance,
-  deposit_date near due_date window, account.entity_id =
-  invoice.issuing_entity_id)`.
-- Cross-currency tolerance for GBP-invoice / AED-deposit scenarios
-  uses the snapshot FX rate ±5% — beyond that, flagged as "FX drift
-  on unpaid invoice".
-- Reverse lookup preserved: "where is my invoice for this £2,400
-  deposit?" surfaces as a one-click query on the transaction row.
-
-**Seed data — historical DC fixtures (10 rows, known-good) + La Fosse placeholders**
-
-`invoices/invoices.csv` — 10 historical DC rows parsed from the
-existing PDFs. `days_billed` is as written on the invoice;
-`days_worked_derived` (computed by 1.4's reconciler) is what the
-Working-Days Ledger *should* produce from the contract pattern +
-leave rows — the reconciliation pair.
-
-| id | date | period | days | rate | net | vat | gross | due | payment_ref (as written) | issues the reconciler must flag |
-|---|---|---|---:|---:|---:|---:|---:|---|---|---|
-| DC-001 | 2025-07-09 | 23/06 – 30/06/2025 | 6 | 550 | 3,300.00 | 660.00 | 3,960.00 | 2025-08-09 | DC-001 | — |
-| DC-002 | 2025-08-11 | 01/07 – 29/07/2025 | 19 | 550 | 10,450.00 | 2,090.00 | 12,540.00 | 2025-09-11 | **DC-001** | `payment_ref` stale (should be DC-002) |
-| DC-003 | 2025-09-24 | 01/08 – 29/08/2025 | 20 | 550 | 11,000.00 | 2,200.00 | 13,200.00 | 2025-10-01 | DC-003 | due date only 7 days after issue (30-day terms → 2025-10-24) |
-| DC-004 | 2025-10-07 | 01/09 – 30/09/2025 | 20 | 550 | 11,000.00 | 2,200.00 | 13,200.00 | 2025-11-01 | DC-004 | due date 25 days after issue (30-day terms → 2025-11-06) |
-| DC-005 | 2025-11-03 | 01/10 – 31/10/2025 | 20 | 550 | 11,000.00 | 2,200.00 | 13,200.00 | 2025-12-01 | **DC-004** | `payment_ref` stale; due date off by 2 days |
-| DC-006 | 2025-12-05 | 01/11 – 30/11/2025 | 18 | 550 | 9,900.00 | 1,980.00 | 11,880.00 | **2025-01-05** | **DC-004** | due date year wrong (should be 2026-01-04); `payment_ref` stale |
-| DC-007 | 2026-01-03 | 01/12 – 31/12/2025 | 21 | 550 | 11,550.00 | 2,310.00 | 13,860.00 | 2026-02-02 | **DC-004** | `payment_ref` stale |
-| DC-008 | 2026-02-08 | **05/01 – 30/12/2025** | 20 | 550 | 11,000.00 | 2,200.00 | 13,200.00 | 2026-03-08 | **DC-004** | period clearly wrong (likely 01/01 – 30/01/2026); `payment_ref` stale |
-| DC-009 | 2026-03-01 | 01/02 – 28/02/2026 | 20 | 550 | 11,000.00 | 2,200.00 | 13,200.00 | 2026-04-01 | **DC-004** | `payment_ref` stale |
-| DC-010 | 2026-04-01 | 01/03 – 31/03/2026 | 17 | 550 | 9,350.00 | 1,870.00 | 11,220.00 | **2031-05-01** | **DC-004** | due date year wrong by 5 years (should be 2026-05-01); `payment_ref` stale |
-| **Sum** | | 181 billable days | | | **99,550.00** | **19,910.00** | **119,460.00** | | | |
-
-Every bolded cell above is a warning the reconciler must emit by
-construction. Seven of the ten would have been prevented entirely had
-the invoices been generated from the clients + contracts + Working-
-Days Ledger spine rather than copy-pasted templates. This set is the
-first regression test fixture for 1.3's warning path, and the single
-strongest argument for why 1.1 → 1.2 → 1.3 is the correct build order.
-
-**Known-good totals (must reach from both invoice and bank sides)**
-
-- Net issued: **£99,550.00**
-- VAT issued: **£19,910.00**
-- Gross issued: **£119,460.00**
-- Billable days issued: **181** (23-Jun-2025 → 31-Mar-2026)
-
-La Fosse self-bill fixtures: `TBC`. The first real self-bill PDF
-received from La Fosse becomes the parser's golden fixture. Until one
-is in hand, committed as placeholder rows with `pdf_path = TBC` so
-downstream features can still be wired against the schema.
-
-**Acceptance criteria**
-
-- Generate a DC-style invoice from `(contract_id =
-  dc-sow-2026, period = 2026-04-01..2026-04-30, days = 20)`
-  → produces a PDF with UK Ltd header, SVG logo rasterised to PNG,
-  VAT line at 20%, BACS details footer. Filename `UK-0011.pdf` (or
-  next in sequence), written to `invoices/generated/`.
-- Generate a hypothetical FZCO-direct invoice (not expected in
-  current seed data but must work structurally) → produces a PDF
-  with FZCO header, IBAN/SWIFT footer, **no VAT line**.
-- Parse a La Fosse self-bill PDF → produces an invoice row with
-  `issuing_entity_id = autonize-it-fzco`, `currency = GBP`,
-  `mechanism = self-bill`, `vat_amount = 0`.
-- Self-bill with non-zero VAT against FZCO → review-flag warning.
-- Cross-currency reconciliation: GBP-denominated invoice of £2,000
-  matches AED deposit on Emirates Islamic at AED/GBP snapshot rate;
-  FX gain/loss captured on the payment row.
-- UK→FZCO transition: a hypothetical La Fosse invoice dated before
-  2026-03-02 is assigned sequence `UK-xxxx`; one from 2026-03-02
-  onwards is assigned `FZ-xxxx`.
-- All 10 DC historical rows import cleanly; 7 emit the documented
-  warnings above.
-
-**Non-goals**
-
-- Email delivery of issued invoices — 2.3.
-- OCR for scanned / image-only self-bill PDFs — Tier 3. (Called
-  out explicitly because the FZCO Certificate of Formation PDF was
-  image-only and exposed the lack of OCR during roadmap authoring.)
-- Automated fetch from La Fosse's email / portal — Tier 3.
-- Multi-jurisdiction VAT returns (UK VAT + UAE VAT simultaneously)
-  — Tier 1.8 picks this up once FZCO has UAE VAT registered.
-
-### 1.4 Working-Days Ledger (income-side counterpart to obligations)
-
-**The forecasting cornerstone.** Income today is invisible until an
-invoice is issued or a payment lands. With day rate + calendar +
-`works_*` booleans, income becomes continuously derivable: at any
-moment the system can say exactly how much has accrued per active
-contract, per entity.
-
-**Schema — `working-days/leave.csv`**
-
-```
-id, contract_id,                             -- entity + currency derived transitively
-date,
-type (holiday | sick),                       -- personal-records only; 2 values
-notes,
-external_logged,                             -- cleared when user has logged in client's portal
-created_at, updated_at
-```
-
-- Working days are **derived**: everything the contract's
-  `works_*` booleans cover, minus any leave row for the same date,
-  minus automatic public-holiday rows.
-- Ledger is leave-only. "Working" is the default, not a row. This
-  halves the row count versus storing every day.
-- No `paid` column: outside-IR35 contracting has no paid-leave
-  concept (no work → no invoice line → effectively unpaid), so
-  every leave row reduces billable income symmetrically. Downstream
-  callers that historically branched on `paid` (e.g. a future
-  `countUnpaidLeave(period)` helper) collapse into a single
-  `countLeaveIn(period, contract)` function.
-- Public holidays + company closures are **not** leave rows. They
-  live in a separate `working-days/public-holidays.csv` feeding
-  `excludeDates` on the working-days iterator — a calendar event,
-  not a personal choice. UK public holidays auto-apply to contracts
-  with `issuing_entity_id = autonize-it-ltd`; UAE public holidays
-  auto-apply to contracts with `issuing_entity_id =
-  autonize-it-fzco`. Two calendar feeds, not one.
-
-**UI**
-
-- Per-month calendar, tick a day off. Default target is "all active
-  contracts" with a per-contract override when you explicitly work
-  one client while off from another.
-- On logging a leave day, pre-draft the contract's leave template
-  (routed per 1.2's rules — end-client for agency, primary for
-  direct). One confirmation to send.
-- `holiday_system_url` on the client keeps leave flagged
-  "needs external logging" until the user clears it.
-
-**Downstream effects this single data model unlocks**
-
-- **Invoice auto-fill** (1.3 generator): at invoice generation time,
-  `days_billed = workingDays(period, contract) −
-  countLeaveIn(period, contract)`. No recall-from-memory. All leave
-  is non-billable by construction (no `paid` split), so the helper
-  is a straight count rather than a filtered sum.
-- **Self-bill reconciliation** (1.3 reconciler): parsed La Fosse
-  self-bill's `days` field compared against ledger-derived
-  `days_worked`; mismatch → warning in 1.8.
-- **Forecast accrual** (1.5): `accrued_to_date(contract) = day_rate
-  × workedDays_since_last_invoice`. Real-time per contract per
-  entity, not invoice-lagged.
-- **Solvency-warning input** (1.8): scheduled leave immediately
-  shows up as a per-entity dip in projected income. Log six days
-  off in August for the FZCO contract and the August reservoir gap
-  for *next FZCO invoice* widens automatically.
-
-**Seed data — implied leave rows reverse-computed from DC invoices**
-
-For each DC-invoice month, `expected_working_days = Mon-Fri in
-month − UK bank holidays`; `implied_leave = expected − invoiced_days`.
-These become seed rows in `working-days/leave.csv` with `type =
-holiday` (safe default; user can recategorise to `sick`
-individually after ship — the only other leave type).
-
-| month | expected Mon-Fri (− UK bank hols) | invoiced days | implied leave |
-|---|---:|---:|---:|
-| Jul 2025 | 23 | 19 | 4 |
-| Aug 2025 | 20 (inc. 25-Aug bank hol) | 20 | 0 |
-| Sep 2025 | 22 | 20 | 2 |
-| Oct 2025 | 23 | 20 | 3 |
-| Nov 2025 | 20 | 18 | 2 |
-| Dec 2025 | 21 (inc. 25/26-Dec bank hols) | 21 | 0 |
-| Jan 2026 | 21 (inc. 1-Jan bank hol) | 20 | 1 |
-| Feb 2026 | 20 | 20 | 0 |
-| Mar 2026 | 22 | 17 | 5 |
-
-**Acceptance criteria**
-
-- Ledger reconciles with every clean DC invoice: `days_worked_derived
-  = invoice.days_billed` for DC-001, DC-003, DC-004, DC-005, DC-007,
-  DC-009, DC-010 at minimum.
-- Reconciler emits mismatch warnings for invoices where the period
-  on the PDF is nonsensical (DC-008's `05/01 – 30/12/2025`).
-- Forecast for current month splits into DC contribution (UK Ltd,
-  GBP) and La Fosse/Edwin contribution (FZCO, GBP-denominated →
-  AED-deposited). Both visible per entity.
-- Logging 3 leave days for `lf-2026-mar` contract reduces FZCO
-  projected income by `3 × £500 = £1,500` for the affected month.
-- UK public holidays (8 per calendar year) auto-excluded from DC
-  working days; UAE public holidays auto-excluded from La Fosse
-  working days. Public-holiday rows live in
-  `working-days/public-holidays.csv` feeding `excludeDates`, not in
-  `leave.csv`.
-
-**Non-goals**
-
-- Per-hour tracking (this is a day-rate system) — not in scope.
-- Multi-day-per-contract logic (e.g. half-days) — Tier 3 if it
-  becomes needed.
-- Syncing the ledger to external portals (DC's contractor system,
-  Edwin's timesheet system) — Tier 3.
-
-### 1.5 Cash Flow Forecast / Runway Projection
-
-The single most important feature behind the whole app. With 1.1–1.4
-in place, every ingredient now exists:
-
-- `account_balances` for opening balances (already live).
-- `recurring-detector` / `recurring-upcoming` for predictable
-  recurring income / expenses (already live).
-- Obligations registry for known future outgoings (already live).
-- HMRC auto-seeders for tax liabilities (already live).
-- **Multi-entity foundation (1.1)** so UK and UAE projections never
-  get silently summed together.
-- **Clients + contracts (1.2)** for active income streams and their
-  horizons.
-- **Invoicing (1.3)** for issued but unpaid invoices.
-- **Working-Days Ledger (1.4)** for deterministic income accrual
-  day-by-day.
-
-Output: "what will my balance be in 30 / 60 / 90 days?" per account,
-per entity, and globally. Daily resolution, not monthly. Per-entity
-output is mandatory — "we have £50k total" is meaningless when £30k of
-it is AED in FZCO and £20k is GBP in UK Ltd. This endpoint is what
-every Tier 2 feature calls before answering anything.
-
-### 1.6 Worst Case / Runway Mode
-
-One button: "if all active income stops today".
-
-- Output: runway in months, mandatory vs optional spend, survival
-  threshold, per entity.
-- Uses the forecast engine (1.5) + the bills / QoL split already
-  computed in `expenses-insight.ts`.
-- Includes available credit headroom as emergency runway — UK Ltd
-  cards only count toward UK Ltd runway; no inter-company credit
-  aggregation.
-- Credit limit is currently approximated by each credit card's
-  opening balance. Formalise this as a derived `creditLimit` on
-  `AccountConfigSchema` — default to the opening balance so nothing
-  changes semantically, but the intent becomes explicit and the field
-  is available for future tuning.
+- **Holistic headline by currency:** `household.GBP` and `household.AED`, each with full vs mandatory-only runway months, first stress date, total cash, and total available credit. No silent GBP+AED blend.
+- **Two stress lanes:** `stress.fullRecurring` (all detected recurring spend) and `stress.mandatoryRecurring` (bills only, via `isMandatoryCategory` / `NON_QOL_CATEGORIES`).
+- **Drill-down:** entity rollups in each lane; optional per-account daily series via `?detail=accounts`.
+- **Credit model:** `openingBalance` is the credit line; `currentBalance` is remaining headroom. Optional read-only `creditLimit` alias on the balance API (= `openingBalance` for credit cards). Dashboard balance panel labels switch to "Credit limit" via `getAccountConfig`.
+- **DRY engine:** shared `assembleForecastEvents` is reused by `/api/forecast` and `/api/runway`; bills/QoL rule lives once in `shared/expenses-insight.ts`.
+- **API only today.** No standalone runway page in this phase. **Primary UI surface: the §1.8 Warnings tab** — runway-threshold breaches and "trapped cash" insights are emitted as warnings (see §1.8 catalog) so they sit next to tax, contract, and spend warnings on a single ranked surface rather than living in a tab the user has to remember to open. A focused runway dashboard panel can follow once §1.8 ships if the warning summary isn't enough on its own.
 
 ### 1.7 Income Composition & Diversification
 
-**Rethinks concentration from "risk within active income" to "how
-dependent is my income on me showing up?"** One section, three
-metrics, two new CSVs.
+**Same problem statement.** The sharper concern isn't "single client risk", it's **single-mode risk** — *all* current income across every active stream stops the moment active work stops. Measuring that needs every income stream classified.
 
-The original concern was single-client failure ("90% of income from
-one client"). The sharper concern is single-*mode* failure: *all* of
-the current income, across every active contract, stops the moment
-active work stops. Measuring that is only possible once every income
-source carries an activity classification.
+**Reuses existing data — no new income CSV.** Income already lives in four places: [`clients/contracts.csv`](clients/contracts.csv) (consulting), [`obligations/obligations.csv`](obligations/obligations.csv) under `category: 'rental-income'` (per-property gross), [`debts/debts.csv`](debts/debts.csv) for matching mortgages (already carries `property_id`), and the recurring-income detector for salary / dividends / ad-hoc inflows. 1.7 composes a single read-only `IncomeSource` surface over them — no parallel CSV, no `income_sources.csv`.
 
-**New data — two seeded CSVs**
+**Income at face value, expenses where they already live.** Rental income is the obligation row's gross `amount` — no mortgage netting, no insurance netting. The mortgage and insurance live in obligations / the recurring pipeline as outgoings, where they already do. `mandatory_monthly_outgoings` is `Σ(items where isMandatoryCategory(item.category))` — full sum, no exclusion logic. Symmetric, simple, accurate to source.
 
-- `income_sources/income_sources.csv` — non-contract income streams
-  (dividends, interest, rental, SaaS MRR, royalties, referral
-  payments, etc.). Contracts in `clients/contracts.csv` remain the
-  source of truth for consulting-shaped income; this file catches
-  everything the contract table cannot represent.
-  - Columns: `id, name, entity_id, category (dividend | interest |
-    rental | saas | royalty | referral | other), activity_class
-    (passive | semi-passive | active), expected_monthly_amount,
-    currency, payer_pattern, start_date, end_date, notes,
-    updated_at`.
-  - `entity_id` links a non-contract stream to UK Ltd or FZCO for
-    per-entity reporting.
-  - `activity_class` three-value enum drives every metric below:
-    - **passive** — no ongoing time required (dividends, interest,
-      long-term rental income).
-    - **semi-passive** — needs maintenance but not daily work
-      (SaaS MRR on a shipped product, royalties on a launched
-      course, content residuals).
-    - **active** — stops the moment you stop showing up
-      (contracting, short-term consulting, day-rate work).
-      Contracts in `contracts.csv` default to `active`; override
-      only when a contract is genuinely retainer-shaped and
-      time-decoupled.
+**Two new domain folders.** `server/domain/properties/` is a canonical registry on the §3.6 pattern. `server/domain/income-composition/` is a **service module** on the §1.6 `forecast/` shape (listed in `NON_REGISTRY_DIRS`) — pure functions over the upstream registries, no CSV.
 
-- `income_sources/income_goals.csv` — target rows for income that
-  doesn't yet exist but should. Mirror of the obligations registry,
-  inverted: obligations are things you owe and want to shrink;
-  goals are things you want and are currently short of.
-  - Columns: `id, source_id (optional), name, target_type (mrr |
-    total_monthly | total_annual | time_independence_pct),
-    target_amount, target_date, activity_class, notes, updated_at`.
-  - `current_amount` is *derived* at read time from the matching
-    sources, not stored.
+- **`server/domain/properties/`** — `properties/properties.csv` with three seed rows (`hunters-square-78`, `thorney-house-56`, `heath-park-road-53` — the third is the home today; flips to rental in future via an obligation row, no schema change). Replaces today's `display_name`-string match between rental-income obligations, landlord-insurance obligations, and mortgage debts. Adds a nullable `property_id` column to `obligations.csv`; backfills the four existing property-related rows.
 
-**Three metrics this section emits — not one**
+- **`server/domain/income-composition/`** — `activity-class.ts`, `aggregator.ts`, `metrics.ts`, `risk-signals.ts`, `index.ts`, tests. Surfaces:
+  - `INCOME_ACTIVITY_CLASS`: `passive | semi-passive | active` keyed on income kind (in code, not CSV).
+  - `listAllIncomeSources()` — joins contracts + rental obligations + recurring-pipeline detected income, with **dedupe** (no double-counting UK Ltd salary that's already a contract). Tags each with `activity_class`.
+  - `computeIncomeComposition()` — emits the three metrics below per entity and household (per currency, no GBP+AED blend). Reuses `isMandatoryCategory` from [`shared/expenses-insight.ts`](shared/expenses-insight.ts) (shipped in 1.6).
+  - `computeRiskSignals()` — emits typed signals for §1.8.
+  - One endpoint `GET /api/income-composition`.
 
-1. **Client concentration** — `max(client_monthly_income) /
-   total_active_income`. Tactical downside signal. Answers *"if one
-   client drops me, how much active income do I lose?"*
+**Three metrics — each carries its primitives, not just a ratio.**
 
-2. **Active / passive ratio** — `(passive + semi-passive) monthly /
-   total monthly`. Strategic diversification metric. Answers *"how
-   much of my income survives if I stop working tomorrow?"* Passive
-   and semi-passive split surfaced separately.
+1. **Client concentration** — `max(client_monthly_income) / total_active_income`. Response includes `topClientId`, `topClientMonthly`, `totalActiveMonthly`. *"If one client drops me, how much active income do I lose?"*
+2. **Active / passive ratio** — `(passive monthly) / (total monthly)`, with `passiveByKind` split. Structural mix metric. Response includes `passiveMonthly`, `activeMonthly`, `totalMonthly`.
+3. **Time-independence ratio** — `(passive monthly) / mandatory_monthly_outgoings`. The resilience metric. Response includes `passiveMonthly`, `mandatoryMonthly`. With mortgage in mandatory outgoings (where it already lives) and rent gross on the income side, this answers *"if active income stopped, what fraction of my real bills could passive income cover?"*
 
-3. **Time-independence ratio** — `(passive + semi-passive) monthly /
-   mandatory_monthly_outgoings`. The FIRE metric. At 100% you could
-   stop trading time for money and still pay every bill.
-   `mandatory_monthly_outgoings` comes from the bills / QoL split
-   already computed in `expenses-insight.ts`.
+**Risk signals — typed primitives, not baked prose.** `riskSignals[]` is a Zod discriminated union by `code`; each variant inlines its own data fields next to `code` and `severity` (same convention as `IncomingObligationSchema`). No `detail` or `recommended_action` strings — consumers compose any prose they need from the data. Codes: `client-concentration-extreme/elevated`, `time-independence-low/elevated`, `mode-concentration-extreme`, `passive-income-zero`, plus `leveraged-passive-income` (per property, fired when `mortgageMonthly / grossMonthly` is high — the leverage truth surfaced as a signal rather than fudged into the income side). Each signal carries every primitive a §1.8 warning row needs (numerator, denominator, threshold, ratio, plus context fields like `topClientId` or `propertyId`).
 
-**Goal tracking — both directions**
+**Optional later:** nullable `activity_class_override` column on `contracts.csv` for the rare retainer-shaped contract that isn't really `active`. Defer until one exists; today every contract is `active` by category.
 
-Each metric emits into the Warnings Engine (1.8) both on
-*regression* (past a deterioration threshold) and on *progression*
-against a goal from `income_goals.csv`. Progression warnings are the
-positive feedback the app otherwise never provides.
-
-- A goal of `target_type: mrr, target_amount: 2000, target_date:
-  2027-12-31, current_amount: 0` creates a signal from day zero:
-  *"0% of MRR goal met; 20 months remaining; required monthly growth
-  to hit target: £100/month of new MRR from today."*
-- Crossing a target emits a completion warning at severity `info`.
-- The time-independence ratio is itself a natural goal
-  (`target_type: time_independence_pct, target_amount: 100`).
-
-**Why this belongs in Tier 1, not Tier 2**
-
-All three metrics feed the Solvency Warnings Engine (1.8) and the
-Confidence Score (2.2). Pushing this into Tier 2 would force both
-upstream consumers to derive the activity classification themselves,
-defeating the point of the warning-schema spine.
+**Emits into §1.8.** §1.8's warning rows become thin renderers over `riskSignals[]` — the warnings tab calls a formatting helper that turns each typed signal into a card. Existing `EntityFoundationWarning` strings stay untouched in 1.7; §1.8 is the right place to harmonise the older string-baked warnings to the same primitive-carrying shape additively. No `income_goals.csv`, no goal-progression warnings — aspirational MRR / FIRE tracking is a separate concept and out of scope for 1.7.
 
 ### 1.8 Solvency Warnings Engine (the Warnings tab)
+
+**One list, many sources — traffic-light, not a silo per domain.** The
+Warnings tab is a **unified, ranked** feed: tax, contracts, invoices,
+data quality, income diversification, **and** discretionary spend
+signals all map into the **same** `{ severity, title, detail,
+recommended_action, sources[] }` shape, filterable by entity. The user
+sees a **single** severity-sorted surface (red / amber / green-style
+semantics on `severity`), not separate pages that never talk to each
+other.
 
 **Forward-looking, ranked, specific, unprompted.** The app's single
 most important output once the forecast exists. Where the Overdue Hero
 surfaces *past-tense* misses, the Warnings Engine surfaces
-*future-tense* structural problems:
+*future-tense* structural problems *and* material **ongoing** leaks
+(see unbudgeted ad-hoc spend below):
 
 > "Barclays Savings holds £2,500. UK VAT £10k is due in 60 days from
 > that account. Current monthly net saving = £X. At this trajectory
@@ -728,6 +140,23 @@ surfaces *past-tense* misses, the Warnings Engine surfaces
 > "FZCO UAE CT registration status unknown. First FZCO invoice
 > received; liability unquantifiable until QFZP election recorded
 > on `company.csv`. Consult accountant."
+
+**Partially shipped today → 1.8 bridge (ad-hoc / discretionary).** The
+**Dashboard** already shows monthly vs actual budgets and a
+**"High-spend merchants without a budget"** nudge strip (derived from
+transaction history — merchants you spend a lot on that have no budget
+row yet; deep-link to add a budget or open Ad hoc analysis). **Gap for
+1.8:** nudges are **local to the Dashboard**; they are not part of the
+**Warnings** spine, have no **cross-domain rank** next to "VAT due in 60
+days", and do not **escalate** when the user *chooses* not to add a
+budget (e.g. high Careem or delivery spend in Dubai as a conscious
+convenience trade — still a **material** monthly line that should
+surface as amber/red when it crosses rolling thresholds, share of
+discretionary spend, or month-on-month velocity). **1.8 work:** feed the
+same underlying merchant/category aggregates into the warnings pipeline;
+define severity and dedupe so "high unbudgeted merchant" appears once,
+with a clear `recommended_action` (set a cap, reclassify, or
+acknowledge).
 
 Formalises earmarking intent (currently only implicit in the user's
 head):
@@ -757,6 +186,34 @@ head):
   - Income-goal progress / completion (from 1.7) — both shortfall
     and positive completion at severity `info`.
   - Burn rate exceeds income (rolling 30d).
+  - **Runway under threshold (from 1.6)** — household runway in
+    either headline currency (GBP / AED) drops below configurable
+    bands (e.g. red < 3 months, amber < 6 months) on the *full
+    lifestyle* lane. `detail` cites the first stress date,
+    contributing recurring lines, and the GBP/AED split so the user
+    can see *which* currency is the constraint. Reads
+    `/api/runway`'s `household.{GBP,AED}.runwayMonthsFullRecurring`
+    and `firstStressDateFullRecurring`.
+  - **Mandatory-only runway under threshold (from 1.6)** — same
+    rule against `runwayMonthsMandatoryRecurring`, severity capped
+    higher (running out on **bills only** is materially worse than
+    running out at full lifestyle). `recommended_action` points to
+    the bills/QoL split so the obvious "what can I cut?" question
+    is one click away.
+  - **Trapped cash / inter-company constraint (from 1.6)** — one
+    currency bucket is solvent through horizon while the other goes
+    negative first (e.g. AED healthy, GBP runs out in N weeks).
+    Surfaces as a narrative warning that *moving money* is the
+    constraint, not earning more — actionable only because §1.6
+    refuses to silently blend GBP and AED into a single number.
+  - **Unbudgeted ad-hoc / discretionary spend (merchant- or
+    pattern-level)** — sustained spend on a merchant or MCC **without**
+    a matching budget line, breaching materiality rules (e.g. rolling
+    30/90d total, % of net income, or sharp MoM increase). Catches
+    "I know it’s expensive but I haven’t time to plan groceries /
+    transport" **before** it silently dominates cash outflow. Sourced
+    from the same building blocks as Tier 0 dashboard nudges, ranked
+    alongside tax and contract warnings.
   - Credit utilisation high.
   - Data staleness (no statement for account X in N weeks).
   - **Multi-entity specific (new):**
@@ -1436,46 +893,7 @@ scheduled; it has no upstream dependency on the forecasting stack
 
 ### 3.6 Canonical Config Registry Pattern (architecture) ✅ SHIPPED
 
-Every set-wise configuration now lives at `server/domain/<name>/`
-with a standard layout:
-
-```
-server/domain/<name>/
-  schema.ts       Zod schema + derived TS types
-  data.ts         raw literal / CSV loader
-  registry.ts     build + precomputed indexes + memoization via createRegistry
-  queries.ts      pure public queries over the indexes
-  fixtures.ts     makeTest<Name>Registry, routed through the production build
-  index.ts        barrel re-exports
-  *.test.ts       schema / gates / invariants / lifecycle / queries / manifest
-```
-
-Shared primitives live under `server/domain/_shared/`:
-`create-registry.ts`, `index-builders.ts`, `fixture-builder.ts`,
-and `manifest-test.ts` — the capability-drift detector that
-asserts every index in a registry has at least one documented live
-consumer. New registries cannot merge without a manifest test;
-this is enforced repo-wide by
-`server/domain/_shared/all-registries.manifest.test.ts`.
-
-**Seven canonical registries migrated:** `accounts`, `people`,
-`payees`, `merchants`, `payroll`, `company`, `transaction-overrides`.
-The legacy `obligations` registry is the sole exception, pinned in
-the manifest-sweep's exemption list until it is migrated.
-
-**Pattern documentation:** full rationale, test templates, naming
-rule, registry directory index, and the UI-control code-review
-checklist (the "a UI control must change at least one visible
-field via a path not already expressed by existing config" rule
-— with the Entity dropdown post-mortem as the worked example) all
-live in
-[docs/config-registries.md](docs/config-registries.md).
-
-**Why this matters forward.** Every new registry — `contracts`
-(1.2.A, already shipped under this pattern), `leave` (1.2.E),
-`income_sources` (1.7) — slots straight in; the Warnings Engine
-(1.8) becomes a reduction over named registry indexes rather than
-ad-hoc scans.
+Every set-wise configuration lives at `server/domain/<name>/` with a standard layout (`schema.ts`, `data.ts`, `registry.ts`, `queries.ts`, `fixtures.ts`, `index.ts`, tests). Shared primitives in `server/domain/_shared/` plus a manifest-drift detector enforce that every registry index has a documented live consumer. Seven canonical registries migrated; `obligations` is the last exemption. Full pattern docs in [docs/config-registries.md](docs/config-registries.md). Every new registry (e.g. `leave`, `forecast`-adjacent helpers, future `income_sources`) plugs straight in.
 
 ---
 
@@ -1485,14 +903,14 @@ ad-hoc scans.
 Tier 0 (Certainty) ✅       Tier 1 (Projection)                                                              Tier 2 (Agent)
 
 Obligations + Deadlines     Multi-Entity Foundation (1.1) ✅
-Multi-Entity Foundation ✅   Clients + Contracts (1.2 A–E) ✅─→ Working-Days Ledger (1.4) ─┐
-                            Invoicing (1.3 Phases 1–3) ✅ ──→ Payment reconciler (1.3 P4) ┤
+Multi-Entity Foundation ✅   Clients + Contracts (1.2 A–E) ✅─→ Working-Days Ledger (1.4) ✅┐
+                            Invoicing §1.3 (incl. reconcile) ✅ ────────────────────────┤
                                                                                                                                      │
-                                                                                                                                     ├─→ Forecast (1.5) ─┐
+                                                                                                                                     ├─→ Forecast (1.5) ✅─┐
                                                                                                                                      │                  │
                                                                                                                                      ├─→ Warnings (1.8) ─┤
                                                                                                                                      │                  ├─→ AI Primitives (2.0) ─→ Snapshot (2.1)
-                                                                                                                                     ├─→ Worst Case (1.6) ┤                          Confidence Score (2.2)
+                                                                                                                                     ├─→ Worst Case (1.6) ✅┤                        Confidence Score (2.2)
                                                                                                                                      │                  │                          Alert Queue (2.3)
                                                                                                                                      ├─→ Income Composition (1.7) ──┤                WhatsApp (2.4)
                                                                                                                                      │                  │
@@ -1506,10 +924,9 @@ registries and the jurisdiction-scoped `tax-rules.ts` module for
 free.
 
 **Clients + Contracts → Invoicing → Working-Days Ledger → Forecast →
-Warnings** is the main income-side backbone. Invoicing depends on
-contracts (every invoice FK's a contract); the ledger depends on
-both (fills in day counts); the forecast depends on the ledger for
-deterministic accrual; the warnings engine reduces over everything.
+Runway → Warnings** is the main income-side backbone — **1.1–1.6** are shipped.
+**Next on this stack:** **1.7** (income composition) feeds **1.8** (unified
+Warnings tab + multi-source severity).
 
 **The Warnings Engine (1.8) gates most of Tier 2.** Both the
 Confidence Score and the Alert Queue become reductions over its
@@ -1532,47 +949,44 @@ re-implementing the glue.
 
 ## Suggested Build Order
 
+**Steps 1–9** each map to a single **§1.1–§1.9** heading in order (no
+more “step 6 = §1.8” skew between list index and section number).
+
 1. ~~**Multi-Entity Foundation (1.1)**~~ ✅ SHIPPED — see §1.1.
-   `company.csv` both rows, `entityId` on every account (incl. Wise),
-   jurisdiction-scoped `tax-rules.ts`, `buildAccountInFilter` driven by
-   registry indexes, entity-foundation warnings endpoint, inter-company
-   pair-finder + description-based exclusion patterns, Wise as
-   intermediary, IFZA deadline seeded.
-2. ~~**Clients, Contracts & Renewals (1.2)**~~ ✅ SHIPPED — all five
-   phases (A registries + renewal deadlines, B templates +
-   recipient routing, C timeline-aware payer matcher with
-   `payment-outside-contract-window` warnings, D Clients page UI,
-   E Contracts tab with leave writer + period income accrual).
-3. **Invoicing System (1.3)** — Phases 1–3 ✅ SHIPPED (registry +
-   DC seed rows; outbound PDF generator with per-entity templates
-   and sequences; self-bill ingestion with parser registry, first
-   supplier La Fosse; Invoices tab covering both flows).
-   Remaining:
-   - **Phase 4** — payment reconciler (matches deposits to
-     invoices), `invoice_payments.csv` population, FX gain-loss
-     capture, reconciler warnings for the seeded errors (stale
-     `payment_reference`, wrong `due_date`, nonsensical period),
-     and promotion of `findLastInvoicePaymentDate` into the
-     fallback chain behind the deterministic invoice↔payment link.
-4. **Working-Days Ledger (1.4)** — extends the MV leave writer
-   shipped in 1.2.E with jurisdiction-aware public holidays
-   (UK + UAE), per-month calendar UI, reconciliation with 1.3
-   invoice day counts, and implied-leave seeding for the 9
-   historical DC months.
-5. **Cash Flow Forecast (1.5)** — per entity, daily resolution.
-   Extends the period-scoped accrual endpoint from 1.2.E into a
-   30 / 60 / 90-day cross-account projection.
-6. **Solvency Warnings Engine (1.8)** — brought forward. Without
-   it the forecast has no voice; with it, 2.2 and 2.3 collapse
-   into thin reductions / delivery adaptors.
-7. **Worst Case / Runway + formalised credit headroom (1.6)** —
-   cheap once 1.5 is in.
-8. **Income Composition & Diversification (1.7)** — client
-   concentration, active/passive ratio, time-independence ratio,
-   plus income-sources and income-goals registries. Emits into
-   1.8.
-9. **Debt Strategy Advisor (1.9)** — rule-based recommendations
-   on top of the existing debt table.
+2. ~~**Clients, Contracts & Renewals (1.2)**~~ ✅ SHIPPED — all five phases A–E (see §1.2).
+3. ~~**Invoicing System (1.3) Phases 1–4**~~ ✅ SHIPPED — see §1.3.
+4. ~~**Working-Days Ledger (1.4)**~~ ✅ SHIPPED — see §1.4.
+5. ~~**Cash Flow Forecast (1.5)**~~ ✅ SHIPPED — `GET /api/forecast`; see §1.5.
+6. ~~**Worst Case / Runway (1.6)**~~ ✅ SHIPPED — `GET /api/runway`, household-first GBP/AED dual headline + entity drill-down; see §1.6.
+7. **Income Composition & Diversification (1.7)** — **next** — three metrics
+   (concentration, active/passive, time-independence) over the existing
+   contracts + rental obligations + recurring-pipeline data, with income at
+   face value and expenses where they already live. One new canonical
+   registry (`properties/`) for the rent ↔ mortgage join, plus a service
+   module (`income-composition/`) on the §1.6 `forecast/` shape. **Emits
+   `riskSignals[]` into §1.8** as a typed discriminated union — each variant
+   carries its own primitives next to `code` and `severity` (no baked prose),
+   including a per-property `leveraged-passive-income` signal that surfaces
+   the leverage truth without fudging the income side. **No** new income CSV;
+   no goal tracking in scope.
+8. **Solvency Warnings Engine (1.8)** — **What you get:** a **Warnings**
+   tab: a **ranked list** of concrete problems — **forward-looking**
+   (“VAT due in 60 days…”) **and** **material in-flight** issues (e.g.
+   unbudgeted ad-hoc spend from **Dashboard nudge** signals, escalated
+   with traffic-light severity so Careem-style leakage sits next to tax
+   and contract risk). Same schema: `severity`, **recommended_action**,
+   traceable `sources[]` — not another chart wall. The Overdue hero is
+   *past-tense* (“you missed”); 1.8 is *future-tense* or *right now* at
+   scale (“you **will** be short unless…” / “this line item is
+   **too big** to leave untracked”). **Why it matters after 1.5:** 1.5
+   is the **trajectory**; 1.8 is the **interpreted risk surface**
+   (earmarking, reservoir vs obligation, cross-signal from contracts / tax
+   / invoices / 1.7 / **spend**). That list is the **single spine** for
+   Alert Queue (2.3) and Confidence Score (2.2) — thin adaptors, not
+   parallel logic. Placed **after 1.7** so income-diversification
+   signals are first-class on day one.
+9. **Debt Strategy Advisor (1.9)** — rule-based recommendations on
+   top of the existing debt table.
 10. **Structured Data for AI Consumption (2.0)** — prerequisite to
     all of Tier 2: semantic discriminators, expected-receipts
     calendar, slice endpoints (`/api/ai/liquidity`,

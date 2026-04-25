@@ -574,9 +574,10 @@ describe('/api/contracts routes', () => {
   describe('GET /api/contracts/:id/income-accrual — since-last-payment semantics', () => {
     it('rebases worked/accrued onto the day AFTER the matched invoice payment', async () => {
       // PINNED_TODAY = 2026-04-06 (Mon). Last payment = 2026-03-31 (Tue).
-      // Owed window = [2026-04-01, 2026-04-06] = Wed 1, Thu 2, Fri 3,
-      // Mon 6 = 4 working days at £550 = £2,200. Projection window
-      // stays the full April (22 days × £550 = £12,100).
+      // Owed window = [2026-04-01, 2026-04-06] = Wed 1, Thu 2,
+      // Fri 3 (Good Friday — excluded), Mon 6 (Easter Monday — excluded)
+      // = 2 working days at £550 = £1,100. Projection window = full
+      // April: 22 weekdays minus 2 UK bank holidays = 20 × £550.
       lastPaymentOverrides.set('dc-sow-2026', '2026-03-31');
       const response = await fetch(
         `${baseUrl}/api/contracts/dc-sow-2026/income-accrual`,
@@ -585,9 +586,9 @@ describe('/api/contracts routes', () => {
       const body = await response.json();
       expect(body.owed_window_start).toBe('2026-04-01');
       expect(body.owed_window_end).toBe('2026-04-06');
-      expect(body.worked_days_to_date).toBe(4);
-      expect(body.accrued_to_date).toBe(4 * 550);
-      expect(body.projected_period_total).toBe(22 * 550);
+      expect(body.worked_days_to_date).toBe(2);
+      expect(body.accrued_to_date).toBe(2 * 550);
+      expect(body.projected_period_total).toBe(20 * 550);
     });
 
     it('falls back to month-start when no payment is matched (FZCO-shaped)', async () => {
@@ -664,9 +665,9 @@ describe('/api/contracts routes', () => {
       if (dc === undefined || fzco === undefined) throw new Error('contract missing');
       // DC owed window starts the day after 2026-04-03, i.e. 2026-04-04.
       expect(dc.owed_window_start).toBe('2026-04-04');
-      // 2026-04-04 = Sat, 2026-04-05 = Sun, 2026-04-06 = Mon (today) →
-      // 1 working day at £550.
-      expect(dc.accrued_to_date).toBe(1 * 550);
+      // 2026-04-04 = Sat, 2026-04-05 = Sun, 2026-04-06 = Mon (Easter Monday,
+      // UK public holiday — excluded) → 0 working days.
+      expect(dc.accrued_to_date).toBe(0);
       // FZCO has no override → month-start fallback, unchanged.
       expect(fzco.owed_window_start).toBe('2026-04-01');
     });

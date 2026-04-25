@@ -34,12 +34,25 @@ export {
 } from './registry.js';
 
 export {
+  buildInvoicePaymentRegistry,
+  buildInvoicePaymentRegistryFromData,
+  getInvoicePaymentRegistry,
+  invalidateInvoicePaymentRegistry,
+  __resetInvoicePaymentRegistryForTests,
+  DEFAULT_INVOICE_PAYMENTS_DIR,
+  type InvoicePaymentRegistry,
+} from './payments-registry.js';
+
+export {
   allInvoices,
   findInvoiceById,
   listInvoicesByContractId,
   listInvoicesByIssuingEntityId,
   listInvoicesByStatus,
   latestInvoiceForContract,
+  allInvoicePayments,
+  listPaymentsForInvoice,
+  findPaymentByBankTransaction,
 } from './queries.js';
 
 export {
@@ -103,11 +116,23 @@ export {
 export {
   createInvoice,
   updateInvoice,
+  recordInvoicePayments,
   type CreateInvoiceInput,
   type CreateInvoiceResult,
   type UpdateInvoiceInput,
   type UpdateInvoiceResult,
+  type RecordInvoicePaymentsInput,
+  type RecordInvoicePaymentsResult,
 } from './mutations.js';
+
+export {
+  planReconciliation,
+  type PlanReconciliationInput,
+  type ReconcileTransaction,
+  type ReconcileOptions,
+  type ReconciliationPlan,
+  type ReconciliationNote,
+} from './reconcile-payments.js';
 
 export {
   buildInvoiceDocDefinition,

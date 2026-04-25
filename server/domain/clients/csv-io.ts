@@ -10,15 +10,39 @@
  * from "not applicable" / `null`.
  */
 
-import fs from 'fs';
 import path from 'path';
-import { parse } from 'csv-parse/sync';
 import {
   type Client,
   DirectClientSchema,
   AgencyClientSchema,
 } from '../../../shared/api-contracts.js';
 import { escapeCsvField, atomicWriteCsv } from '../../utils/csv-helpers.js';
+import {
+  createCsvDecoders,
+  nullIfEmpty,
+  readCsvRecords,
+} from '../../utils/csv-decoders.js';
+
+const decoders = createCsvDecoders('Client');
+const {
+  requireNonEmpty,
+  decodeNullableIsoDate,
+  decodeStrictBoolean,
+} = decoders;
+
+/** `TBC` is preserved verbatim; empty cell → null. Pure string passthrough. */
+function decodeNullableStringOrTbc(value: string | undefined): string | 'TBC' | null {
+  return nullIfEmpty(value);
+}
+
+/** `TBC` is preserved verbatim; empty cell → required-field error. */
+function decodeRequiredStringOrTbc(
+  value: string | undefined,
+  field: string,
+  rowId: string,
+): string | 'TBC' {
+  return requireNonEmpty(value, field, rowId);
+}
 
 export const CLIENTS_CSV_FILENAME = 'clients.csv';
 
@@ -52,63 +76,6 @@ export const CLIENT_CSV_HEADERS = [
 
 export function getClientsCsvPath(clientsDir: string): string {
   return path.join(clientsDir, CLIENTS_CSV_FILENAME);
-}
-
-// ─── Cell decoders ──────────────────────────────────────────────────────────
-
-function nullIfEmpty(value: string | undefined): string | null {
-  if (value === undefined) return null;
-  const trimmed = value.trim();
-  return trimmed === '' ? null : trimmed;
-}
-
-function requireNonEmpty(value: string | undefined, field: string, rowId: string): string {
-  const v = nullIfEmpty(value);
-  if (v === null) {
-    throw new Error(`Client ${rowId}: ${field} is required`);
-  }
-  return v;
-}
-
-/** Decode a nullable string-or-TBC column (empty cell → null, `TBC` preserved). */
-function decodeNullableStringOrTbc(value: string | undefined): string | 'TBC' | null {
-  return nullIfEmpty(value);
-}
-
-/** Decode a required string-or-TBC column. */
-function decodeRequiredStringOrTbc(
-  value: string | undefined,
-  field: string,
-  rowId: string,
-): string | 'TBC' {
-  return requireNonEmpty(value, field, rowId);
-}
-
-function decodeStrictBoolean(
-  value: string | undefined,
-  field: string,
-  rowId: string,
-): boolean {
-  const raw = nullIfEmpty(value);
-  if (raw === null) {
-    throw new Error(`Client ${rowId}: ${field} is required (true | false)`);
-  }
-  if (raw === 'true') return true;
-  if (raw === 'false') return false;
-  throw new Error(`Client ${rowId}: ${field} must be 'true' | 'false', got '${raw}'`);
-}
-
-function decodeNullableIsoDate(
-  value: string | undefined,
-  field: string,
-  rowId: string,
-): string | null {
-  const raw = nullIfEmpty(value);
-  if (raw === null) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    throw new Error(`Client ${rowId}: ${field} must be yyyy-mm-dd, got '${raw}'`);
-  }
-  return raw;
 }
 
 // ─── Row parser ─────────────────────────────────────────────────────────────
@@ -175,19 +142,8 @@ export function parseClientRow(row: Record<string, string>): Client {
 // ─── File reader ────────────────────────────────────────────────────────────
 
 export function readClientsCsvFile(csvPath: string): Client[] {
-  if (!fs.existsSync(csvPath)) return [];
-  const content = fs.readFileSync(csvPath, 'utf8').trim();
-  if (content === '') return [];
-
-  const records = parse(content, {
-    columns: true,
-    skip_empty_lines: true,
-    trim: true,
-    relax_column_count: true,
-  }) as Record<string, string>[];
-
   const rows: Client[] = [];
-  for (const row of records) {
+  for (const row of readCsvRecords(csvPath)) {
     if (!nullIfEmpty(row.id)) continue;
     rows.push(parseClientRow(row));
   }

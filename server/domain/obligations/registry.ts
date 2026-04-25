@@ -77,6 +77,20 @@ export function buildObligationRegistry(
   const user = readObligationsCsvFile(getObligationsUserCsvPath(obligationsDir));
   const all = mergeByIdUserWins(seed, user);
 
+  // Build-time gate (§1.7): every rental-income row MUST carry a
+  // `propertyId`. Insurance rows are nullable. This makes the rent ↔
+  // mortgage join legible via the properties registry and prevents
+  // anyone from shipping a rental row that nothing else can resolve.
+  const orphanRentalIds = all
+    .filter(o => o.category === 'rental-income' && (o.propertyId === undefined || o.propertyId === ''))
+    .map(o => o.id);
+  if (orphanRentalIds.length > 0) {
+    throw new Error(
+      `Obligation registry: rental-income row(s) missing required property_id: ${orphanRentalIds.join(', ')}. ` +
+      `Add a property_id column referencing properties/properties.csv.`,
+    );
+  }
+
   const incoming = all.filter(isIncomingObligation);
   const outgoing = all.filter(isOutgoingObligation);
 

@@ -9,23 +9,24 @@
  * projection window that feeds the Retained / VAT / CT banner still
  * uses the calendar month — this module is ONLY about the owed window.
  *
- * The matcher is deliberately minimal. We don't have an invoices ledger
- * yet; the long-term fix is to record invoice-issued events as they
- * happen and read back their settlement dates from there. Until then,
- * the heuristic is:
+ * Resolution order:
  *
- *   1. Normalise both the client's trading/legal names and the
- *      transaction narrative, then look for a substring hit. For agency
- *      contracts the "client" here IS the agency that pays (e.g. La
- *      Fosse) — the end-client field on the Client row is purely
- *      descriptive and doesn't appear on statements.
- *   2. If the narrative match misses and the caller has opted in via
- *      `enableAmountFallback`, accept any income row whose amount sits
- *      within ±5% of `day_rate * N` for a small plausible range of
- *      billable days. This fallback is OFF by default because a false
- *      positive silently shortens the owed window and hides real money
- *      from the user — we'd rather return `null` and fall back to the
- *      month-start than lie.
+ *   1. Ledger lookup (Phase 4 reconciler output) — when the caller
+ *      supplies `ledgerPayments` (the rows in `invoice_payments.csv`
+ *      whose `invoice_id` belongs to this contract), the most recent
+ *      `payment_date` wins. Deterministic, narrative-free, immune to
+ *      the false positives the heuristics below can introduce.
+ *   2. Narrative match — normalise the client's trading/legal names
+ *      and the transaction narrative, then look for a substring hit.
+ *      For agency contracts the "client" here IS the agency that pays
+ *      (e.g. La Fosse) — the end-client field on the Client row is
+ *      purely descriptive and doesn't appear on statements.
+ *   3. Amount-tolerance fallback (opt-in via `enableAmountFallback`).
+ *      Accept any income row whose amount sits within ±5% of
+ *      `day_rate * N` for a small plausible range of billable days.
+ *      OFF by default because a false positive silently shortens the
+ *      owed window and hides real money from the user — we'd rather
+ *      return `null` and fall back to the month-start than lie.
  *
  * `resolveAccrualWindowStart` is the single source of truth for "when
  * does the owed window start?" and is re-used by the route layer and
@@ -36,6 +37,7 @@
 import type {
   Client,
   Contract,
+  InvoicePayment,
   Transaction,
 } from '../../../shared/api-contracts.js';
 import { monthRange, shiftIsoDate } from '../../../shared/iso-date.js';
@@ -64,10 +66,15 @@ export interface FindLastPaymentInput {
   /** ISO `YYYY-MM-DD`. Used only as an upper bound on match dates. */
   readonly today: string;
   /**
-   * Enables the amount-tolerance fallback when no narrative match is
-   * found. Default `false`. The Invoicing shipment will swap this out
-   * for a real invoice ledger; this flag exists so the fallback can
-   * be flipped on in specific tests without becoming the default.
+   * Optional Phase 4 reconciler output, pre-filtered by the caller to
+   * payments against invoices for this contract. When present, the
+   * latest `payment_date` wins over the narrative / amount heuristics.
+   */
+  readonly ledgerPayments?: readonly InvoicePayment[];
+  /**
+   * Enables the amount-tolerance fallback when no ledger or narrative
+   * match is found. Default `false`. Real ledger settlements (above)
+   * supersede this fallback whenever the reconciler has an opinion.
    */
   readonly enableAmountFallback?: boolean;
 }
@@ -98,15 +105,28 @@ function amountMatchesDayRate(
 
 /**
  * Return the date of the most recent invoice payment for `contract`,
- * or `null` if nothing matches. Scans `incomeTransactions` newest-first
- * and returns on the first hit — callers never need to look past the
- * first match because an older payment would always be superseded by
- * a newer one for the same counterparty.
+ * or `null` if nothing matches.
+ *
+ * Resolution order: ledger (when supplied) → narrative → opt-in
+ * amount fallback. The first source to produce a non-null answer
+ * wins; the others are not consulted.
  */
 export function findLastInvoicePaymentDate(
   input: FindLastPaymentInput,
 ): string | null {
-  const { contract, client, incomeTransactions, today, enableAmountFallback = false } = input;
+  const {
+    contract,
+    client,
+    incomeTransactions,
+    today,
+    ledgerPayments,
+    enableAmountFallback = false,
+  } = input;
+
+  // Pass 0: ledger (deterministic, FK-linked to invoices for this contract).
+  const ledgerHit = pickLatestLedgerPayment(ledgerPayments, today);
+  if (ledgerHit !== null) return ledgerHit;
+
   if (incomeTransactions.length === 0) return null;
 
   const tokens = buildNarrativeTokens(client);
@@ -117,7 +137,7 @@ export function findLastInvoicePaymentDate(
     .filter(tx => tx.type === 'income' && tx.date <= today)
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 
-  // Pass 1: narrative match (authoritative).
+  // Pass 1: narrative match.
   for (const tx of sorted) {
     if (narrativeMatches(tx.description, tokens)) return tx.date;
   }
@@ -130,6 +150,20 @@ export function findLastInvoicePaymentDate(
   }
 
   return null;
+}
+
+/** Latest `payment_date` ≤ `today` from the supplied ledger rows, or null. */
+function pickLatestLedgerPayment(
+  payments: readonly InvoicePayment[] | undefined,
+  today: string,
+): string | null {
+  if (payments === undefined || payments.length === 0) return null;
+  let best: string | null = null;
+  for (const p of payments) {
+    if (p.payment_date > today) continue;
+    if (best === null || p.payment_date > best) best = p.payment_date;
+  }
+  return best;
 }
 
 /**

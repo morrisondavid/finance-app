@@ -24,11 +24,16 @@
 import type {
   Contract,
   ContractId,
+  InvoicePayment,
   Transaction,
 } from '../../../shared/api-contracts.js';
 import { shiftIsoDate } from '../../../shared/iso-date.js';
 import { accountsForEntity } from '../accounts/queries.js';
 import { findClientById } from '../clients/queries.js';
+import {
+  allInvoicePayments,
+  listInvoicesByContractId,
+} from '../invoices/queries.js';
 import { getTransactions } from '../../db/repositories/transactions.js';
 import { findLastInvoicePaymentDate } from './last-payment.js';
 
@@ -80,6 +85,39 @@ function loadIncomeByEntity(
   return byEntity;
 }
 
+/**
+ * Build a per-contract lookup of `InvoicePayment` rows by joining the
+ * invoice-payments registry to invoices via `invoice_id`. Done once per
+ * resolver call so each contract's `findLastInvoicePaymentDate` reads
+ * the slice without re-walking the whole ledger.
+ */
+function loadLedgerPaymentsByContract(
+  contracts: readonly Contract[],
+): Map<ContractId, readonly InvoicePayment[]> {
+  const out = new Map<ContractId, readonly InvoicePayment[]>();
+  if (contracts.length === 0) return out;
+  const allPayments = allInvoicePayments();
+  if (allPayments.length === 0) {
+    for (const c of contracts) out.set(c.id, []);
+    return out;
+  }
+  const paymentsByInvoiceId = new Map<string, InvoicePayment[]>();
+  for (const p of allPayments) {
+    const list = paymentsByInvoiceId.get(p.invoice_id);
+    if (list !== undefined) list.push(p);
+    else paymentsByInvoiceId.set(p.invoice_id, [p]);
+  }
+  for (const c of contracts) {
+    const slice: InvoicePayment[] = [];
+    for (const inv of listInvoicesByContractId(c.id)) {
+      const rows = paymentsByInvoiceId.get(inv.id);
+      if (rows !== undefined) slice.push(...rows);
+    }
+    out.set(c.id, slice);
+  }
+  return out;
+}
+
 export function resolveLastPaymentsForContracts(
   input: ResolveLastPaymentsInput,
 ): Map<ContractId, string | null> {
@@ -89,6 +127,7 @@ export function resolveLastPaymentsForContracts(
 
   const fromDate = shiftIsoDate(today, -lookbackDays);
   const incomeByEntity = loadIncomeByEntity(contracts, fromDate, today);
+  const ledgerByContract = loadLedgerPaymentsByContract(contracts);
 
   for (const contract of contracts) {
     const client = findClientById(contract.client_id);
@@ -101,11 +140,13 @@ export function resolveLastPaymentsForContracts(
       continue;
     }
     const txns = incomeByEntity.get(contract.issuing_entity_id) ?? [];
+    const ledger = ledgerByContract.get(contract.id) ?? [];
     const lastPayment = findLastInvoicePaymentDate({
       contract,
       client,
       incomeTransactions: txns,
       today,
+      ledgerPayments: ledger,
     });
     out.set(contract.id, lastPayment);
   }

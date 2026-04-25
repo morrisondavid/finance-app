@@ -9,20 +9,31 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { createInvoice, updateInvoice } from './mutations.js';
+import {
+  createInvoice,
+  updateInvoice,
+  recordInvoicePayments,
+} from './mutations.js';
 import {
   __resetInvoiceRegistryForTests,
   buildInvoiceRegistry,
   getInvoiceRegistry,
 } from './registry.js';
 import {
+  __resetInvoicePaymentRegistryForTests,
+  buildInvoicePaymentRegistry,
+  getInvoicePaymentRegistry,
+} from './payments-registry.js';
+import {
   getInvoicesCsvPath,
+  getInvoicePaymentsCsvPath,
   readInvoicesCsvFile,
+  readInvoicePaymentsCsvFile,
   writeInvoicesCsvFile,
   parseInvoiceRow,
 } from './csv-io.js';
 import { dcInvoice001, dcInvoice002 } from './test-helpers.js';
-import type { Invoice } from '../../../shared/api-contracts.js';
+import type { Invoice, InvoicePayment } from '../../../shared/api-contracts.js';
 
 let tmpDir: string;
 
@@ -36,10 +47,12 @@ beforeEach(() => {
   const seeded = [parseInvoiceRow(dcInvoice001), parseInvoiceRow(dcInvoice002)];
   writeInvoicesCsvFile(getInvoicesCsvPath(tmpDir), seeded);
   __resetInvoiceRegistryForTests(buildInvoiceRegistry(tmpDir));
+  __resetInvoicePaymentRegistryForTests(buildInvoicePaymentRegistry(tmpDir));
 });
 
 afterEach(() => {
   __resetInvoiceRegistryForTests();
+  __resetInvoicePaymentRegistryForTests();
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -188,5 +201,134 @@ describe('updateInvoice', () => {
     });
     const after = fs.readFileSync(getInvoicesCsvPath(tmpDir), 'utf-8');
     expect(after).toBe(before);
+  });
+});
+
+describe('recordInvoicePayments', () => {
+  function makePayment(overrides: Partial<InvoicePayment>): InvoicePayment {
+    return {
+      id: 'ip-DC-001-tx-1',
+      invoice_id: 'DC-001',
+      bank_transaction_id: 'tx-1',
+      payment_date: '2025-08-09',
+      amount_paid: 3960,
+      deposit_currency: 'GBP',
+      fx_rate_at_payment: null,
+      amount_in_invoice_currency: 3960,
+      fx_gain_loss: 0,
+      residual: 0,
+      created_at: '2026-04-25',
+      updated_at: null,
+      ...overrides,
+    };
+  }
+
+  it('appends rows, rewrites the CSV, and invalidates the registry', () => {
+    const payment = makePayment({});
+    const result = recordInvoicePayments({
+      payments: [payment],
+      invoicesDir: tmpDir,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payments.map(p => p.id)).toEqual(['ip-DC-001-tx-1']);
+
+    __resetInvoicePaymentRegistryForTests(buildInvoicePaymentRegistry(tmpDir));
+    const reg = getInvoicePaymentRegistry();
+    expect(reg.indexes.byId.get('ip-DC-001-tx-1')).toBeDefined();
+    expect(reg.indexes.byInvoiceId.get('DC-001')?.length).toBe(1);
+    expect(reg.indexes.byBankTransactionId.get('tx-1')?.invoice_id).toBe('DC-001');
+
+    const onDisk = readInvoicePaymentsCsvFile(getInvoicePaymentsCsvPath(tmpDir));
+    expect(onDisk.map(p => p.id)).toEqual(['ip-DC-001-tx-1']);
+  });
+
+  it('rejects an unknown invoice_id without writing', () => {
+    const before = fs.existsSync(getInvoicePaymentsCsvPath(tmpDir))
+      ? fs.readFileSync(getInvoicePaymentsCsvPath(tmpDir), 'utf-8')
+      : '';
+    const result = recordInvoicePayments({
+      payments: [makePayment({ invoice_id: 'DC-999' })],
+      invoicesDir: tmpDir,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('unknown-invoice');
+
+    const after = fs.existsSync(getInvoicePaymentsCsvPath(tmpDir))
+      ? fs.readFileSync(getInvoicePaymentsCsvPath(tmpDir), 'utf-8')
+      : '';
+    expect(after).toBe(before);
+  });
+
+  it('rejects a duplicate id (replaying a dry-run twice)', () => {
+    const payment = makePayment({});
+    const first = recordInvoicePayments({ payments: [payment], invoicesDir: tmpDir });
+    expect(first.ok).toBe(true);
+
+    __resetInvoicePaymentRegistryForTests(buildInvoicePaymentRegistry(tmpDir));
+
+    const second = recordInvoicePayments({ payments: [payment], invoicesDir: tmpDir });
+    expect(second.ok).toBe(false);
+    if (second.ok) return;
+    expect(second.code).toBe('duplicate-id');
+  });
+
+  it('rejects a duplicate bank_transaction_id', () => {
+    const first = makePayment({});
+    const ok = recordInvoicePayments({ payments: [first], invoicesDir: tmpDir });
+    expect(ok.ok).toBe(true);
+
+    __resetInvoicePaymentRegistryForTests(buildInvoicePaymentRegistry(tmpDir));
+
+    const second = makePayment({
+      id: 'ip-DC-002-tx-1',
+      invoice_id: 'DC-002',
+      bank_transaction_id: 'tx-1',
+      amount_paid: 12540,
+      amount_in_invoice_currency: 12540,
+    });
+
+    const result = recordInvoicePayments({ payments: [second], invoicesDir: tmpDir });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('duplicate-bank-tx');
+    if (result.code !== 'duplicate-bank-tx') return;
+    expect(result.bankTransactionId).toBe('tx-1');
+  });
+
+  it('rejects the whole batch on the first failure (no partial write)', () => {
+    const before = fs.existsSync(getInvoicePaymentsCsvPath(tmpDir))
+      ? fs.readFileSync(getInvoicePaymentsCsvPath(tmpDir), 'utf-8')
+      : '';
+    const result = recordInvoicePayments({
+      payments: [
+        makePayment({}),
+        makePayment({
+          id: 'ip-DC-002-tx-2',
+          invoice_id: 'DC-999',
+          bank_transaction_id: 'tx-2',
+        }),
+      ],
+      invoicesDir: tmpDir,
+    });
+    expect(result.ok).toBe(false);
+
+    const after = fs.existsSync(getInvoicePaymentsCsvPath(tmpDir))
+      ? fs.readFileSync(getInvoicePaymentsCsvPath(tmpDir), 'utf-8')
+      : '';
+    expect(after).toBe(before);
+  });
+
+  it('returns invalid when a row fails the schema', () => {
+    const result = recordInvoicePayments({
+      payments: [makePayment({ amount_paid: -1 })],
+      invoicesDir: tmpDir,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('invalid');
   });
 });
