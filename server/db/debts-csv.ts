@@ -29,13 +29,33 @@ export interface DebtCsvRow {
   openingBalanceDate: string;
   archived: boolean;
   /**
-   * Payment amounts used to disambiguate debts that share the same merchant
-   * pattern (e.g. two Barclays Partner Finance loans, or two NatWest mortgages
-   * whose amounts changed at renewal). When non-empty, the transaction matcher
-   * filters by `ROUND(ABS(amount), 2) IN (...)`. Empty array = no amount
-   * filter.
+   * Payment amounts the matcher should recognise on the transaction feed.
+   *
+   * Convention:
+   *   - `matchAmounts[0]` is the **current contractual monthly payment** —
+   *     the value any consumer of "what does this debt cost per month
+   *     today?" should read (leverage signal, runway, advisor maths).
+   *   - Subsequent entries are **alternative values** the matcher should
+   *     also recognise (post-rate-reset payment, partial fees, historical
+   *     rate). They exist to identify transactions, not to be summed.
+   *
+   * Active (non-archived) debts must carry at least one positive value.
+   * The matcher treats each entry as an exact value when
+   * {@link matchTolerancePct} is `0`; otherwise it accepts transactions
+   * whose absolute amount is within `±matchTolerancePct` of any entry.
    */
   matchAmounts: readonly number[];
+  /**
+   * Optional fuzzy-match band as a fraction (0–1). When `> 0`, any
+   * transaction whose `|amount|` falls within `matchAmount × (1 ± pct)`
+   * for any entry in {@link matchAmounts} is matched. When `0` (default),
+   * matching is exact. Useful for debts whose payment naturally drifts
+   * (e.g. Bounce Back Loan: 6% interest on declining balance produces a
+   * different number every month).
+   *
+   * Validated `0 ≤ x < 1`.
+   */
+  matchTolerancePct: number;
   kind: DebtKind;
   interestRate: number | null;
   fixedRateEndDate: string | null;
@@ -55,6 +75,7 @@ const HEADERS = [
   'opening_balance_date',
   'archived',
   'match_amounts',
+  'match_tolerance_pct',
   'kind',
   'interest_rate',
   'fixed_rate_end_date',
@@ -88,7 +109,8 @@ export const DEFAULT_DEBT_ROWS: readonly DebtCsvRow[] = [
     openingBalance: 13138.71,
     openingBalanceDate: '2026-04-19',
     archived: false,
-    matchAmounts: [],
+    matchAmounts: [399.49],
+    matchTolerancePct: 0,
     ...CONSUMER_DEFAULTS,
   },
   {
@@ -101,7 +123,11 @@ export const DEFAULT_DEBT_ROWS: readonly DebtCsvRow[] = [
     openingBalance: 22685.36,
     openingBalanceDate: '2026-04-19',
     archived: false,
-    matchAmounts: [],
+    // Interest on declining balance — drifts ~£508–£517 month-on-month.
+    // 2.5% band absorbs the natural ripple without bleeding into other
+    // Barclays patterns.
+    matchAmounts: [513.00],
+    matchTolerancePct: 0.025,
     ...CONSUMER_DEFAULTS,
   },
   {
@@ -114,7 +140,10 @@ export const DEFAULT_DEBT_ROWS: readonly DebtCsvRow[] = [
     openingBalance: 5518.23,
     openingBalanceDate: '2026-04-19',
     archived: false,
-    matchAmounts: [],
+    // Standard £390.71; one £412.71 catch-up payment in Jan 2026 listed
+    // explicitly so the matcher catches it without widening the band.
+    matchAmounts: [390.71, 412.71],
+    matchTolerancePct: 0,
     ...CONSUMER_DEFAULTS,
   },
   {
@@ -128,6 +157,7 @@ export const DEFAULT_DEBT_ROWS: readonly DebtCsvRow[] = [
     openingBalanceDate: '2026-04-19',
     archived: false,
     matchAmounts: [232.22],
+    matchTolerancePct: 0,
     ...CONSUMER_DEFAULTS,
   },
   {
@@ -141,6 +171,7 @@ export const DEFAULT_DEBT_ROWS: readonly DebtCsvRow[] = [
     openingBalanceDate: '2026-04-19',
     archived: false,
     matchAmounts: [192.66],
+    matchTolerancePct: 0,
     ...CONSUMER_DEFAULTS,
   },
   {
@@ -153,7 +184,9 @@ export const DEFAULT_DEBT_ROWS: readonly DebtCsvRow[] = [
     openingBalance: 428117,
     openingBalanceDate: '2024-03-14',
     archived: false,
+    // [0] is current; [1] is the post-reset stress scenario.
     matchAmounts: [2221.63, 3431.96],
+    matchTolerancePct: 0,
     kind: 'mortgage',
     interestRate: 4.4,
     fixedRateEndDate: '2029-06-30',
@@ -171,7 +204,10 @@ export const DEFAULT_DEBT_ROWS: readonly DebtCsvRow[] = [
     openingBalance: 214757.15,
     openingBalanceDate: '2021-11-30',
     archived: false,
+    // [0] is current interest-only @ 4.48%; remainder are historical /
+    // partial / fee values the matcher needs to identify in the feed.
     matchAmounts: [801.35, 1054.64, 306.35],
+    matchTolerancePct: 0,
     kind: 'mortgage',
     interestRate: 4.48,
     fixedRateEndDate: '2028-04-30',
@@ -189,7 +225,9 @@ export const DEFAULT_DEBT_ROWS: readonly DebtCsvRow[] = [
     openingBalance: 121785.99,
     openingBalanceDate: '2021-11-30',
     archived: false,
+    // [0] is current interest-only @ 6.74%.
     matchAmounts: [683.38, 630.99, 174.44],
+    matchTolerancePct: 0,
     kind: 'mortgage',
     interestRate: 6.74,
     fixedRateEndDate: null,
@@ -257,6 +295,7 @@ export function readDebtsFromCsvFile(csvPath: string): DebtCsvRow[] {
     const openingBalanceDateRaw = (row.opening_balance_date ?? '').trim();
     const archivedRaw = (row.archived ?? '').trim().toLowerCase();
     const matchAmountsRaw = (row.match_amounts ?? row.match_amount ?? '').trim();
+    const matchTolerancePctRaw = (row.match_tolerance_pct ?? '').trim();
     const kindRaw = (row.kind ?? '').trim().toLowerCase();
     const interestRateRaw = (row.interest_rate ?? '').trim();
     const fixedRateEndDateRaw = (row.fixed_rate_end_date ?? '').trim();
@@ -320,6 +359,27 @@ export function readDebtsFromCsvFile(csvPath: string): DebtCsvRow[] {
       if (!valid) continue;
     }
 
+    let matchTolerancePct = 0;
+    if (matchTolerancePctRaw !== '') {
+      const parsed = Number(matchTolerancePctRaw);
+      if (!Number.isFinite(parsed) || parsed < 0 || parsed >= 1) {
+        console.warn(
+          `[debts-csv] Dropping row ${id} with invalid match_tolerance_pct: "${matchTolerancePctRaw}" (must be 0 ≤ x < 1)`,
+        );
+        continue;
+      }
+      matchTolerancePct = parsed;
+    }
+
+    if (!archived && matchAmounts.length === 0) {
+      console.warn(
+        `[debts-csv] Dropping active row ${id}: match_amounts is empty. ` +
+          `Active debts must list at least one positive payment amount; ` +
+          `archive the row (archived=true) if it's no longer active.`,
+      );
+      continue;
+    }
+
     const kind: DebtKind = kindRaw === 'mortgage' ? 'mortgage' : 'consumer';
 
     let interestRate: number | null = null;
@@ -368,6 +428,7 @@ export function readDebtsFromCsvFile(csvPath: string): DebtCsvRow[] {
       openingBalanceDate: openingBalanceDateRaw,
       archived,
       matchAmounts,
+      matchTolerancePct,
       kind,
       interestRate,
       fixedRateEndDate,
@@ -401,6 +462,7 @@ export function writeDebtsToCsvFile(csvPath: string, rows: readonly DebtCsvRow[]
         r.openingBalanceDate,
         r.archived ? 'true' : '',
         r.matchAmounts.length === 0 ? '' : r.matchAmounts.map(a => String(round2(a))).join(';'),
+        r.matchTolerancePct === 0 ? '' : String(r.matchTolerancePct),
         r.kind === 'mortgage' ? 'mortgage' : '',
         r.interestRate == null ? '' : String(round2(r.interestRate)),
         r.fixedRateEndDate ?? '',

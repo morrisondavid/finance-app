@@ -22,6 +22,7 @@ import type {
   Client,
   Company,
   Invoice,
+  CurrencyCode,
 } from '../../../shared/api-contracts.js';
 import { escapeHtml, openModal, closeModal } from '../utils/dom';
 import { formatCurrency, formatIsoDateUk } from '../utils/formatting';
@@ -491,7 +492,11 @@ interface IngestOneSuccess {
   readonly supplierInvoiceNumber: string;
   readonly invoiceId: string;
   readonly total: number;
-  readonly currency: string;
+  readonly currency: CurrencyCode;
+}
+
+function narrowCurrency(value: string): CurrencyCode {
+  return value === 'AED' ? 'AED' : 'GBP';
 }
 
 function parseIngestSuccessBody(raw: unknown): IngestOneSuccess | null {
@@ -507,7 +512,7 @@ function parseIngestSuccessBody(raw: unknown): IngestOneSuccess | null {
     supplierInvoiceNumber: parsed.supplierInvoiceNumber,
     invoiceId: inv.id,
     total: parsed.total,
-    currency: inv.currency,
+    currency: narrowCurrency(inv.currency),
   };
 }
 

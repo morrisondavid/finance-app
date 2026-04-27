@@ -15,6 +15,7 @@ function metrics(over: {
   ap?: { ratio: number; passiveMonthly: number; activeMonthly: number; totalMonthly: number };
   ti?: { ratio: number; passiveMonthly: number; mandatoryMonthly: number };
 }): IncomeCompositionMetrics {
+  const emptyByKind = { contract: 0, 'rental-income': 0, 'recurring-detected': 0 } as const;
   return {
     clientConcentration: over.cc ?? {
       ratio: 0,
@@ -22,13 +23,15 @@ function metrics(over: {
       topClientMonthly: 0,
       totalActiveMonthly: 0,
     },
-    activePassiveRatio: over.ap ?? {
-      ratio: 0,
-      passiveMonthly: 0,
-      activeMonthly: 0,
-      totalMonthly: 0,
-      passiveByKind: { contract: 0, 'rental-income': 0, 'recurring-detected': 0 },
-    },
+    activePassiveRatio: over.ap !== undefined
+      ? { ...over.ap, passiveByKind: { ...emptyByKind } }
+      : {
+          ratio: 0,
+          passiveMonthly: 0,
+          activeMonthly: 0,
+          totalMonthly: 0,
+          passiveByKind: { ...emptyByKind },
+        },
     timeIndependence: over.ti ?? { ratio: 0, passiveMonthly: 0, mandatoryMonthly: 0 },
   };
 }

@@ -35,6 +35,7 @@ function createSchema(): void {
       opening_balance REAL NOT NULL DEFAULT 0 CHECK(opening_balance >= 0),
       opening_balance_date TEXT NOT NULL,
       match_amounts TEXT NOT NULL DEFAULT '',
+      match_tolerance_pct REAL NOT NULL DEFAULT 0 CHECK(match_tolerance_pct >= 0 AND match_tolerance_pct < 1),
       kind TEXT NOT NULL DEFAULT 'consumer' CHECK(kind IN ('consumer', 'mortgage')),
       interest_rate REAL,
       fixed_rate_end_date TEXT,
@@ -227,6 +228,7 @@ describe('debts repository', () => {
         originalLoanAmount: 1000,
         openingBalance: 800,
         openingBalanceDate: '2026-04-19',
+        matchAmounts: [100],
       });
       expect(DebtsRepo.getDebt('new-loan')?.name).toBe('New Loan');
       const csvPath = path.join(hoisted.debtsDir, DEBTS_CSV_FILENAME);
@@ -243,6 +245,7 @@ describe('debts repository', () => {
         originalLoanAmount: 100,
         openingBalance: 50,
         openingBalanceDate: '2026-04-19',
+        matchAmounts: [50],
       });
       expect(() =>
         DebtsRepo.createDebt({
@@ -253,6 +256,7 @@ describe('debts repository', () => {
           originalLoanAmount: 100,
           openingBalance: 50,
           openingBalanceDate: '2026-04-19',
+          matchAmounts: [50],
         }),
       ).toThrow(/already exists/);
     });
@@ -266,6 +270,7 @@ describe('debts repository', () => {
         originalLoanAmount: 1000,
         openingBalance: 500,
         openingBalanceDate: '2026-04-19',
+        matchAmounts: [50],
       });
       const updated = DebtsRepo.updateDebt('u', {
         name: 'Renamed',
@@ -287,6 +292,7 @@ describe('debts repository', () => {
         originalLoanAmount: 100,
         openingBalance: 50,
         openingBalanceDate: '2026-04-19',
+        matchAmounts: [50],
       });
       DebtsRepo.archiveDebt('a');
       expect(DebtsRepo.listDebts({ includeArchived: false })).toHaveLength(0);
@@ -302,6 +308,7 @@ describe('debts repository', () => {
         originalLoanAmount: 100,
         openingBalance: 80,
         openingBalanceDate: '2026-04-01',
+        matchAmounts: [50],
       });
       const updated = DebtsRepo.setOpeningDebtBalance('s', 60, '2026-05-01');
       expect(updated.openingBalance).toBe(60);
@@ -317,6 +324,8 @@ describe('debts repository', () => {
 
   describe('summary math', () => {
     beforeEach(() => {
+      // Test debt: matchAmounts intentionally lists every transaction amount used
+      // by this describe block so the matcher accepts each fixture row.
       DebtsRepo.createDebt({
         id: 'test',
         name: 'Test Debt',
@@ -326,6 +335,7 @@ describe('debts repository', () => {
         originalLoanDate: '2024-01-01',
         openingBalance: 500,
         openingBalanceDate: '2026-01-01',
+        matchAmounts: [90, 100, 120, 250, 5000],
       });
     });
 
@@ -445,6 +455,7 @@ describe('debts repository', () => {
         originalLoanAmount: 200,
         openingBalance: 100,
         openingBalanceDate: '2026-01-01',
+        matchAmounts: [50],
       });
       DebtsRepo.createDebt({
         id: 'zombie',
@@ -454,6 +465,7 @@ describe('debts repository', () => {
         originalLoanAmount: 100,
         openingBalance: 75,
         openingBalanceDate: '2026-01-01',
+        matchAmounts: [25],
       });
       DebtsRepo.archiveDebt('zombie');
 
@@ -473,6 +485,7 @@ describe('debts repository', () => {
         originalLoanAmount: 200000,
         openingBalance: 200000,
         openingBalanceDate: '2026-01-01',
+        matchAmounts: [800],
         kind: 'mortgage',
         repaymentType: 'interest-only',
         interestRate: 4.48,
@@ -499,6 +512,7 @@ describe('debts repository', () => {
         originalLoanAmount: 100000,
         openingBalance: 100000,
         openingBalanceDate: '2026-01-01',
+        matchAmounts: [400],
         kind: 'mortgage',
         repaymentType: 'interest-only',
         propertyValueEstimate: 150000,
@@ -523,6 +537,7 @@ describe('debts repository', () => {
         originalLoanAmount: 2000,
         openingBalance: 1000,
         openingBalanceDate: '2026-04-19',
+        matchAmounts: [200],
       });
       insertTransaction({ date: '2024-01-15', description: 'RECPAY jan', amount: -200, account: 'barclays-current', type: 'expense' });
       insertTransaction({ date: '2025-06-10', description: 'RECPAY jun', amount: -200, account: 'barclays-current', type: 'expense' });
@@ -551,6 +566,7 @@ describe('debts repository', () => {
         originalLoanAmount: 1000,
         openingBalance: 500,
         openingBalanceDate: '2026-04-19',
+        matchAmounts: [100],
       });
       insertTransaction({ date: '2025-01-10', description: 'IDEMPAY', amount: -100, account: 'barclays-current', type: 'expense' });
 
@@ -574,6 +590,7 @@ describe('debts repository', () => {
         originalLoanAmount: 1000,
         openingBalance: 500,
         openingBalanceDate: '2026-04-19',
+        matchAmounts: [100],
       });
       insertTransaction({ date: '2025-06-01', description: 'SOMETHING ELSE', amount: -100, account: 'barclays-current', type: 'expense' });
 
@@ -593,6 +610,7 @@ describe('debts repository', () => {
         originalLoanAmount: 1000,
         openingBalance: 800,
         openingBalanceDate: '2023-12-31',
+        matchAmounts: [100],
       });
       insertTransaction({ date: '2024-01-01', description: 'EARLYPAY', amount: -100, account: 'barclays-current', type: 'expense' });
 
@@ -612,6 +630,7 @@ describe('debts repository', () => {
         originalLoanAmount: 1000,
         openingBalance: 500,
         openingBalanceDate: '2026-04-19',
+        matchAmounts: [150],
       });
       insertTransaction({ date: '2025-07-20', description: 'CSVPAY', amount: -150, account: 'barclays-current', type: 'expense' });
 
@@ -713,6 +732,7 @@ describe('debts repository', () => {
         originalLoanAmount: 1000,
         openingBalance: 500,
         openingBalanceDate: '2026-04-19',
+        matchAmounts: [100],
       });
       // These should NOT be picked up as the earliest match.
       insertTransaction({ date: '2023-01-01', description: 'FILTERPAY refund', amount: 100, account: 'barclays-current', type: 'income' });

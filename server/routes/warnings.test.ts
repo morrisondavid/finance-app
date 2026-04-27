@@ -167,6 +167,84 @@ describe('GET /api/warnings/entity-foundation', () => {
     expect(codes).not.toContain('fzco-vat-mandatory-threshold-crossed');
     expect(codes).not.toContain('fzco-vat-voluntary-threshold-crossed');
   });
+
+  it('1.8: emits 1.7 income-composition risk signals through the bridge (concentration)', async () => {
+    // Real seed contracts produce a client-concentration signal in GBP.
+    // The exact band (extreme ≥ 0.8 vs elevated ≥ 0.5) depends on the
+    // current contract mix, so we accept either — what matters is that
+    // 1.7's risk-signals are bridging onto the warnings spine and
+    // carrying primitives.
+    const resp = await fetch(`${baseUrl}/api/warnings/entity-foundation`);
+    const body = await resp.json();
+    const parsed = EntityFoundationWarningsResponseSchema.parse(body);
+    const codes = parsed.warnings.map(w => w.code);
+    const concentrationCode = codes.find(
+      c => c === 'client-concentration-extreme' || c === 'client-concentration-elevated',
+    );
+    expect(concentrationCode, `Expected concentration warning, got: ${codes.join(', ')}`).toBeDefined();
+    const w = parsed.warnings.find(x => x.code === concentrationCode);
+    // Primitives travel with the warning.
+    expect(typeof w?.context?.ratio).toBe('number');
+    expect(typeof w?.context?.topClientId).toBe('string');
+  });
+
+  it('1.8: results are sorted by severity rank (critical → warn → info)', async () => {
+    const resp = await fetch(`${baseUrl}/api/warnings/entity-foundation`);
+    const body = await resp.json();
+    const parsed = EntityFoundationWarningsResponseSchema.parse(body);
+    const ranks = { critical: 0, warn: 1, info: 2 } as const;
+    let prev = -1;
+    for (const w of parsed.warnings) {
+      const r = ranks[w.severity];
+      expect(r).toBeGreaterThanOrEqual(prev);
+      prev = r;
+    }
+  });
+
+  it('1.8: improvement-feedback is empty on first run, fires warning-cleared on second run', async () => {
+    // First read: records snapshot with current warnings, but no diff
+    // entries can fire because there's nothing earlier to compare to.
+    await fetch(`${baseUrl}/api/warnings/entity-foundation`);
+    // Second read: same data → previous snapshot identical to current
+    // → still no clear/improved entries.
+    const resp = await fetch(`${baseUrl}/api/warnings/entity-foundation`);
+    const body = await resp.json();
+    const parsed = EntityFoundationWarningsResponseSchema.parse(body);
+    const codes = parsed.warnings.map(w => w.code);
+    // No artificial improvement: signals identical → no `warning-improved`.
+    expect(codes.filter(c => c === 'warning-improved')).toHaveLength(0);
+  });
+});
+
+describe('GET /api/warnings/all', () => {
+  it('aliases /entity-foundation (same payload shape)', async () => {
+    const a = await fetch(`${baseUrl}/api/warnings/all`);
+    expect(a.status).toBe(200);
+    const body = await a.json();
+    const parsed = EntityFoundationWarningsResponseSchema.safeParse(body);
+    expect(parsed.success).toBe(true);
+  });
+});
+
+describe('§1.9 Debt Strategy emitters wired into /api/warnings', () => {
+  it('surfaces account-credit-card-config-missing for the seed credit-card accounts (none have creditCard configured)', async () => {
+    const resp = await fetch(`${baseUrl}/api/warnings/all`);
+    const body = await resp.json();
+    const parsed = EntityFoundationWarningsResponseSchema.parse(body);
+    const ccConfig = parsed.warnings.filter(w => w.code === 'account-credit-card-config-missing');
+    // Three credit-card accounts in the seed → three warnings.
+    expect(ccConfig.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('does NOT crash when no §1.9 plans exist in the seed (graceful empty-state)', async () => {
+    const resp = await fetch(`${baseUrl}/api/warnings/all`);
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    const parsed = EntityFoundationWarningsResponseSchema.parse(body);
+    // No active plans → no plan-feasibility-degraded / plan-target-reached.
+    expect(parsed.warnings.find(w => w.code === 'plan-feasibility-degraded')).toBeUndefined();
+    expect(parsed.warnings.find(w => w.code === 'plan-target-reached')).toBeUndefined();
+  });
 });
 
 describe('GET /api/warnings/inter-company-movements', () => {

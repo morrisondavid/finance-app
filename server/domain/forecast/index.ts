@@ -46,3 +46,10 @@ export {
   runwayMonthsToDate,
   daysBetweenIsoUtc,
 } from './runway-metrics.js';
+
+export {
+  assembleRunway,
+  RUNWAY_HEADLINE_CURRENCIES,
+  type AssembleRunwayInput,
+  type AssembledRunway,
+} from './assemble-runway.js';

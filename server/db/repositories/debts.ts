@@ -38,13 +38,27 @@ export interface Debt {
   openingBalanceDate: string;
   archived: boolean;
   /**
-   * Payment amounts used to disambiguate debts that share the same merchant
-   * pattern (e.g. two Barclays Partner Finance loans, or two NatWest
-   * mortgages whose amounts changed at renewal). When non-empty, the
-   * transaction matcher filters by `ROUND(ABS(amount), 2) IN (...)`.
-   * Empty array = no amount filter.
+   * Payment amounts the matcher should recognise on the transaction feed.
+   *
+   * Convention:
+   *   - `matchAmounts[0]` is the **current contractual monthly payment**.
+   *     Read this for "what does this debt cost per month?" (leverage,
+   *     runway, advisor maths). Never sum the array.
+   *   - Subsequent entries are alternative values (post-rate-reset
+   *     amount, partial fees, historical rate) that the matcher should
+   *     also identify in the bank feed.
+   *
+   * Active (non-archived) debts must list at least one positive value;
+   * the matcher uses {@link matchTolerancePct} for fuzzy bands.
    */
   matchAmounts: number[];
+  /**
+   * Fuzzy-match band as a fraction (0–1). When `> 0`, transactions whose
+   * `|amount|` is within `matchAmount × (1 ± pct)` of any entry are
+   * matched. Used for debts whose payment naturally drifts (e.g. Bounce
+   * Back Loan: 6% interest on declining balance).
+   */
+  matchTolerancePct: number;
   kind: DebtKind;
   interestRate: number | null;
   fixedRateEndDate: string | null;
@@ -73,6 +87,7 @@ export interface DebtCreateInput {
   openingBalance: number;
   openingBalanceDate: string;
   matchAmounts?: number[];
+  matchTolerancePct?: number;
   kind?: DebtKind;
   interestRate?: number | null;
   fixedRateEndDate?: string | null;
@@ -91,6 +106,7 @@ export interface DebtUpdateInput {
   openingBalanceDate?: string;
   archived?: boolean;
   matchAmounts?: number[];
+  matchTolerancePct?: number;
   kind?: DebtKind;
   interestRate?: number | null;
   fixedRateEndDate?: string | null;
@@ -109,6 +125,7 @@ interface DebtRowShape {
   opening_balance: number;
   opening_balance_date: string;
   match_amounts: string;
+  match_tolerance_pct: number;
   kind: string;
   interest_rate: number | null;
   fixed_rate_end_date: string | null;
@@ -127,18 +144,20 @@ interface DebtRowShape {
 const DEBT_COLUMNS = `id, name, merchant_pattern, source_accounts,
   original_loan_amount, original_loan_date,
   opening_balance, opening_balance_date,
-  match_amounts, kind, interest_rate, fixed_rate_end_date,
+  match_amounts, match_tolerance_pct,
+  kind, interest_rate, fixed_rate_end_date,
   repayment_type, property_value_estimate, property_id,
   archived, updated_at`;
 
 const DEBT_INSERT_COLS = `id, name, merchant_pattern, source_accounts,
   original_loan_amount, original_loan_date,
   opening_balance, opening_balance_date,
-  match_amounts, kind, interest_rate, fixed_rate_end_date,
+  match_amounts, match_tolerance_pct,
+  kind, interest_rate, fixed_rate_end_date,
   repayment_type, property_value_estimate, property_id,
   archived, updated_at`;
 
-const DEBT_INSERT_PLACEHOLDERS = `?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')`;
+const DEBT_INSERT_PLACEHOLDERS = `?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')`;
 
 function csvPath(): string {
   return getDebtsCsvPath(DEBTS_DIR);
@@ -185,6 +204,7 @@ function rowToDebt(row: DebtRowShape): Debt {
     openingBalanceDate: row.opening_balance_date,
     archived: row.archived === 1,
     matchAmounts: parseMatchAmounts(row.match_amounts),
+    matchTolerancePct: row.match_tolerance_pct ?? 0,
     kind: parseKind(row.kind),
     interestRate: row.interest_rate == null ? null : round2(row.interest_rate),
     fixedRateEndDate: row.fixed_rate_end_date,
@@ -207,6 +227,7 @@ function rowToCsvRow(r: DebtRowShape): DebtCsvRow {
     openingBalanceDate: r.opening_balance_date,
     archived: r.archived === 1,
     matchAmounts: parseMatchAmounts(r.match_amounts),
+    matchTolerancePct: r.match_tolerance_pct ?? 0,
     kind: parseKind(r.kind),
     interestRate: r.interest_rate == null ? null : round2(r.interest_rate),
     fixedRateEndDate: r.fixed_rate_end_date,
@@ -231,6 +252,7 @@ function csvRowToInsertParams(r: DebtCsvRow): (string | number | null)[] {
     r.openingBalance,
     r.openingBalanceDate,
     serializeMatchAmounts(r.matchAmounts),
+    r.matchTolerancePct,
     r.kind,
     r.interestRate,
     r.fixedRateEndDate,
@@ -259,10 +281,26 @@ function buildDebtMatchClause(debt: Debt): DebtMatchClause {
   const placeholders = debt.sourceAccounts.map(() => '?').join(',');
   const params: (string | number)[] = [...debt.sourceAccounts, `%${debt.merchantPattern}%`];
   let sql = `type = 'expense' AND account IN (${placeholders}) AND description LIKE ?`;
-  if (debt.matchAmounts.length > 0) {
+  if (debt.matchAmounts.length === 0) {
+    return { sql, params };
+  }
+  if (debt.matchTolerancePct === 0) {
+    // Exact match: round both sides to 2dp and check membership.
     const amtPlaceholders = debt.matchAmounts.map(() => 'ROUND(?, 2)').join(',');
     sql += ` AND ROUND(ABS(amount), 2) IN (${amtPlaceholders})`;
     params.push(...debt.matchAmounts);
+    return { sql, params };
+  }
+  // Fuzzy band: OR a `BETWEEN min AND max` per matchAmount. Each amount gets
+  // its own ±tolerance window so tightly-spaced debts (bathroom A 232.22 vs
+  // bathroom B 192.66 on the same merchant pattern) stay disambiguated even
+  // with a non-zero tolerance.
+  const tol = debt.matchTolerancePct;
+  const ors = debt.matchAmounts.map(() => 'ABS(amount) BETWEEN ? AND ?').join(' OR ');
+  sql += ` AND (${ors})`;
+  for (const a of debt.matchAmounts) {
+    params.push(round2(a * (1 - tol)));
+    params.push(round2(a * (1 + tol)));
   }
   return { sql, params };
 }
@@ -317,6 +355,26 @@ function assertValidDebtInput(input: DebtCreateInput | (DebtUpdateInput & { id?:
       if (!Number.isFinite(a) || a <= 0) {
         throw new Error('Every matchAmounts entry must be > 0');
       }
+    }
+    // For new (create) inputs, matchAmounts is required to be non-empty
+    // when the debt isn't being explicitly archived. Updates leave it
+    // alone if not supplied; createDebt always seeds with the provided
+    // value (default `[]` historically). Enforce the active-row gate
+    // here too.
+    if ('id' in input && input.matchAmounts.length === 0) {
+      const isArchived = 'archived' in input && input.archived === true;
+      if (!isArchived) {
+        throw new Error(
+          'Active debts must have at least one positive matchAmounts entry. ' +
+            'Set archived=true if the debt is no longer active.',
+        );
+      }
+    }
+  }
+  if ('matchTolerancePct' in input && input.matchTolerancePct !== undefined) {
+    const tol = input.matchTolerancePct;
+    if (!Number.isFinite(tol) || tol < 0 || tol >= 1) {
+      throw new Error('matchTolerancePct must be a number in [0, 1)');
     }
   }
   if ('interestRate' in input && input.interestRate !== undefined && input.interestRate !== null) {
@@ -524,6 +582,13 @@ export function createDebt(input: DebtCreateInput): Debt {
   if (existing) {
     throw new Error(`Debt with id "${input.id}" already exists`);
   }
+  const matchAmounts = input.matchAmounts ?? [];
+  if (matchAmounts.length === 0) {
+    throw new Error(
+      'Active debts must have at least one positive matchAmounts entry. ' +
+        'Set archived=true after creation if the debt is no longer active.',
+    );
+  }
   const csvRow: DebtCsvRow = {
     id: input.id,
     name: input.name.trim(),
@@ -534,7 +599,8 @@ export function createDebt(input: DebtCreateInput): Debt {
     openingBalance: input.openingBalance,
     openingBalanceDate: input.openingBalanceDate,
     archived: false,
-    matchAmounts: input.matchAmounts ?? [],
+    matchAmounts,
+    matchTolerancePct: input.matchTolerancePct ?? 0,
     kind: input.kind ?? 'consumer',
     interestRate: input.interestRate ?? null,
     fixedRateEndDate: input.fixedRateEndDate ?? null,
@@ -571,6 +637,8 @@ export function updateDebt(id: string, patch: DebtUpdateInput): Debt {
     openingBalanceDate: patch.openingBalanceDate ?? existing.openingBalanceDate,
     archived: patch.archived ?? existing.archived,
     matchAmounts: patch.matchAmounts !== undefined ? patch.matchAmounts : existing.matchAmounts,
+    matchTolerancePct:
+      patch.matchTolerancePct !== undefined ? patch.matchTolerancePct : existing.matchTolerancePct,
     kind: patch.kind ?? existing.kind,
     interestRate: patch.interestRate !== undefined ? patch.interestRate : existing.interestRate,
     fixedRateEndDate: patch.fixedRateEndDate !== undefined ? patch.fixedRateEndDate : existing.fixedRateEndDate,
@@ -579,13 +647,21 @@ export function updateDebt(id: string, patch: DebtUpdateInput): Debt {
     propertyId: patch.propertyId !== undefined ? patch.propertyId : existing.propertyId,
   };
 
+  if (!next.archived && next.matchAmounts.length === 0) {
+    throw new Error(
+      'Active debts must have at least one positive matchAmounts entry. ' +
+        'Set archived=true if the debt is no longer active.',
+    );
+  }
+
   const db = getDb();
   db.prepare(
     `UPDATE debts SET
       name = ?, merchant_pattern = ?, source_accounts = ?,
       original_loan_amount = ?, original_loan_date = ?,
       opening_balance = ?, opening_balance_date = ?,
-      match_amounts = ?, kind = ?, interest_rate = ?, fixed_rate_end_date = ?,
+      match_amounts = ?, match_tolerance_pct = ?,
+      kind = ?, interest_rate = ?, fixed_rate_end_date = ?,
       repayment_type = ?, property_value_estimate = ?, property_id = ?,
       archived = ?, updated_at = datetime('now')
     WHERE id = ?`,
@@ -598,6 +674,7 @@ export function updateDebt(id: string, patch: DebtUpdateInput): Debt {
     next.openingBalance,
     next.openingBalanceDate,
     serializeMatchAmounts(next.matchAmounts),
+    next.matchTolerancePct,
     next.kind,
     next.interestRate,
     next.fixedRateEndDate,

@@ -73,7 +73,7 @@ describe('syncContractRenewalDeadlines (integration)', () => {
 
   it('first boot seeds one deadline per active contract with an end_date', () => {
     const seeded = runSeeder();
-    expect(seeded.sort()).toEqual([
+    expect([...seeded].sort()).toEqual([
       'contract-renewal-dc-sow-2026',
       'contract-renewal-lf-2026-mar',
     ]);

@@ -13,9 +13,10 @@
  */
 
 import { Calendar } from '@fullcalendar/core';
-import type { DateClickArg, EventInput } from '@fullcalendar/core';
+import type { EventInput } from '@fullcalendar/core';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
+import type { DateClickArg } from '@fullcalendar/interaction';
 
 import type {
   Contract,

@@ -173,6 +173,26 @@ export function initSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_category_budgets_account
       ON category_budgets(account);
 
+    -- warning_snapshots: one row per warning at the time the consolidated
+    -- /api/warnings/entity-foundation route is read. Lets the
+    -- 1.8 improvement-feedback emitter diff today warnings against an
+    -- earlier snapshot and surface warning-cleared / warning-improved
+    -- entries when risk drops over time.
+    CREATE TABLE IF NOT EXISTS warning_snapshots (
+      snapshot_at TEXT NOT NULL,
+      warning_id TEXT NOT NULL,
+      code TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      entity_id TEXT,
+      title TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_warning_snapshots_snapshot_at
+      ON warning_snapshots(snapshot_at);
+    CREATE INDEX IF NOT EXISTS idx_warning_snapshots_fingerprint
+      ON warning_snapshots(fingerprint);
+
     -- debts: external creditors (loans, finance agreements) we don't have
     -- statement feeds for. Canonical source is debts/debts.csv; this table is
     -- reloaded from CSV on startup and re-exported to CSV on every mutation.
@@ -186,6 +206,7 @@ export function initSchema(): void {
       opening_balance REAL NOT NULL DEFAULT 0 CHECK(opening_balance >= 0),
       opening_balance_date TEXT NOT NULL,
       match_amounts TEXT NOT NULL DEFAULT '',
+      match_tolerance_pct REAL NOT NULL DEFAULT 0 CHECK(match_tolerance_pct >= 0 AND match_tolerance_pct < 1),
       kind TEXT NOT NULL DEFAULT 'consumer' CHECK(kind IN ('consumer', 'mortgage')),
       interest_rate REAL,
       fixed_rate_end_date TEXT,
@@ -297,6 +318,22 @@ export function migrateDebtsMatchAmountsIfNeeded(): void {
     db.exec(`ALTER TABLE debts ADD COLUMN match_amounts TEXT NOT NULL DEFAULT ''`);
     console.log('[Database] Added debts.match_amounts');
   }
+}
+
+/**
+ * Add the per-debt fuzzy-match band column. Safe to call repeatedly.
+ */
+export function migrateDebtsMatchTolerancePctIfNeeded(): void {
+  const db = getDb();
+  const cols = db.prepare(`PRAGMA table_info('debts')`).all() as Array<{ name: string }>;
+  if (cols.length === 0) return;
+  const colNames = new Set(cols.map(c => c.name));
+  if (colNames.has('match_tolerance_pct')) return;
+  db.exec(
+    `ALTER TABLE debts ADD COLUMN match_tolerance_pct REAL NOT NULL DEFAULT 0 ` +
+      `CHECK(match_tolerance_pct >= 0 AND match_tolerance_pct < 1)`,
+  );
+  console.log('[Database] Added debts.match_tolerance_pct');
 }
 
 /**

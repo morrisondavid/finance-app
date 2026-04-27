@@ -62,20 +62,38 @@ export function categorizeTransaction(
 interface CategoryConfig {
   colour: string;
   budgetable: boolean;
+  /**
+   * Quality-of-life flag (§1.9 Debt Strategy planner). When `true`, the
+   * planner respects the user's budget cap as **inviolable** — never
+   * proposes reducing it. When `false` (or undefined), the budget cap
+   * is **malleable**: the planner shows it in the activation UI as a
+   * candidate the user can manually trim to free more headroom.
+   *
+   * Mandatory categories (`budgetable: false`) omit this field — they
+   * are a third class entirely (already classified upstream by
+   * `isMandatoryCategory`).
+   *
+   * Defaults seeded from a sensible UK personal-finance default set;
+   * users override by editing this file (v1).
+   */
+  qol?: boolean;
 }
 
 export const CATEGORY_CONFIG: Record<CategoryName, CategoryConfig> = {
-  'Groceries':             { colour: '#22C55E', budgetable: true },
-  'Eating Out':            { colour: '#F97316', budgetable: true },
-  'Transport':             { colour: '#EAB308', budgetable: true },
-  'Shopping':              { colour: '#EC4899', budgetable: true },
-  'Entertainment':         { colour: '#A855F7', budgetable: true },
-  'Childcare & Education': { colour: '#3B82F6', budgetable: true },
-  'Health & Personal':     { colour: '#10B981', budgetable: true },
-  'Business':              { colour: '#14B8A6', budgetable: true },
-  'Accommodation':         { colour: '#B45309', budgetable: true },
-  'Travel':                { colour: '#FB923C', budgetable: true },
-  'Other':                 { colour: '#C084FC', budgetable: true },
+  // QoL: true — inviolable lifestyle budgets the planner never touches.
+  'Groceries':             { colour: '#22C55E', budgetable: true, qol: true },
+  'Childcare & Education': { colour: '#3B82F6', budgetable: true, qol: true },
+  'Health & Personal':     { colour: '#10B981', budgetable: true, qol: true },
+  // Malleable — planner can show as adjustment candidates in plan UI.
+  'Eating Out':            { colour: '#F97316', budgetable: true, qol: false },
+  'Transport':             { colour: '#EAB308', budgetable: true, qol: false },
+  'Shopping':              { colour: '#EC4899', budgetable: true, qol: false },
+  'Entertainment':         { colour: '#A855F7', budgetable: true, qol: false },
+  'Business':              { colour: '#14B8A6', budgetable: true, qol: false },
+  'Accommodation':         { colour: '#B45309', budgetable: true, qol: false },
+  'Travel':                { colour: '#FB923C', budgetable: true, qol: false },
+  'Other':                 { colour: '#C084FC', budgetable: true, qol: false },
+  // Mandatory (`budgetable: false`) — `qol` field intentionally omitted.
   'Housing':               { colour: '#6366F1', budgetable: false },
   'Utilities':             { colour: '#06B6D4', budgetable: false },
   'Insurance':             { colour: '#8B5CF6', budgetable: false },

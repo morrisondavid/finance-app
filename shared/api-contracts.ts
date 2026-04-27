@@ -2121,6 +2121,7 @@ export const WarningSeveritySchema = z.enum(['info', 'warn', 'critical']);
 export type WarningSeverity = z.infer<typeof WarningSeveritySchema>;
 
 export const EntityFoundationWarningCodeSchema = z.enum([
+  // §1.1 + earlier
   'company-tbc-fields',
   'client-tbc-fields',
   'contract-ending-soon',
@@ -2135,8 +2136,58 @@ export const EntityFoundationWarningCodeSchema = z.enum([
   'invoice-period-invalid',
   'invoice-unmatched-deposit',
   'invoice-days-mismatch',
+  // §1.6 (runway thresholds)
+  'runway-low',
+  'runway-mandatory-low',
+  'trapped-cash',
+  // §1.7 (income composition risk signals)
+  'client-concentration-extreme',
+  'client-concentration-elevated',
+  'time-independence-low',
+  'time-independence-elevated',
+  'mode-concentration-extreme',
+  'passive-income-zero',
+  'leveraged-passive-income',
+  // §1.8 new
+  'tax-reserve-underfunded',
+  'tax-reserve-trajectory-missing',
+  'ad-hoc-spend-escalating',
+  'warning-improved',
+  'warning-cleared',
+  // §1.9 — Debt Strategy Advisor
+  'account-credit-card-config-missing',
+  'plan-blocked-incomplete-budgets',
+  'plan-blocked-fzco-no-savings-account',
+  'mortgage-rate-reset-soon',
+  'debt-unregistered',
+  'plan-feasibility-degraded',
+  'plan-budget-blown',
+  'plan-transfer-not-set-up',
+  'plan-transfer-missed',
+  'plan-standing-order-can-be-stopped',
+  'plan-infeasible',
+  'plan-target-reached',
 ]);
 export type EntityFoundationWarningCode = z.infer<typeof EntityFoundationWarningCodeSchema>;
+
+/**
+ * Primitive types accepted in `EntityFoundationWarning.context`.
+ *
+ * `context` carries the raw numbers/strings the warning was derived from
+ * (numerator, denominator, threshold, ratio, propertyId, merchant, etc.)
+ * so AI/MCP/future consumers can reason about the warning without
+ * parsing the rendered prose. Existing UI keeps reading
+ * `title/detail/recommended_action` strings; nothing breaks.
+ *
+ * Kept deliberately flat (no nested objects) so JSON consumers don't
+ * have to walk a tree to find primitives.
+ */
+const WarningContextValueSchema = z.union([
+  z.number(),
+  z.string(),
+  z.boolean(),
+  z.null(),
+]);
 
 export const EntityFoundationWarningSchema = z.object({
   id: z.string().min(1),
@@ -2146,13 +2197,42 @@ export const EntityFoundationWarningSchema = z.object({
   detail: z.string().min(1),
   recommended_action: z.string().min(1),
   sources: z.array(z.string().min(1)).min(1),
+  /**
+   * Optional. When present, the entity this warning is scoped to (or
+   * `null` for explicitly household-level warnings). Drives the entity
+   * filter on the Warnings tab. Omitted by legacy emitters that don't
+   * carry an entity discriminator — those rows fall through any filter.
+   */
+  entityId: EntityIdSchema.nullable().optional(),
+  /**
+   * Optional. Flat dictionary of the primitive values the warning was
+   * derived from (e.g. `{ ratio: 1.0, topClientId: 'delta-capita',
+   * threshold: 0.8 }`). Same convention as 1.7's `RiskSignal` data
+   * fields — the canonical place for AI / future surfaces to read the
+   * numbers without parsing prose. Optional for backward compatibility;
+   * legacy emitters keep populating only the strings.
+   */
+  context: z.record(z.string(), WarningContextValueSchema).optional(),
 });
 export type EntityFoundationWarning = z.infer<typeof EntityFoundationWarningSchema>;
+
+/**
+ * Forward-naming alias. As the warnings spine consolidates more sources
+ * (1.6 runway, 1.7 risk signals, tax reserve, ad-hoc spend) the
+ * `EntityFoundationWarning` name no longer reflects the scope. New code
+ * should import `Warning` / `WarningSchema`; the legacy names stay for
+ * back-compat and are removed in a future cleanup pass.
+ */
+export const WarningSchema = EntityFoundationWarningSchema;
+export type Warning = EntityFoundationWarning;
 
 export const EntityFoundationWarningsResponseSchema = z.object({
   warnings: z.array(EntityFoundationWarningSchema),
 });
 export type EntityFoundationWarningsResponse = z.infer<typeof EntityFoundationWarningsResponseSchema>;
+
+export const WarningsResponseSchema = EntityFoundationWarningsResponseSchema;
+export type WarningsResponse = EntityFoundationWarningsResponse;
 
 // ============================================
 // Transaction category overrides

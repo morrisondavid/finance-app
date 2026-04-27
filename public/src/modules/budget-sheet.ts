@@ -16,7 +16,25 @@ import { escapeHtml } from '../utils/dom';
 import { getSelectedCurrency } from './state';
 import { loadDashboard } from './dashboard';
 import { eligibleCategoriesForPeriod } from './budget-sheet-utils';
+import {
+  isQoLCategory,
+  isMandatoryCategory,
+} from '../../../shared/expenses-insight';
 import type { BudgetPeriod, BudgetRow } from '../../../shared/api-contracts.js';
+
+/**
+ * §1.9 — render a small pill next to budgetable categories so the
+ * user can see at a glance whether the planner treats them as
+ * inviolable (QoL) or adjustable (Malleable). Mandatory categories
+ * get no pill (they're a separate class entirely).
+ */
+function qolPillForCategory(category: string): string {
+  if (isMandatoryCategory(category)) return '';
+  if (isQoLCategory(category)) {
+    return ` <span class="budget-qol-pill budget-qol-pill--qol" title="Inviolable lifestyle floor — the §1.9 Debt Strategy planner never proposes cutting this">QoL</span>`;
+  }
+  return ` <span class="budget-qol-pill budget-qol-pill--malleable" title="Malleable — the §1.9 Debt Strategy planner can propose cuts here when activating a plan">Malleable</span>`;
+}
 
 let wired = false;
 /** All category names (same for every account). */
@@ -138,10 +156,11 @@ export async function loadBudgetSheet(): Promise<void> {
         const fyCol =
           fyCap !== null ? formatCurrency(fyCap) : '—';
         const periodLabel = b.period === 'yearly' ? 'Yearly' : 'Monthly';
+        const qolPill = qolPillForCategory(b.category);
         return `
       <tr>
         <td>${escapeHtml(b.account)}</td>
-        <td>${escapeHtml(b.category)}</td>
+        <td>${escapeHtml(b.category)}${qolPill}</td>
         <td>${escapeHtml(periodLabel)}</td>
         <td class="ad-hoc-expenses-col-num">${formatCurrency(b.amount)}</td>
         <td class="ad-hoc-expenses-col-num">${fyCol}</td>

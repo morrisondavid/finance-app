@@ -5817,3 +5817,143 @@ body {
     flex-direction: column;
   }
 }
+
+/* §1.9 Debt Strategy section */
+.debt-strategy-section-wrapper {
+  margin-top: 32px;
+}
+.debt-strategy-section {
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  padding-top: 24px;
+}
+.debt-strategy-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.debt-strategy-subhead {
+  margin-top: 24px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted, #6b7280);
+}
+.debt-strategy-headroom-grid,
+.debt-strategy-suggested-grid,
+.debt-strategy-active-grid,
+.debt-strategy-paused-grid,
+.debt-strategy-completed-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+.debt-strategy-bucket {
+  background: var(--color-bg-elevated, #fafafa);
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border, #e5e7eb);
+}
+.debt-strategy-bucket-label {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.debt-strategy-bucket-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--color-text-muted, #6b7280);
+}
+.debt-strategy-bucket-row strong {
+  color: var(--color-text, #1f2937);
+}
+.debt-strategy-plan {
+  background: var(--color-bg-elevated, #fafafa);
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border, #e5e7eb);
+}
+.debt-strategy-plan--suggested {
+  border-color: var(--color-accent, #6366f1);
+  border-style: dashed;
+}
+.debt-strategy-plan--active {
+  border-color: #10b981;
+}
+.debt-strategy-plan--completed {
+  background: linear-gradient(180deg, #ecfdf5 0%, #fafafa 100%);
+}
+.debt-strategy-plan-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.debt-strategy-plan-header h4 {
+  margin: 0;
+  font-size: 15px;
+}
+.debt-strategy-plan-meta {
+  font-size: 12px;
+  color: var(--color-text-muted, #6b7280);
+}
+.debt-strategy-plan-projection {
+  font-size: 12px;
+  color: var(--color-text-muted, #6b7280);
+  margin-bottom: 8px;
+}
+.debt-strategy-plan-movements {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+}
+.debt-strategy-movement {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.debt-strategy-movement-ack {
+  color: #10b981;
+  font-weight: 500;
+}
+.debt-strategy-plan-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.debt-strategy-plan-completed-at {
+  font-size: 12px;
+  color: #10b981;
+  font-weight: 500;
+}
+.debt-strategy-empty {
+  font-style: italic;
+  color: var(--color-text-muted, #6b7280);
+  font-size: 13px;
+  grid-column: 1 / -1;
+}
+
+/* §1.9 QoL/Malleable pill on Budgets tab */
+.budget-qol-pill {
+  display: inline-block;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.budget-qol-pill--qol {
+  background: #d1fae5;
+  color: #065f46;
+}
+.budget-qol-pill--malleable {
+  background: #fef3c7;
+  color: #92400e;
+}

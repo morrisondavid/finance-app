@@ -5,7 +5,7 @@ import type { AccountStartingBalance } from './build-forecast.js';
 
 const TODAY = '2026-04-25';
 
-function bal(account: string, balance: number, currency = 'GBP' as const, entityId: string | null = 'autonize-it-ltd'): AccountStartingBalance {
+function bal(account: string, balance: number, currency: import('../../../shared/api-contracts.js').CurrencyCode = 'GBP', entityId: string | null = 'autonize-it-ltd'): AccountStartingBalance {
   return { account: account as import('../../../shared/api-contracts.js').AccountName, balance, currency, entityId: entityId as import('../../../shared/api-contracts.js').EntityId | null };
 }
 

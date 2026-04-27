@@ -40,7 +40,8 @@ describe('debts CSV', () => {
         openingBalance: 13138.71,
         openingBalanceDate: '2026-04-19',
         archived: false,
-        matchAmounts: [],
+        matchAmounts: [399.49],
+        matchTolerancePct: 0,
         kind: 'consumer',
         interestRate: null,
         fixedRateEndDate: null,
@@ -59,6 +60,7 @@ describe('debts CSV', () => {
         openingBalanceDate: '2026-04-19',
         archived: false,
         matchAmounts: [800.5, 750],
+        matchTolerancePct: 0.025,
         kind: 'mortgage',
         interestRate: 4.48,
         fixedRateEndDate: '2028-04-30',
@@ -81,13 +83,15 @@ describe('debts CSV', () => {
     expect(fc.openingBalance).toBe(13138.71);
     expect(fc.openingBalanceDate).toBe('2026-04-19');
     expect(fc.archived).toBe(false);
-    expect(fc.matchAmounts).toEqual([]);
+    expect(fc.matchAmounts).toEqual([399.49]);
+    expect(fc.matchTolerancePct).toBe(0);
     expect(fc.kind).toBe('consumer');
     expect(fc.interestRate).toBeNull();
 
     const n = parsed.find(r => r.id === 'novuna')!;
     expect(n.originalLoanDate).toBeNull();
     expect(n.matchAmounts).toEqual([800.5, 750]);
+    expect(n.matchTolerancePct).toBe(0.025);
     expect(n.kind).toBe('mortgage');
     expect(n.interestRate).toBe(4.48);
     expect(n.fixedRateEndDate).toBe('2028-04-30');
@@ -109,6 +113,7 @@ describe('debts CSV', () => {
         openingBalanceDate: '2026-04-19',
         archived: false,
         matchAmounts: [232.22],
+        matchTolerancePct: 0,
         kind: 'consumer',
         interestRate: null,
         fixedRateEndDate: null,
@@ -127,6 +132,7 @@ describe('debts CSV', () => {
         openingBalanceDate: '2026-04-19',
         archived: false,
         matchAmounts: [192.66],
+        matchTolerancePct: 0,
         kind: 'consumer',
         interestRate: null,
         fixedRateEndDate: null,
@@ -148,7 +154,7 @@ describe('debts CSV', () => {
     writeDebtsToCsvFile(csvPath, [DEFAULT_DEBT_ROWS[0]]);
     const content = fs.readFileSync(csvPath, 'utf8');
     expect(content.startsWith(
-      'id,name,merchant_pattern,source_accounts,original_loan_amount,original_loan_date,opening_balance,opening_balance_date,archived,match_amounts,kind,interest_rate,fixed_rate_end_date,repayment_type,property_value_estimate,property_id\n',
+      'id,name,merchant_pattern,source_accounts,original_loan_amount,original_loan_date,opening_balance,opening_balance_date,archived,match_amounts,match_tolerance_pct,kind,interest_rate,fixed_rate_end_date,repayment_type,property_value_estimate,property_id\n',
     )).toBe(true);
   });
 
@@ -164,7 +170,8 @@ describe('debts CSV', () => {
         openingBalance: 500,
         openingBalanceDate: '2026-04-19',
         archived: false,
-        matchAmounts: [],
+        matchAmounts: [50],
+        matchTolerancePct: 0,
         kind: 'consumer',
         interestRate: null,
         fixedRateEndDate: null,
@@ -178,7 +185,7 @@ describe('debts CSV', () => {
     expect(parsed[0].sourceAccounts).toEqual(['barclays-current', 'natwest']);
   });
 
-  it('round-trips archived flag', () => {
+  it('round-trips archived flag (and active-row gate skips archived rows with empty match_amounts)', () => {
     const row: DebtCsvRow = {
       id: 'gone',
       name: 'Gone',
@@ -190,6 +197,7 @@ describe('debts CSV', () => {
       openingBalanceDate: '2026-04-19',
       archived: true,
       matchAmounts: [],
+      matchTolerancePct: 0,
       kind: 'consumer',
       interestRate: null,
       fixedRateEndDate: null,
@@ -201,7 +209,7 @@ describe('debts CSV', () => {
     expect(readDebtsFromCsvFile(csvPath)[0].archived).toBe(true);
   });
 
-  it('ensureDebtsCsvWithDefaults writes header + 7 seeded rows when file is missing', () => {
+  it('ensureDebtsCsvWithDefaults writes header + 8 seeded rows when file is missing', () => {
     expect(fs.existsSync(csvPath)).toBe(false);
     ensureDebtsCsvWithDefaults(csvPath);
     expect(fs.existsSync(csvPath)).toBe(true);
@@ -220,9 +228,15 @@ describe('debts CSV', () => {
     const a = parsed.find(r => r.id === 'bathroom-loan-a')!;
     const b = parsed.find(r => r.id === 'bathroom-loan-b')!;
     const fc = parsed.find(r => r.id === 'funding-circle')!;
+    const bbl = parsed.find(r => r.id === 'bounce-back-loan')!;
+    const nov = parsed.find(r => r.id === 'novuna')!;
     expect(a.matchAmounts).toEqual([232.22]);
     expect(b.matchAmounts).toEqual([192.66]);
-    expect(fc.matchAmounts).toEqual([]);
+    // §1.8: every active default debt now lists at least one positive match.
+    expect(fc.matchAmounts).toEqual([399.49]);
+    expect(bbl.matchAmounts).toEqual([513.00]);
+    expect(bbl.matchTolerancePct).toBe(0.025);
+    expect(nov.matchAmounts).toEqual([390.71, 412.71]);
     // Consumer defaults have kind=consumer; mortgages have kind=mortgage.
     expect(fc.kind).toBe('consumer');
     const m1 = parsed.find(r => r.id === 'mortgage-hunters-square')!;
@@ -247,7 +261,7 @@ describe('debts CSV', () => {
   });
 
   it('ensureDebtsCsvWithDefaults is a no-op when the file already exists', () => {
-    fs.writeFileSync(csvPath, 'id,name,merchant_pattern,source_accounts,original_loan_amount,original_loan_date,opening_balance,opening_balance_date,archived,match_amounts,kind,interest_rate,fixed_rate_end_date,repayment_type,property_value_estimate,property_id\n', 'utf8');
+    fs.writeFileSync(csvPath, 'id,name,merchant_pattern,source_accounts,original_loan_amount,original_loan_date,opening_balance,opening_balance_date,archived,match_amounts,match_tolerance_pct,kind,interest_rate,fixed_rate_end_date,repayment_type,property_value_estimate,property_id\n', 'utf8');
     const before = fs.readFileSync(csvPath, 'utf8');
     ensureDebtsCsvWithDefaults(csvPath);
     const after = fs.readFileSync(csvPath, 'utf8');
@@ -256,7 +270,7 @@ describe('debts CSV', () => {
 
   describe('validation', () => {
     const header =
-      'id,name,merchant_pattern,source_accounts,original_loan_amount,original_loan_date,opening_balance,opening_balance_date,archived,match_amounts,kind,interest_rate,fixed_rate_end_date,repayment_type,property_value_estimate,property_id\n';
+      'id,name,merchant_pattern,source_accounts,original_loan_amount,original_loan_date,opening_balance,opening_balance_date,archived,match_amounts,match_tolerance_pct,kind,interest_rate,fixed_rate_end_date,repayment_type,property_value_estimate,property_id\n';
 
     beforeEach(() => {
       vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -334,8 +348,8 @@ describe('debts CSV', () => {
     it('duplicate ids — last row wins', () => {
       fs.writeFileSync(
         csvPath,
-        `${header}dup,First,X,barclays-current,1000,,500,2026-04-19,,\n`
-          + `dup,Second,X,barclays-current,2000,,1500,2026-04-19,,\n`,
+        `${header}dup,First,X,barclays-current,1000,,500,2026-04-19,,100,\n`
+          + `dup,Second,X,barclays-current,2000,,1500,2026-04-19,,100,\n`,
         'utf8',
       );
       const parsed = readDebtsFromCsvFile(csvPath);
@@ -363,15 +377,48 @@ describe('debts CSV', () => {
       expect(readDebtsFromCsvFile(csvPath)).toHaveLength(0);
     });
 
-    it('treats empty match_amounts as empty array', () => {
+    it('drops active rows with empty match_amounts (§1.8 active-row gate)', () => {
       fs.writeFileSync(
         csvPath,
-        `${header}legacy,Legacy,X,barclays-current,1000,,500,2026-04-19,,\n`,
+        `${header}legacy,Legacy,X,barclays-current,1000,,500,2026-04-19,,,\n`,
+        'utf8',
+      );
+      const parsed = readDebtsFromCsvFile(csvPath);
+      // Active debt with empty match_amounts is dropped — silence is dangerous.
+      expect(parsed).toHaveLength(0);
+    });
+
+    it('preserves archived rows with empty match_amounts', () => {
+      fs.writeFileSync(
+        csvPath,
+        `${header}legacy,Legacy,X,barclays-current,1000,,500,2026-04-19,true,,\n`,
         'utf8',
       );
       const parsed = readDebtsFromCsvFile(csvPath);
       expect(parsed).toHaveLength(1);
+      expect(parsed[0].archived).toBe(true);
       expect(parsed[0].matchAmounts).toEqual([]);
+    });
+
+    it('drops rows with match_tolerance_pct outside [0, 1)', () => {
+      fs.writeFileSync(
+        csvPath,
+        `${header}bad-tol,BadTol,X,barclays-current,1000,,500,2026-04-19,,100,1\n`
+          + `${'bad-tol2,BadTol2,X,barclays-current,1000,,500,2026-04-19,,100,-0.1\n'}`,
+        'utf8',
+      );
+      expect(readDebtsFromCsvFile(csvPath)).toHaveLength(0);
+    });
+
+    it('parses match_tolerance_pct round-trip', () => {
+      fs.writeFileSync(
+        csvPath,
+        `${header}bbl,BBL,0520A,barclays-current,1000,,500,2026-04-19,,513,0.025\n`,
+        'utf8',
+      );
+      const parsed = readDebtsFromCsvFile(csvPath);
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0].matchTolerancePct).toBe(0.025);
     });
 
     it('parses semicolon-delimited match_amounts', () => {
@@ -388,7 +435,7 @@ describe('debts CSV', () => {
     it('missing kind defaults to consumer (backward compat)', () => {
       fs.writeFileSync(
         csvPath,
-        `${header}old,Old Debt,X,barclays-current,1000,,500,2026-04-19,,\n`,
+        `${header}old,Old Debt,X,barclays-current,1000,,500,2026-04-19,,100,\n`,
         'utf8',
       );
       const parsed = readDebtsFromCsvFile(csvPath);
@@ -423,6 +470,7 @@ describe('debts CSV', () => {
           openingBalanceDate: '2026-04-19',
           archived: false,
           matchAmounts: [800],
+          matchTolerancePct: 0,
           kind: 'mortgage',
           interestRate: 4.48,
           fixedRateEndDate: '2028-04-30',

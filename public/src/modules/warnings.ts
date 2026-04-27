@@ -1,17 +1,16 @@
 /**
- * Warnings tab — top-level surface for every warning the app emits
- * (Roadmap 1.1 Phase 7 for the entity-foundation slice; Roadmap 1.8
- * will extend this module with the full Solvency Warnings Engine).
+ * Warnings tab — top-level surface for every warning the app emits.
  *
- * Currently renders two sections:
- *   - Entity-foundation warnings: TBC fields on `company.csv`, FZCO
- *     CT / QFZP gates, UAE VAT thresholds, IFZA license renewal, and
- *     the aggregate unclassified-inter-company count.
- *   - Inter-company movements (Phase 8): per-pair classification UI
- *     backed by `transaction-category-overrides.csv`.
+ * §1.8 made this the consolidated spine: the same `EntityFoundationWarning`
+ * shape now carries entity-foundation, payment-window, invoice-row,
+ * invoice-days-mismatch, runway thresholds (1.6), income-composition risk
+ * signals (1.7), tax-reserve warnings, ad-hoc-spend escalation, and
+ * snapshot-diff `warning-improved` / `warning-cleared` entries — all
+ * served by `GET /api/warnings/entity-foundation` (and its `/all` alias).
  *
- * An empty state is shown only for the entity-foundation section;
- * the movements section has its own built-in empty copy.
+ * Renders two sections:
+ *   - Consolidated warnings list (entity filter + optional source-group toggle).
+ *   - Inter-company movements (Phase 8): per-pair classification UI.
  */
 
 import {
@@ -32,11 +31,35 @@ import type { CategoryName } from '../../../shared/category-names';
 const WARNINGS_CONTAINER_ID = 'entity-foundation-warnings';
 const EMPTY_STATE_ID = 'warnings-empty-state';
 const MOVEMENTS_BODY_ID = 'inter-company-movements-body';
+const ENTITY_FILTER_ID = 'warnings-entity-filter';
+const GROUP_TOGGLE_ID = 'warnings-group-toggle';
+
+/**
+ * Cached last-fetched warnings so the entity-filter + group-toggle UI
+ * controls can re-render without round-tripping to the server.
+ */
+let cachedWarnings: readonly EntityFoundationWarning[] = [];
+let entityFilter: string = '';
+let groupBySource: boolean = false;
 
 export function initWarnings(): void {
   const body = document.getElementById(MOVEMENTS_BODY_ID);
   if (body !== null) {
     body.addEventListener('click', handleMovementsClick);
+  }
+  const entityFilterEl = document.getElementById(ENTITY_FILTER_ID);
+  if (entityFilterEl instanceof HTMLSelectElement) {
+    entityFilterEl.addEventListener('change', () => {
+      entityFilter = entityFilterEl.value;
+      rerenderCachedWarnings();
+    });
+  }
+  const groupToggleEl = document.getElementById(GROUP_TOGGLE_ID);
+  if (groupToggleEl instanceof HTMLInputElement) {
+    groupToggleEl.addEventListener('change', () => {
+      groupBySource = groupToggleEl.checked;
+      rerenderCachedWarnings();
+    });
   }
 }
 
@@ -51,9 +74,10 @@ async function loadEntityFoundation(): Promise<void> {
 
   try {
     const response = await fetchEntityFoundationWarnings();
-    renderWarnings(container, response.warnings);
+    cachedWarnings = response.warnings;
+    rerenderCachedWarnings();
     if (emptyState) {
-      emptyState.hidden = response.warnings.length > 0;
+      emptyState.hidden = applyControls(cachedWarnings).length > 0;
     }
   } catch (error) {
     console.error('Failed to load warnings:', error);
@@ -63,6 +87,29 @@ async function loadEntityFoundation(): Promise<void> {
       emptyState.innerHTML = '<p class="error">Failed to load warnings. Please try again.</p>';
     }
   }
+}
+
+function rerenderCachedWarnings(): void {
+  const container = document.getElementById(WARNINGS_CONTAINER_ID);
+  if (!container) return;
+  const filtered = applyControls(cachedWarnings);
+  renderWarnings(container, filtered);
+  const emptyState = document.getElementById(EMPTY_STATE_ID);
+  if (emptyState) {
+    emptyState.hidden = filtered.length > 0;
+  }
+}
+
+/**
+ * Apply the entity filter to the cached set. Warnings without an
+ * `entityId` (legacy emitters) pass through any filter — they're not
+ * scoped to a specific entity.
+ */
+function applyControls(
+  warnings: readonly EntityFoundationWarning[],
+): readonly EntityFoundationWarning[] {
+  if (entityFilter === '') return warnings;
+  return warnings.filter(w => w.entityId === undefined || w.entityId === entityFilter);
 }
 
 async function loadInterCompanyMovements(): Promise<void> {
@@ -75,6 +122,39 @@ async function loadInterCompanyMovements(): Promise<void> {
     console.error('Failed to load inter-company movements:', error);
     body.innerHTML = '<p class="error">Failed to load inter-company movements. Please try again.</p>';
   }
+}
+
+/**
+ * Source-group families for the optional grouped view. The prefix of
+ * the warning's `code` determines its group — e.g. `runway-low` →
+ * `runway-*`. Codes that don't fit any prefix fall into "Other".
+ */
+const SOURCE_GROUPS: ReadonlyArray<{ readonly label: string; readonly match: (code: string) => boolean }> = [
+  { label: 'Runway (1.6)', match: c => c.startsWith('runway-') || c === 'trapped-cash' },
+  { label: 'Income composition (1.7)', match: c =>
+      c.startsWith('client-concentration') ||
+      c.startsWith('time-independence') ||
+      c === 'mode-concentration-extreme' ||
+      c === 'passive-income-zero' ||
+      c === 'leveraged-passive-income' },
+  { label: 'Tax reserves', match: c => c.startsWith('tax-reserve') },
+  { label: 'Ad-hoc spend', match: c => c.startsWith('ad-hoc-spend') },
+  { label: 'Invoices', match: c => c.startsWith('invoice-') || c === 'payment-outside-contract-window' },
+  { label: 'Entity foundation', match: c =>
+      c === 'company-tbc-fields' ||
+      c === 'client-tbc-fields' ||
+      c === 'contract-ending-soon' ||
+      c.startsWith('fzco-') ||
+      c === 'ifza-license-renewal-due' ||
+      c === 'inter-company-movement-unclassified' },
+  { label: 'Improvements', match: c => c === 'warning-improved' || c === 'warning-cleared' },
+];
+
+function groupKeyFor(code: string): string {
+  for (const g of SOURCE_GROUPS) {
+    if (g.match(code)) return g.label;
+  }
+  return 'Other';
 }
 
 export function renderWarnings(
@@ -92,15 +172,58 @@ export function renderWarnings(
 
   container.hidden = false;
   container.dataset.severity = highest;
-  container.innerHTML = `
+
+  const headerHtml = `
     <header class="entity-foundation-warnings__header">
       <span class="entity-foundation-warnings__icon" aria-hidden="true">${severityIcon(highest)}</span>
-      <h3 class="entity-foundation-warnings__title">${warnings.length} entity-foundation ${warnings.length === 1 ? 'warning' : 'warnings'}</h3>
+      <h3 class="entity-foundation-warnings__title">${warnings.length} ${warnings.length === 1 ? 'warning' : 'warnings'}</h3>
     </header>
-    <ul class="entity-foundation-warnings__list">
-      ${sorted.map(renderWarningItem).join('')}
-    </ul>
   `;
+
+  if (!groupBySource) {
+    container.innerHTML = `
+      ${headerHtml}
+      <ul class="entity-foundation-warnings__list">
+        ${sorted.map(renderWarningItem).join('')}
+      </ul>
+    `;
+    return;
+  }
+
+  // Grouped view: one section per source-group, each internally
+  // severity-sorted.
+  const byGroup = new Map<string, EntityFoundationWarning[]>();
+  for (const w of sorted) {
+    const key = groupKeyFor(w.code);
+    const list = byGroup.get(key) ?? [];
+    list.push(w);
+    byGroup.set(key, list);
+  }
+  const groupSections: string[] = [];
+  for (const g of SOURCE_GROUPS) {
+    const list = byGroup.get(g.label);
+    if (!list || list.length === 0) continue;
+    groupSections.push(`
+      <section class="entity-foundation-warnings__group" data-group="${escapeHtml(g.label)}">
+        <h4 class="entity-foundation-warnings__group-heading">${escapeHtml(g.label)} (${list.length})</h4>
+        <ul class="entity-foundation-warnings__list">
+          ${list.map(renderWarningItem).join('')}
+        </ul>
+      </section>
+    `);
+  }
+  const other = byGroup.get('Other');
+  if (other && other.length > 0) {
+    groupSections.push(`
+      <section class="entity-foundation-warnings__group" data-group="Other">
+        <h4 class="entity-foundation-warnings__group-heading">Other (${other.length})</h4>
+        <ul class="entity-foundation-warnings__list">
+          ${other.map(renderWarningItem).join('')}
+        </ul>
+      </section>
+    `);
+  }
+  container.innerHTML = `${headerHtml}${groupSections.join('')}`;
 }
 
 function renderWarningItem(w: EntityFoundationWarning): string {

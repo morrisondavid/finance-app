@@ -1,0 +1,360 @@
+/**
+ * Debt Strategy section UI (§1.9). Renders under the existing Debts tab.
+ *
+ * Three panels:
+ *   - Suggested plans — auto-derived from /api/debt-strategy/state's
+ *     `suggestedPlans` field; the user clicks Activate to persist.
+ *   - Active plans — with inline progress + acknowledge/pause/resume.
+ *   - Completed plans — celebratory archive.
+ *
+ * Uses the same CSS conventions as the existing Debts module.
+ */
+
+import { escapeHtml, escapeAttribute } from '../utils/dom';
+import { formatCurrency, formatIsoDateUkLong } from '../utils/formatting';
+import type { CurrencyCode } from '../../../shared/api-contracts.js';
+
+type PlanIntensity = 'aggressive' | 'medium' | 'passive';
+
+function asCurrency(value: string): CurrencyCode {
+  return value === 'AED' ? 'AED' : 'GBP';
+}
+
+interface PlanLite {
+  id: string;
+  display_name: string;
+  goal_type: 'pay-off-debt' | 'save-for-target';
+  target_id: string | null;
+  target_amount: number | null;
+  intensity: PlanIntensity;
+  monthly_allocation: number;
+  status: 'suggested' | 'active' | 'paused' | 'completed';
+  activated_at: string;
+  completed_at: string | null;
+  projected_completion_date: string | null;
+  currency: string;
+  scope: string;
+}
+
+interface MovementLite {
+  id: string;
+  plan_id: string;
+  from_account: string;
+  to_account: string;
+  amount: number;
+  day_of_month: number;
+  acknowledged_at: string | null;
+}
+
+interface BucketHeadroomLite {
+  key: string;
+  currency: string;
+  scope: string;
+  totalHeadroom: number;
+  availableHeadroom: number;
+}
+
+interface DebtStrategyStateResponse {
+  today: string;
+  headroomByBucket: BucketHeadroomLite[];
+  activePlans: PlanLite[];
+  pausedPlans: PlanLite[];
+  completedPlans: PlanLite[];
+  suggestedPlans: PlanLite[];
+  movements: MovementLite[];
+}
+
+interface DebtStrategyTabState {
+  data: DebtStrategyStateResponse | null;
+  activatingId: string | null;
+}
+
+const tabState: DebtStrategyTabState = {
+  data: null,
+  activatingId: null,
+};
+
+async function fetchState(): Promise<void> {
+  const res = await fetch('/api/debt-strategy/state');
+  if (!res.ok) throw new Error(`Failed to load debt strategy state: ${res.status}`);
+  tabState.data = (await res.json()) as DebtStrategyStateResponse;
+}
+
+function bucketLabel(b: BucketHeadroomLite): string {
+  const scopeLabel = b.scope === 'household' ? 'Household' : b.scope;
+  return `${scopeLabel} (${b.currency})`;
+}
+
+function renderHeadroom(state: DebtStrategyStateResponse): string {
+  if (state.headroomByBucket.length === 0) {
+    return '<p class="debt-strategy-empty">Headroom will appear here once your forecast settles.</p>';
+  }
+  const cards = state.headroomByBucket
+    .map(b => {
+      const cur = asCurrency(b.currency);
+      return `
+      <div class="debt-strategy-bucket">
+        <div class="debt-strategy-bucket-label">${escapeHtml(bucketLabel(b))}</div>
+        <div class="debt-strategy-bucket-row">
+          <span>Total headroom</span>
+          <strong>${escapeHtml(formatCurrency(b.totalHeadroom, cur))}</strong>
+        </div>
+        <div class="debt-strategy-bucket-row">
+          <span>Available for new plans</span>
+          <strong>${escapeHtml(formatCurrency(b.availableHeadroom, cur))}</strong>
+        </div>
+      </div>
+    `;
+    })
+    .join('');
+  return `<div class="debt-strategy-headroom-grid">${cards}</div>`;
+}
+
+function planCard(plan: PlanLite, movements: MovementLite[]): string {
+  const cur = asCurrency(plan.currency);
+  const movementsHtml = movements
+    .filter(m => m.plan_id === plan.id)
+    .map(m => `
+      <div class="debt-strategy-movement">
+        <span>${escapeHtml(formatCurrency(m.amount, cur))} from ${escapeHtml(m.from_account)} to ${escapeHtml(m.to_account)} on the ${m.day_of_month}th</span>
+        ${
+          m.acknowledged_at !== null
+            ? `<span class="debt-strategy-movement-ack">✓ Set up at ${escapeHtml(m.acknowledged_at)}</span>`
+            : `<button type="button" class="btn btn-sm" data-action="acknowledge" data-plan-id="${escapeAttribute(plan.id)}" data-movement-id="${escapeAttribute(m.id)}">I've set this up</button>`
+        }
+      </div>
+    `)
+    .join('');
+
+  const projection =
+    plan.projected_completion_date !== null
+      ? `<div class="debt-strategy-plan-projection">Projected clear: ${escapeHtml(formatIsoDateUkLong(plan.projected_completion_date))}</div>`
+      : '';
+
+  return `
+    <article class="debt-strategy-plan debt-strategy-plan--${plan.status}">
+      <header class="debt-strategy-plan-header">
+        <h4>${escapeHtml(plan.display_name)}</h4>
+        <span class="debt-strategy-plan-meta">${escapeHtml(plan.intensity)} · ${escapeHtml(formatCurrency(plan.monthly_allocation, cur))}/mo</span>
+      </header>
+      ${projection}
+      <div class="debt-strategy-plan-movements">${movementsHtml}</div>
+      <footer class="debt-strategy-plan-actions">
+        ${
+          plan.status === 'active'
+            ? `<button type="button" class="btn btn-sm" data-action="pause" data-plan-id="${escapeAttribute(plan.id)}">Pause</button>`
+            : ''
+        }
+        ${
+          plan.status === 'paused'
+            ? `<button type="button" class="btn btn-sm" data-action="resume" data-plan-id="${escapeAttribute(plan.id)}">Resume</button>`
+            : ''
+        }
+        ${
+          plan.status !== 'completed'
+            ? `<button type="button" class="btn btn-sm btn-danger" data-action="delete" data-plan-id="${escapeAttribute(plan.id)}">Delete</button>`
+            : `<span class="debt-strategy-plan-completed-at">Completed ${escapeHtml(plan.completed_at ?? '')}</span>`
+        }
+      </footer>
+    </article>
+  `;
+}
+
+function suggestedCard(sp: PlanLite): string {
+  const cur = asCurrency(sp.currency);
+  return `
+    <article class="debt-strategy-plan debt-strategy-plan--suggested">
+      <header class="debt-strategy-plan-header">
+        <h4>${escapeHtml(sp.display_name)}</h4>
+        <span class="debt-strategy-plan-meta">${escapeHtml(formatCurrency(sp.monthly_allocation, cur))}/mo at ${escapeHtml(sp.intensity)}</span>
+      </header>
+      ${
+        sp.projected_completion_date !== null
+          ? `<div class="debt-strategy-plan-projection">Projected clear: ${escapeHtml(formatIsoDateUkLong(sp.projected_completion_date))}</div>`
+          : ''
+      }
+      <footer class="debt-strategy-plan-actions">
+        <button type="button" class="btn btn-primary btn-sm" data-action="activate-suggested" data-plan-id="${escapeAttribute(sp.id)}">Activate</button>
+      </footer>
+    </article>
+  `;
+}
+
+function render(state: DebtStrategyStateResponse): string {
+  const suggested = state.suggestedPlans.length > 0
+    ? state.suggestedPlans.map(suggestedCard).join('')
+    : '<p class="debt-strategy-empty">No suggestions right now — every active consumer debt has a plan.</p>';
+  const active = state.activePlans.length > 0
+    ? state.activePlans.map(p => planCard(p, state.movements)).join('')
+    : '<p class="debt-strategy-empty">No active plans yet. Activate a suggestion above to get started.</p>';
+  const paused = state.pausedPlans.length > 0
+    ? state.pausedPlans.map(p => planCard(p, state.movements)).join('')
+    : '';
+  const completed = state.completedPlans.length > 0
+    ? state.completedPlans.map(p => planCard(p, state.movements)).join('')
+    : '';
+
+  return `
+    <section class="debt-strategy-section">
+      <header class="debt-strategy-header">
+        <h3>Debt Strategy</h3>
+        <button type="button" class="btn btn-sm" id="debt-strategy-sandbox-btn">What if?</button>
+      </header>
+
+      <h4 class="debt-strategy-subhead">Headroom by bucket</h4>
+      ${renderHeadroom(state)}
+
+      <h4 class="debt-strategy-subhead">Suggested plans</h4>
+      <div class="debt-strategy-suggested-grid">${suggested}</div>
+
+      <h4 class="debt-strategy-subhead">Active plans</h4>
+      <div class="debt-strategy-active-grid">${active}</div>
+
+      ${paused ? `<h4 class="debt-strategy-subhead">Paused plans</h4><div class="debt-strategy-paused-grid">${paused}</div>` : ''}
+      ${completed ? `<h4 class="debt-strategy-subhead">Completed plans</h4><div class="debt-strategy-completed-grid">${completed}</div>` : ''}
+    </section>
+  `;
+}
+
+async function activateSuggested(planId: string): Promise<void> {
+  const intensity = window.prompt('Intensity? (aggressive | medium | passive)', 'medium');
+  if (intensity === null) return;
+  if (!['aggressive', 'medium', 'passive'].includes(intensity)) {
+    window.alert('Invalid intensity. Choose aggressive, medium, or passive.');
+    return;
+  }
+  const res = await fetch(`/api/debt-strategy/plans/${encodeURIComponent(planId)}/activate-suggested`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ intensity, dayOfMonth: 1 }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    window.alert(`Could not activate plan: ${body}`);
+    return;
+  }
+  await fetchAndRender();
+}
+
+async function pauseOrResume(planId: string, action: 'pause' | 'resume'): Promise<void> {
+  const res = await fetch(`/api/debt-strategy/plans/${encodeURIComponent(planId)}/${action}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+  if (!res.ok) {
+    window.alert(`Failed to ${action} plan.`);
+    return;
+  }
+  await fetchAndRender();
+}
+
+async function deletePlan(planId: string): Promise<void> {
+  if (!window.confirm('Delete this plan? This will also remove its movements.')) return;
+  const res = await fetch(`/api/debt-strategy/plans/${encodeURIComponent(planId)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    window.alert('Failed to delete plan.');
+    return;
+  }
+  await fetchAndRender();
+}
+
+async function acknowledgeMovement(planId: string, movementId: string): Promise<void> {
+  const res = await fetch(
+    `/api/debt-strategy/plans/${encodeURIComponent(planId)}/movements/${encodeURIComponent(movementId)}/acknowledge`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    },
+  );
+  if (!res.ok) {
+    window.alert('Failed to acknowledge.');
+    return;
+  }
+  await fetchAndRender();
+}
+
+async function runSandbox(): Promise<void> {
+  const multStr = window.prompt(
+    'What-if sandbox: enter an income multiplier (e.g. 0.5 = halve income; 0 = lose all contracts)',
+    '0.5',
+  );
+  if (multStr === null) return;
+  const mult = parseFloat(multStr);
+  if (!Number.isFinite(mult) || mult <= 0) {
+    window.alert('Invalid multiplier.');
+    return;
+  }
+  const res = await fetch('/api/debt-strategy/sandbox', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ scenario: { incomeMultiplier: mult } }),
+  });
+  if (!res.ok) {
+    window.alert('Sandbox failed.');
+    return;
+  }
+  const body = (await res.json()) as DebtStrategyStateResponse;
+  const summary = body.headroomByBucket
+    .map(b => `${bucketLabel(b)}: total £${b.totalHeadroom.toFixed(0)} → available £${b.availableHeadroom.toFixed(0)}`)
+    .join('\n');
+  window.alert(`Sandbox @ x${mult} income:\n\n${summary}`);
+}
+
+function attachHandlers(container: HTMLElement): void {
+  container.addEventListener('click', e => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+    const action = target.dataset.action;
+    const planId = target.dataset.planId;
+    const movementId = target.dataset.movementId;
+    if (action === 'activate-suggested' && planId) {
+      void activateSuggested(planId);
+    } else if (action === 'pause' && planId) {
+      void pauseOrResume(planId, 'pause');
+    } else if (action === 'resume' && planId) {
+      void pauseOrResume(planId, 'resume');
+    } else if (action === 'delete' && planId) {
+      void deletePlan(planId);
+    } else if (action === 'acknowledge' && planId && movementId) {
+      void acknowledgeMovement(planId, movementId);
+    } else if (target.id === 'debt-strategy-sandbox-btn') {
+      void runSandbox();
+    }
+  });
+}
+
+let attachedContainer: HTMLElement | null = null;
+
+async function fetchAndRender(): Promise<void> {
+  await fetchState();
+  const container = document.getElementById('debt-strategy-section');
+  if (!container) return;
+  if (tabState.data === null) {
+    container.innerHTML = '<p class="debt-strategy-empty">Loading…</p>';
+    return;
+  }
+  container.innerHTML = render(tabState.data);
+  if (attachedContainer !== container) {
+    attachHandlers(container);
+    attachedContainer = container;
+  }
+}
+
+export async function initDebtStrategy(): Promise<void> {
+  try {
+    await fetchAndRender();
+  } catch (e) {
+    const container = document.getElementById('debt-strategy-section');
+    if (container) {
+      container.innerHTML = `<p class="debt-strategy-empty">Could not load: ${escapeHtml(String(e))}</p>`;
+    }
+  }
+}
+
+export function reloadDebtStrategy(): void {
+  void fetchAndRender();
+}

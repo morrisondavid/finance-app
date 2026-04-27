@@ -20,6 +20,7 @@ import publicHolidaysRouter from './routes/public-holidays.js';
 import forecastRouter from './routes/forecast.js';
 import runwayRouter from './routes/runway.js';
 import incomeCompositionRouter from './routes/income-composition.js';
+import debtStrategyRouter from './routes/debt-strategy.js';
 import { normalizeAllFiles } from './utils/filename-normalizer.js';
 import { initDatabase, closeDatabase } from './db/index.js';
 
@@ -59,6 +60,7 @@ app.use('/api/public-holidays', publicHolidaysRouter);
 app.use('/api/forecast', forecastRouter);
 app.use('/api/runway', runwayRouter);
 app.use('/api/income-composition', incomeCompositionRouter);
+app.use('/api/debt-strategy', debtStrategyRouter);
 
 if (isProduction) {
   // SPA fallback — serve index.html for non-API routes

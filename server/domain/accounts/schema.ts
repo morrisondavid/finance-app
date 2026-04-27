@@ -56,6 +56,44 @@ export const BusinessTaxConfigSchema = z.object({
 });
 export type BusinessTaxConfig = z.infer<typeof BusinessTaxConfigSchema>;
 
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Credit-card-specific configuration (§1.9). Optional on every
+ * account; only meaningful on `type: 'credit-card'` rows. When
+ * populated, the §1.9 Debt Strategy planner can model "move debt
+ * onto this card" plans honestly. When absent on a credit-card
+ * account, the planner refuses to consider that card and the §1.8
+ * `account-credit-card-config-missing` warning surfaces the gap.
+ *
+ * All percentages are decimal fractions (`0.249` = 24.9% APR), same
+ * convention as `interestRate` on `Debt`.
+ */
+export const CreditCardPromoSchema = z.object({
+  /** Promotional APR while the intro window is active. */
+  apr: z.number().min(0).max(1),
+  /** ISO date the promo intro period ends. After this, `standardApr` applies. */
+  expiresAt: z.string().regex(ISO_DATE_RE),
+  /** Up-front transfer fee as a decimal fraction of the moved balance. */
+  transferFeePct: z.number().min(0).max(1),
+  /** Required minimum monthly payment as a decimal fraction of (current or original) balance. */
+  minPaymentPct: z.number().min(0).max(1),
+  /**
+   * Whether missing the minimum payment terminates the promo (true on
+   * most UK 0%-balance-transfer offers — a single late payment ends
+   * the intro APR and reverts to the standard rate).
+   */
+  minPaymentTerminatesPromo: z.boolean(),
+});
+export type CreditCardPromo = z.infer<typeof CreditCardPromoSchema>;
+
+export const CreditCardConfigSchema = z.object({
+  /** Standard APR after any promo period (or always, if no promo active). */
+  standardApr: z.number().min(0).max(1),
+  promo: CreditCardPromoSchema.optional(),
+});
+export type CreditCardConfig = z.infer<typeof CreditCardConfigSchema>;
+
 const BaseAccountConfigSchema = z.object({
   name: AccountNameSchema,
   label: z.string(),
@@ -66,6 +104,8 @@ const BaseAccountConfigSchema = z.object({
   excludeTransfersFromIncome: z.boolean(),
   showTaxLiabilities: z.boolean(),
   quarterOverlapMonths: z.number().optional(),
+  /** §1.9 — credit-card-specific terms. Optional everywhere. */
+  creditCard: CreditCardConfigSchema.optional(),
 });
 
 export const BusinessAccountConfigSchema = BaseAccountConfigSchema.extend({

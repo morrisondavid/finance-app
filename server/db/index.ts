@@ -20,6 +20,7 @@ import {
   migrateCategoryBudgetsIfNeeded,
   migrateCategoryBudgetsBudgetPeriodIfNeeded,
   migrateDebtsMatchAmountsIfNeeded,
+  migrateDebtsMatchTolerancePctIfNeeded,
   migrateDebtsMortgageFieldsIfNeeded,
   migrateFixedExpenseSimulationExclusionsIfNeeded,
   migrateObligationsIfNeeded,
@@ -134,6 +135,7 @@ export async function initDatabase(): Promise<void> {
   migrateCategoryBudgetsIfNeeded();
   migrateCategoryBudgetsBudgetPeriodIfNeeded();
   migrateDebtsMatchAmountsIfNeeded();
+  migrateDebtsMatchTolerancePctIfNeeded();
   migrateDebtsMortgageFieldsIfNeeded();
   migrateFixedExpenseSimulationExclusionsIfNeeded();
 

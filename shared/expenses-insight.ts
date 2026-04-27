@@ -32,7 +32,21 @@ export const QOL_CATEGORIES = new Set(
   CATEGORY_NAMES.filter((c) => !NON_QOL_CATEGORIES.has(c)),
 );
 
-function isQoLCategory(category: string): boolean {
+/**
+ * Internal predicate for the dashboard's bills-vs-lifestyle insight
+ * partitioning. Returns true for any category that's NOT in
+ * {@link NON_QOL_CATEGORIES} — i.e. anything we'd render in the
+ * "discretionary lifestyle" bucket of the monthly insight chart.
+ *
+ * This is the **legacy QoL-by-complement** definition. §1.9 introduced
+ * a stricter notion of "QoL" (the inviolable lifestyle floor for the
+ * Debt Strategy planner — exported below as {@link isQoLCategory}).
+ * The two definitions deliberately differ: the legacy set is broader
+ * (includes Eating Out, Travel, Shopping, etc.); the strict set is
+ * just the three explicitly-tagged ones (Groceries, Childcare &
+ * Education, Health & Personal).
+ */
+function isNonMandatoryBudgetable(category: string): boolean {
   for (const c of QOL_CATEGORIES) {
     if (c === category) return true;
   }
@@ -48,6 +62,38 @@ function isQoLCategory(category: string): boolean {
  */
 export function isMandatoryCategory(category: string): boolean {
   for (const c of NON_QOL_CATEGORIES) {
+    if (c === category) return true;
+  }
+  return false;
+}
+
+/**
+ * Strict QoL category set (§1.9 — Debt Strategy planner). These are
+ * the categories the planner treats as **inviolable**: it never
+ * proposes reducing a budget cap on these. Anything else is either
+ * mandatory (caught by {@link isMandatoryCategory}) or malleable
+ * (the planner can show it as a manual-adjustment candidate in the
+ * activation UI).
+ *
+ * This set must stay in sync with the `qol: true` tagged entries in
+ * `server/utils/categorizer.ts` `CATEGORY_CONFIG`. A dedicated test
+ * locks the invariant.
+ */
+export const QOL_STRICT_CATEGORIES = new Set<CategoryName>([
+  'Groceries',
+  'Childcare & Education',
+  'Health & Personal',
+]);
+
+/**
+ * Strict QoL-category predicate (§1.9). Returns true ONLY for the
+ * categories the planner is forbidden from proposing cuts to.
+ * Mandatory categories return false (they're a separate class —
+ * use {@link isMandatoryCategory} for those). Malleable categories
+ * (Eating Out, Transport, Shopping, etc.) also return false.
+ */
+export function isQoLCategory(category: string): boolean {
+  for (const c of QOL_STRICT_CATEGORIES) {
     if (c === category) return true;
   }
   return false;
@@ -139,7 +185,7 @@ export function buildExpensesInsight(
           debtMediumTerm += item.amount;
         }
       }
-      if (item.accountCategory === 'personal' && isQoLCategory(item.category)) {
+      if (item.accountCategory === 'personal' && isNonMandatoryBudgetable(item.category)) {
         qualityOfLifeExpenses += item.amount;
       }
       if (item.sourceAccount === 'natwest' && item.accountCategory === 'personal') {

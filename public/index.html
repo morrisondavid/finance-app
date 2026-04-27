@@ -921,6 +921,9 @@
         <div id="debt-mortgage-list" class="debt-grid" aria-live="polite"></div>
       </div>
 
+      <!-- §1.9 Debt Strategy section -->
+      <div id="debt-strategy-section" class="debt-strategy-section-wrapper" aria-live="polite"></div>
+
       <!-- Create / Edit modal -->
       <div class="modal-overlay" id="debt-edit-modal" style="display:none">
         <div class="modal">
@@ -1008,22 +1011,38 @@
       </div>
     </section>
 
-    <!-- Warnings Tab (Roadmap 1.1 Phase 7 — entity-foundation slice) -->
+    <!-- Warnings Tab (Roadmap 1.1 Phase 7 + 1.8 consolidation) -->
     <section id="warnings" class="tab-content">
       <div class="warnings-header">
         <h2>Warnings</h2>
         <p class="warnings-subtitle">
-          Entity-foundation warnings surfaced from <code>autonize-it/company.csv</code>,
-          UAE tax thresholds, and inter-company money movements. The full
-          Solvency Warnings Engine (Roadmap 1.8) will extend this tab
-          with obligation-level, debt, and income-goal warnings.
+          Consolidated warnings spine. Entity-foundation, runway thresholds,
+          income-composition risk signals, tax-reserve gaps, and
+          ad-hoc-spend escalation all land here, sorted by severity.
+          Improvement-feedback entries (<code>warning-improved</code> /
+          <code>warning-cleared</code>) appear at the bottom when risk
+          drops between days.
         </p>
+        <div class="warnings-controls">
+          <label class="warnings-controls__entity">
+            Entity:
+            <select id="warnings-entity-filter">
+              <option value="">All</option>
+              <option value="autonize-it-ltd">UK Ltd</option>
+              <option value="autonize-it-fzco">FZCO</option>
+            </select>
+          </label>
+          <label class="warnings-controls__group">
+            <input type="checkbox" id="warnings-group-toggle" />
+            Group by source
+          </label>
+        </div>
       </div>
       <div
         id="entity-foundation-warnings"
         class="entity-foundation-warnings"
         role="region"
-        aria-label="Entity foundation warnings"
+        aria-label="Warnings list"
         hidden
       ></div>
       <div id="warnings-empty-state" class="warnings-empty-state" hidden>

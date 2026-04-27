@@ -11,7 +11,6 @@ import { describe, it, expect } from 'vitest';
 import type {
   Client,
   ClientId,
-  Invoice,
   InvoicePayment,
 } from '../../../shared/api-contracts.js';
 import { parseClientRow } from '../clients/csv-io.js';

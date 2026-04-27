@@ -96,12 +96,14 @@ describe('canonical registries sweep', () => {
       'clients',
       'company',
       'contracts',
+      'debt-strategy',
       'invoices',
       'leave',
       'merchants',
       'payroll',
       'people',
       'properties',
+      'reserves',
       'transaction-overrides',
     ]);
     const found = new Set<string>();

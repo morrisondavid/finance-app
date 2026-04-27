@@ -6,9 +6,9 @@
 >
 > **What's shipped (Tier 0):** obligations registry, HMRC auto-seeders (VAT / CT / SA / TTP), **budgets** (monthly + yearly vs actual on the Dashboard, plus **nudges** for high-spend merchants that do not yet have a budget line), recurring detection, overdue hero, missed-obligation detector, multi-currency foundations (GBP + AED), and the Deadlines tab + calendar + ICS export.
 >
-> **What's shipped (Tier 1):** **Multi-Entity Foundation (1.1)**, **Clients, Contracts & Renewals (1.2)** phases A–E, **Invoicing (1.3)** Phases 1–4 (incl. payment reconciler with FX), **Working-Days Ledger (1.4)** with public holidays + leave calendar, **Cash Flow Forecast (1.5)** at `GET /api/forecast`, and **Worst Case / Runway (1.6)** at `GET /api/runway` (household-first, GBP + AED dual headline, entity drill-down, credit headroom per currency).
+> **What's shipped (Tier 1):** **Multi-Entity Foundation (1.1)**, **Clients, Contracts & Renewals (1.2)** phases A–E, **Invoicing (1.3)** Phases 1–4 (incl. payment reconciler with FX), **Working-Days Ledger (1.4)** with public holidays + leave calendar, **Cash Flow Forecast (1.5)** at `GET /api/forecast`, **Worst Case / Runway (1.6)** at `GET /api/runway` (household-first, GBP + AED dual headline, entity drill-down, credit headroom per currency), and **Income Composition & Diversification (1.7)** at `GET /api/income-composition` (three single-mode-risk metrics with primitives, typed `riskSignals[]` discriminated union, per-property `leveraged-passive-income` signal, new `properties/` registry).
 >
-> **What's next (Tier 1):** **1.7** income diversification, **1.8** warnings engine — **unified tab** with multi-source items (incl. **escalating unbudgeted ad-hoc / discretionary spend** surfaced from the same signals as Dashboard nudges, with traffic-light severity), **1.9** debt advisor, and Tier 2 (agent / notifications). Context unchanged: two entities (UK Ltd + UAE FZCO), agency and direct clients, mixed self-bill and supplier-issued mechanisms.
+> **What's next (Tier 1 → Tier 2):** Tier 1 (§1.1 – §1.9) is shipped. Next: **§2.0** structured-data endpoints for AI consumption (semantic discriminators, expected-receipts calendar, slice endpoints), then the rest of Tier 2 (snapshot, confidence score, alert queue, WhatsApp tool surface). Context unchanged: two entities (UK Ltd + UAE FZCO), agency and direct clients, mixed self-bill and supplier-issued mechanisms.
 
 ---
 
@@ -81,180 +81,167 @@ Income-side counterpart to obligations: public holidays + leave calendar + invoi
 - **DRY engine:** shared `assembleForecastEvents` is reused by `/api/forecast` and `/api/runway`; bills/QoL rule lives once in `shared/expenses-insight.ts`.
 - **API only today.** No standalone runway page in this phase. **Primary UI surface: the §1.8 Warnings tab** — runway-threshold breaches and "trapped cash" insights are emitted as warnings (see §1.8 catalog) so they sit next to tax, contract, and spend warnings on a single ranked surface rather than living in a tab the user has to remember to open. A focused runway dashboard panel can follow once §1.8 ships if the warning summary isn't enough on its own.
 
-### 1.7 Income Composition & Diversification
+### 1.7 Income Composition & Diversification ✅ SHIPPED
 
-**Same problem statement.** The sharper concern isn't "single client risk", it's **single-mode risk** — *all* current income across every active stream stops the moment active work stops. Measuring that needs every income stream classified.
+`GET /api/income-composition` — three single-mode-risk metrics + typed risk signals, composed read-only over existing registries.
 
-**Reuses existing data — no new income CSV.** Income already lives in four places: [`clients/contracts.csv`](clients/contracts.csv) (consulting), [`obligations/obligations.csv`](obligations/obligations.csv) under `category: 'rental-income'` (per-property gross), [`debts/debts.csv`](debts/debts.csv) for matching mortgages (already carries `property_id`), and the recurring-income detector for salary / dividends / ad-hoc inflows. 1.7 composes a single read-only `IncomeSource` surface over them — no parallel CSV, no `income_sources.csv`.
+- **Income at face value.** Joins contracts + rental obligations + recurring-pipeline detected income (deduped) into a uniform `IncomeSource` list. Rental income is gross; mortgage + insurance stay in mandatory outgoings (no netting on either side, symmetric).
+- **Three metrics, primitives travel with each.** `clientConcentration`, `activePassiveRatio`, `timeIndependence` — every metric exposes its numerator and denominator so consumers compose their own caveats. Per currency household + per-`(entityId, currency)` drill-down. No GBP+AED blend.
+- **`riskSignals[]` typed discriminated union** — each variant inlines primitives next to `code` and `severity`, no baked prose. Codes: `client-concentration-{extreme,elevated}`, `time-independence-{low,elevated}` (with `additionalPassiveNeeded` / `mandatoryReductionNeeded` math), `mode-concentration-extreme`, `passive-income-zero`, plus `leveraged-passive-income` per property (`grossMonthly`, `mortgageMonthly`, `netMonthly`, `netToGrossRatio` — surfaces leverage as a signal without fudging income).
+- **New canonical `properties/` registry** owns the rent ↔ mortgage join via `property_id`. Three seed rows; nullable `property_id` column added to `obligations.csv`; rental-income rows must reference one. Cross-registry FK integrity test locks it.
+- **`server/domain/income-composition/`** is a service module (not a registry — same shape as `forecast/`); listed in `NON_REGISTRY_DIRS`.
+- §1.8 will lift `riskSignals[]` directly onto the warnings tab; existing `EntityFoundationWarning` strings stay untouched here and harmonise additively when 1.8 ships.
 
-**Income at face value, expenses where they already live.** Rental income is the obligation row's gross `amount` — no mortgage netting, no insurance netting. The mortgage and insurance live in obligations / the recurring pipeline as outgoings, where they already do. `mandatory_monthly_outgoings` is `Σ(items where isMandatoryCategory(item.category))` — full sum, no exclusion logic. Symmetric, simple, accurate to source.
+### 1.8 Solvency Warnings Engine (the Warnings tab) ✅ SHIPPED
 
-**Two new domain folders.** `server/domain/properties/` is a canonical registry on the §3.6 pattern. `server/domain/income-composition/` is a **service module** on the §1.6 `forecast/` shape (listed in `NON_REGISTRY_DIRS`) — pure functions over the upstream registries, no CSV.
+The Warnings tab is the **consolidated, severity-sorted spine** for
+every warning the app emits. §1.1's entity-foundation feed plus the
+§1.6 runway, §1.7 income-composition, tax-reserve and ad-hoc-spend
+emitters all populate the same surface, filterable by entity, and
+each warning carries typed primitives in `context` so AI / future
+surfaces don't parse prose.
 
-- **`server/domain/properties/`** — `properties/properties.csv` with three seed rows (`hunters-square-78`, `thorney-house-56`, `heath-park-road-53` — the third is the home today; flips to rental in future via an obligation row, no schema change). Replaces today's `display_name`-string match between rental-income obligations, landlord-insurance obligations, and mortgage debts. Adds a nullable `property_id` column to `obligations.csv`; backfills the four existing property-related rows.
+- Schema additively extended with optional `entityId` and `context`
+  primitives; legacy emitters keep working unchanged.
+- New emitters: runway thresholds (`runway-low`, `runway-mandatory-low`,
+  `trapped-cash`); income-composition risk-signal bridge (concentration,
+  time-independence, mode-concentration, passive-income-zero,
+  leveraged-passive-income); tax-reserve under-funded / trajectory-
+  missing; ad-hoc spend escalation (rolling 30d / 90d / MoM bands).
+- New `reserves/` registry maps `(obligation_type, entity_id)` →
+  reserve account. Replaces today's `showTaxLiabilities` display
+  flag with a real policy.
+- `warning_snapshots` table + snapshot-diff emit `warning-improved` /
+  `warning-cleared` (severity `info`) so risk reduction is visible
+  between days.
+- Single endpoint: `GET /api/warnings/entity-foundation` (legacy name)
+  + `GET /api/warnings/all` (forward-naming alias). The frontend
+  Warnings tab gains an entity filter and an optional source-group
+  toggle; existing CSS classes reused.
+- The warning schema remains the spine for §2.2 Confidence Score
+  and §2.3 Alert Queue.
+- **Leveraged-passive-income hardened (post-ship fix):**
+  - `match_amounts[0]` is the canonical "current contractual monthly
+    payment" on every debt; subsequent entries are alternative values
+    the matcher should still recognise. Active debts must list at
+    least one positive value (load-time gate).
+  - New optional `match_tolerance_pct` column lets a debt opt into a
+    fuzzy band (e.g. Bounce Back Loan at ±2.5% absorbs natural
+    interest-on-declining-balance drift without manual CSV edits).
+  - `buildPropertyLeverageInputs` now reads `debt.matchAmounts[0]`
+    directly per property, replacing the old "sum the recurring
+    pipeline by `merchant_pattern`" approach that blended Hunters and
+    Thorney mortgages (same NatWest pattern) into a single fictitious
+    £1,687/mo. Two regression tests lock the per-property correctness
+    + the no-summing invariant.
 
-- **`server/domain/income-composition/`** — `activity-class.ts`, `aggregator.ts`, `metrics.ts`, `risk-signals.ts`, `index.ts`, tests. Surfaces:
-  - `INCOME_ACTIVITY_CLASS`: `passive | semi-passive | active` keyed on income kind (in code, not CSV).
-  - `listAllIncomeSources()` — joins contracts + rental obligations + recurring-pipeline detected income, with **dedupe** (no double-counting UK Ltd salary that's already a contract). Tags each with `activity_class`.
-  - `computeIncomeComposition()` — emits the three metrics below per entity and household (per currency, no GBP+AED blend). Reuses `isMandatoryCategory` from [`shared/expenses-insight.ts`](shared/expenses-insight.ts) (shipped in 1.6).
-  - `computeRiskSignals()` — emits typed signals for §1.8.
-  - One endpoint `GET /api/income-composition`.
+### 1.9 Debt Strategy Advisor — **SHIPPED**
 
-**Three metrics — each carries its primitives, not just a ratio.**
+A money-plumbing assistant. The user picks a goal (clear a debt, save
+for a target) and the planner returns a realistic, feasibility-checked
+plan: which standing orders to set up, from which account to which, on
+what day of the month, with what projected clear date. The user copies
+it into their bank app and forgets about it. The §1.8 warnings spine
+keeps them honest. Composes §1.5 forecast + §1.6 runway + §1.7 income
+composition + §1.8 warnings spine + the existing budgets system into a
+coherent goal-driven layer.
 
-1. **Client concentration** — `max(client_monthly_income) / total_active_income`. Response includes `topClientId`, `topClientMonthly`, `totalActiveMonthly`. *"If one client drops me, how much active income do I lose?"*
-2. **Active / passive ratio** — `(passive monthly) / (total monthly)`, with `passiveByKind` split. Structural mix metric. Response includes `passiveMonthly`, `activeMonthly`, `totalMonthly`.
-3. **Time-independence ratio** — `(passive monthly) / mandatory_monthly_outgoings`. The resilience metric. Response includes `passiveMonthly`, `mandatoryMonthly`. With mortgage in mandatory outgoings (where it already lives) and rent gross on the income side, this answers *"if active income stopped, what fraction of my real bills could passive income cover?"*
+**Behavioural contract.** QoL budgets are inviolable; malleable
+budgets are user-adjustable in the activation UI; no silent recompute
+on background data changes (only feasibility warnings); refinancing
+trade-offs always show all three plans (keep-as-is, min-only,
+overpay); multi-plan allocation is sequential first-come-first-served;
+suggested plans are ephemeral (route-only) — only activated plans
+persist.
 
-**Risk signals — typed primitives, not baked prose.** `riskSignals[]` is a Zod discriminated union by `code`; each variant inlines its own data fields next to `code` and `severity` (same convention as `IncomingObligationSchema`). No `detail` or `recommended_action` strings — consumers compose any prose they need from the data. Codes: `client-concentration-extreme/elevated`, `time-independence-low/elevated`, `mode-concentration-extreme`, `passive-income-zero`, plus `leveraged-passive-income` (per property, fired when `mortgageMonthly / grossMonthly` is high — the leverage truth surfaced as a signal rather than fudged into the income side). Each signal carries every primitive a §1.8 warning row needs (numerator, denominator, threshold, ratio, plus context fields like `topClientId` or `propertyId`).
+**Data model.**
 
-**Optional later:** nullable `activity_class_override` column on `contracts.csv` for the rare retainer-shaped contract that isn't really `active`. Defer until one exists; today every contract is `active` by category.
+- `debt-strategy/plans.csv` — canonical registry. Goal type
+  (`pay-off-debt` | `save-for-target`), target id / amount, scope,
+  currency, intensity, monthly_allocation, status (`active` | `paused`
+  | `completed` only — `suggested` is route-only and never persists).
+- `debt-strategy/movements.csv` — sibling CSV; one row per standing
+  order. FK on `plan_id`. Multiple movements per plan supported.
+  Canonical `acknowledged_at` and `dismissed_missed_until` survive
+  DB rebuilds; `status` and `last_detected_match_date` are derived.
+- `CategoryConfig.qol?` — extension to `server/utils/categorizer.ts`.
+  Seeded: Groceries / Childcare & Education / Health & Personal are
+  QoL; Eating Out / Transport / Shopping / Entertainment / Accommodation
+  / Travel / Other / Business are malleable. Mandatory categories
+  (`budgetable: false`) omit the field.
+- `AccountConfig.creditCard?` — optional block on credit-card
+  accounts: `{ standardApr, promo?: { apr, expiresAt, transferFeePct,
+  minPaymentPct, minPaymentTerminatesPromo } }`. The seed's three
+  credit-card accounts launch `creditCard: undefined`; the planner
+  refuses to model refinance moves until populated, surfaced via the
+  `account-credit-card-config-missing` warning.
 
-**Emits into §1.8.** §1.8's warning rows become thin renderers over `riskSignals[]` — the warnings tab calls a formatting helper that turns each typed signal into a card. Existing `EntityFoundationWarning` strings stay untouched in 1.7; §1.8 is the right place to harmonise the older string-baked warnings to the same primitive-carrying shape additively. No `income_goals.csv`, no goal-progression warnings — aspirational MRR / FIRE tracking is a separate concept and out of scope for 1.7.
+**Pure planner modules (`server/domain/debt-strategy/`).**
 
-### 1.8 Solvency Warnings Engine (the Warnings tab)
+- `compute-headroom.ts` — `income − mandatory − Σ(category budgets)`.
+- `available-headroom.ts` — `total − Σ(active plans, same currency+scope)`.
+- `present-intensity-options.ts` — Aggressive 95% / Medium 50% /
+  Passive min(£100, 15%); stretches to honour fixed-date deadline
+  minimums; `feasible: false` when even Aggressive can't hit it.
+- `generate-plan.ts` — composes the above; returns block reasons
+  (`plan-blocked-fzco-no-savings-account`, `plan-blocked-incomplete-budgets`,
+  `plan-infeasible`).
+- `check-plan-feasibility.ts` — `ok` / `degraded` (≤25% gap) /
+  `infeasible` (>25% gap); returns typed `suggestedRemedies` (switch
+  intensity, pause other plan, extend deadline, reduce target).
+- `evaluate-refinance-tradeoff.ts` — always returns ALL three plans
+  (`planA_keepAsIs`, `planB_minOnly`, `planB_overpay`) plus
+  `promoExpiresMidPayoff` flag and `postIntroJumpToRate`.
+- `detect-target-reached.ts` — pay-off via `getDebtSummary.currentBalance
+  ≤ 0` (catches balloon payments naturally); save via net inflow vs
+  `target_amount`. Auto-completion gate.
+- `auto-suggest-plans.ts` — emits one ephemeral `suggested` plan per
+  active consumer debt without an active plan, sorted by avalanche
+  (highest APR first); default intensity `medium`.
+- `assemble.ts` — `assembleDebtStrategy()` orchestrator. Single I/O
+  entrypoint shared by the route + the warning emitters.
 
-**One list, many sources — traffic-light, not a silo per domain.** The
-Warnings tab is a **unified, ranked** feed: tax, contracts, invoices,
-data quality, income diversification, **and** discretionary spend
-signals all map into the **same** `{ severity, title, detail,
-recommended_action, sources[] }` shape, filterable by entity. The user
-sees a **single** severity-sorted surface (red / amber / green-style
-semantics on `severity`), not separate pages that never talk to each
-other.
+**Warning emitters (wired into `/api/warnings`).** 12 new codes:
+`account-credit-card-config-missing`, `plan-blocked-incomplete-budgets`,
+`plan-blocked-fzco-no-savings-account`, `mortgage-rate-reset-soon`,
+`debt-unregistered`, `plan-feasibility-degraded`, `plan-budget-blown`,
+`plan-transfer-not-set-up`, `plan-transfer-missed`,
+`plan-standing-order-can-be-stopped`, `plan-infeasible`,
+`plan-target-reached`. All carry typed `context` primitives so the AI
+layer (Tier 2) can render bespoke prose without re-deriving the math.
+All auto-clear via the existing §1.8 snapshot diff.
 
-**Forward-looking, ranked, specific, unprompted.** The app's single
-most important output once the forecast exists. Where the Overdue Hero
-surfaces *past-tense* misses, the Warnings Engine surfaces
-*future-tense* structural problems *and* material **ongoing** leaks
-(see unbudgeted ad-hoc spend below):
+**Money-movement match rules (strict).** Reuses
+`doAmountsAndDatesMatch` ([`server/domain/inter-company/pair-finder.ts`](server/domain/inter-company/pair-finder.ts))
+with stricter constants: `±3 day` tolerance, exact amount (within
+£0.01). User-dismissed warnings record
+`dismissed_missed_until = now + 30d` to silence the next emission.
 
-> "Barclays Savings holds £2,500. UK VAT £10k is due in 60 days from
-> that account. Current monthly net saving = £X. At this trajectory
-> you will be £Y short on the due date."
->
-> "UK CT £50k due in 9 months. To cover it you need to set aside
-> £5,555/month starting now. You are currently saving £1,200/month.
-> Shortfall: £4,355/month."
->
-> "FZCO UAE CT registration status unknown. First FZCO invoice
-> received; liability unquantifiable until QFZP election recorded
-> on `company.csv`. Consult accountant."
+**API.** `GET /api/debt-strategy/state`, `POST /plans`,
+`POST /plans/:id/activate-suggested`,
+`POST /plans/:id/movements/:movementId/acknowledge`,
+`POST /plans/:id/movements/:movementId/dismiss-missed`,
+`POST /plans/:id/pause | /resume`, `DELETE /plans/:id`,
+`POST /sandbox` (what-if read).
 
-**Partially shipped today → 1.8 bridge (ad-hoc / discretionary).** The
-**Dashboard** already shows monthly vs actual budgets and a
-**"High-spend merchants without a budget"** nudge strip (derived from
-transaction history — merchants you spend a lot on that have no budget
-row yet; deep-link to add a budget or open Ad hoc analysis). **Gap for
-1.8:** nudges are **local to the Dashboard**; they are not part of the
-**Warnings** spine, have no **cross-domain rank** next to "VAT due in 60
-days", and do not **escalate** when the user *chooses* not to add a
-budget (e.g. high Careem or delivery spend in Dubai as a conscious
-convenience trade — still a **material** monthly line that should
-surface as amber/red when it crosses rolling thresholds, share of
-discretionary spend, or month-on-month velocity). **1.8 work:** feed the
-same underlying merchant/category aggregates into the warnings pipeline;
-define severity and dedupe so "high unbudgeted merchant" appears once,
-with a clear `recommended_action` (set a cap, reclassify, or
-acknowledge).
+**UI.** New Strategy section under the existing Debts tab. Suggested-
+plans panel (always present, auto-derived). Active-plans panel with
+inline movement acknowledgements + pause/resume/delete. Completed
+plans archive. "What if?" sandbox button. Budgets tab gains a small
+read-only QoL/Malleable pill next to each budgetable category
+(reads from `categorizer.ts`; not editable from UI in v1 — code
+change required).
 
-Formalises earmarking intent (currently only implicit in the user's
-head):
+**Lost-contract regression test** (`server/domain/debt-strategy/lost-contract.test.ts`)
+locks the killer use case: active plan goes from `ok` → `degraded` /
+`infeasible` when income drops; emitter produces actionable
+`suggestedRemedies` primitives.
 
-- New per-obligation-type `reservoir_account` config (UK VAT →
-  barclays-savings; UK CT → barclays-savings; UK SA → …; UAE VAT →
-  emirates-islamic; UAE CT → emirates-islamic). Per-entity, not
-  global. Replaces today's `showTaxLiabilities` display flag with a
-  real policy.
-- Warning catalog — each warning emits
-  `{id, severity, title, detail, recommended_action, sources[]}`:
-  - Tax reservoir underfunded (balance vs sum of upcoming tax due
-    within window).
-  - Tax reservoir trajectory missing (balance + projected
-    contributions < liability by due date).
-  - Non-tax obligation unaffordable.
-  - Contract ending, no successor (from 1.2).
-  - Payment from known payer outside any active contract window
-    (from 1.2 matcher).
-  - Self-bill PDF expected for period N (weekly cadence) not
-    received (from 1.3).
-  - FX drift on unpaid invoice > 5% (from 1.3).
-  - Scheduled-leave income shortfall (from 1.4).
-  - Client concentration risk (from 1.7).
-  - Active/passive ratio deterioration (from 1.7).
-  - Time-independence ratio regression (from 1.7).
-  - Income-goal progress / completion (from 1.7) — both shortfall
-    and positive completion at severity `info`.
-  - Burn rate exceeds income (rolling 30d).
-  - **Runway under threshold (from 1.6)** — household runway in
-    either headline currency (GBP / AED) drops below configurable
-    bands (e.g. red < 3 months, amber < 6 months) on the *full
-    lifestyle* lane. `detail` cites the first stress date,
-    contributing recurring lines, and the GBP/AED split so the user
-    can see *which* currency is the constraint. Reads
-    `/api/runway`'s `household.{GBP,AED}.runwayMonthsFullRecurring`
-    and `firstStressDateFullRecurring`.
-  - **Mandatory-only runway under threshold (from 1.6)** — same
-    rule against `runwayMonthsMandatoryRecurring`, severity capped
-    higher (running out on **bills only** is materially worse than
-    running out at full lifestyle). `recommended_action` points to
-    the bills/QoL split so the obvious "what can I cut?" question
-    is one click away.
-  - **Trapped cash / inter-company constraint (from 1.6)** — one
-    currency bucket is solvent through horizon while the other goes
-    negative first (e.g. AED healthy, GBP runs out in N weeks).
-    Surfaces as a narrative warning that *moving money* is the
-    constraint, not earning more — actionable only because §1.6
-    refuses to silently blend GBP and AED into a single number.
-  - **Unbudgeted ad-hoc / discretionary spend (merchant- or
-    pattern-level)** — sustained spend on a merchant or MCC **without**
-    a matching budget line, breaching materiality rules (e.g. rolling
-    30/90d total, % of net income, or sharp MoM increase). Catches
-    "I know it’s expensive but I haven’t time to plan groceries /
-    transport" **before** it silently dominates cash outflow. Sourced
-    from the same building blocks as Tier 0 dashboard nudges, ranked
-    alongside tax and contract warnings.
-  - Credit utilisation high.
-  - Data staleness (no statement for account X in N weeks).
-  - **Multi-entity specific (new):**
-    - FZCO UAE CT registration status unknown.
-    - FZCO UAE VAT voluntary threshold crossed (AED 187.5k).
-    - FZCO UAE VAT mandatory threshold crossed (AED 375k).
-    - IFZA license renewal within 60 days (annual).
-    - Inter-company money movement unclassified (loan / capital /
-      service fee).
-    - `autonize-it/company.csv` / `clients.csv` /  `contracts.csv`
-      has any unresolved `TBC` field.
-- Dedicated **Warnings tab** UI renders the list ranked by
-  `severity × time-to-impact`, filterable by entity.
-- The warning schema is the spine for the Alert Queue (2.3) and the
-  Confidence Score (2.2) — both become reductions over this list, not
-  independent calculations.
-
-### 1.9 Debt Strategy Advisor
-
-The debt data model is already rich (`interestRate`,
-`fixedRateEndDate`, `repaymentType`, `kind` on every row). What is
-missing is the rule set that turns it into recommended actions.
-Rule-based, deterministic, testable — no LLM required:
-
-- **Avalanche** (highest APR first) and **snowball** (smallest
-  balance first) payoff projections for every debt combination. User
-  picks preference per debt or globally.
-- **Consolidation opportunity**: total high-APR consumer debt vs
-  projected free cash vs a user-maintained list of available
-  balance-transfer / personal-loan offers → break-even analysis with
-  a concrete "would save £X over Y months" output.
-- **Rate-reset warning**: `fixedRateEndDate < today+90d` on a
-  mortgage → "your rate resets in N days; typical market rate Y%
-  means your monthly payment changes by £Z". Feeds the Warnings
-  Engine (1.8).
-- **Savings-goal / accelerated-payoff calculator**: inverse math —
-  "save £X/month → clear debt by date Y".
-
-Requires one small config addition: an optional
-`balance_transfer_offers.csv` so consolidation math has specific
-targets rather than a generic nudge.
+**Out of scope (deferred, no further §1.9 work).** Open Banking
+initiated transfers (forever); auto-derived budget defaults; cross-
+plan optimisation beyond first-come-first-served; FZCO save-for-target
+plans (needs an AED savings account first); editing QoL/Malleable
+tags from the UI; plan state-change audit log.
 
 ---
 
@@ -912,7 +899,7 @@ Multi-Entity Foundation ✅   Clients + Contracts (1.2 A–E) ✅─→ Working-
                                                                                                                                      │                  ├─→ AI Primitives (2.0) ─→ Snapshot (2.1)
                                                                                                                                      ├─→ Worst Case (1.6) ✅┤                        Confidence Score (2.2)
                                                                                                                                      │                  │                          Alert Queue (2.3)
-                                                                                                                                     ├─→ Income Composition (1.7) ──┤                WhatsApp (2.4)
+                                                                                                                                     ├─→ Income Composition (1.7) ✅─┤              WhatsApp (2.4)
                                                                                                                                      │                  │
                                                                                                                                      └─→ Debt Strategy (1.9) ───────┘
 ```
@@ -924,9 +911,11 @@ registries and the jurisdiction-scoped `tax-rules.ts` module for
 free.
 
 **Clients + Contracts → Invoicing → Working-Days Ledger → Forecast →
-Runway → Warnings** is the main income-side backbone — **1.1–1.6** are shipped.
-**Next on this stack:** **1.7** (income composition) feeds **1.8** (unified
-Warnings tab + multi-source severity).
+Runway → Income Composition → Warnings** is the main income-side backbone —
+**1.1–1.7** are shipped. **Next on this stack:** **1.8** (unified Warnings tab +
+multi-source severity), which lifts 1.7's `riskSignals[]` directly onto the tab
+and harmonises the existing `EntityFoundationWarning` shape into the same
+primitive-carrying form.
 
 **The Warnings Engine (1.8) gates most of Tier 2.** Both the
 Confidence Score and the Alert Queue become reductions over its
@@ -958,35 +947,26 @@ more “step 6 = §1.8” skew between list index and section number).
 4. ~~**Working-Days Ledger (1.4)**~~ ✅ SHIPPED — see §1.4.
 5. ~~**Cash Flow Forecast (1.5)**~~ ✅ SHIPPED — `GET /api/forecast`; see §1.5.
 6. ~~**Worst Case / Runway (1.6)**~~ ✅ SHIPPED — `GET /api/runway`, household-first GBP/AED dual headline + entity drill-down; see §1.6.
-7. **Income Composition & Diversification (1.7)** — **next** — three metrics
-   (concentration, active/passive, time-independence) over the existing
-   contracts + rental obligations + recurring-pipeline data, with income at
-   face value and expenses where they already live. One new canonical
-   registry (`properties/`) for the rent ↔ mortgage join, plus a service
-   module (`income-composition/`) on the §1.6 `forecast/` shape. **Emits
-   `riskSignals[]` into §1.8** as a typed discriminated union — each variant
-   carries its own primitives next to `code` and `severity` (no baked prose),
-   including a per-property `leveraged-passive-income` signal that surfaces
-   the leverage truth without fudging the income side. **No** new income CSV;
-   no goal tracking in scope.
-8. **Solvency Warnings Engine (1.8)** — **What you get:** a **Warnings**
-   tab: a **ranked list** of concrete problems — **forward-looking**
-   (“VAT due in 60 days…”) **and** **material in-flight** issues (e.g.
-   unbudgeted ad-hoc spend from **Dashboard nudge** signals, escalated
-   with traffic-light severity so Careem-style leakage sits next to tax
-   and contract risk). Same schema: `severity`, **recommended_action**,
-   traceable `sources[]` — not another chart wall. The Overdue hero is
-   *past-tense* (“you missed”); 1.8 is *future-tense* or *right now* at
-   scale (“you **will** be short unless…” / “this line item is
-   **too big** to leave untracked”). **Why it matters after 1.5:** 1.5
-   is the **trajectory**; 1.8 is the **interpreted risk surface**
-   (earmarking, reservoir vs obligation, cross-signal from contracts / tax
-   / invoices / 1.7 / **spend**). That list is the **single spine** for
-   Alert Queue (2.3) and Confidence Score (2.2) — thin adaptors, not
-   parallel logic. Placed **after 1.7** so income-diversification
-   signals are first-class on day one.
-9. **Debt Strategy Advisor (1.9)** — rule-based recommendations on
-   top of the existing debt table.
+7. ~~**Income Composition & Diversification (1.7)**~~ ✅ SHIPPED — `GET /api/income-composition`,
+   three metrics with primitives, typed `riskSignals[]` discriminated union,
+   per-property `leveraged-passive-income` signal, new `properties/` registry; see §1.7.
+8. ~~**Solvency Warnings Engine (1.8)**~~ ✅ SHIPPED — Warnings tab is now the
+   consolidated, severity-sorted spine: §1.1 entity-foundation + §1.6 runway
+   thresholds + §1.7 risk signals + tax-reserve + ad-hoc-spend escalation
+   all served by `GET /api/warnings/entity-foundation` (alias `/api/warnings/all`),
+   each warning carries typed `context` primitives, snapshot-diff emits
+   `warning-improved` / `warning-cleared`. New `reserves/` registry replaces
+   `showTaxLiabilities`. Frontend: entity filter + optional source-group toggle.
+9. ~~**Debt Strategy Advisor (1.9)**~~ ✅ SHIPPED — money-plumbing assistant.
+   Goal-driven planner (clear a debt / save for a target) with three intensity
+   options, sequential first-come-first-served allocation, refinance trade-offs
+   that always show all three plans, auto-suggested plans for uncovered consumer
+   debts (avalanche order), strict ±3-day movement matching, auto-completion
+   gate, "what if?" sandbox. New `debt-strategy/plans.csv` + `movements.csv`
+   registries. 12 new §1.8 warning codes wired into `/api/warnings`. UI under
+   the existing Debts tab + QoL/Malleable pill on the Budgets tab. Killer
+   use case (lost contract → degraded plan with actionable remedies) locked
+   by integration test. See §1.9.
 10. **Structured Data for AI Consumption (2.0)** — prerequisite to
     all of Tier 2: semantic discriminators, expected-receipts
     calendar, slice endpoints (`/api/ai/liquidity`,

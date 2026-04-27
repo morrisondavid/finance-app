@@ -42,3 +42,8 @@ export {
   LEVERAGED_PASSIVE_HIGH,
   LEVERAGED_PASSIVE_MEDIUM,
 } from './risk-signals.js';
+
+export {
+  assembleIncomeComposition,
+  type AssembledIncomeComposition,
+} from './assemble.js';

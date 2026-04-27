@@ -43,6 +43,7 @@ import type {
   InvoicePayment,
   EntityId,
 } from '../../../shared/api-contracts.js';
+import { CurrencyCodeSchema } from '../../../shared/api-contracts.js';
 import { daysBetween, todayIsoLocal } from '../../../shared/iso-date.js';
 import {
   buildNarrativeTokens,
@@ -59,7 +60,12 @@ export interface ReconcileTransaction {
   readonly date: string;
   /** Positive means money in. Same sign convention as `transactions.csv`. */
   readonly amount: number;
-  /** ISO 4217 currency code of the deposit (derived from the account). */
+  /**
+   * ISO 4217 currency code of the deposit (derived from the account).
+   * Typically `'GBP'` or `'AED'` — but the matcher accepts any string so
+   * that "an unsupported currency lands here" can be detected and
+   * surfaced as an `unresolved-fx` note rather than a type error.
+   */
   readonly currency: string;
   /** `transactions.account` — used to gate by issuing entity at the call site. */
   readonly account: string;
@@ -390,13 +396,18 @@ function buildPayment(input: BuildPaymentInput): InvoicePayment {
       : round2(amountInInvoiceCurrency - tx.amount * invoice.fx_rate_at_issue);
   const residual = round2(residualBefore - amountInInvoiceCurrency);
 
+  // By the time we reach this builder, scoring has already rejected any
+  // deposit whose currency isn't a supported `CurrencyCode` (the
+  // unresolved-fx gate fires upstream). Validate via Zod for safety.
+  const depositCurrency = CurrencyCodeSchema.parse(tx.currency);
+
   return {
     id: `ip-${invoice.id}-${tx.id}`,
     invoice_id: invoice.id,
     bank_transaction_id: tx.id,
     payment_date: tx.date,
     amount_paid: round2(tx.amount),
-    deposit_currency: tx.currency,
+    deposit_currency: depositCurrency,
     fx_rate_at_payment: fxRateAtPayment,
     amount_in_invoice_currency: amountInInvoiceCurrency,
     fx_gain_loss: fxGainLoss,

@@ -11,7 +11,6 @@ import {
   parseClientRow,
   readClientsCsvFile,
   serializeClientsCsv,
-  writeClientsCsvFile,
   getClientsCsvPath,
 } from './csv-io.js';
 import {

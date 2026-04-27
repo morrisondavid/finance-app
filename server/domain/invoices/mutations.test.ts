@@ -187,7 +187,7 @@ describe('updateInvoice', () => {
       now: FIXED_NOW,
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) return;
+    if (result.ok) throw new Error('expected validation failure');
     expect(result.code).toBe('invalid');
   });
 

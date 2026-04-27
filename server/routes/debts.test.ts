@@ -38,6 +38,7 @@ function createSchema(): void {
       opening_balance REAL NOT NULL DEFAULT 0 CHECK(opening_balance >= 0),
       opening_balance_date TEXT NOT NULL,
       match_amounts TEXT NOT NULL DEFAULT '',
+      match_tolerance_pct REAL NOT NULL DEFAULT 0 CHECK(match_tolerance_pct >= 0 AND match_tolerance_pct < 1),
       kind TEXT NOT NULL DEFAULT 'consumer' CHECK(kind IN ('consumer', 'mortgage')),
       interest_rate REAL,
       fixed_rate_end_date TEXT,
@@ -92,6 +93,18 @@ function seedDebt(overrides: Partial<Parameters<typeof DebtsRepo.createDebt>[0]>
     originalLoanDate: overrides.originalLoanDate ?? null,
     openingBalance: overrides.openingBalance ?? 500,
     openingBalanceDate: overrides.openingBalanceDate ?? '2026-01-01',
+    // §1.8 active-row gate: every active debt must list at least one
+    // positive matchAmounts entry. Tests that don't care about exact
+    // amounts can rely on this default; tests that exercise the
+    // matcher pass an explicit override.
+    matchAmounts: overrides.matchAmounts ?? [100],
+    matchTolerancePct: overrides.matchTolerancePct,
+    kind: overrides.kind,
+    interestRate: overrides.interestRate,
+    fixedRateEndDate: overrides.fixedRateEndDate,
+    repaymentType: overrides.repaymentType,
+    propertyValueEstimate: overrides.propertyValueEstimate,
+    propertyId: overrides.propertyId,
   });
   return id;
 }
@@ -156,6 +169,7 @@ describe('/api/debts routes', () => {
           originalLoanAmount: 500,
           openingBalance: 250,
           openingBalanceDate: '2026-04-19',
+          matchAmounts: [50],
         }),
       });
       expect(res.status).toBe(201);
@@ -277,7 +291,7 @@ describe('/api/debts routes', () => {
       expect(res.status).toBe(404);
     });
 
-    it('can set matchAmounts to a new value and clear it back to empty', async () => {
+    it('can update matchAmounts to a new positive value', async () => {
       const id = seedDebt();
       const res1 = await fetch(`${baseUrl}/api/debts/${id}`, {
         method: 'PUT',
@@ -288,17 +302,32 @@ describe('/api/debts routes', () => {
       const body1 = await res1.json() as { debt: { matchAmounts: number[] } };
       expect(body1.debt.matchAmounts).toEqual([192.66]);
 
-      const res2 = await fetch(`${baseUrl}/api/debts/${id}`, {
+      const csvRows = readDebtsFromCsvFile(path.join(hoisted.debtsDir, DEBTS_CSV_FILENAME));
+      expect(csvRows.find(r => r.id === id)?.matchAmounts).toEqual([192.66]);
+    });
+
+    it('rejects clearing matchAmounts to empty on an active debt (§1.8 active-row gate)', async () => {
+      const id = seedDebt();
+      const res = await fetch(`${baseUrl}/api/debts/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ matchAmounts: [] }),
       });
-      expect(res2.status).toBe(200);
-      const body2 = await res2.json() as { debt: { matchAmounts: number[] } };
-      expect(body2.debt.matchAmounts).toEqual([]);
+      // Repository throws → route returns 500 (existing convention).
+      expect(res.status).not.toBe(200);
+    });
 
-      const csvRows = readDebtsFromCsvFile(path.join(hoisted.debtsDir, DEBTS_CSV_FILENAME));
-      expect(csvRows.find(r => r.id === id)?.matchAmounts).toEqual([]);
+    it('allows clearing matchAmounts when archiving in the same patch', async () => {
+      const id = seedDebt();
+      const res = await fetch(`${baseUrl}/api/debts/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchAmounts: [], archived: true }),
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json() as { debt: { matchAmounts: number[]; archived: boolean } };
+      expect(body.debt.matchAmounts).toEqual([]);
+      expect(body.debt.archived).toBe(true);
     });
   });
 
@@ -398,6 +427,7 @@ describe('/api/debts routes', () => {
           originalLoanAmount: 200000,
           openingBalance: 200000,
           openingBalanceDate: '2026-01-01',
+          matchAmounts: [800],
           kind: 'mortgage',
           interestRate: 4.48,
           fixedRateEndDate: '2028-04-30',

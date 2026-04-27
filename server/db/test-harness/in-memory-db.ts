@@ -153,6 +153,7 @@ function createAllDomainTables(db: Database.Database): void {
       opening_balance REAL NOT NULL DEFAULT 0 CHECK(opening_balance >= 0),
       opening_balance_date TEXT NOT NULL,
       match_amounts TEXT NOT NULL DEFAULT '',
+      match_tolerance_pct REAL NOT NULL DEFAULT 0 CHECK(match_tolerance_pct >= 0 AND match_tolerance_pct < 1),
       kind TEXT NOT NULL DEFAULT 'consumer' CHECK(kind IN ('consumer', 'mortgage')),
       interest_rate REAL,
       fixed_rate_end_date TEXT,
@@ -162,5 +163,37 @@ function createAllDomainTables(db: Database.Database): void {
       archived INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS account_balances (
+      account TEXT PRIMARY KEY,
+      opening_balance REAL NOT NULL DEFAULT 0,
+      opening_balance_date TEXT,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS category_budgets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account TEXT NOT NULL,
+      category TEXT NOT NULL,
+      amount REAL NOT NULL CHECK(amount >= 0),
+      budget_period TEXT NOT NULL DEFAULT 'monthly',
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(account, category)
+    );
+
+    CREATE TABLE IF NOT EXISTS warning_snapshots (
+      snapshot_at TEXT NOT NULL,
+      warning_id TEXT NOT NULL,
+      code TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      entity_id TEXT,
+      title TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_warning_snapshots_snapshot_at
+      ON warning_snapshots(snapshot_at);
+    CREATE INDEX IF NOT EXISTS idx_warning_snapshots_fingerprint
+      ON warning_snapshots(fingerprint);
   `);
 }
