@@ -10,7 +10,7 @@
  * Uses the same CSS conventions as the existing Debts module.
  */
 
-import { escapeHtml, escapeAttribute } from '../utils/dom';
+import { escapeHtml, escapeAttribute, openModal, closeModal } from '../utils/dom';
 import { formatCurrency, formatIsoDateUkLong } from '../utils/formatting';
 import type { CurrencyCode } from '../../../shared/api-contracts.js';
 
@@ -198,7 +198,12 @@ function render(state: DebtStrategyStateResponse): string {
     <section class="debt-strategy-section">
       <header class="debt-strategy-header">
         <h3>Debt Strategy</h3>
-        <button type="button" class="btn btn-sm" id="debt-strategy-sandbox-btn">What if?</button>
+        <button
+          type="button"
+          class="btn btn-sm"
+          id="debt-strategy-sandbox-btn"
+          title="See how your headroom holds up under common shocks (lose a contract, drop to 4-day weeks, etc.)"
+        >Stress test scenarios</button>
       </header>
 
       <h4 class="debt-strategy-subhead">Headroom by bucket</h4>
@@ -277,15 +282,71 @@ async function acknowledgeMovement(planId: string, movementId: string): Promise<
   await fetchAndRender();
 }
 
-async function runSandbox(): Promise<void> {
-  const multStr = window.prompt(
-    'What-if sandbox: enter an income multiplier (e.g. 0.5 = halve income; 0 = lose all contracts)',
-    '0.5',
-  );
-  if (multStr === null) return;
-  const mult = parseFloat(multStr);
-  if (!Number.isFinite(mult) || mult <= 0) {
-    window.alert('Invalid multiplier.');
+// ── Stress-test scenarios modal ─────────────────────────────────
+
+const SANDBOX_MODAL_ID = 'debt-strategy-sandbox-modal';
+let sandboxModalWired = false;
+
+function readScenarioMultiplier(): number | null {
+  const radios = document.querySelectorAll<HTMLInputElement>('#debt-strategy-sandbox-modal input[name="scenario"]');
+  let selectedValue: string | null = null;
+  for (const r of radios) {
+    if (r.checked) {
+      selectedValue = r.value;
+      break;
+    }
+  }
+  if (selectedValue === null) return null;
+  if (selectedValue === 'custom') {
+    const slider = document.getElementById('sandbox-custom-slider');
+    if (!(slider instanceof HTMLInputElement)) return null;
+    const pct = Number(slider.value);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) return null;
+    return pct / 100;
+  }
+  const num = Number(selectedValue);
+  return Number.isFinite(num) ? num : null;
+}
+
+function renderSandboxResult(
+  before: BucketHeadroomLite[],
+  after: BucketHeadroomLite[],
+): void {
+  const tbody = document.getElementById('debt-strategy-sandbox-tbody');
+  const result = document.getElementById('debt-strategy-sandbox-result');
+  if (!tbody || !result) return;
+  // Index after by key to match against before order.
+  const afterByKey = new Map(after.map(b => [b.key, b]));
+  const rows = before
+    .map(b => {
+      const a = afterByKey.get(b.key);
+      const cur = asCurrency(b.currency);
+      const beforeAvail = b.availableHeadroom;
+      const afterAvail = a?.availableHeadroom ?? 0;
+      const delta = afterAvail - beforeAvail;
+      const deltaClass = delta < 0 ? 'delta-negative' : delta === 0 ? 'delta-zero' : '';
+      const sign = delta > 0 ? '+' : '';
+      return `
+      <tr>
+        <td>${escapeHtml(bucketLabel(b))}</td>
+        <td class="numeric">${escapeHtml(formatCurrency(beforeAvail, cur))}</td>
+        <td class="numeric">${escapeHtml(formatCurrency(afterAvail, cur))}</td>
+        <td class="numeric ${deltaClass}">${sign}${escapeHtml(formatCurrency(delta, cur))}</td>
+      </tr>`;
+    })
+    .join('');
+  tbody.innerHTML = rows;
+  result.hidden = false;
+}
+
+async function runSandboxScenario(): Promise<void> {
+  const mult = readScenarioMultiplier();
+  if (mult === null) {
+    window.alert('Pick a scenario first.');
+    return;
+  }
+  if (tabState.data === null) {
+    window.alert('Strategy data not loaded yet — try again.');
     return;
   }
   const res = await fetch('/api/debt-strategy/sandbox', {
@@ -298,10 +359,67 @@ async function runSandbox(): Promise<void> {
     return;
   }
   const body = (await res.json()) as DebtStrategyStateResponse;
-  const summary = body.headroomByBucket
-    .map(b => `${bucketLabel(b)}: total £${b.totalHeadroom.toFixed(0)} → available £${b.availableHeadroom.toFixed(0)}`)
-    .join('\n');
-  window.alert(`Sandbox @ x${mult} income:\n\n${summary}`);
+  renderSandboxResult(tabState.data.headroomByBucket, body.headroomByBucket);
+}
+
+function syncCustomPctDisplay(): void {
+  const slider = document.getElementById('sandbox-custom-slider');
+  const display = document.getElementById('sandbox-custom-pct-display');
+  if (slider instanceof HTMLInputElement && display) {
+    display.textContent = slider.value;
+  }
+}
+
+function wireSandboxModal(): void {
+  if (sandboxModalWired) return;
+  sandboxModalWired = true;
+
+  const modal = document.getElementById(SANDBOX_MODAL_ID);
+  if (!modal) return;
+
+  modal.addEventListener('change', () => {
+    syncCustomPctDisplay();
+  });
+  const slider = document.getElementById('sandbox-custom-slider');
+  if (slider instanceof HTMLInputElement) {
+    slider.addEventListener('input', () => {
+      // Selecting the slider auto-selects the Custom radio so the
+      // user's intent is captured even if they didn't click the
+      // radio first.
+      const customRadio = document.querySelector<HTMLInputElement>(
+        '#debt-strategy-sandbox-modal input[name="scenario"][value="custom"]',
+      );
+      if (customRadio !== null) customRadio.checked = true;
+      syncCustomPctDisplay();
+    });
+  }
+
+  const closeBtn = document.getElementById('debt-strategy-sandbox-modal-close');
+  const cancelBtn = document.getElementById('debt-strategy-sandbox-cancel');
+  const runBtn = document.getElementById('debt-strategy-sandbox-run');
+  closeBtn?.addEventListener('click', () => closeModal(SANDBOX_MODAL_ID));
+  cancelBtn?.addEventListener('click', () => closeModal(SANDBOX_MODAL_ID));
+  runBtn?.addEventListener('click', () => {
+    void runSandboxScenario();
+  });
+
+  // Click outside the modal body closes it.
+  modal.addEventListener('click', e => {
+    if (e.target === modal) closeModal(SANDBOX_MODAL_ID);
+  });
+}
+
+function openSandboxModal(): void {
+  wireSandboxModal();
+  // Reset state on each open: hide previous result, default to "Lose half".
+  const result = document.getElementById('debt-strategy-sandbox-result');
+  if (result) result.hidden = true;
+  const halfRadio = document.querySelector<HTMLInputElement>(
+    '#debt-strategy-sandbox-modal input[name="scenario"][value="0.5"]',
+  );
+  if (halfRadio !== null) halfRadio.checked = true;
+  syncCustomPctDisplay();
+  openModal(SANDBOX_MODAL_ID);
 }
 
 function attachHandlers(container: HTMLElement): void {
@@ -322,7 +440,7 @@ function attachHandlers(container: HTMLElement): void {
     } else if (action === 'acknowledge' && planId && movementId) {
       void acknowledgeMovement(planId, movementId);
     } else if (target.id === 'debt-strategy-sandbox-btn') {
-      void runSandbox();
+      openSandboxModal();
     }
   });
 }

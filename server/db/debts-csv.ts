@@ -371,16 +371,20 @@ export function readDebtsFromCsvFile(csvPath: string): DebtCsvRow[] {
       matchTolerancePct = parsed;
     }
 
-    if (!archived && matchAmounts.length === 0) {
+    const kind: DebtKind = kindRaw === 'mortgage' ? 'mortgage' : 'consumer';
+
+    // Mortgage-only gate: `buildPropertyLeverageInputs` and the
+    // mortgage-rate-reset emitter both rely on `matchAmounts[0]`.
+    // Consumer debts may have empty matchAmounts (description-only
+    // matching, the pre-§1.8 default).
+    if (!archived && kind === 'mortgage' && matchAmounts.length === 0) {
       console.warn(
-        `[debts-csv] Dropping active row ${id}: match_amounts is empty. ` +
-          `Active debts must list at least one positive payment amount; ` +
-          `archive the row (archived=true) if it's no longer active.`,
+        `[debts-csv] Dropping active mortgage row ${id}: match_amounts is empty. ` +
+          `Active mortgages must list at least one positive payment amount; ` +
+          `archive the row (archived=true) if the mortgage is no longer active.`,
       );
       continue;
     }
-
-    const kind: DebtKind = kindRaw === 'mortgage' ? 'mortgage' : 'consumer';
 
     let interestRate: number | null = null;
     if (interestRateRaw !== '') {

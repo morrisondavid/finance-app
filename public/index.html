@@ -24,6 +24,7 @@
       <button class="tab" data-tab="invoices">Invoices</button>
       <button class="tab" data-tab="clients">Clients</button>
       <button class="tab" data-tab="debt">Debt</button>
+      <button class="tab" data-tab="strategy">Strategy</button>
       <button class="tab" data-tab="warnings">Warnings</button>
       <button class="tab" data-tab="statements">Statements</button>
       <button class="tab" data-tab="upload">Upload</button>
@@ -921,9 +922,6 @@
         <div id="debt-mortgage-list" class="debt-grid" aria-live="polite"></div>
       </div>
 
-      <!-- §1.9 Debt Strategy section -->
-      <div id="debt-strategy-section" class="debt-strategy-section-wrapper" aria-live="polite"></div>
-
       <!-- Create / Edit modal -->
       <div class="modal-overlay" id="debt-edit-modal" style="display:none">
         <div class="modal">
@@ -1006,6 +1004,91 @@
               <button type="button" class="btn btn-primary" id="debt-archive-confirm-btn">Archive</button>
               <button type="button" class="btn" id="debt-archive-cancel-btn">Cancel</button>
             </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Strategy Tab (§1.9 Debt Strategy Advisor) -->
+    <section id="strategy" class="tab-content">
+      <div id="debt-strategy-section" class="debt-strategy-section-wrapper" aria-live="polite"></div>
+
+      <!-- §1.9 Stress-test scenarios modal -->
+      <div class="modal-overlay" id="debt-strategy-sandbox-modal" style="display:none">
+        <div class="modal">
+          <div class="modal-header">
+            <div>
+              <h3>Stress test scenarios</h3>
+              <p class="modal-subtitle">See how your headroom holds up under common shocks.</p>
+            </div>
+            <button type="button" class="modal-close" id="debt-strategy-sandbox-modal-close" aria-label="Close">&times;</button>
+          </div>
+          <form id="debt-strategy-sandbox-form" class="modal-body">
+            <fieldset class="debt-strategy-scenarios">
+              <legend class="visually-hidden">Pick a scenario</legend>
+
+              <label class="scenario-card">
+                <input type="radio" name="scenario" value="0" />
+                <div class="scenario-card-body">
+                  <span class="scenario-title">Lose all contracts</span>
+                  <span class="scenario-detail">Income from contracts drops to zero. Recurring income (rental, dividends) is preserved.</span>
+                </div>
+              </label>
+
+              <label class="scenario-card">
+                <input type="radio" name="scenario" value="0.5" checked />
+                <div class="scenario-card-body">
+                  <span class="scenario-title">Lose half my contract income</span>
+                  <span class="scenario-detail">e.g. one of two clients ends their engagement.</span>
+                </div>
+              </label>
+
+              <label class="scenario-card">
+                <input type="radio" name="scenario" value="0.8" />
+                <div class="scenario-card-body">
+                  <span class="scenario-title">Drop to a 4-day work week</span>
+                  <span class="scenario-detail">Roughly 80% of normal contract income.</span>
+                </div>
+              </label>
+
+              <label class="scenario-card scenario-card--custom">
+                <input type="radio" name="scenario" value="custom" />
+                <div class="scenario-card-body">
+                  <span class="scenario-title">Custom shock</span>
+                  <span class="scenario-detail">
+                    Income at <span id="sandbox-custom-pct-display">75</span>% of current.
+                  </span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value="75"
+                    id="sandbox-custom-slider"
+                    class="scenario-slider"
+                    aria-label="Custom income percentage"
+                  />
+                </div>
+              </label>
+            </fieldset>
+
+            <div id="debt-strategy-sandbox-result" class="debt-strategy-sandbox-result" hidden>
+              <h4>Before vs after</h4>
+              <table class="debt-strategy-sandbox-table">
+                <thead>
+                  <tr>
+                    <th>Bucket</th>
+                    <th class="numeric">Today</th>
+                    <th class="numeric">Under scenario</th>
+                    <th class="numeric">Delta</th>
+                  </tr>
+                </thead>
+                <tbody id="debt-strategy-sandbox-tbody"></tbody>
+              </table>
+            </div>
+          </form>
+          <div class="modal-footer">
+            <button type="button" class="btn" id="debt-strategy-sandbox-cancel">Close</button>
+            <button type="button" class="btn btn-primary" id="debt-strategy-sandbox-run">Run scenario</button>
           </div>
         </div>
       </div>

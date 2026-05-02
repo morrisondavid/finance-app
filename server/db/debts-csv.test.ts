@@ -377,14 +377,35 @@ describe('debts CSV', () => {
       expect(readDebtsFromCsvFile(csvPath)).toHaveLength(0);
     });
 
-    it('drops active rows with empty match_amounts (§1.8 active-row gate)', () => {
+    it('keeps active CONSUMER rows with empty match_amounts (description-only matching, the pre-§1.8 default)', () => {
+      // The "non-empty matchAmounts" gate is mortgage-only — consumer
+      // debts may run with empty matchAmounts (e.g. bounce-back-loan).
+      // The matcher falls back to description-only matching for them.
       fs.writeFileSync(
         csvPath,
         `${header}legacy,Legacy,X,barclays-current,1000,,500,2026-04-19,,,\n`,
         'utf8',
       );
       const parsed = readDebtsFromCsvFile(csvPath);
-      // Active debt with empty match_amounts is dropped — silence is dangerous.
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0].kind).toBe('consumer');
+      expect(parsed[0].matchAmounts).toEqual([]);
+    });
+
+    it('drops active MORTGAGE rows with empty match_amounts (mortgage-only gate)', () => {
+      // Mortgages MUST have non-empty matchAmounts because
+      // buildPropertyLeverageInputs and mortgage-rate-reset both
+      // read matchAmounts[0] as the canonical contractual monthly.
+      // Header order: id,name,merchant_pattern,source_accounts,original_loan_amount,
+      //               original_loan_date,opening_balance,opening_balance_date,
+      //               archived,match_amounts,match_tolerance_pct,kind,interest_rate,
+      //               fixed_rate_end_date,repayment_type,property_value_estimate,property_id
+      fs.writeFileSync(
+        csvPath,
+        `${header}legacy-mortgage,Legacy Mortgage,X,monzo-joint,200000,,200000,2026-04-19,,,,mortgage,4.5,,interest-only,300000,prop-x\n`,
+        'utf8',
+      );
+      const parsed = readDebtsFromCsvFile(csvPath);
       expect(parsed).toHaveLength(0);
     });
 

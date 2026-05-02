@@ -25,43 +25,20 @@ import {
   type RunwayHouseholdCurrency,
 } from '../../../shared/api-contracts.js';
 import { isMandatoryCategory } from '../../../shared/expenses-insight.js';
-import { shiftIsoDate, todayIsoLocal } from '../../../shared/iso-date.js';
 import type { AccountBalance } from '../../db/repositories/balance.js';
 import { getAllAccountBalances } from '../../db/repositories/balance.js';
-import { getUpcomingObligations, toApiObligation } from '../../db/repositories/obligations.js';
-import { runExpensesOverviewPipeline } from '../../utils/expenses-overview-pipeline.js';
-import { buildUpcomingRecurring } from '../../utils/recurring-upcoming.js';
-import { listInvoicesByStatus } from '../invoices/index.js';
-import { listActiveContracts } from '../contracts/queries.js';
-import { allLeave } from '../leave/index.js';
-import { holidayDatesForEntity } from '../working-days/public-holidays.js';
-import {
-  accountsForEntity,
-  getAccountConfig,
-  getEntityIdForAccount,
-} from '../accounts/queries.js';
-import { allEntityIds } from '../company/index.js';
+import { getAccountConfig } from '../accounts/queries.js';
 import { sumCashAndCreditByCurrency } from '../accounts/runway-credit.js';
+import { loadForecastInputs } from './load-inputs.js';
 import {
   assembleForecastEvents,
   buildForecast,
   firstNegativeBalanceDate,
   mergeAccountSeriesByCurrency,
   runwayMonthsToDate,
-  type AccountStartingBalance,
 } from './index.js';
 import type { ForecastDailyPoint, ForecastResult } from './build-forecast.js';
 import type { ForecastEvent } from './events.js';
-
-const DEFAULT_OBLIGATION_ACCOUNTS = new Map<string, AccountName>([
-  ['vat', 'barclays-current'],
-  ['corporation-tax', 'barclays-current'],
-  ['self-assessment', 'natwest'],
-  ['tax-manual', 'barclays-current'],
-  ['insurance', 'barclays-current'],
-  ['subscription', 'barclays-current'],
-  ['other', 'barclays-current'],
-]);
 
 export const RUNWAY_HEADLINE_CURRENCIES: readonly CurrencyCode[] = ['GBP', 'AED'];
 
@@ -87,23 +64,6 @@ export interface AssembledRunway {
     readonly result: ForecastResult;
     readonly mergedByCurrency: ReadonlyMap<CurrencyCode, ForecastDailyPoint[]>;
   };
-}
-
-function buildCurrencyByAccount(): Map<AccountName, CurrencyCode> {
-  const map = new Map<AccountName, CurrencyCode>();
-  for (const name of ACCOUNTS) {
-    const config = getAccountConfig(name);
-    map.set(name, config.currency);
-  }
-  return map;
-}
-
-function buildAccountsByEntity(): Map<EntityId, readonly AccountName[]> {
-  const map = new Map<EntityId, readonly AccountName[]>();
-  for (const eid of allEntityIds()) {
-    map.set(eid, accountsForEntity(eid));
-  }
-  return map;
 }
 
 function filterEventsToAccountSet(
@@ -138,61 +98,28 @@ function buildHouseholdCurrencyBlock(
 
 export function assembleRunway(input: AssembleRunwayInput = {}): AssembledRunway {
   const horizonDays = input.horizonDays ?? 720;
-  const filterEntityId = input.filterEntityId;
+  const inputs = loadForecastInputs({ horizonDays, filterEntityId: input.filterEntityId });
+  const { today, allowedAccountSet, startingBalances } = inputs;
 
-  const today = todayIsoLocal();
-  const horizon = shiftIsoDate(today, horizonDays);
-
-  const currencyByAccount = buildCurrencyByAccount();
-  const accountsByEntity = buildAccountsByEntity();
-
-  const allowedAccountSet: Set<AccountName> = (() => {
-    if (filterEntityId === undefined) return new Set(ACCOUNTS);
-    return new Set<AccountName>([...accountsForEntity(filterEntityId)]);
-  })();
-
+  // Re-fetch the full balances map for `buildHouseholdCurrencyBlock`'s
+  // cash + available-credit aggregator (it needs every account, not
+  // just those in `startingBalances`).
   const allBalances = getAllAccountBalances();
-  const startingBalances: AccountStartingBalance[] = [];
-  for (const name of ACCOUNTS) {
-    if (!allowedAccountSet.has(name)) continue;
-    const entityId = getEntityIdForAccount(name);
-    const bal = allBalances[name];
-    const currency = currencyByAccount.get(name);
-    if (currency === undefined) continue;
-    startingBalances.push({
-      account: name,
-      balance: bal.currentBalance,
-      currency,
-      entityId,
-    });
-  }
-
-  const obligations = getUpcomingObligations(horizonDays).map(toApiObligation);
-  const pipeline = runExpensesOverviewPipeline();
-  const todayDate = new Date(today + 'T00:00:00Z');
-  const upcomingBuckets = buildUpcomingRecurring(pipeline, todayDate);
-  const unpaidInvoices = listInvoicesByStatus('issued');
-  const contracts = listActiveContracts();
-  const leaveRows = allLeave();
-  const yearStart = `${today.slice(0, 4)}-01-01`;
-  const yearEnd = `${Number(today.slice(0, 4)) + 1}-12-31`;
-  const publicHolidayDatesByEntity = new Map(
-    allEntityIds().map(eid => [eid, holidayDatesForEntity(eid, yearStart, yearEnd)] as const),
-  );
 
   const commonAssemble = {
-    today,
-    horizon,
-    defaultAccountByType: DEFAULT_OBLIGATION_ACCOUNTS,
-    currencyByAccount,
-    accountsByEntity,
-    obligations,
-    pipeline,
-    upcomingBuckets,
-    unpaidInvoices,
-    contracts,
-    leaveRows,
-    publicHolidayDatesByEntity,
+    today: inputs.today,
+    horizon: inputs.horizon,
+    defaultAccountByType: inputs.defaultAccountByType,
+    currencyByAccount: inputs.currencyByAccount,
+    accountsByEntity: inputs.accountsByEntity,
+    obligations: inputs.obligations,
+    pipeline: inputs.pipeline,
+    upcomingBuckets: inputs.upcomingBuckets,
+    unpaidInvoices: inputs.unpaidInvoices,
+    contracts: inputs.contracts,
+    leaveRows: inputs.leaveRows,
+    publicHolidayDatesByEntity: inputs.publicHolidayDatesByEntity,
+    // Runway is the "lose all contracts" stress scenario — both off.
     includeInvoiceReceipts: false,
     includeAccrual: false,
   };

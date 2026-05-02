@@ -165,6 +165,23 @@ export function computeAccrual(input: ComputeAccrualInput): AccrualResponse {
   const accrued_to_date = owedWorkload.subtotal;
   const leave_days_in_period = owedValid ? owedWorkload.leaveDays : 0;
 
+  // Total contract lifetime value (start_date → end_date).
+  // Only meaningful when the contract has a defined end_date;
+  // open-ended contracts have no ceiling so both fields are null.
+  let total_contract_working_days: number | null = null;
+  let total_contract_value: number | null = null;
+  if (contract.end_date !== null) {
+    const totalWorkload = calculateWorkload({
+      contract,
+      leaveRows,
+      start: contract.start_date,
+      end: contract.end_date,
+      publicHolidayDates,
+    });
+    total_contract_working_days = totalWorkload.workingDays;
+    total_contract_value = totalWorkload.subtotal;
+  }
+
   return {
     contract_id: contract.id,
     period_start,
@@ -178,5 +195,7 @@ export function computeAccrual(input: ComputeAccrualInput): AccrualResponse {
     leave_days_in_period,
     day_rate,
     currency,
+    total_contract_working_days,
+    total_contract_value,
   };
 }

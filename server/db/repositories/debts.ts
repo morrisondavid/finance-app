@@ -305,7 +305,23 @@ function buildDebtMatchClause(debt: Debt): DebtMatchClause {
   return { sql, params };
 }
 
-function assertValidDebtInput(input: DebtCreateInput | (DebtUpdateInput & { id?: string })): void {
+/**
+ * Validate a debt create/update payload.
+ *
+ * `effectiveKind` lets callers tell the validator whether the
+ * resulting row is a mortgage or a consumer debt. The
+ * "active debts must have non-empty matchAmounts" gate fires only
+ * for mortgages — the leverage signal (`buildPropertyLeverageInputs`)
+ * and the mortgage-rate-reset emitter both read `matchAmounts[0]`
+ * as the canonical contractual monthly payment, so an empty array
+ * would silently cripple them. Consumer debts may have empty
+ * `matchAmounts` (description-only matching) without breaking
+ * anything downstream.
+ */
+function assertValidDebtInput(
+  input: DebtCreateInput | (DebtUpdateInput & { id?: string }),
+  effectiveKind?: DebtKind,
+): void {
   if ('id' in input && input.id !== undefined) {
     if (typeof input.id !== 'string' || input.id.trim() === '') {
       throw new Error('Debt id must be a non-empty string');
@@ -356,17 +372,18 @@ function assertValidDebtInput(input: DebtCreateInput | (DebtUpdateInput & { id?:
         throw new Error('Every matchAmounts entry must be > 0');
       }
     }
-    // For new (create) inputs, matchAmounts is required to be non-empty
-    // when the debt isn't being explicitly archived. Updates leave it
-    // alone if not supplied; createDebt always seeds with the provided
-    // value (default `[]` historically). Enforce the active-row gate
-    // here too.
-    if ('id' in input && input.matchAmounts.length === 0) {
+    // The "active debts must have non-empty matchAmounts" gate fires
+    // for mortgages only — `buildPropertyLeverageInputs` and the
+    // mortgage-rate-reset emitter both rely on `matchAmounts[0]` as
+    // the canonical contractual monthly. Consumer debts may have
+    // empty `matchAmounts` (description-only matching, the
+    // pre-§1.8 default).
+    if ('id' in input && input.matchAmounts.length === 0 && effectiveKind === 'mortgage') {
       const isArchived = 'archived' in input && input.archived === true;
       if (!isArchived) {
         throw new Error(
-          'Active debts must have at least one positive matchAmounts entry. ' +
-            'Set archived=true if the debt is no longer active.',
+          'Active mortgages must have at least one positive matchAmounts entry. ' +
+            'Set archived=true if the mortgage is no longer active.',
         );
       }
     }
@@ -576,17 +593,20 @@ export function getAllDebtSummaries(opts: { includeArchived?: boolean } = {}): D
 }
 
 export function createDebt(input: DebtCreateInput): Debt {
-  assertValidDebtInput(input);
+  const effectiveKind: DebtKind = input.kind ?? 'consumer';
+  assertValidDebtInput(input, effectiveKind);
   const db = getDb();
   const existing = db.prepare('SELECT 1 FROM debts WHERE id = ?').get(input.id);
   if (existing) {
     throw new Error(`Debt with id "${input.id}" already exists`);
   }
   const matchAmounts = input.matchAmounts ?? [];
-  if (matchAmounts.length === 0) {
+  // Mortgage-only gate (matches the mortgage-leverage requirement on
+  // matchAmounts[0]). Consumer debts may launch with empty matchAmounts.
+  if (effectiveKind === 'mortgage' && matchAmounts.length === 0) {
     throw new Error(
-      'Active debts must have at least one positive matchAmounts entry. ' +
-        'Set archived=true after creation if the debt is no longer active.',
+      'Active mortgages must have at least one positive matchAmounts entry. ' +
+        'Set archived=true after creation if the mortgage is no longer active.',
     );
   }
   const csvRow: DebtCsvRow = {
@@ -622,7 +642,8 @@ export function updateDebt(id: string, patch: DebtUpdateInput): Debt {
   if (!existing) {
     throw new Error(`Debt with id "${id}" not found`);
   }
-  assertValidDebtInput(patch);
+  const effectiveKind: DebtKind = patch.kind ?? existing.kind;
+  assertValidDebtInput(patch, effectiveKind);
 
   const next: Debt = {
     ...existing,
@@ -647,10 +668,12 @@ export function updateDebt(id: string, patch: DebtUpdateInput): Debt {
     propertyId: patch.propertyId !== undefined ? patch.propertyId : existing.propertyId,
   };
 
-  if (!next.archived && next.matchAmounts.length === 0) {
+  // Mortgage-only gate: leverage code reads matchAmounts[0]. Consumer
+  // debts can run with empty matchAmounts (description-only matching).
+  if (!next.archived && next.kind === 'mortgage' && next.matchAmounts.length === 0) {
     throw new Error(
-      'Active debts must have at least one positive matchAmounts entry. ' +
-        'Set archived=true if the debt is no longer active.',
+      'Active mortgages must have at least one positive matchAmounts entry. ' +
+        'Set archived=true if the mortgage is no longer active.',
     );
   }
 

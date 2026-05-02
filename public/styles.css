@@ -54,7 +54,8 @@ body {
 /* Tabs */
 .tabs {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;     /* allow tabs to spill onto a second row instead of overflowing */
+  gap: 8px 10px;       /* row-gap then column-gap */
   margin-bottom: 25px;
   border-bottom: 2px solid var(--color-border);
   padding-bottom: 0;
@@ -5818,13 +5819,12 @@ body {
   }
 }
 
-/* §1.9 Debt Strategy section */
+/* §1.9 Debt Strategy section (lives in its own #strategy tab) */
 .debt-strategy-section-wrapper {
-  margin-top: 32px;
+  /* No top margin needed — tab content has its own surrounding spacing. */
 }
 .debt-strategy-section {
-  border-top: 1px solid var(--color-border, #e5e7eb);
-  padding-top: 24px;
+  /* Standalone tab content; no separator border needed. */
 }
 .debt-strategy-header {
   display: flex;
@@ -5956,4 +5956,136 @@ body {
 .budget-qol-pill--malleable {
   background: #fef3c7;
   color: #92400e;
+}
+
+/* §1.9 Stress-test scenario cards */
+.debt-strategy-scenarios {
+  border: none;
+  padding: 0;
+  margin: 0 0 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scenario-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 8px;
+  cursor: pointer;
+  background: var(--color-bg-elevated, #fff);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.scenario-card:hover {
+  border-color: var(--color-primary, #6366f1);
+}
+
+.scenario-card input[type="radio"] {
+  margin-top: 4px;
+  flex-shrink: 0;
+  accent-color: var(--color-primary, #6366f1);
+}
+
+.scenario-card:has(input[type="radio"]:checked) {
+  border-color: var(--color-primary, #6366f1);
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.scenario-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.scenario-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text, #1f2937);
+}
+
+.scenario-detail {
+  font-size: 12px;
+  color: var(--color-text-muted, #6b7280);
+  line-height: 1.4;
+}
+
+.scenario-card--custom .scenario-card-body {
+  gap: 8px;
+}
+
+.scenario-slider {
+  width: 100%;
+  margin-top: 4px;
+  accent-color: var(--color-primary, #6366f1);
+}
+
+.scenario-card:not(:has(input[value="custom"]:checked)) .scenario-slider {
+  /* Slider only interactive when 'Custom' is selected. Visually still
+     visible so users see what the slider would adjust. */
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* §1.9 Sandbox before/after table */
+.debt-strategy-sandbox-result {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+}
+
+.debt-strategy-sandbox-result h4 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted, #6b7280);
+}
+
+.debt-strategy-sandbox-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.debt-strategy-sandbox-table th,
+.debt-strategy-sandbox-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+
+.debt-strategy-sandbox-table th.numeric,
+.debt-strategy-sandbox-table td.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.debt-strategy-sandbox-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.debt-strategy-sandbox-table .delta-negative {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.debt-strategy-sandbox-table .delta-zero {
+  color: var(--color-text-muted, #6b7280);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

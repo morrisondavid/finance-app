@@ -306,8 +306,28 @@ describe('/api/debts routes', () => {
       expect(csvRows.find(r => r.id === id)?.matchAmounts).toEqual([192.66]);
     });
 
-    it('rejects clearing matchAmounts to empty on an active debt (§1.8 active-row gate)', async () => {
+    it('allows clearing matchAmounts to empty on an active CONSUMER debt (description-only matching)', async () => {
       const id = seedDebt();
+      const res = await fetch(`${baseUrl}/api/debts/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchAmounts: [] }),
+      });
+      // Consumer debts can run with empty matchAmounts (the matcher
+      // falls back to description-only matching). The mortgage-only
+      // gate covers the case that actually needs matchAmounts[0].
+      expect(res.status).toBe(200);
+      const body = await res.json() as { debt: { matchAmounts: number[] } };
+      expect(body.debt.matchAmounts).toEqual([]);
+    });
+
+    it('rejects clearing matchAmounts to empty on an active MORTGAGE (mortgage-only gate)', async () => {
+      const id = seedDebt({
+        kind: 'mortgage',
+        interestRate: 4.48,
+        repaymentType: 'interest-only',
+        matchAmounts: [800],
+      });
       const res = await fetch(`${baseUrl}/api/debts/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },

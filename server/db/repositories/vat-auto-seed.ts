@@ -23,6 +23,27 @@ function vatQuarterKey(q: VatQuarterRange): string {
 }
 
 /**
+ * First VAT-applicable bank activity falls in the **closing calendar month**
+ * of a quarter whose official start predates that activity (e.g. first income
+ * on 2022-04-19 in Feb–Apr 2022). Seeding a normal obligation for that stub
+ * quarter over-counts pre-ledger weeks; we treat it as `insufficient-data`
+ * instead of surfacing a misleading row.
+ *
+ * Conversely, first income in **June** for May–Jul (quarter ends July) must
+ * still seed: activity month (June) ≠ closing month (July), so we do not
+ * demote — this matches card-channel VAT tests and real mid-quarter onboards.
+ */
+function isPartialFirstQuarterBeforeLedger(
+  q: VatQuarterRange,
+  earliestTxDate: string,
+  hasPaymentMatch: boolean,
+): boolean {
+  if (hasPaymentMatch) return false;
+  if (q.startDate >= earliestTxDate) return false;
+  return earliestTxDate.slice(0, 7) === q.endDate.slice(0, 7);
+}
+
+/**
  * Row in a VAT reconciliation set. Pairs a quarter with its reconciled payment
  * state and the income total we derived from the ledger (handy for display).
  */
@@ -46,6 +67,12 @@ export interface VatReconciliationRow {
  * unmatched AND due before the first observed VAT payment are treated as
  * implicitly covered (HMRC would have chased the user otherwise) and
  * demoted to `insufficient-data` so they do not surface as overdue rows.
+ *
+ * **`dataCutoff` is null when there is no VAT-settlement payment in the
+ * ledger** (`HMRC VAT%` or `HMRC ETMP% Card Ending%`). Bare `HMRC ETMP`
+ * lines are TTP / payment-plan debits, not VAT — they must not advance
+ * `firstVatPaymentDate` and must not force a FY-based cutoff that strips
+ * real quarters from the obligations table.
  */
 export function buildVatReconciliationSet(
   referenceDate: Date = new Date(),
@@ -87,20 +114,29 @@ export function buildVatReconciliationSet(
   );
   const fyCutoff = getPreviousFyStartDate(referenceDate);
 
-  // Effective data cutoff: previous-FY-start OR firstVatPaymentDate, whichever
-  // is later. Any quarter ending before `firstVatPaymentDate` with no
-  // attributed payment is implicitly covered; reconciliation flags it
-  // `insufficient-data` and the seeder drops it.
-  const dataCutoff = firstVatPaymentDate && firstVatPaymentDate > fyCutoff
-    ? firstVatPaymentDate
-    : fyCutoff;
+  // Trusted window for "unpaid" vs `insufficient-data` only applies once we
+  // have seen at least one VAT settlement line. Otherwise `fyCutoff` would
+  // mark every historical quarter ending before last FY as outside range
+  // (row never inserted) even when the quarter has income and no VAT match.
+  const dataCutoff: string | null = firstVatPaymentDate
+    ? (firstVatPaymentDate > fyCutoff ? firstVatPaymentDate : fyCutoff)
+    : null;
 
   return candidateQuarters.map(q => {
     const income = sumIncomeForQuarter(q, vatFilter);
     const match = paymentByQuarter.get(vatQuarterKey(q)) ?? null;
-    const reconciliation = reconcileVatQuarter(
+    let reconciliation = reconcileVatQuarter(
       q, income, VAT.FRACTION, match, referenceDate, dataCutoff,
     );
+    if (isPartialFirstQuarterBeforeLedger(q, earliestTxDate, match !== null)) {
+      reconciliation = {
+        ...reconciliation,
+        status: 'insufficient-data',
+        paidAmount: 0,
+        paidDate: null,
+        paidFromAccount: null,
+      };
+    }
     return { quarter: q, income, reconciliation };
   });
 }

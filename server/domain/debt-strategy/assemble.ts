@@ -5,22 +5,24 @@
  *   - `server/routes/debt-strategy.ts` (the API)
  *   - `server/domain/warnings/plan-*.ts` (the §1.8 spine emitters)
  *
- * Loads from registries (debts, plans, movements, budgets, accounts)
- * and the recurring-expenses pipeline; runs the pure planner modules;
- * returns one bundle. Nothing in the bundle is cached — every call
- * recomputes against the latest data per §1.9's "no silent recompute"
- * contract (we want recompute on user-initiated reads, not background
- * data changes; the route IS user-initiated).
+ * The headroom math is now driven by the canonical forecast
+ * primitives (a real DRY layer rather than a fourth copy of the
+ * loader sequence):
  *
- * DRY:
- *   - Reuses `runExpensesOverviewPipeline` to derive forecasted
- *     monthly income + mandatory bills.
- *   - Reuses `getAllDebtSummaries` for currentBalance per debt (the
- *     auto-completion gate).
- *   - Reuses `listBudgets` from the existing budgets repository for
- *     the inviolable category caps.
- *   - Reuses `assembleRunway` for the what-if sandbox (called
- *     separately by the sandbox endpoint).
+ *   - {@link loadForecastInputs} — single shared loader; same source
+ *     of truth as `/api/forecast` and `assembleRunway`.
+ *   - {@link projectIncomeForWindow} — named "future income"
+ *     primitive. Includes contract accrual (working-days × day-rate
+ *     via §1.4's `calculateWorkload`) plus invoice-receipts plus
+ *     recurring income. This is the right signal for "next month's
+ *     headroom"; the rear-view recurring detector this replaced
+ *     would silently zero income on a fresh DB because it requires
+ *     several months of consistent transactions to classify.
+ *
+ * Mandatory outflow uses the same loaded inputs but a different flag
+ * combination on `assembleForecastEvents` (mandatory recurring +
+ * obligations only). All buckets are pinned to (currency, scope)
+ * via {@link bucketKey}.
  */
 
 import {
@@ -28,11 +30,15 @@ import {
   type CurrencyCode,
 } from '../../../shared/api-contracts.js';
 import { isMandatoryCategory } from '../../../shared/expenses-insight.js';
-import { runExpensesOverviewPipeline } from '../../utils/expenses-overview-pipeline.js';
 import { getAllDebtSummaries, type DebtSummary } from '../../db/repositories/debts.js';
 import { listBudgets } from '../../db/repositories/budgets.js';
 import { ACCOUNT_CONFIG_DATA } from '../accounts/data.js';
 import { todayIsoLocal } from '../../../shared/iso-date.js';
+import {
+  loadForecastInputs,
+  type LoadedForecastInputs,
+} from '../forecast/load-inputs.js';
+import { projectMonthlyRunRate } from '../forecast/project-monthly-run-rate.js';
 
 import type { Plan, PlanScope, SuggestedPlan } from './schema.js';
 import type { Movement } from './movements-schema.js';
@@ -106,61 +112,58 @@ function scopeForAccount(account: AccountName): PlanScope {
   return 'household';
 }
 
+/** §1.9 headroom window: 30 days (also used for income run-rate). */
+const HEADROOM_WINDOW_DAYS = 30;
 /**
- * Sum recurring monthly inflow per (currency, scope) bucket. Income is
- * routed by which account it landed on. Returns a Map keyed by
- * `bucketKey(currency, scope)`.
+ * Forecast horizon for `loadForecastInputs`. 60 days gives the
+ * 30-day headroom window plus padding.
  */
-function buildIncomeByBucket(
-  pipeline: ReturnType<typeof runExpensesOverviewPipeline>,
-): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const item of pipeline.monthlyIncomeRecurring) {
-    const accountStr = item.sourceAccount;
-    if (!isAccountName(accountStr)) continue;
-    const cfg = ACCOUNT_CONFIG_DATA[accountStr];
-    if (cfg === undefined) continue;
-    const scope = scopeForAccount(accountStr);
-    const key = bucketKey(cfg.currency, scope);
-    // Use native amount/currency where available so AED stays AED.
-    const native = item.nativeAmount;
-    const nativeCurrency = item.nativeCurrency as CurrencyCode | undefined;
-    if (native !== undefined && nativeCurrency !== undefined) {
-      const nativeKey = bucketKey(nativeCurrency, scope);
-      out.set(nativeKey, (out.get(nativeKey) ?? 0) + Math.abs(native));
-    } else {
-      out.set(key, (out.get(key) ?? 0) + Math.abs(item.amount));
-    }
-  }
-  return out;
+const HEADROOM_INPUT_HORIZON_DAYS = 60;
+
+/**
+ * Steady-state monthly mandatory outflow per (currency, scope) bucket.
+ *
+ * Mirrors how `projectMonthlyRunRate` handles income: reads from the
+ * pipeline's `monthlyExpenseRecurring` list (the recurring detector's
+ * smoothed average) rather than summing point-in-time forecast events
+ * over a 30-day window. The windowed approach caused headroom to
+ * collapse whenever a large periodic obligation (quarterly VAT, annual
+ * insurance, CT payment) happened to fall in the window — inflating
+ * mandatory by £10k+ and making headroom appear ~£1,000 regardless of
+ * actual income.
+ *
+ * One-off / periodic obligations (VAT, corp tax, insurance lump-sums)
+ * are intentionally excluded from this figure. Those are cash-flow
+ * events the user must plan for separately; including them in the
+ * monthly headroom baseline would make the planner useless during the
+ * months they land.
+ */
+/** Guard for account-name strings (mirrors the one in project-monthly-run-rate.ts). */
+function isKnownAccount(value: string): value is AccountName {
+  return value in ACCOUNT_CONFIG_DATA;
 }
 
-function buildMandatoryByBucket(
-  pipeline: ReturnType<typeof runExpensesOverviewPipeline>,
+function buildMandatoryMonthlyByBucket(
+  inputs: LoadedForecastInputs,
 ): Map<string, number> {
   const out = new Map<string, number>();
-  for (const item of pipeline.monthlyExpenseRecurring) {
+  for (const item of inputs.pipeline.monthlyExpenseRecurring) {
     if (!isMandatoryCategory(item.category)) continue;
     const accountStr = item.sourceAccount;
-    if (!isAccountName(accountStr)) continue;
+    if (!isKnownAccount(accountStr)) continue;
     const cfg = ACCOUNT_CONFIG_DATA[accountStr];
-    if (cfg === undefined) continue;
     const scope = scopeForAccount(accountStr);
+    // Use native amount/currency where present (e.g. AED mortgages).
     const native = item.nativeAmount;
     const nativeCurrency = item.nativeCurrency as CurrencyCode | undefined;
-    if (native !== undefined && nativeCurrency !== undefined) {
-      const nativeKey = bucketKey(nativeCurrency, scope);
-      out.set(nativeKey, (out.get(nativeKey) ?? 0) + Math.abs(native));
-    } else {
-      const key = bucketKey(cfg.currency, scope);
-      out.set(key, (out.get(key) ?? 0) + Math.abs(item.amount));
-    }
+    const useNative = native !== undefined && nativeCurrency !== undefined;
+    const amount = useNative ? Math.abs(native ?? 0) : Math.abs(item.amount);
+    const currency: CurrencyCode = useNative && nativeCurrency !== undefined ? nativeCurrency : cfg.currency;
+    if (amount <= 0) continue;
+    const key = bucketKey(currency, scope);
+    out.set(key, (out.get(key) ?? 0) + amount);
   }
   return out;
-}
-
-function isAccountName(value: string): value is AccountName {
-  return value in ACCOUNT_CONFIG_DATA;
 }
 
 function buildBudgetsByBucket(): Map<string, number> {
@@ -203,21 +206,58 @@ export function assembleDebtStrategy(
   input: AssembleDebtStrategyInput = {},
 ): AssembledDebtStrategy {
   const today = input.today ?? todayIsoLocal();
-  const pipeline = runExpensesOverviewPipeline();
 
-  // 1. Build per-bucket monthly figures.
-  const incomeByBucket = buildIncomeByBucket(pipeline);
+  // ── Canonical forecast inputs (shared with /api/forecast and runway) ──
+  const inputs: LoadedForecastInputs = loadForecastInputs({
+    today,
+    horizonDays: HEADROOM_INPUT_HORIZON_DAYS,
+  });
+
+  // 1a. Income side — `projectMonthlyRunRate` is the steady-state
+  //     monthly figure: working-days × day-rate over the next 30 days
+  //     for active contracts, plus recurring detected income (rent,
+  //     dividends). Already-issued invoice receipts are deliberately
+  //     NOT included here — those are back-pay landing in cash on a
+  //     specific date, not steady-state monthly income. (For the
+  //     date-bounded "what's arriving in the bank between X and Y?"
+  //     question, callers use `projectIncomeForWindow` directly.)
+  const monthlyIncome = projectMonthlyRunRate({
+    today,
+    preLoaded: inputs,
+    windowDays: HEADROOM_WINDOW_DAYS,
+  });
+  const incomeByBucket = new Map<string, number>();
+  for (const [k, b] of monthlyIncome.byBucket) {
+    incomeByBucket.set(k, b.total);
+  }
   if (input.incomeOverrides !== undefined) {
     for (const [k, v] of input.incomeOverrides) {
       incomeByBucket.set(k, v);
     }
   }
-  const mandatoryByBucket = buildMandatoryByBucket(pipeline);
+
+  // 1b. Mandatory side — steady-state monthly recurring mandatory
+  //     outflows (mortgages, insurance, utilities, subscriptions).
+  //     One-off periodic obligations (quarterly VAT, annual CT) are
+  //     deliberately excluded — those are cash-flow events the user
+  //     plans for separately; including them inflates mandatory by
+  //     £10k+ in the quarter they land and makes headroom useless.
+  const mandatoryByBucket = buildMandatoryMonthlyByBucket(inputs);
   const budgetsByBucket = buildBudgetsByBucket();
 
   // 2. Compute total + available headroom per bucket.
-  //    Buckets are the union of all keys appearing in the inputs.
+  //    Always include the three canonical (currency, scope) buckets
+  //    so the holistic three-entity view never silently drops one
+  //    when the inputs happen to be empty for a slice. Plus the
+  //    union of any keys actually appearing in the inputs (covers
+  //    future entities or one-off currencies).
+  const CANONICAL_BUCKETS: readonly string[] = [
+    bucketKey('GBP', 'household'),
+    bucketKey('GBP', 'autonize-it-ltd'),
+    bucketKey('AED', 'autonize-it-fzco'),
+  ];
   const allKeys = new Set<string>([
+    ...CANONICAL_BUCKETS,
     ...incomeByBucket.keys(),
     ...mandatoryByBucket.keys(),
     ...budgetsByBucket.keys(),

@@ -590,6 +590,15 @@ function renderTile(contract: Contract): string {
     .filter(Boolean)
     .join(' ');
 
+  const totalValue =
+    accrual?.total_contract_value != null
+      ? formatCurrency(accrual.total_contract_value, currency)
+      : null;
+  const totalDays =
+    accrual?.total_contract_working_days != null
+      ? accrual.total_contract_working_days
+      : null;
+
   return `<article
     class="${tileClasses}"
     data-contract-id="${id}"
@@ -625,9 +634,13 @@ function renderTile(contract: Contract): string {
         <div class="contracts-stat__value">${accrued}</div>
       </div>
       <div class="contracts-stat--income">
-        <div class="contracts-stat__label">Projected</div>
+        <div class="contracts-stat__label">Projected this month</div>
         <div class="contracts-stat__value">${projected}</div>
       </div>
+      ${totalValue !== null ? `<div class="contracts-stat--income" title="Total working days: ${totalDays}d across the full contract window (start to end, excl. weekends &amp; bank holidays)">
+        <div class="contracts-stat__label">Total contract value</div>
+        <div class="contracts-stat__value">${escapeHtml(totalValue)}</div>
+      </div>` : ''}
       <div>
         <div class="contracts-stat__label">Mechanism</div>
         <div class="contracts-stat__value">${escapeHtml(contract.invoice_mechanism.replace(/-/g, ' '))}</div>

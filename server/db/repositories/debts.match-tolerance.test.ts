@@ -229,3 +229,129 @@ describe('debt match tolerance', () => {
     ).toThrow(/matchTolerancePct/);
   });
 });
+
+describe('matchAmounts validation — mortgage-only gate', () => {
+  // The first describe block's afterAll closes the DB; respin a
+  // fresh in-memory DB for this group.
+  beforeAll(() => {
+    hoisted.db = new Database(':memory:');
+    createSchema();
+  });
+
+  afterAll(() => {
+    hoisted.db?.close();
+  });
+
+  beforeEach(() => {
+    hoisted.db!.exec('DELETE FROM debts; DELETE FROM transactions;');
+    hoisted.debtsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'debts-validation-test-'));
+  });
+
+  it('consumer debt with empty matchAmounts is creatable (description-only matching)', () => {
+    expect(() =>
+      DebtsRepo.createDebt({
+        id: 'consumer-no-amounts',
+        name: 'Consumer No Amounts',
+        merchantPattern: 'BBL',
+        sourceAccounts: ['barclays-current'],
+        originalLoanAmount: 50000,
+        openingBalance: 22685.36,
+        openingBalanceDate: '2025-10-01',
+        matchAmounts: [],
+        matchTolerancePct: 0,
+        kind: 'consumer',
+      }),
+    ).not.toThrow();
+  });
+
+  it('consumer debt without explicit kind defaults to consumer and accepts empty matchAmounts', () => {
+    expect(() =>
+      DebtsRepo.createDebt({
+        id: 'no-kind',
+        name: 'No Kind',
+        merchantPattern: 'X',
+        sourceAccounts: ['barclays-current'],
+        originalLoanAmount: 100,
+        openingBalance: 100,
+        openingBalanceDate: '2026-01-01',
+        matchAmounts: [],
+      }),
+    ).not.toThrow();
+  });
+
+  it('consumer debt with empty matchAmounts: match clause is description-only (no amount filter)', () => {
+    DebtsRepo.createDebt({
+      id: 'desc-only',
+      name: 'Desc Only',
+      merchantPattern: '0520A',
+      sourceAccounts: ['barclays-current'],
+      originalLoanAmount: 50000,
+      openingBalance: 48311.05,
+      openingBalanceDate: '2022-05-12',
+      matchAmounts: [],
+      matchTolerancePct: 0,
+      kind: 'consumer',
+    });
+    // Two payments, very different amounts. Both should match because
+    // the matcher is description-only when matchAmounts is empty.
+    tx({ date: '2026-01-13', description: '0520A early', amount: -540.0, account: 'barclays-current' });
+    tx({ date: '2026-04-13', description: '0520A later', amount: -513.0, account: 'barclays-current' });
+
+    const s = DebtsRepo.getDebtSummary(DebtsRepo.getDebt('desc-only')!);
+    expect(s.matchedTransactionCount).toBe(2);
+    expect(s.paidSinceOpening).toBe(1053.0);
+  });
+
+  it('mortgage with empty matchAmounts is rejected (mortgage-only gate fires)', () => {
+    expect(() =>
+      DebtsRepo.createDebt({
+        id: 'mortgage-no-amounts',
+        name: 'Mortgage No Amounts',
+        merchantPattern: 'NatWest',
+        sourceAccounts: ['monzo-joint'],
+        originalLoanAmount: 200000,
+        openingBalance: 200000,
+        openingBalanceDate: '2026-01-01',
+        matchAmounts: [],
+        kind: 'mortgage',
+        interestRate: 4.48,
+        repaymentType: 'interest-only',
+      }),
+    ).toThrow(/mortgages.*matchAmounts/);
+  });
+
+  it('mortgage with non-empty matchAmounts is accepted', () => {
+    expect(() =>
+      DebtsRepo.createDebt({
+        id: 'mortgage-with-amounts',
+        name: 'Mortgage With Amounts',
+        merchantPattern: 'NatWest',
+        sourceAccounts: ['monzo-joint'],
+        originalLoanAmount: 200000,
+        openingBalance: 200000,
+        openingBalanceDate: '2026-01-01',
+        matchAmounts: [801.35],
+        kind: 'mortgage',
+        interestRate: 4.48,
+        repaymentType: 'interest-only',
+      }),
+    ).not.toThrow();
+  });
+
+  it('updateDebt flips a consumer to mortgage with empty matchAmounts → rejected', () => {
+    DebtsRepo.createDebt({
+      id: 'flippable',
+      name: 'Flippable',
+      merchantPattern: 'X',
+      sourceAccounts: ['monzo-joint'],
+      originalLoanAmount: 100000,
+      openingBalance: 100000,
+      openingBalanceDate: '2026-01-01',
+      matchAmounts: [],
+      kind: 'consumer',
+    });
+    expect(() =>
+      DebtsRepo.updateDebt('flippable', { kind: 'mortgage', matchAmounts: [] }),
+    ).toThrow(/mortgages.*matchAmounts/);
+  });
+});

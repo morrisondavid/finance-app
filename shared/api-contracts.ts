@@ -1925,6 +1925,17 @@ export const AccrualResponseSchema = z.object({
   leave_days_in_period: z.number().int().nonnegative(),
   day_rate: z.number().nonnegative(),
   currency: CurrencyCodeSchema,
+  /**
+   * Total working days for the entire contract lifecycle
+   * (start_date → end_date, excluding weekends, leave, bank holidays).
+   * `null` for open-ended contracts (no end_date).
+   */
+  total_contract_working_days: z.number().int().nonnegative().nullable(),
+  /**
+   * Total expected contract value (total_contract_working_days × day_rate).
+   * `null` for open-ended contracts.
+   */
+  total_contract_value: z.number().nonnegative().nullable(),
 });
 export type AccrualResponse = z.infer<typeof AccrualResponseSchema>;
 

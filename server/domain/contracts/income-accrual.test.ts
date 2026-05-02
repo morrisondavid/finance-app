@@ -342,3 +342,39 @@ describe('computeAccrual — passthrough fields', () => {
     expect(res.projected_period_total).toBe(0);
   });
 });
+
+describe('computeAccrual — total_contract_working_days / total_contract_value', () => {
+  it('contract with end_date: computes total working days and value from start to end', () => {
+    // dc-sow-2026 runs 2026-01-05 → 2026-12-31, Mon–Fri, £550/day.
+    // Exact count depends on public holidays; assert >200 days and
+    // value = days × 550 (leave excluded since no leave rows here).
+    const res = computeAccrual({
+      contract: dc,
+      leaveRows: [],
+      today: '2026-04-01',
+      lastPaymentDate: null,
+    });
+    expect(res.total_contract_working_days).not.toBeNull();
+    expect(res.total_contract_working_days).toBeGreaterThanOrEqual(200);
+    expect(res.total_contract_working_days).toBeLessThanOrEqual(270); // upper bound for Mon-Fri year
+    expect(res.total_contract_value).not.toBeNull();
+    // total_contract_value = total_contract_working_days × 550
+    expect(res.total_contract_value).toBeCloseTo(
+      (res.total_contract_working_days ?? 0) * 550,
+      0,
+    );
+  });
+
+  it('open-ended contract (no end_date): both fields are null', () => {
+    // Manufacture an open-ended variant of dc by nulling end_date.
+    const openEnded = { ...dc, end_date: null };
+    const res = computeAccrual({
+      contract: openEnded,
+      leaveRows: [],
+      today: '2026-04-01',
+      lastPaymentDate: null,
+    });
+    expect(res.total_contract_working_days).toBeNull();
+    expect(res.total_contract_value).toBeNull();
+  });
+});
