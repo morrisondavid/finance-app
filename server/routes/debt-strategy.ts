@@ -42,6 +42,7 @@ import {
   persistMovement,
   deletePlan,
 } from '../domain/debt-strategy/mutations.js';
+import { approxStrategyPeriodMonths } from '../domain/debt-strategy/strategy-capital.js';
 import { todayIsoLocal } from '../../shared/iso-date.js';
 
 const router = Router();
@@ -93,6 +94,16 @@ function bundleToResponse(bundle: AssembledDebtStrategy): unknown {
       planId: id,
       ...r,
     })),
+    strategyCapital: bundle.strategyCapital,
+    refinanceRecommendations: Array.from(bundle.refinanceRecommendations.entries()).map(
+      ([debtId, r]) => ({
+        debtId,
+        kind: r.kind,
+        total_cost_savings_vs_keep: r.total_cost_savings_vs_keep,
+      }),
+    ),
+    creditCardPaydownHints: bundle.creditCardPaydownHints,
+    crossScopeTransferPreview: bundle.crossScopeTransferPreview,
   };
 }
 
@@ -129,6 +140,13 @@ router.post('/plans', (req: Request, res: Response) => {
     const bundle = assembleDebtStrategy({ today });
     const headroom =
       bundle.headroomByBucket.get(bucketKey(body.currency, body.scope))?.availableHeadroom ?? 0;
+    const hol = bundle.strategyCapital.holistic;
+    const moneyForDebtStrategy =
+      body.currency === 'AED' ? hol.holistic_money_for_debt_aed : hol.holistic_money_for_debt_gbp;
+    const strategyPeriodApproxMonths = approxStrategyPeriodMonths(
+      today,
+      bundle.strategyCapital.strategy_end_date,
+    );
 
     const goal: GeneratePlanGoal = {
       goalType: body.goalType,
@@ -155,6 +173,8 @@ router.post('/plans', (req: Request, res: Response) => {
       dayOfMonth: body.dayOfMonth,
       budgetedCategories: new Set(),
       requiredBudgetedCategories: new Set(), // route-level v1 doesn't enforce
+      moneyForDebtStrategy,
+      strategyPeriodApproxMonths,
     });
 
     if (result.blocked) {
@@ -216,6 +236,15 @@ router.post('/plans/:id/activate-suggested', (req: Request, res: Response) => {
     };
     const headroom =
       bundle.headroomByBucket.get(bucketKey(suggested.currency, suggested.scope))?.availableHeadroom ?? 0;
+    const hol = bundle.strategyCapital.holistic;
+    const moneyForDebtStrategy =
+      suggested.currency === 'AED'
+        ? hol.holistic_money_for_debt_aed
+        : hol.holistic_money_for_debt_gbp;
+    const strategyPeriodApproxMonths = approxStrategyPeriodMonths(
+      today,
+      bundle.strategyCapital.strategy_end_date,
+    );
     const planId = `plan-${Date.now()}`;
     const movementId = `${planId}-mov-1`;
     const result = generatePlan({
@@ -228,6 +257,8 @@ router.post('/plans/:id/activate-suggested', (req: Request, res: Response) => {
       dayOfMonth: body.dayOfMonth,
       budgetedCategories: new Set(),
       requiredBudgetedCategories: new Set(),
+      moneyForDebtStrategy,
+      strategyPeriodApproxMonths,
     });
     if (result.blocked) {
       res.status(409).json({

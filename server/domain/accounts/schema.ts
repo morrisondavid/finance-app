@@ -106,6 +106,12 @@ const BaseAccountConfigSchema = z.object({
   quarterOverlapMonths: z.number().optional(),
   /** §1.9 — credit-card-specific terms. Optional everywhere. */
   creditCard: CreditCardConfigSchema.optional(),
+  /**
+   * When false, balances on this account are excluded from “money you can
+   * use now” in capital-aware debt strategy. When omitted: credit-card
+   * accounts default false; other types default true.
+   */
+  deployableForStrategy: z.boolean().optional(),
 });
 
 export const BusinessAccountConfigSchema = BaseAccountConfigSchema.extend({

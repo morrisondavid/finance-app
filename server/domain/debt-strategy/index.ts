@@ -114,6 +114,49 @@ export {
   type BucketHeadroom,
 } from './assemble.js';
 
+export {
+  type StrategyBucketKey,
+  parseStrategyBucketKey,
+} from './strategy-bucket-key.js';
+
+export {
+  DEFAULT_STRATEGY_MAX_PLANNING_DAYS,
+  resolveStrategyPlanningEndDate,
+  buildDeployableLiquidityByBucket,
+  buildTypicalMonthlyBillsByBucket,
+  buildCreditCardPaydownHints,
+  assembleStrategyCapitalSnapshot,
+  approxStrategyPeriodMonths,
+  sumMoneyForDebtStrategyHolisticInCurrency,
+  buildHolisticStrategyRollup,
+  buildRecommendedLumpSumAllocations,
+  type HolisticStrategyCapitalRollup,
+  type RecommendedLumpSumAllocation,
+  type CreditCardPaydownHint,
+  type StrategyCapitalBucketSnapshot,
+  type AssembledStrategyCapitalSnapshot,
+} from './strategy-capital.js';
+
+export { effectiveHeadroomForStrategyPlanning } from './effective-headroom-for-strategy.js';
+
+export {
+  computeMonthsOfBillCoverAfterPlan,
+  isPlanViableAgainstBillCoverFloor,
+  meetsBillCoverComfortTarget,
+} from './bill-cover.js';
+
+export {
+  recommendRefinanceFromTradeoff,
+  type RefinanceRecommendation,
+  type RefinanceRecommendationKind,
+} from './recommend-refinance.js';
+
+export {
+  evaluateCrossScopeTransferPlaceholder,
+  type CrossScopeTransferEvaluation,
+  type CrossScopeTransferReasonCode,
+} from './evaluate-cross-scope-transfer.js';
+
 // Movements (sibling registry)
 export {
   MovementSchema,

@@ -69,6 +69,16 @@ export function isCreditCard(
   return reg.indexes.creditCards.includes(account);
 }
 
+/**
+ * Whether this account's balance counts as deployable cash for §1.9
+ * capital-aware strategy. Omitted defaults to excluding credit cards only.
+ */
+export function accountDeployableForStrategy(config: AccountConfig): boolean {
+  if (config.deployableForStrategy === false) return false;
+  if (config.deployableForStrategy === true) return true;
+  return config.type !== 'credit-card';
+}
+
 export function canMakeOutgoingPayments(
   account: AccountName,
   reg: AccountsRegistry = getAccountsRegistry(),

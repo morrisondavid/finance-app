@@ -16,6 +16,15 @@ function makeDebt(over: Partial<AutoSuggestDebt> & Pick<AutoSuggestDebt, 'id'>):
   };
 }
 
+/** Neutral holistic context: same behaviour as bucket-only headroom before cross-bucket boost. */
+function capitalContext() {
+  return {
+    holisticMoneyForDebtGbp: 0,
+    holisticMoneyForDebtAed: 0,
+    strategyPeriodApproxMonths: 1,
+  } as const;
+}
+
 function makePlan(over: Partial<Plan> & Pick<Plan, 'id'>): Plan {
   return {
     id: over.id,
@@ -50,6 +59,7 @@ describe('autoSuggestPlans', () => {
       persistedPlans: [],
       availableHeadroomByBucket: new Map([[bucketKey('GBP', 'autonize-it-ltd'), 1000]]),
       today: '2026-04-25',
+      ...capitalContext(),
     });
     expect(out.map(s => s.target_id)).toEqual(['d-high', 'd-mid', 'd-low']);
     expect(out[0].status).toBe('suggested');
@@ -65,6 +75,7 @@ describe('autoSuggestPlans', () => {
       persistedPlans: [],
       availableHeadroomByBucket: new Map([[bucketKey('GBP', 'autonize-it-ltd'), 1000]]),
       today: '2026-04-25',
+      ...capitalContext(),
     });
     expect(out.map(s => s.target_id)).toEqual(['loan']);
   });
@@ -78,6 +89,7 @@ describe('autoSuggestPlans', () => {
       persistedPlans: [],
       availableHeadroomByBucket: new Map([[bucketKey('GBP', 'autonize-it-ltd'), 1000]]),
       today: '2026-04-25',
+      ...capitalContext(),
     });
     expect(out.map(s => s.target_id)).toEqual(['live']);
   });
@@ -91,6 +103,7 @@ describe('autoSuggestPlans', () => {
       persistedPlans: [],
       availableHeadroomByBucket: new Map([[bucketKey('GBP', 'autonize-it-ltd'), 1000]]),
       today: '2026-04-25',
+      ...capitalContext(),
     });
     expect(out.map(s => s.target_id)).toEqual(['live']);
   });
@@ -104,6 +117,7 @@ describe('autoSuggestPlans', () => {
       persistedPlans: [makePlan({ id: 'p1', target_id: 'd1', status: 'active' })],
       availableHeadroomByBucket: new Map([[bucketKey('GBP', 'autonize-it-ltd'), 1000]]),
       today: '2026-04-25',
+      ...capitalContext(),
     });
     expect(out.map(s => s.target_id)).toEqual(['d2']);
   });
@@ -114,6 +128,7 @@ describe('autoSuggestPlans', () => {
       persistedPlans: [makePlan({ id: 'p1', target_id: 'd1', status: 'paused' })],
       availableHeadroomByBucket: new Map([[bucketKey('GBP', 'autonize-it-ltd'), 1000]]),
       today: '2026-04-25',
+      ...capitalContext(),
     });
     expect(out).toEqual([]);
   });
@@ -124,6 +139,7 @@ describe('autoSuggestPlans', () => {
       persistedPlans: [makePlan({ id: 'p1', target_id: 'd1', status: 'completed' })],
       availableHeadroomByBucket: new Map([[bucketKey('GBP', 'autonize-it-ltd'), 1000]]),
       today: '2026-04-25',
+      ...capitalContext(),
     });
     expect(out.map(s => s.target_id)).toEqual(['d1']);
   });
@@ -141,6 +157,7 @@ describe('autoSuggestPlans', () => {
         [bucketKey('GBP', 'household'), 800],         // personal slot has £800
       ]),
       today: '2026-04-25',
+      ...capitalContext(),
     });
     // 'business' produces zero allocation → suppressed (noise-free).
     // 'personal' produces £400 (50% of £800) → suggested.
@@ -154,7 +171,23 @@ describe('autoSuggestPlans', () => {
       persistedPlans: [],
       availableHeadroomByBucket: new Map([[bucketKey('GBP', 'autonize-it-ltd'), 0]]),
       today: '2026-04-25',
+      ...capitalContext(),
     });
     expect(out).toEqual([]);
+  });
+
+  it('uses holistic money-for-debt when the debt bucket has zero headroom (cross-bucket deployable)', () => {
+    const out = autoSuggestPlans({
+      debts: [makeDebt({ id: 'ltd', scope: 'autonize-it-ltd' })],
+      persistedPlans: [],
+      availableHeadroomByBucket: new Map([[bucketKey('GBP', 'autonize-it-ltd'), 0]]),
+      today: '2026-04-25',
+      holisticMoneyForDebtGbp: 12_000,
+      holisticMoneyForDebtAed: 0,
+      strategyPeriodApproxMonths: 12,
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].target_id).toBe('ltd');
+    expect(out[0].monthly_allocation).toBeGreaterThan(0);
   });
 });

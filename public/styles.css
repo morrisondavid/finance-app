@@ -5842,6 +5842,7 @@ body {
   color: var(--color-text-muted, #6b7280);
 }
 .debt-strategy-headroom-grid,
+.debt-strategy-capital-grid,
 .debt-strategy-suggested-grid,
 .debt-strategy-active-grid,
 .debt-strategy-paused-grid,
@@ -5866,8 +5867,10 @@ body {
   font-size: 13px;
   color: var(--color-text-muted, #6b7280);
 }
-.debt-strategy-bucket-row strong {
-  color: var(--color-text, #1f2937);
+.debt-strategy-capital-cross-scope {
+  font-size: 12px;
+  color: var(--color-text-muted, #6b7280);
+  margin-top: 12px;
 }
 .debt-strategy-plan {
   background: var(--color-bg-elevated, #fafafa);

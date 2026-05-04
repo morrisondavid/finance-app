@@ -157,3 +157,41 @@ describe('checkPlanFeasibility — suggested remedies', () => {
     expect(out.suggestedRemedies).toEqual([]);
   });
 });
+
+describe('checkPlanFeasibility — bill cover floor', () => {
+  it('forces infeasible when months_of_bill_cover_after_plan is below 2', () => {
+    const plan = makePlan({ id: 'p1', monthly_allocation: 500 });
+    const out = checkPlanFeasibility({
+      plan,
+      totalHeadroom: 2000,
+      allActivePlans: [plan],
+      monthsOfBillCoverAfterPlan: 1.5,
+    });
+    expect(out.status).toBe('infeasible');
+    expect(out.months_of_bill_cover_after_plan).toBe(1.5);
+    expect(out.bill_cover_viable).toBe(false);
+  });
+
+  it('allows ok when bill cover is at least 2 months', () => {
+    const plan = makePlan({ id: 'p1', monthly_allocation: 500 });
+    const out = checkPlanFeasibility({
+      plan,
+      totalHeadroom: 2000,
+      allActivePlans: [plan],
+      monthsOfBillCoverAfterPlan: 2,
+    });
+    expect(out.status).toBe('ok');
+    expect(out.bill_cover_viable).toBe(true);
+  });
+
+  it('treats missing bill-cover data as viable (null)', () => {
+    const plan = makePlan({ id: 'p1', monthly_allocation: 500 });
+    const out = checkPlanFeasibility({
+      plan,
+      totalHeadroom: 2000,
+      allActivePlans: [plan],
+    });
+    expect(out.months_of_bill_cover_after_plan).toBeNull();
+    expect(out.bill_cover_viable).toBe(true);
+  });
+});

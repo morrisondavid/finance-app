@@ -129,3 +129,69 @@ export function projectIncomeForWindow(
     contributingEvents: contributing,
   };
 }
+
+export interface StrategyWindowCashflows {
+  readonly windowFrom: string;
+  readonly windowTo: string;
+  /** Positive forecast amounts per bucket (income). */
+  readonly incomeByBucket: ReadonlyMap<string, number>;
+  /** Absolute value of negative forecast amounts per bucket (outgoings). */
+  readonly outflowTotalByBucket: ReadonlyMap<string, number>;
+}
+
+/**
+ * Single pass over the live forecast event stream: dated inflows and
+ * outflows between `[from, to)` for capital-aware debt strategy.
+ */
+export function projectStrategyWindowCashflows(
+  input: ProjectIncomeForWindowInput,
+): StrategyWindowCashflows {
+  const inputs = input.preLoaded ?? loadForecastInputs({ today: input.from });
+
+  const allEvents = assembleForecastEvents({
+    today: inputs.today,
+    horizon: inputs.horizon,
+    defaultAccountByType: inputs.defaultAccountByType,
+    currencyByAccount: inputs.currencyByAccount,
+    accountsByEntity: inputs.accountsByEntity,
+    obligations: inputs.obligations,
+    pipeline: inputs.pipeline,
+    upcomingBuckets: inputs.upcomingBuckets,
+    unpaidInvoices: inputs.unpaidInvoices,
+    contracts: inputs.contracts,
+    leaveRows: inputs.leaveRows,
+    publicHolidayDatesByEntity: inputs.publicHolidayDatesByEntity,
+    includeInvoiceReceipts: true,
+    includeAccrual: true,
+    recurringPredicate: undefined,
+  });
+
+  const incomeByBucket = new Map<string, number>();
+  const outflowTotalByBucket = new Map<string, number>();
+
+  for (const e of allEvents) {
+    if (e.date < input.from || e.date >= input.to) continue;
+
+    const scope = scopeForAccount(e.account);
+    if (input.bucketFilter?.currency !== undefined && input.bucketFilter.currency !== e.currency) {
+      continue;
+    }
+    if (input.bucketFilter?.scope !== undefined && input.bucketFilter.scope !== scope) {
+      continue;
+    }
+
+    const key = bucketKey(e.currency, scope);
+    if (e.amount > 0) {
+      incomeByBucket.set(key, (incomeByBucket.get(key) ?? 0) + e.amount);
+    } else if (e.amount < 0) {
+      outflowTotalByBucket.set(key, (outflowTotalByBucket.get(key) ?? 0) + Math.abs(e.amount));
+    }
+  }
+
+  return {
+    windowFrom: input.from,
+    windowTo: input.to,
+    incomeByBucket,
+    outflowTotalByBucket,
+  };
+}

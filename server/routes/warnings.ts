@@ -229,6 +229,8 @@ async function handleAllWarnings(_req: Request, res: Response): Promise<void> {
           requiredAllocation: plan.monthly_allocation,
           currentAvailable: plan.monthly_allocation,
           suggestedRemedies: [],
+          months_of_bill_cover_after_plan: null,
+          bill_cover_viable: true,
         },
       })),
     });

@@ -16,6 +16,8 @@ import type {
 } from '../domain/debt-strategy/assemble.js';
 import type { Plan, SuggestedPlan } from '../domain/debt-strategy/schema.js';
 import type { Movement } from '../domain/debt-strategy/movements-schema.js';
+import type { AssembledStrategyCapitalSnapshot } from '../domain/debt-strategy/strategy-capital.js';
+import { evaluateCrossScopeTransferPlaceholder } from '../domain/debt-strategy/evaluate-cross-scope-transfer.js';
 
 const assembleMock = vi.fn<() => AssembledDebtStrategy>();
 const persistPlanMock = vi.fn();
@@ -66,9 +68,29 @@ async function stopServer(): Promise<void> {
   }
 }
 
-function emptyBundle(): AssembledDebtStrategy {
+function emptyStrategyCapital(today: string): AssembledStrategyCapitalSnapshot {
   return {
-    today: '2026-04-25',
+    today,
+    strategy_end_date: today,
+    planning_range_end_exclusive: '2026-04-26',
+    by_bucket: [],
+    holistic: {
+      display_currency: 'GBP',
+      total_deployable_money: 0,
+      total_typical_monthly_bills: 0,
+      two_month_bill_reserve: 0,
+      usable_for_debt_paydown: 0,
+      holistic_money_for_debt_gbp: 0,
+      holistic_money_for_debt_aed: 0,
+    },
+    recommended_lump_sum_allocations: [],
+  };
+}
+
+function emptyBundle(): AssembledDebtStrategy {
+  const today = '2026-04-25';
+  return {
+    today,
     headroomByBucket: new Map(),
     activePlans: [],
     pausedPlans: [],
@@ -78,6 +100,15 @@ function emptyBundle(): AssembledDebtStrategy {
     feasibilityReports: new Map(),
     refinanceComparisons: new Map(),
     targetReachedReports: new Map(),
+    strategyCapital: emptyStrategyCapital(today),
+    refinanceRecommendations: new Map(),
+    creditCardPaydownHints: [],
+    crossScopeTransferPreview: evaluateCrossScopeTransferPlaceholder({
+      sourceScope: 'household',
+      targetScope: 'autonize-it-ltd',
+      sourceCurrency: 'GBP',
+      targetCurrency: 'GBP',
+    }),
   };
 }
 

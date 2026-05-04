@@ -24,6 +24,7 @@ import {
   presentIntensityOptions,
   type IntensityGoalInput,
 } from './present-intensity-options.js';
+import { effectiveHeadroomForStrategyPlanning } from './effective-headroom-for-strategy.js';
 import type {
   Plan,
   PlanIntensity,
@@ -68,6 +69,17 @@ export interface GeneratePlanInput {
   readonly budgetedCategories: ReadonlySet<string>;
   /** Set of categories that REQUIRE a budget for this plan to be feasible. */
   readonly requiredBudgetedCategories: ReadonlySet<string>;
+  /**
+   * Capital-aware: money for debt strategy in this bucket (deployable + surplus).
+   * When set with {@link strategyPeriodApproxMonths}, boosts intensity headroom
+   * so monthly allocations can reflect firepower across the strategy period.
+   */
+  readonly moneyForDebtStrategy?: number;
+  /**
+   * Approximate length of the strategy period in months (≥ 1). Used with
+   * `moneyForDebtStrategy` to derive a monthly equivalent.
+   */
+  readonly strategyPeriodApproxMonths?: number;
 }
 
 export interface GeneratePlanSuccess {
@@ -121,14 +133,20 @@ export function generatePlan(input: GeneratePlanInput): GeneratePlanResult {
     };
   }
 
-  // 3. Compute intensity options from available headroom.
+  // 3. Compute intensity options from available headroom (+ capital-aware boost).
   const intensityGoal: IntensityGoalInput = {
     goalType: input.goal.goalType,
     targetDateOrAsap: input.goal.targetDateOrAsap,
     targetAmount: input.goal.targetAmount,
   };
-  const opts = presentIntensityOptions({
+  const headroomForIntensity = effectiveHeadroomForStrategyPlanning({
     availableHeadroom: input.availableHeadroom,
+    moneyForDebtStrategy: input.moneyForDebtStrategy,
+    strategyPeriodApproxMonths: input.strategyPeriodApproxMonths,
+  });
+
+  const opts = presentIntensityOptions({
+    availableHeadroom: headroomForIntensity,
     goal: intensityGoal,
     today: input.today,
   });

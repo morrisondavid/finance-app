@@ -20,6 +20,7 @@
 import type { CurrencyCode } from '../../../shared/api-contracts.js';
 import type { Plan, PlanScope, SuggestedPlan } from './schema.js';
 import { presentIntensityOptions } from './present-intensity-options.js';
+import { effectiveHeadroomForStrategyPlanning } from './effective-headroom-for-strategy.js';
 
 export interface AutoSuggestDebt {
   readonly id: string;
@@ -53,6 +54,14 @@ export interface AutoSuggestPlansInput {
    */
   readonly availableHeadroomByBucket: ReadonlyMap<string, number>;
   readonly today: string;
+  /**
+   * Holistic money-for-debt-strategy (all buckets, FX-converted) from
+   * {@link assembleStrategyCapitalSnapshot}; boosts suggestions when deployable sits in other buckets.
+   */
+  readonly holisticMoneyForDebtGbp: number;
+  readonly holisticMoneyForDebtAed: number;
+  /** Same period as capital snapshot (approx months to strategy_end_date). */
+  readonly strategyPeriodApproxMonths: number;
 }
 
 /** Composite-key helper. Mirrors how the orchestrator buckets headroom. */
@@ -80,8 +89,17 @@ export function autoSuggestPlans(input: AutoSuggestPlansInput): SuggestedPlan[] 
   const out: SuggestedPlan[] = [];
   for (const debt of candidates) {
     const headroom = input.availableHeadroomByBucket.get(bucketKey(debt.currency, debt.scope)) ?? 0;
-    const opts = presentIntensityOptions({
+    const holisticMoneyForDebt =
+      debt.currency === 'AED'
+        ? input.holisticMoneyForDebtAed
+        : input.holisticMoneyForDebtGbp;
+    const effectiveHeadroom = effectiveHeadroomForStrategyPlanning({
       availableHeadroom: headroom,
+      moneyForDebtStrategy: holisticMoneyForDebt,
+      strategyPeriodApproxMonths: input.strategyPeriodApproxMonths,
+    });
+    const opts = presentIntensityOptions({
+      availableHeadroom: effectiveHeadroom,
       goal: {
         goalType: 'pay-off-debt',
         targetDateOrAsap: 'ASAP',

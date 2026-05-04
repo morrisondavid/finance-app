@@ -67,6 +67,15 @@ import {
   bucketKey,
   type AutoSuggestDebt,
 } from './auto-suggest-plans.js';
+import {
+  assembleStrategyCapitalSnapshot,
+  approxStrategyPeriodMonths,
+  buildCreditCardPaydownHints,
+  type AssembledStrategyCapitalSnapshot,
+  type CreditCardPaydownHint,
+} from './strategy-capital.js';
+import { recommendRefinanceFromTradeoff, type RefinanceRecommendation } from './recommend-refinance.js';
+import { evaluateCrossScopeTransferPlaceholder } from './evaluate-cross-scope-transfer.js';
 
 export interface BucketHeadroom {
   readonly currency: CurrencyCode;
@@ -90,6 +99,14 @@ export interface AssembledDebtStrategy {
   readonly refinanceComparisons: ReadonlyMap<string, EvaluateRefinanceTradeoffResult>;
   /** Per active plan id. */
   readonly targetReachedReports: ReadonlyMap<string, DetectTargetReachedResult>;
+  /** Capital-aware snapshot (deployable money, period cashflows, bill cover). */
+  readonly strategyCapital: AssembledStrategyCapitalSnapshot;
+  /** Refinance recommendation primitive per consumer debt id (when comparison exists). */
+  readonly refinanceRecommendations: ReadonlyMap<string, RefinanceRecommendation>;
+  /** Revolving card balances worth targeting for paydown. */
+  readonly creditCardPaydownHints: readonly CreditCardPaydownHint[];
+  /** Placeholder cross-scope transfer evaluation (phase 2). */
+  readonly crossScopeTransferPreview: ReturnType<typeof evaluateCrossScopeTransferPlaceholder>;
 }
 
 /**
@@ -112,13 +129,10 @@ function scopeForAccount(account: AccountName): PlanScope {
   return 'household';
 }
 
-/** §1.9 headroom window: 30 days (also used for income run-rate). */
+/** Shared loader horizon for strategy capital (full forecast window). */
+const FORECAST_INPUT_HORIZON_DAYS = 720;
+/** §1.9 monthly run-rate still uses ~one month of working days. */
 const HEADROOM_WINDOW_DAYS = 30;
-/**
- * Forecast horizon for `loadForecastInputs`. 60 days gives the
- * 30-day headroom window plus padding.
- */
-const HEADROOM_INPUT_HORIZON_DAYS = 60;
 
 /**
  * Steady-state monthly mandatory outflow per (currency, scope) bucket.
@@ -210,7 +224,7 @@ export function assembleDebtStrategy(
   // ── Canonical forecast inputs (shared with /api/forecast and runway) ──
   const inputs: LoadedForecastInputs = loadForecastInputs({
     today,
-    horizonDays: HEADROOM_INPUT_HORIZON_DAYS,
+    horizonDays: FORECAST_INPUT_HORIZON_DAYS,
   });
 
   // 1a. Income side — `projectMonthlyRunRate` is the steady-state
@@ -268,6 +282,21 @@ export function assembleDebtStrategy(
   const allCompletedPlans = planRegistry.indexes.byStatus.get('completed') ?? [];
   const allPlans = planRegistry.all;
 
+  const debtSummaries = getAllDebtSummaries({ includeArchived: false }).debts;
+
+  const capitalSnapshot = assembleStrategyCapitalSnapshot({
+    inputs,
+    activePlans: allActivePlans,
+    debts: debtSummaries,
+    allPlans,
+    maxPlanningDays: FORECAST_INPUT_HORIZON_DAYS,
+  });
+  const capitalRowByKey = new Map(capitalSnapshot.by_bucket.map(row => [row.key, row]));
+  const strategyPeriodApproxMonths = approxStrategyPeriodMonths(
+    today,
+    capitalSnapshot.strategy_end_date,
+  );
+
   const headroomByBucket = new Map<string, BucketHeadroom>();
   for (const key of allKeys) {
     const [currencyStr, scope] = key.split('::');
@@ -299,7 +328,7 @@ export function assembleDebtStrategy(
   }
 
   // 3. Auto-suggested plans (one per uncovered consumer debt, avalanche order).
-  const debtSummaries = getAllDebtSummaries({ includeArchived: false }).debts;
+  const creditCardPaydownHints = buildCreditCardPaydownHints(debtSummaries);
   const autoSuggestInputs: AutoSuggestDebt[] = debtSummaries
     .map(debtToAutoSuggestDebt)
     .filter((d): d is AutoSuggestDebt => d !== null);
@@ -312,6 +341,9 @@ export function assembleDebtStrategy(
     persistedPlans: allPlans,
     availableHeadroomByBucket,
     today,
+    strategyPeriodApproxMonths,
+    holisticMoneyForDebtGbp: capitalSnapshot.holistic.holistic_money_for_debt_gbp,
+    holisticMoneyForDebtAed: capitalSnapshot.holistic.holistic_money_for_debt_aed,
   });
 
   // 4. Movements + per-plan derived state.
@@ -323,9 +355,15 @@ export function assembleDebtStrategy(
   for (const plan of allActivePlans) {
     const bucket = headroomByBucket.get(bucketKey(plan.currency, plan.scope));
     const total = bucket?.totalHeadroom ?? 0;
+    const capitalRow = capitalRowByKey.get(bucketKey(plan.currency, plan.scope));
     feasibilityReports.set(
       plan.id,
-      checkPlanFeasibility({ plan, totalHeadroom: total, allActivePlans }),
+      checkPlanFeasibility({
+        plan,
+        totalHeadroom: total,
+        allActivePlans,
+        monthsOfBillCoverAfterPlan: capitalRow?.months_of_bill_cover_after_plan ?? null,
+      }),
     );
   }
 
@@ -357,6 +395,18 @@ export function assembleDebtStrategy(
     );
   }
 
+  const refinanceRecommendations = new Map<string, RefinanceRecommendation>();
+  for (const [debtId, comparison] of refinanceComparisons) {
+    refinanceRecommendations.set(debtId, recommendRefinanceFromTradeoff(comparison));
+  }
+
+  const crossScopeTransferPreview = evaluateCrossScopeTransferPlaceholder({
+    sourceScope: 'household',
+    targetScope: 'autonize-it-ltd',
+    sourceCurrency: 'GBP',
+    targetCurrency: 'GBP',
+  });
+
   // Auto-completion detection per active plan.
   const targetReachedReports = new Map<string, DetectTargetReachedResult>();
   for (const plan of allActivePlans) {
@@ -386,5 +436,9 @@ export function assembleDebtStrategy(
     feasibilityReports,
     refinanceComparisons,
     targetReachedReports,
+    strategyCapital: capitalSnapshot,
+    refinanceRecommendations,
+    creditCardPaydownHints,
+    crossScopeTransferPreview,
   };
 }

@@ -23,6 +23,8 @@ function defaultInput(over: Partial<GeneratePlanInput> = {}): GeneratePlanInput 
     dayOfMonth: over.dayOfMonth ?? 1,
     budgetedCategories: over.budgetedCategories ?? new Set(),
     requiredBudgetedCategories: over.requiredBudgetedCategories ?? new Set(),
+    moneyForDebtStrategy: over.moneyForDebtStrategy,
+    strategyPeriodApproxMonths: over.strategyPeriodApproxMonths,
   };
 }
 
@@ -56,6 +58,27 @@ describe('generatePlan — happy path', () => {
     const out = generatePlan(defaultInput({ dayOfMonth: 31 }));
     if (out.blocked) throw new Error('expected success');
     expect(out.movements[0].day_of_month).toBe(28);
+  });
+
+  it('boosts effective headroom from moneyForDebtStrategy across the strategy period', () => {
+    const baseline = generatePlan(
+      defaultInput({ availableHeadroom: 50, intensity: 'medium', planId: 'p-a', movementId: 'm-a' }),
+    );
+    if (baseline.blocked) throw new Error('expected success');
+    expect(baseline.plan.monthly_allocation).toBe(25);
+
+    const boosted = generatePlan(
+      defaultInput({
+        availableHeadroom: 50,
+        intensity: 'medium',
+        planId: 'p-b',
+        movementId: 'm-b',
+        moneyForDebtStrategy: 6000,
+        strategyPeriodApproxMonths: 12,
+      }),
+    );
+    if (boosted.blocked) throw new Error('expected success');
+    expect(boosted.plan.monthly_allocation).toBe(250);
   });
 
   it('falls back to day 1 for invalid day_of_month inputs (zero, negative, NaN)', () => {

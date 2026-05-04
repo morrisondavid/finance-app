@@ -38,6 +38,10 @@ export interface FeasibilityReport {
   readonly requiredAllocation: number;
   readonly currentAvailable: number;
   readonly suggestedRemedies: readonly SuggestedRemedy[];
+  /** Layman bill runway from capital snapshot (same bucket as plan). */
+  readonly months_of_bill_cover_after_plan: number | null;
+  /** False when months &lt; 2 per §1.9 capital-aware rule. */
+  readonly bill_cover_viable: boolean;
 }
 
 const DEGRADED_THRESHOLD = 0.25;
@@ -63,10 +67,15 @@ export interface CheckPlanFeasibilityInput {
    * the plan's currency+scope before headroom math.
    */
   readonly allActivePlans: readonly Plan[];
+  /**
+   * From capital-aware snapshot: months of bill cover after all active
+   * plans' standing orders. When &lt; 2 the plan is treated as not viable.
+   */
+  readonly monthsOfBillCoverAfterPlan?: number | null;
 }
 
 export function checkPlanFeasibility(input: CheckPlanFeasibilityInput): FeasibilityReport {
-  const { plan, totalHeadroom, allActivePlans } = input;
+  const { plan, totalHeadroom, allActivePlans, monthsOfBillCoverAfterPlan } = input;
 
   // Other active plans in the same currency+scope claim headroom too.
   const otherClaim = allActivePlans
@@ -86,6 +95,13 @@ export function checkPlanFeasibility(input: CheckPlanFeasibilityInput): Feasibil
     status = 'infeasible';
   } else {
     status = 'degraded';
+  }
+
+  const billMonths = monthsOfBillCoverAfterPlan ?? null;
+  const bill_cover_viable =
+    billMonths === null ? true : billMonths >= 2;
+  if (!bill_cover_viable) {
+    status = 'infeasible';
   }
 
   const suggestedRemedies: SuggestedRemedy[] = [];
@@ -149,5 +165,7 @@ export function checkPlanFeasibility(input: CheckPlanFeasibilityInput): Feasibil
     requiredAllocation,
     currentAvailable: Math.round(currentAvailable * 100) / 100,
     suggestedRemedies,
+    months_of_bill_cover_after_plan: billMonths,
+    bill_cover_viable,
   };
 }

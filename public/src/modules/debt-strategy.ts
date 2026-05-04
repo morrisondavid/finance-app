@@ -54,6 +54,75 @@ interface BucketHeadroomLite {
   availableHeadroom: number;
 }
 
+interface StrategyCapitalBucketRow {
+  key: string;
+  currency: string;
+  scope: string;
+  strategy_end_date: string;
+  deployable_money_now: number;
+  money_expected_in_period: number;
+  fixed_bills_in_period: number;
+  surplus_in_period: number;
+  money_for_debt_strategy: number;
+  typical_monthly_bills: number;
+  monthly_standing_order_drain: number;
+  money_available_after_plan: number;
+  months_of_bill_cover_after_plan: number | null;
+  bill_cover_viable: boolean;
+  bill_cover_meets_comfort_target: boolean;
+}
+
+interface StrategyCapitalHolistic {
+  display_currency: string;
+  total_deployable_money: number;
+  total_typical_monthly_bills: number;
+  two_month_bill_reserve: number;
+  usable_for_debt_paydown: number;
+  holistic_money_for_debt_gbp: number;
+  holistic_money_for_debt_aed: number;
+}
+
+interface RecommendedLumpSumRow {
+  debt_id: string;
+  name: string;
+  currency: string;
+  recommended_lump_sum: number;
+}
+
+interface StrategyCapitalSnapshot {
+  today: string;
+  strategy_end_date: string;
+  planning_range_end_exclusive: string;
+  by_bucket: StrategyCapitalBucketRow[];
+  holistic: StrategyCapitalHolistic;
+  recommended_lump_sum_allocations: readonly RecommendedLumpSumRow[];
+}
+
+interface RefinanceRecommendationRow {
+  debtId: string;
+  kind: string;
+  total_cost_savings_vs_keep: number;
+}
+
+interface CreditCardPaydownHintRow {
+  debt_id: string;
+  name: string;
+  currency: string;
+  scope: string;
+  current_balance: number;
+  source_account: string;
+}
+
+interface CrossScopeTransferPreview {
+  worthwhile: boolean;
+  source_scope: string;
+  target_scope: string;
+  source_currency: string;
+  target_currency: string;
+  estimated_transfer_fee: number;
+  reason_codes: readonly string[];
+}
+
 interface DebtStrategyStateResponse {
   today: string;
   headroomByBucket: BucketHeadroomLite[];
@@ -62,6 +131,10 @@ interface DebtStrategyStateResponse {
   completedPlans: PlanLite[];
   suggestedPlans: PlanLite[];
   movements: MovementLite[];
+  strategyCapital: StrategyCapitalSnapshot;
+  refinanceRecommendations: RefinanceRecommendationRow[];
+  creditCardPaydownHints: CreditCardPaydownHintRow[];
+  crossScopeTransferPreview: CrossScopeTransferPreview;
 }
 
 interface DebtStrategyTabState {
@@ -83,6 +156,90 @@ async function fetchState(): Promise<void> {
 function bucketLabel(b: BucketHeadroomLite): string {
   const scopeLabel = b.scope === 'household' ? 'Household' : b.scope;
   return `${scopeLabel} (${b.currency})`;
+}
+
+function renderStrategyCapital(state: DebtStrategyStateResponse): string {
+  const snap = state.strategyCapital;
+  if (snap.by_bucket.length === 0) {
+    return '<p class="debt-strategy-empty">Capital snapshot will appear once forecast inputs load.</p>';
+  }
+
+  const paydown =
+    state.creditCardPaydownHints.length > 0
+      ? `<div class="debt-strategy-capital-paydown"><strong>Card paydown targets</strong><ul>${state.creditCardPaydownHints
+          .map(
+            h =>
+              `<li>${escapeHtml(h.name)} · ${escapeHtml(formatCurrency(h.current_balance, asCurrency(h.currency as CurrencyCode)))}</li>`,
+          )
+          .join('')}</ul></div>`
+      : '';
+
+  const refinance =
+    state.refinanceRecommendations.length > 0
+      ? `<div class="debt-strategy-capital-refi"><strong>Refinance hint</strong><ul>${state.refinanceRecommendations
+          .map(
+            r =>
+              `<li>${escapeHtml(r.debtId)} → ${escapeHtml(r.kind)}${
+                r.total_cost_savings_vs_keep > 0
+                  ? ` (save ~${escapeHtml(formatCurrency(r.total_cost_savings_vs_keep, 'GBP'))} total)`
+                  : ''
+              }</li>`,
+          )
+          .join('')}</ul></div>`
+      : '';
+
+  const hol = snap.holistic;
+  const showCur = asCurrency(hol.display_currency);
+  const holisticBlock = `<div class="debt-strategy-capital-holistic"><strong>Holistic deployable (${escapeHtml(hol.display_currency)})</strong>
+    <div class="debt-strategy-bucket-row"><span>Total deployable now</span><strong>${escapeHtml(formatCurrency(hol.total_deployable_money, showCur))}</strong></div>
+    <div class="debt-strategy-bucket-row"><span>Typical monthly bills (rollup)</span><strong>${escapeHtml(formatCurrency(hol.total_typical_monthly_bills, showCur))}</strong></div>
+    <div class="debt-strategy-bucket-row"><span>2× bill reserve</span><strong>${escapeHtml(formatCurrency(hol.two_month_bill_reserve, showCur))}</strong></div>
+    <div class="debt-strategy-bucket-row"><span>Usable for paydown (after reserve)</span><strong>${escapeHtml(formatCurrency(hol.usable_for_debt_paydown, showCur))}</strong></div>
+    <div class="debt-strategy-bucket-row"><span>Money for debt strategy (holistic, GBP)</span><strong>${escapeHtml(formatCurrency(hol.holistic_money_for_debt_gbp, 'GBP'))}</strong></div>
+    <div class="debt-strategy-bucket-row"><span>Money for debt strategy (holistic, AED)</span><strong>${escapeHtml(formatCurrency(hol.holistic_money_for_debt_aed, 'AED'))}</strong></div>
+  </div>`;
+
+  const lumpHtml =
+    snap.recommended_lump_sum_allocations.length > 0
+      ? `<div class="debt-strategy-capital-lump"><strong>Suggested lump sums (after reserve)</strong><ul>${snap.recommended_lump_sum_allocations
+          .map(
+            row =>
+              `<li>${escapeHtml(row.name)} · ${escapeHtml(formatCurrency(row.recommended_lump_sum, asCurrency(row.currency)))}</li>`,
+          )
+          .join('')}</ul></div>`
+      : '';
+
+  const meta = `<p class="debt-strategy-capital-meta">Planning through <strong>${escapeHtml(
+    formatIsoDateUkLong(snap.strategy_end_date),
+  )}</strong> (income window ends day before ${escapeHtml(snap.planning_range_end_exclusive)}).</p>`;
+
+  const cards = snap.by_bucket
+    .map(row => {
+      const cur = asCurrency(row.currency);
+      const cover =
+        row.months_of_bill_cover_after_plan === null
+          ? '—'
+          : String(row.months_of_bill_cover_after_plan);
+      const scopeLabel = row.scope === 'household' ? 'Household' : row.scope;
+      const billOk = row.bill_cover_viable ? '' : 'debt-strategy-bucket-row--warn';
+      return `
+      <div class="debt-strategy-bucket debt-strategy-bucket--capital">
+        <div class="debt-strategy-bucket-label">${escapeHtml(scopeLabel)} (${escapeHtml(row.currency)})</div>
+        <div class="debt-strategy-bucket-row"><span>Money you can use now (deployable)</span><strong>${escapeHtml(formatCurrency(row.deployable_money_now, cur))}</strong></div>
+        <div class="debt-strategy-bucket-row"><span>Money expected in (to end date)</span><strong>${escapeHtml(formatCurrency(row.money_expected_in_period, cur))}</strong></div>
+        <div class="debt-strategy-bucket-row"><span>Fixed bills in period</span><strong>${escapeHtml(formatCurrency(row.fixed_bills_in_period, cur))}</strong></div>
+        <div class="debt-strategy-bucket-row"><span>Surplus in period</span><strong>${escapeHtml(formatCurrency(row.surplus_in_period, cur))}</strong></div>
+        <div class="debt-strategy-bucket-row"><span>Money for debt strategy</span><strong>${escapeHtml(formatCurrency(row.money_for_debt_strategy, cur))}</strong></div>
+        <div class="debt-strategy-bucket-row"><span>Typical monthly bills</span><strong>${escapeHtml(formatCurrency(row.typical_monthly_bills, cur))}</strong></div>
+        <div class="debt-strategy-bucket-row"><span>Standing orders (active plans)</span><strong>${escapeHtml(formatCurrency(row.monthly_standing_order_drain, cur))}</strong></div>
+        <div class="debt-strategy-bucket-row"><span>Money left after plan</span><strong>${escapeHtml(formatCurrency(row.money_available_after_plan, cur))}</strong></div>
+        <div class="debt-strategy-bucket-row ${billOk}"><span>Months of bill cover after plan</span><strong>${escapeHtml(cover)}</strong></div>
+        <div class="debt-strategy-bucket-row"><span>Bill cover viable (≥2 mo)</span><strong>${row.bill_cover_viable ? 'Yes' : 'No'}</strong></div>
+      </div>`;
+    })
+    .join('');
+
+  return `${meta}${holisticBlock}<div class="debt-strategy-capital-grid">${cards}</div>${lumpHtml}${paydown}${refinance}<p class="debt-strategy-capital-cross-scope">Cross-scope transfer preview: ${state.crossScopeTransferPreview.worthwhile ? 'suggested' : 'not evaluated'} (${escapeHtml(state.crossScopeTransferPreview.source_scope)} ${escapeHtml(state.crossScopeTransferPreview.source_currency)} → ${escapeHtml(state.crossScopeTransferPreview.target_scope)} ${escapeHtml(state.crossScopeTransferPreview.target_currency)}).</p>`;
 }
 
 function renderHeadroom(state: DebtStrategyStateResponse): string {
@@ -205,6 +362,9 @@ function render(state: DebtStrategyStateResponse): string {
           title="See how your headroom holds up under common shocks (lose a contract, drop to 4-day weeks, etc.)"
         >Stress test scenarios</button>
       </header>
+
+      <h4 class="debt-strategy-subhead">Capital &amp; bill cover (through strategy end date)</h4>
+      ${renderStrategyCapital(state)}
 
       <h4 class="debt-strategy-subhead">Headroom by bucket</h4>
       ${renderHeadroom(state)}

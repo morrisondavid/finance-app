@@ -31,6 +31,8 @@ const okReport: FeasibilityReport = {
   requiredAllocation: 500,
   currentAvailable: 1000,
   suggestedRemedies: [],
+  months_of_bill_cover_after_plan: null,
+  bill_cover_viable: true,
 };
 
 const degradedReport: FeasibilityReport = {
@@ -38,6 +40,8 @@ const degradedReport: FeasibilityReport = {
   gap: 100,
   requiredAllocation: 500,
   currentAvailable: 400,
+  months_of_bill_cover_after_plan: 4,
+  bill_cover_viable: true,
   suggestedRemedies: [
     {
       kind: 'pause-other-plan',
@@ -54,6 +58,8 @@ const infeasibleReport: FeasibilityReport = {
   gap: 400,
   requiredAllocation: 500,
   currentAvailable: 100,
+  months_of_bill_cover_after_plan: null,
+  bill_cover_viable: true,
   suggestedRemedies: [
     {
       kind: 'pause-other-plan',
