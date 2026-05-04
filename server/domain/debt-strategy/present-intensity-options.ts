@@ -31,6 +31,12 @@ export interface IntensityGoalInput {
    * For `save-for-target`: the savings target amount.
    */
   readonly targetAmount: number;
+  /**
+   * For `pay-off-debt` only: monthly amount already flowing toward this debt
+   * (e.g. existing standing orders in `matchAmounts`). Intensity **monthly
+   * amounts** are incremental; total paydown rate is baseline + option.
+   */
+  readonly baselineMonthlyTowardTarget?: number;
 }
 
 export interface PresentIntensityOptionsInput {
@@ -80,7 +86,8 @@ function monthsBetween(startIso: string, endIso: string): number {
   return days / 30.4375;
 }
 
-function projectCompletionDate(
+/** Exported for plan generation — total monthly rate toward `targetAmount`. */
+export function projectCompletionDate(
   todayIso: string,
   monthlyAllocation: number,
   targetAmount: number,
@@ -102,8 +109,14 @@ export function presentIntensityOptions(
   const headroom = Math.max(0, input.availableHeadroom);
   const targetAmount = Math.max(0, input.goal.targetAmount);
   const isFixedDate = input.goal.targetDateOrAsap !== PLAN_TARGET_DATE_ASAP;
+  const baseline =
+    input.goal.goalType === 'pay-off-debt'
+      ? Math.max(0, input.goal.baselineMonthlyTowardTarget ?? 0)
+      : 0;
 
   // 1. Compute the natural option amounts from headroom-percentage.
+  //    For pay-off-debt with baseline, these are **incremental** amounts
+  //    (new standing order on top of existing matching).
   let aggressiveAmt = round2(headroom * AGGRESSIVE_FRACTION);
   let mediumAmt = round2(headroom * MEDIUM_FRACTION);
   let passiveAmt = round2(Math.min(PASSIVE_FLOOR, headroom * PASSIVE_FRACTION));
@@ -121,19 +134,23 @@ export function presentIntensityOptions(
   if (isFixedDate && targetAmount > 0) {
     const monthsToDeadline = monthsBetween(input.today, input.goal.targetDateOrAsap);
     if (monthsToDeadline > 0) {
-      const requiredMonthly = round2(targetAmount / monthsToDeadline);
-      if (requiredMonthly > headroom) {
-        // Even Aggressive (= entire headroom) can't reach the deadline.
+      const requiredTotalMonthly = round2(targetAmount / monthsToDeadline);
+      const requiredIncremental =
+        input.goal.goalType === 'pay-off-debt'
+          ? Math.max(0, round2(requiredTotalMonthly - baseline))
+          : requiredTotalMonthly;
+      if (requiredIncremental > headroom) {
+        // Even Aggressive (= entire incremental headroom) can't reach the deadline.
         feasible = false;
         aggressiveAmt = headroom;
         mediumAmt = headroom;
         passiveAmt = headroom;
       } else {
-        // Stretch each option's MINIMUM up to requiredMonthly so any
-        // chosen intensity hits the deadline.
-        aggressiveAmt = Math.max(aggressiveAmt, requiredMonthly);
-        mediumAmt = Math.max(mediumAmt, requiredMonthly);
-        passiveAmt = Math.max(passiveAmt, requiredMonthly);
+        // Stretch each option's MINIMUM up to requiredIncremental so any
+        // chosen intensity hits the deadline (pay-off-debt: incremental).
+        aggressiveAmt = Math.max(aggressiveAmt, requiredIncremental);
+        mediumAmt = Math.max(mediumAmt, requiredIncremental);
+        passiveAmt = Math.max(passiveAmt, requiredIncremental);
       }
     } else {
       // Deadline already passed (or today). Treat as infeasible.
@@ -145,9 +162,13 @@ export function presentIntensityOptions(
   }
 
   // 3. Project completion dates from each chosen amount.
-  const aggressiveDate = projectCompletionDate(input.today, aggressiveAmt, targetAmount);
-  const mediumDate = projectCompletionDate(input.today, mediumAmt, targetAmount);
-  const passiveDate = projectCompletionDate(input.today, passiveAmt, targetAmount);
+  const rateAgg = input.goal.goalType === 'pay-off-debt' ? baseline + aggressiveAmt : aggressiveAmt;
+  const rateMed = input.goal.goalType === 'pay-off-debt' ? baseline + mediumAmt : mediumAmt;
+  const ratePass = input.goal.goalType === 'pay-off-debt' ? baseline + passiveAmt : passiveAmt;
+
+  const aggressiveDate = projectCompletionDate(input.today, rateAgg, targetAmount);
+  const mediumDate = projectCompletionDate(input.today, rateMed, targetAmount);
+  const passiveDate = projectCompletionDate(input.today, ratePass, targetAmount);
 
   return {
     aggressive: { monthlyAllocation: aggressiveAmt, projectedCompletionDate: aggressiveDate },

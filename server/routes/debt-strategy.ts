@@ -44,6 +44,8 @@ import {
 } from '../domain/debt-strategy/mutations.js';
 import { approxStrategyPeriodMonths } from '../domain/debt-strategy/strategy-capital.js';
 import { todayIsoLocal } from '../../shared/iso-date.js';
+import { getDebt, getDebtSummary } from '../db/repositories/debts.js';
+import { afterPlanActivateSideEffects } from '../domain/debt-strategy/after-plan-activate.js';
 
 const router = Router();
 
@@ -104,6 +106,7 @@ function bundleToResponse(bundle: AssembledDebtStrategy): unknown {
     ),
     creditCardPaydownHints: bundle.creditCardPaydownHints,
     crossScopeTransferPreview: bundle.crossScopeTransferPreview,
+    debtStrategyContext: bundle.debtStrategyContext,
   };
 }
 
@@ -163,6 +166,15 @@ router.post('/plans', (req: Request, res: Response) => {
 
     const planId = `plan-${Date.now()}`;
     const movementId = `${planId}-mov-1`;
+    const baselineMonthlyTowardTarget =
+      body.goalType === 'pay-off-debt' && body.targetId
+        ? (() => {
+            const d = getDebt(body.targetId);
+            if (d === null || d.matchAmounts.length === 0) return undefined;
+            return d.matchAmounts.reduce((a, b) => a + b, 0);
+          })()
+        : undefined;
+
     const result = generatePlan({
       goal,
       intensity: body.intensity,
@@ -175,6 +187,7 @@ router.post('/plans', (req: Request, res: Response) => {
       requiredBudgetedCategories: new Set(), // route-level v1 doesn't enforce
       moneyForDebtStrategy,
       strategyPeriodApproxMonths,
+      baselineMonthlyTowardTarget,
     });
 
     if (result.blocked) {
@@ -191,6 +204,7 @@ router.post('/plans', (req: Request, res: Response) => {
     for (const m of result.movements) {
       persistMovement(m);
     }
+    afterPlanActivateSideEffects({ planId: result.plan.id });
     res.status(201).json({ plan: result.plan, movements: result.movements });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown';
@@ -198,11 +212,25 @@ router.post('/plans', (req: Request, res: Response) => {
   }
 });
 
-const ActivateSuggestedBody = z.object({
-  intensity: PlanIntensitySchema,
-  dayOfMonth: z.number().int().min(1).max(28).default(1),
-  displayName: z.string().min(1).optional(),
-});
+const ActivateSuggestedBody = z
+  .object({
+    intensity: PlanIntensitySchema.optional(),
+    /** When `after_lump`, server activates the **medium** monthly standing order; the user pays the recommended lump at the bank from deployable cash first. */
+    choice: z.enum(['monthly', 'after_lump']).optional(),
+    dayOfMonth: z.number().int().min(1).max(28).default(1),
+    displayName: z.string().min(1).optional(),
+  })
+  .superRefine((data, ctx) => {
+    const choice = data.choice ?? 'monthly';
+    if (choice === 'after_lump') return;
+    if (data.intensity === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'intensity is required unless choice is after_lump',
+        path: ['intensity'],
+      });
+    }
+  });
 
 router.post('/plans/:id/activate-suggested', (req: Request, res: Response) => {
   try {
@@ -212,6 +240,13 @@ router.post('/plans/:id/activate-suggested', (req: Request, res: Response) => {
       return;
     }
     const body = parsed.data;
+    const choice = body.choice ?? 'monthly';
+    const effectiveIntensity =
+      choice === 'after_lump' ? ('medium' as const) : body.intensity;
+    if (effectiveIntensity === undefined) {
+      res.status(400).json({ error: 'intensity required' });
+      return;
+    }
     const today = todayIsoLocal();
     const bundle = assembleDebtStrategy({ today });
     const suggestedId = typeof req.params.id === 'string' ? req.params.id : '';
@@ -221,12 +256,47 @@ router.post('/plans/:id/activate-suggested', (req: Request, res: Response) => {
       return;
     }
 
-    // Find the source debt to derive accounts.
+    if (suggested.target_id === null) {
+      res.status(400).json({ error: 'suggested-plan-missing-target' });
+      return;
+    }
+    const debtRow = getDebt(suggested.target_id);
+    if (debtRow === null) {
+      res.status(404).json({ error: 'debt-not-found' });
+      return;
+    }
+    const debt = getDebtSummary(debtRow);
+    const baselineMonthlyTowardTarget =
+      debt.matchAmounts.length === 0
+        ? undefined
+        : debt.matchAmounts.reduce((a, b) => a + b, 0);
+
+    const targetAmountForGoal = (() => {
+      if (choice !== 'after_lump' || suggested.target_id === null) {
+        return debt.currentBalance;
+      }
+      const lumpRow = bundle.strategyCapital.recommended_lump_sum_allocations.find(
+        a => a.debt_id === suggested.target_id,
+      );
+      const lumpAmt = lumpRow?.recommended_lump_sum ?? 0;
+      if (lumpAmt <= 0) return debt.currentBalance;
+      const rem = Math.max(0, debt.currentBalance - Math.min(lumpAmt, debt.currentBalance));
+      return Math.round(rem * 100) / 100;
+    })();
+
+    if (choice === 'after_lump' && targetAmountForGoal <= 0) {
+      res.status(400).json({
+        error: 'lump-covers-balance',
+        detail: 'The recommended lump would clear this debt; no monthly plan is needed.',
+      });
+      return;
+    }
+
     const goal: GeneratePlanGoal = {
       goalType: suggested.goal_type,
       displayName: body.displayName ?? suggested.display_name,
       targetId: suggested.target_id,
-      targetAmount: suggested.monthly_allocation, // placeholder — generatePlan handles it
+      targetAmount: targetAmountForGoal,
       targetDateOrAsap: suggested.target_date_or_asap,
       currency: suggested.currency,
       scope: suggested.scope,
@@ -249,7 +319,7 @@ router.post('/plans/:id/activate-suggested', (req: Request, res: Response) => {
     const movementId = `${planId}-mov-1`;
     const result = generatePlan({
       goal,
-      intensity: body.intensity,
+      intensity: effectiveIntensity,
       availableHeadroom: headroom,
       today,
       planId,
@@ -259,6 +329,7 @@ router.post('/plans/:id/activate-suggested', (req: Request, res: Response) => {
       requiredBudgetedCategories: new Set(),
       moneyForDebtStrategy,
       strategyPeriodApproxMonths,
+      baselineMonthlyTowardTarget,
     });
     if (result.blocked) {
       res.status(409).json({
@@ -270,6 +341,7 @@ router.post('/plans/:id/activate-suggested', (req: Request, res: Response) => {
     }
     persistPlan(result.plan);
     for (const m of result.movements) persistMovement(m);
+    afterPlanActivateSideEffects({ planId: result.plan.id });
     res.status(201).json({ plan: result.plan, movements: result.movements });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown';

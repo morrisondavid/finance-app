@@ -10,6 +10,7 @@ function makeDebt(over: Partial<AutoSuggestDebt> & Pick<AutoSuggestDebt, 'id'>):
     kind: over.kind ?? 'consumer',
     archived: over.archived ?? false,
     currentBalance: over.currentBalance ?? 5000,
+    baselineMonthlyFromMatching: over.baselineMonthlyFromMatching ?? 0,
     fromAccount: over.fromAccount ?? 'natwest',
     currency: over.currency ?? 'GBP',
     scope: over.scope ?? 'autonize-it-ltd',
@@ -142,6 +143,19 @@ describe('autoSuggestPlans', () => {
       ...capitalContext(),
     });
     expect(out.map(s => s.target_id)).toEqual(['d1']);
+  });
+
+  it('suggested monthly_allocation is total paydown = baseline matching + medium increment (Funding Circle style)', () => {
+    const out = autoSuggestPlans({
+      debts: [makeDebt({ id: 'fc', baselineMonthlyFromMatching: 399, currentBalance: 10_000 })],
+      persistedPlans: [],
+      availableHeadroomByBucket: new Map([[bucketKey('GBP', 'autonize-it-ltd'), 602]]),
+      today: '2026-04-25',
+      ...capitalContext(),
+    });
+    expect(out).toHaveLength(1);
+    // 50% of 602 ≈ 301 incremental; 399 + 301 = 700 total
+    expect(out[0].monthly_allocation).toBe(700);
   });
 
   it('uses the right currency+scope bucket for headroom', () => {

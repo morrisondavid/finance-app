@@ -32,6 +32,8 @@ export interface AutoSuggestDebt {
   readonly archived: boolean;
   /** Outstanding balance (used as targetAmount for the projection). */
   readonly currentBalance: number;
+  /** Sum of matched monthly payments — incremental suggestions sit on top of this. */
+  readonly baselineMonthlyFromMatching: number;
   /** Source account the debt is paid from. */
   readonly fromAccount: import('../../../shared/api-contracts.js').AccountName;
   /**
@@ -104,6 +106,7 @@ export function autoSuggestPlans(input: AutoSuggestPlansInput): SuggestedPlan[] 
         goalType: 'pay-off-debt',
         targetDateOrAsap: 'ASAP',
         targetAmount: debt.currentBalance,
+        baselineMonthlyTowardTarget: debt.baselineMonthlyFromMatching,
       },
       today: input.today,
     });
@@ -113,6 +116,9 @@ export function autoSuggestPlans(input: AutoSuggestPlansInput): SuggestedPlan[] 
     // Zero-allocation suggestions are noise (the user would activate
     // and immediately get plan-infeasible).
     if (medium.monthlyAllocation <= 0) continue;
+
+    const totalMonthly =
+      Math.round((debt.baselineMonthlyFromMatching + medium.monthlyAllocation) * 100) / 100;
 
     out.push({
       id: `suggested:${debt.id}`,
@@ -125,7 +131,7 @@ export function autoSuggestPlans(input: AutoSuggestPlansInput): SuggestedPlan[] 
       currency: debt.currency,
       scope: debt.scope,
       intensity: 'medium',
-      monthly_allocation: medium.monthlyAllocation,
+      monthly_allocation: totalMonthly,
       activated_at: input.today,
       completed_at: null,
       projected_completion_date: medium.projectedCompletionDate,

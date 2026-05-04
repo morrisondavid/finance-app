@@ -21,7 +21,7 @@ import { initContracts, loadContracts } from './modules/contracts';
 import { initInvoices, loadInvoices } from './modules/invoices';
 import { initClients, loadClients } from './modules/clients';
 import { initDebt, loadDebt } from './modules/debt';
-import { initDebtStrategy } from './modules/debt-strategy';
+import { initDebtStrategy, reloadDebtStrategy } from './modules/debt-strategy';
 import { initWarnings, loadWarnings } from './modules/warnings';
 import { initRecurring } from './modules/recurring';
 import { fetchAccountConfig } from './utils/api';
@@ -84,6 +84,8 @@ function initializeTabNavigation(): void {
         void loadClients();
       } else if (target === 'debt') {
         void loadDebt();
+      } else if (target === 'strategy') {
+        reloadDebtStrategy();
       } else if (target === 'warnings') {
         void loadWarnings();
       } else if (target === 'statements') {

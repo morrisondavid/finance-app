@@ -40,7 +40,13 @@ import {
 } from '../forecast/load-inputs.js';
 import { projectMonthlyRunRate } from '../forecast/project-monthly-run-rate.js';
 
-import type { Plan, PlanScope, SuggestedPlan } from './schema.js';
+import type { Plan, PlanScope } from './schema.js';
+import {
+  buildSuggestedPlanPayoffOptions,
+  buildActivePlanPayoffSummary,
+  type PlanWithPayoffSummary,
+  type SuggestedPlanWithPayoffOptions,
+} from './suggested-plan-payoff-options.js';
 import type { Movement } from './movements-schema.js';
 import { getPlanRegistry } from './registry.js';
 import { getMovementRegistry } from './movements-registry.js';
@@ -77,6 +83,19 @@ import {
 import { recommendRefinanceFromTradeoff, type RefinanceRecommendation } from './recommend-refinance.js';
 import { evaluateCrossScopeTransferPlaceholder } from './evaluate-cross-scope-transfer.js';
 
+/** Built once per `assembleDebtStrategy` — single snapshot for routes and proposal logic. */
+export interface DebtStrategyContext {
+  readonly today: string;
+  readonly strategyCapital: AssembledStrategyCapitalSnapshot;
+  /** Full forecast load; omitted only in lightweight test doubles. */
+  readonly forecastInputs?: LoadedForecastInputs;
+  readonly debtsById: ReadonlyMap<string, DebtSummary>;
+  readonly strategyPeriodApproxMonths: number;
+  readonly availableHeadroomByBucket: ReadonlyMap<string, number>;
+  readonly holisticMoneyForDebtGbp: number;
+  readonly holisticMoneyForDebtAed: number;
+}
+
 export interface BucketHeadroom {
   readonly currency: CurrencyCode;
   readonly scope: PlanScope;
@@ -89,10 +108,10 @@ export interface BucketHeadroom {
 export interface AssembledDebtStrategy {
   readonly today: string;
   readonly headroomByBucket: ReadonlyMap<string, BucketHeadroom>;
-  readonly activePlans: readonly Plan[];
-  readonly pausedPlans: readonly Plan[];
+  readonly activePlans: readonly PlanWithPayoffSummary[];
+  readonly pausedPlans: readonly PlanWithPayoffSummary[];
   readonly completedPlans: readonly Plan[];
-  readonly suggestedPlans: readonly SuggestedPlan[];
+  readonly suggestedPlans: readonly SuggestedPlanWithPayoffOptions[];
   readonly movements: readonly Movement[];
   readonly feasibilityReports: ReadonlyMap<string, FeasibilityReport>;
   /** Per debt id (only for pay-off-debt plans where target debt + a configured creditCard exist). */
@@ -107,6 +126,8 @@ export interface AssembledDebtStrategy {
   readonly creditCardPaydownHints: readonly CreditCardPaydownHint[];
   /** Placeholder cross-scope transfer evaluation (phase 2). */
   readonly crossScopeTransferPreview: ReturnType<typeof evaluateCrossScopeTransferPlaceholder>;
+  /** Canonical inputs snapshot — avoids re-deriving holistic figures outside this module. */
+  readonly debtStrategyContext: DebtStrategyContext;
 }
 
 /**
@@ -210,6 +231,7 @@ function debtToAutoSuggestDebt(s: DebtSummary): AutoSuggestDebt | null {
     kind: s.kind,
     archived: s.archived,
     currentBalance: s.currentBalance,
+    baselineMonthlyFromMatching: s.matchAmounts.reduce((a, b) => a + b, 0),
     fromAccount,
     currency: cfg.currency,
     scope: scopeForAccount(fromAccount),
@@ -336,7 +358,20 @@ export function assembleDebtStrategy(
   for (const [k, v] of headroomByBucket) {
     availableHeadroomByBucket.set(k, v.availableHeadroom);
   }
-  const suggestedPlans = autoSuggestPlans({
+
+  const debtsById = new Map(debtSummaries.map(d => [d.id, d] as const));
+  const debtStrategyContext: DebtStrategyContext = {
+    today,
+    strategyCapital: capitalSnapshot,
+    forecastInputs: inputs,
+    debtsById,
+    strategyPeriodApproxMonths,
+    availableHeadroomByBucket,
+    holisticMoneyForDebtGbp: capitalSnapshot.holistic.holistic_money_for_debt_gbp,
+    holisticMoneyForDebtAed: capitalSnapshot.holistic.holistic_money_for_debt_aed,
+  };
+
+  const suggestedPlansRaw = autoSuggestPlans({
     debts: autoSuggestInputs,
     persistedPlans: allPlans,
     availableHeadroomByBucket,
@@ -346,9 +381,58 @@ export function assembleDebtStrategy(
     holisticMoneyForDebtAed: capitalSnapshot.holistic.holistic_money_for_debt_aed,
   });
 
+  const lumpByDebtId = new Map(
+    capitalSnapshot.recommended_lump_sum_allocations.map(
+      a => [a.debt_id, a.recommended_lump_sum] as const,
+    ),
+  );
+
+  const suggestedPlans: SuggestedPlanWithPayoffOptions[] = suggestedPlansRaw.map(sp => {
+    const tid = sp.target_id;
+    if (tid === null) {
+      throw new Error(`invariant: suggested plan ${sp.id} missing target_id`);
+    }
+    const debt = debtsById.get(tid);
+    if (debt === undefined) {
+      throw new Error(`invariant: debt ${tid} missing for suggested plan ${sp.id}`);
+    }
+    const headroom = availableHeadroomByBucket.get(bucketKey(sp.currency, sp.scope)) ?? 0;
+    const holisticMoneyForDebt =
+      sp.currency === 'AED'
+        ? capitalSnapshot.holistic.holistic_money_for_debt_aed
+        : capitalSnapshot.holistic.holistic_money_for_debt_gbp;
+    const payoff_options = buildSuggestedPlanPayoffOptions({
+      suggested: sp,
+      debt,
+      availableHeadroom: headroom,
+      holisticMoneyForDebt,
+      strategyPeriodApproxMonths,
+      today,
+      oneShotLumpAmount: lumpByDebtId.get(tid),
+    });
+    return { ...sp, payoff_options };
+  });
+
   // 4. Movements + per-plan derived state.
   const movementRegistry = getMovementRegistry();
   const movements = movementRegistry.all;
+
+  function enrichPlanWithPayoffSummary(plan: Plan): PlanWithPayoffSummary {
+    const supplementalFromMovements = movements
+      .filter(m => m.plan_id === plan.id)
+      .reduce((sum, m) => sum + m.amount, 0);
+    const debt =
+      plan.target_id !== null ? debtsById.get(plan.target_id) : undefined;
+    const payoff_summary = buildActivePlanPayoffSummary({
+      plan,
+      debt,
+      supplementalFromMovements,
+    });
+    return { ...plan, payoff_summary };
+  }
+
+  const activePlansWithPayoff = allActivePlans.map(enrichPlanWithPayoffSummary);
+  const pausedPlansWithPayoff = allPausedPlans.map(enrichPlanWithPayoffSummary);
 
   // Feasibility per active plan.
   const feasibilityReports = new Map<string, FeasibilityReport>();
@@ -428,8 +512,8 @@ export function assembleDebtStrategy(
   return {
     today,
     headroomByBucket,
-    activePlans: allActivePlans,
-    pausedPlans: allPausedPlans,
+    activePlans: activePlansWithPayoff,
+    pausedPlans: pausedPlansWithPayoff,
     completedPlans: allCompletedPlans,
     suggestedPlans,
     movements,
@@ -440,5 +524,6 @@ export function assembleDebtStrategy(
     refinanceRecommendations,
     creditCardPaydownHints,
     crossScopeTransferPreview,
+    debtStrategyContext,
   };
 }

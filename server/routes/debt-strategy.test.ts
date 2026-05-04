@@ -13,8 +13,10 @@ import type { AddressInfo } from 'net';
 import type { Server } from 'http';
 import type {
   AssembledDebtStrategy,
+  DebtStrategyContext,
 } from '../domain/debt-strategy/assemble.js';
 import type { Plan, SuggestedPlan } from '../domain/debt-strategy/schema.js';
+import type { PlanWithPayoffSummary } from '../domain/debt-strategy/suggested-plan-payoff-options.js';
 import type { Movement } from '../domain/debt-strategy/movements-schema.js';
 import type { AssembledStrategyCapitalSnapshot } from '../domain/debt-strategy/strategy-capital.js';
 import { evaluateCrossScopeTransferPlaceholder } from '../domain/debt-strategy/evaluate-cross-scope-transfer.js';
@@ -82,6 +84,8 @@ function emptyStrategyCapital(today: string): AssembledStrategyCapitalSnapshot {
       usable_for_debt_paydown: 0,
       holistic_money_for_debt_gbp: 0,
       holistic_money_for_debt_aed: 0,
+      holistic_per_scope_row_sum_gbp: 0,
+      holistic_per_scope_row_sum_aed: 0,
     },
     recommended_lump_sum_allocations: [],
   };
@@ -89,6 +93,16 @@ function emptyStrategyCapital(today: string): AssembledStrategyCapitalSnapshot {
 
 function emptyBundle(): AssembledDebtStrategy {
   const today = '2026-04-25';
+  const sc = emptyStrategyCapital(today);
+  const debtStrategyContext: DebtStrategyContext = {
+    today,
+    strategyCapital: sc,
+    debtsById: new Map(),
+    strategyPeriodApproxMonths: 1,
+    availableHeadroomByBucket: new Map(),
+    holisticMoneyForDebtGbp: sc.holistic.holistic_money_for_debt_gbp,
+    holisticMoneyForDebtAed: sc.holistic.holistic_money_for_debt_aed,
+  };
   return {
     today,
     headroomByBucket: new Map(),
@@ -100,7 +114,7 @@ function emptyBundle(): AssembledDebtStrategy {
     feasibilityReports: new Map(),
     refinanceComparisons: new Map(),
     targetReachedReports: new Map(),
-    strategyCapital: emptyStrategyCapital(today),
+    strategyCapital: sc,
     refinanceRecommendations: new Map(),
     creditCardPaydownHints: [],
     crossScopeTransferPreview: evaluateCrossScopeTransferPlaceholder({
@@ -109,7 +123,12 @@ function emptyBundle(): AssembledDebtStrategy {
       sourceCurrency: 'GBP',
       targetCurrency: 'GBP',
     }),
+    debtStrategyContext,
   };
+}
+
+function planWithPayoff(p: Plan): PlanWithPayoffSummary {
+  return { ...p, payoff_summary: null };
 }
 
 function makePlan(over: Partial<Plan> & Pick<Plan, 'id'>): Plan {
@@ -170,7 +189,7 @@ describe('GET /api/debt-strategy/state', () => {
   it('returns the bundle as JSON with bucketed headroom + plan lists', async () => {
     assembleMock.mockReturnValue({
       ...emptyBundle(),
-      activePlans: [makePlan({ id: 'p1' })],
+      activePlans: [planWithPayoff(makePlan({ id: 'p1' }))],
       headroomByBucket: new Map([
         [
           'GBP::autonize-it-ltd',

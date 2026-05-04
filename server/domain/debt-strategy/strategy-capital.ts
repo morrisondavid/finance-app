@@ -144,8 +144,15 @@ export interface HolisticStrategyCapitalRollup {
   readonly total_typical_monthly_bills: number;
   readonly two_month_bill_reserve: number;
   readonly usable_for_debt_paydown: number;
+  /** Same pooled basis as lump sums and routes — holistic deployable after 2× bills (GBP). */
   readonly holistic_money_for_debt_gbp: number;
   readonly holistic_money_for_debt_aed: number;
+  /**
+   * Legacy FX sum of per–currency-and-scope `money_for_debt_strategy` rows (deployable + period surplus);
+   * diverges from usable when period surplus is negative. For diagnostics only.
+   */
+  readonly holistic_per_scope_row_sum_gbp: number;
+  readonly holistic_per_scope_row_sum_aed: number;
 }
 
 export interface RecommendedLumpSumAllocation {
@@ -180,14 +187,19 @@ export function buildHolisticStrategyRollup(
   totalTypical = Math.round(totalTypical * 100) / 100;
   const twoMonth = Math.round(totalTypical * 2 * 100) / 100;
   const usable = Math.round(Math.max(0, totalDeployable - twoMonth) * 100) / 100;
+  const rowSumGbp = sumMoneyForDebtStrategyHolisticInCurrency(byBucketRows, 'GBP');
+  const rowSumAed = sumMoneyForDebtStrategyHolisticInCurrency(byBucketRows, 'AED');
+  const usableGbp = usable;
   return {
     display_currency: display,
     total_deployable_money: totalDeployable,
     total_typical_monthly_bills: totalTypical,
     two_month_bill_reserve: twoMonth,
     usable_for_debt_paydown: usable,
-    holistic_money_for_debt_gbp: sumMoneyForDebtStrategyHolisticInCurrency(byBucketRows, 'GBP'),
-    holistic_money_for_debt_aed: sumMoneyForDebtStrategyHolisticInCurrency(byBucketRows, 'AED'),
+    holistic_money_for_debt_gbp: usableGbp,
+    holistic_money_for_debt_aed: Math.round(convertAmountSync(usableGbp, 'GBP', 'AED') * 100) / 100,
+    holistic_per_scope_row_sum_gbp: rowSumGbp,
+    holistic_per_scope_row_sum_aed: rowSumAed,
   };
 }
 

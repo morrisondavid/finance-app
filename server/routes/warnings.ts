@@ -50,12 +50,20 @@ import { listDebts } from '../db/repositories/debts.js';
 import { ACCOUNT_CONFIG_DATA } from '../domain/accounts/data.js';
 import { assembleDebtStrategy } from '../domain/debt-strategy/assemble.js';
 import { listMovementsByPlan } from '../domain/debt-strategy/movements-queries.js';
+import { getPlanRegistry } from '../domain/debt-strategy/registry.js';
+import { getMovementRegistry } from '../domain/debt-strategy/movements-registry.js';
+import { findLastPlanTransferMatchDate } from '../domain/debt-strategy/match-plan-transfer.js';
 import { deriveMortgageRateResetWarnings } from '../domain/warnings/mortgage-rate-reset.js';
 import { deriveDebtUnregisteredWarnings } from '../domain/warnings/debt-unregistered.js';
 import { deriveAccountCreditCardConfigMissingWarnings } from '../domain/warnings/account-credit-card-config-missing.js';
 import { derivePlanBlockedIncompleteBudgetsWarnings } from '../domain/warnings/plan-blocked-incomplete-budgets.js';
 import { derivePlanFeasibilityDegradedWarnings } from '../domain/warnings/plan-feasibility-degraded.js';
 import { derivePlanTargetReachedWarnings } from '../domain/warnings/plan-target-reached.js';
+import {
+  derivePlanTransferWarnings,
+  PLAN_TRANSFER_MISSED_LOOKBACK_DAYS,
+  type MovementMatchInput,
+} from '../domain/warnings/plan-transfer.js';
 import type { AccountConfig } from '../domain/accounts/schema.js';
 import {
   diffAgainstPreviousSnapshot,
@@ -250,6 +258,26 @@ async function handleAllWarnings(_req: Request, res: Response): Promise<void> {
       })),
     });
 
+    const planRegistry = getPlanRegistry();
+    const movementRegistry = getMovementRegistry();
+    const movementMatches: MovementMatchInput[] = [];
+    for (const movement of movementRegistry.all) {
+      const plan = planRegistry.indexes.byId.get(movement.plan_id);
+      if (plan === undefined || plan.status !== 'active') continue;
+      const txns = getTransactions({ account: movement.from_account });
+      const lastMatchedDate = findLastPlanTransferMatchDate({
+        movement,
+        transactionsOnFromAccount: txns,
+        today: todayIso,
+        lookbackDays: PLAN_TRANSFER_MISSED_LOOKBACK_DAYS,
+      });
+      movementMatches.push({ plan, movement, lastMatchedDate });
+    }
+    const planTransferWarnings = derivePlanTransferWarnings({
+      today: todayIso,
+      movementMatches,
+    });
+
     const baseWarnings: EntityFoundationWarning[] = [
       ...foundationWarnings,
       ...paymentWindowWarnings,
@@ -266,6 +294,7 @@ async function handleAllWarnings(_req: Request, res: Response): Promise<void> {
       ...incompleteBudgetsWarnings,
       ...feasibilityWarnings,
       ...targetReachedWarnings,
+      ...planTransferWarnings,
     ];
 
     // ── §1.8 improvement feedback ───────────────────────────────────

@@ -1,18 +1,16 @@
 /**
- * Debt Strategy section UI (§1.9). Renders under the existing Debts tab.
+ * Debt Strategy section UI (§1.9). Renders in the main **Strategy** tab
+ * (`#strategy` → `#debt-strategy-section`), not the Debt (creditor) tab.
  *
- * Three panels:
- *   - Suggested plans — auto-derived from /api/debt-strategy/state's
- *     `suggestedPlans` field; the user clicks Activate to persist.
- *   - Active plans — with inline progress + acknowledge/pause/resume.
- *   - Completed plans — celebratory archive.
- *
- * Uses the same CSS conventions as the existing Debts module.
+ * Default view: short “spare cash toward debt” summary, suggested paydown cards with
+ * comparable pacing options, and active plans — without headroom matrices or
+ * per-scope capital tables on first paint.
  */
 
 import { escapeHtml, escapeAttribute, openModal, closeModal } from '../utils/dom';
 import { formatCurrency, formatIsoDateUkLong } from '../utils/formatting';
 import type { CurrencyCode } from '../../../shared/api-contracts.js';
+import { activateTabByName } from './tabs.js';
 
 type PlanIntensity = 'aggressive' | 'medium' | 'passive';
 
@@ -34,6 +32,40 @@ interface PlanLite {
   projected_completion_date: string | null;
   currency: string;
   scope: string;
+}
+
+interface PayoffSummaryLite {
+  readonly current_balance: number | null;
+  readonly baseline_monthly: number;
+  readonly supplemental_monthly: number;
+  readonly total_monthly: number;
+  readonly projected_completion_date: string | null;
+  readonly approx_months_remaining: number | null;
+}
+
+interface PlanWithOptionalPayoff extends PlanLite {
+  readonly payoff_summary?: PayoffSummaryLite | null;
+}
+
+interface PayoffOptionsLite {
+  readonly current_balance: number;
+  readonly baseline_monthly: number;
+  readonly intensities: ReadonlyArray<{
+    readonly intensity: PlanIntensity;
+    readonly monthly_total: number;
+    readonly supplemental_monthly: number;
+    readonly projected_completion_date: string | null;
+    readonly approx_months_remaining: number | null;
+  }>;
+  readonly one_shot: {
+    readonly amount: number;
+    readonly projected_completion_date: string | null;
+    readonly approx_months_remaining: number | null;
+  } | null;
+}
+
+interface SuggestedPlanWithPayoff extends PlanLite {
+  readonly payoff_options: PayoffOptionsLite;
 }
 
 interface MovementLite {
@@ -80,6 +112,8 @@ interface StrategyCapitalHolistic {
   usable_for_debt_paydown: number;
   holistic_money_for_debt_gbp: number;
   holistic_money_for_debt_aed: number;
+  holistic_per_scope_row_sum_gbp?: number;
+  holistic_per_scope_row_sum_aed?: number;
 }
 
 interface RecommendedLumpSumRow {
@@ -126,10 +160,10 @@ interface CrossScopeTransferPreview {
 interface DebtStrategyStateResponse {
   today: string;
   headroomByBucket: BucketHeadroomLite[];
-  activePlans: PlanLite[];
-  pausedPlans: PlanLite[];
-  completedPlans: PlanLite[];
-  suggestedPlans: PlanLite[];
+  activePlans: PlanWithOptionalPayoff[];
+  pausedPlans: PlanWithOptionalPayoff[];
+  completedPlans: PlanWithOptionalPayoff[];
+  suggestedPlans: SuggestedPlanWithPayoff[];
   movements: MovementLite[];
   strategyCapital: StrategyCapitalSnapshot;
   refinanceRecommendations: RefinanceRecommendationRow[];
@@ -139,12 +173,10 @@ interface DebtStrategyStateResponse {
 
 interface DebtStrategyTabState {
   data: DebtStrategyStateResponse | null;
-  activatingId: string | null;
 }
 
 const tabState: DebtStrategyTabState = {
   data: null,
-  activatingId: null,
 };
 
 async function fetchState(): Promise<void> {
@@ -158,120 +190,56 @@ function bucketLabel(b: BucketHeadroomLite): string {
   return `${scopeLabel} (${b.currency})`;
 }
 
-function renderStrategyCapital(state: DebtStrategyStateResponse): string {
-  const snap = state.strategyCapital;
-  if (snap.by_bucket.length === 0) {
-    return '<p class="debt-strategy-empty">Capital snapshot will appear once forecast inputs load.</p>';
+function intensityShortLabel(i: PlanIntensity): string {
+  switch (i) {
+    case 'aggressive':
+      return 'Aggressive (fastest monthly)';
+    case 'medium':
+      return 'Medium (steady extra)';
+    case 'passive':
+      return 'Passive (gentle extra)';
+    default:
+      return i;
   }
+}
 
-  const paydown =
-    state.creditCardPaydownHints.length > 0
-      ? `<div class="debt-strategy-capital-paydown"><strong>Card paydown targets</strong><ul>${state.creditCardPaydownHints
-          .map(
-            h =>
-              `<li>${escapeHtml(h.name)} · ${escapeHtml(formatCurrency(h.current_balance, asCurrency(h.currency as CurrencyCode)))}</li>`,
-          )
-          .join('')}</ul></div>`
-      : '';
+function formatApproxMonths(n: number | null): string {
+  if (n === null) return '—';
+  if (n <= 0) return '0';
+  return String(n);
+}
 
-  const refinance =
-    state.refinanceRecommendations.length > 0
-      ? `<div class="debt-strategy-capital-refi"><strong>Refinance hint</strong><ul>${state.refinanceRecommendations
-          .map(
-            r =>
-              `<li>${escapeHtml(r.debtId)} → ${escapeHtml(r.kind)}${
-                r.total_cost_savings_vs_keep > 0
-                  ? ` (save ~${escapeHtml(formatCurrency(r.total_cost_savings_vs_keep, 'GBP'))} total)`
-                  : ''
-              }</li>`,
-          )
-          .join('')}</ul></div>`
-      : '';
-
-  const hol = snap.holistic;
-  const showCur = asCurrency(hol.display_currency);
-  const holisticBlock = `<div class="debt-strategy-capital-holistic"><strong>Holistic deployable (${escapeHtml(hol.display_currency)})</strong>
-    <div class="debt-strategy-bucket-row"><span>Total deployable now</span><strong>${escapeHtml(formatCurrency(hol.total_deployable_money, showCur))}</strong></div>
-    <div class="debt-strategy-bucket-row"><span>Typical monthly bills (rollup)</span><strong>${escapeHtml(formatCurrency(hol.total_typical_monthly_bills, showCur))}</strong></div>
-    <div class="debt-strategy-bucket-row"><span>2× bill reserve</span><strong>${escapeHtml(formatCurrency(hol.two_month_bill_reserve, showCur))}</strong></div>
-    <div class="debt-strategy-bucket-row"><span>Usable for paydown (after reserve)</span><strong>${escapeHtml(formatCurrency(hol.usable_for_debt_paydown, showCur))}</strong></div>
-    <div class="debt-strategy-bucket-row"><span>Money for debt strategy (holistic, GBP)</span><strong>${escapeHtml(formatCurrency(hol.holistic_money_for_debt_gbp, 'GBP'))}</strong></div>
-    <div class="debt-strategy-bucket-row"><span>Money for debt strategy (holistic, AED)</span><strong>${escapeHtml(formatCurrency(hol.holistic_money_for_debt_aed, 'AED'))}</strong></div>
+function renderEl5Strip(state: DebtStrategyStateResponse): string {
+  const hol = state.strategyCapital.holistic;
+  const displayCur = asCurrency(hol.display_currency);
+  const usable = hol.usable_for_debt_paydown;
+  return `<div class="debt-strategy-el5">
+    <p>Think of it this way: after setting aside about <strong>two months</strong> of typical bills, you still have roughly <strong>${escapeHtml(
+      formatCurrency(usable, displayCur),
+    )}</strong> that could go toward debt (all accounts combined, shown in ${escapeHtml(displayCur)}).</p>
+    <p class="debt-strategy-debt-pointer">For who you owe and raw balances, open the <button type="button" class="btn-link debt-strategy-debt-tab-btn" data-action="go-debt-tab">Debt</button> tab.</p>
   </div>`;
-
-  const lumpHtml =
-    snap.recommended_lump_sum_allocations.length > 0
-      ? `<div class="debt-strategy-capital-lump"><strong>Suggested lump sums (after reserve)</strong><ul>${snap.recommended_lump_sum_allocations
-          .map(
-            row =>
-              `<li>${escapeHtml(row.name)} · ${escapeHtml(formatCurrency(row.recommended_lump_sum, asCurrency(row.currency)))}</li>`,
-          )
-          .join('')}</ul></div>`
-      : '';
-
-  const meta = `<p class="debt-strategy-capital-meta">Planning through <strong>${escapeHtml(
-    formatIsoDateUkLong(snap.strategy_end_date),
-  )}</strong> (income window ends day before ${escapeHtml(snap.planning_range_end_exclusive)}).</p>`;
-
-  const cards = snap.by_bucket
-    .map(row => {
-      const cur = asCurrency(row.currency);
-      const cover =
-        row.months_of_bill_cover_after_plan === null
-          ? '—'
-          : String(row.months_of_bill_cover_after_plan);
-      const scopeLabel = row.scope === 'household' ? 'Household' : row.scope;
-      const billOk = row.bill_cover_viable ? '' : 'debt-strategy-bucket-row--warn';
-      return `
-      <div class="debt-strategy-bucket debt-strategy-bucket--capital">
-        <div class="debt-strategy-bucket-label">${escapeHtml(scopeLabel)} (${escapeHtml(row.currency)})</div>
-        <div class="debt-strategy-bucket-row"><span>Money you can use now (deployable)</span><strong>${escapeHtml(formatCurrency(row.deployable_money_now, cur))}</strong></div>
-        <div class="debt-strategy-bucket-row"><span>Money expected in (to end date)</span><strong>${escapeHtml(formatCurrency(row.money_expected_in_period, cur))}</strong></div>
-        <div class="debt-strategy-bucket-row"><span>Fixed bills in period</span><strong>${escapeHtml(formatCurrency(row.fixed_bills_in_period, cur))}</strong></div>
-        <div class="debt-strategy-bucket-row"><span>Surplus in period</span><strong>${escapeHtml(formatCurrency(row.surplus_in_period, cur))}</strong></div>
-        <div class="debt-strategy-bucket-row"><span>Money for debt strategy</span><strong>${escapeHtml(formatCurrency(row.money_for_debt_strategy, cur))}</strong></div>
-        <div class="debt-strategy-bucket-row"><span>Typical monthly bills</span><strong>${escapeHtml(formatCurrency(row.typical_monthly_bills, cur))}</strong></div>
-        <div class="debt-strategy-bucket-row"><span>Standing orders (active plans)</span><strong>${escapeHtml(formatCurrency(row.monthly_standing_order_drain, cur))}</strong></div>
-        <div class="debt-strategy-bucket-row"><span>Money left after plan</span><strong>${escapeHtml(formatCurrency(row.money_available_after_plan, cur))}</strong></div>
-        <div class="debt-strategy-bucket-row ${billOk}"><span>Months of bill cover after plan</span><strong>${escapeHtml(cover)}</strong></div>
-        <div class="debt-strategy-bucket-row"><span>Bill cover viable (≥2 mo)</span><strong>${row.bill_cover_viable ? 'Yes' : 'No'}</strong></div>
-      </div>`;
-    })
-    .join('');
-
-  return `${meta}${holisticBlock}<div class="debt-strategy-capital-grid">${cards}</div>${lumpHtml}${paydown}${refinance}<p class="debt-strategy-capital-cross-scope">Cross-scope transfer preview: ${state.crossScopeTransferPreview.worthwhile ? 'suggested' : 'not evaluated'} (${escapeHtml(state.crossScopeTransferPreview.source_scope)} ${escapeHtml(state.crossScopeTransferPreview.source_currency)} → ${escapeHtml(state.crossScopeTransferPreview.target_scope)} ${escapeHtml(state.crossScopeTransferPreview.target_currency)}).</p>`;
 }
 
-function renderHeadroom(state: DebtStrategyStateResponse): string {
-  if (state.headroomByBucket.length === 0) {
-    return '<p class="debt-strategy-empty">Headroom will appear here once your forecast settles.</p>';
+function renderSuggestedGrid(state: DebtStrategyStateResponse): string {
+  if (state.suggestedPlans.length > 0) {
+    return state.suggestedPlans.map(suggestedCard).join('');
   }
-  const cards = state.headroomByBucket
-    .map(b => {
-      const cur = asCurrency(b.currency);
-      return `
-      <div class="debt-strategy-bucket">
-        <div class="debt-strategy-bucket-label">${escapeHtml(bucketLabel(b))}</div>
-        <div class="debt-strategy-bucket-row">
-          <span>Total headroom</span>
-          <strong>${escapeHtml(formatCurrency(b.totalHeadroom, cur))}</strong>
-        </div>
-        <div class="debt-strategy-bucket-row">
-          <span>Available for new plans</span>
-          <strong>${escapeHtml(formatCurrency(b.availableHeadroom, cur))}</strong>
-        </div>
-      </div>
-    `;
-    })
-    .join('');
-  return `<div class="debt-strategy-headroom-grid">${cards}</div>`;
+  if (state.pausedPlans.length > 0) {
+    return `<p class="debt-strategy-empty">No new suggestions right now — paused plans still tie up the same debt slots as active ones. Resume or finish a plan to refresh suggestions.</p>`;
+  }
+  if (state.activePlans.length > 0) {
+    return `<p class="debt-strategy-empty">No new suggestions — active plans already cover the eligible consumer debts, or headroom is too tight for another allocation.</p>`;
+  }
+  return `<p class="debt-strategy-empty">No suggestions yet. When balances and headroom allow, a paydown proposal will appear here.</p>`;
 }
 
-function planCard(plan: PlanLite, movements: MovementLite[]): string {
+function planCard(plan: PlanWithOptionalPayoff, movements: MovementLite[]): string {
   const cur = asCurrency(plan.currency);
   const movementsHtml = movements
     .filter(m => m.plan_id === plan.id)
-    .map(m => `
+    .map(
+      m => `
       <div class="debt-strategy-movement">
         <span>${escapeHtml(formatCurrency(m.amount, cur))} from ${escapeHtml(m.from_account)} to ${escapeHtml(m.to_account)} on the ${m.day_of_month}th</span>
         ${
@@ -280,21 +248,32 @@ function planCard(plan: PlanLite, movements: MovementLite[]): string {
             : `<button type="button" class="btn btn-sm" data-action="acknowledge" data-plan-id="${escapeAttribute(plan.id)}" data-movement-id="${escapeAttribute(m.id)}">I've set this up</button>`
         }
       </div>
-    `)
+    `,
+    )
     .join('');
 
-  const projection =
-    plan.projected_completion_date !== null
-      ? `<div class="debt-strategy-plan-projection">Projected clear: ${escapeHtml(formatIsoDateUkLong(plan.projected_completion_date))}</div>`
-      : '';
+  const ps = plan.payoff_summary;
+  const payoffStory =
+    plan.goal_type === 'pay-off-debt' && ps !== undefined && ps !== null && ps.current_balance !== null
+      ? `<div class="debt-strategy-payoff-active-story">
+        <p>Balance about <strong>${escapeHtml(formatCurrency(ps.current_balance, cur))}</strong>.
+        This plan pays <strong>${escapeHtml(formatCurrency(ps.total_monthly, cur))}</strong>/month total
+        (${escapeHtml(formatCurrency(ps.supplemental_monthly, cur))}/month new standing order on top of
+        ~${escapeHtml(formatCurrency(ps.baseline_monthly, cur))}/month already matched).
+        Rough clear-by <strong>${escapeHtml(ps.projected_completion_date !== null ? formatIsoDateUkLong(ps.projected_completion_date) : '—')}</strong>
+        (~${escapeHtml(formatApproxMonths(ps.approx_months_remaining))} months).</p>
+      </div>`
+      : plan.projected_completion_date !== null
+        ? `<div class="debt-strategy-plan-projection">Projected: ${escapeHtml(formatIsoDateUkLong(plan.projected_completion_date))}</div>`
+        : '';
 
   return `
     <article class="debt-strategy-plan debt-strategy-plan--${plan.status}">
       <header class="debt-strategy-plan-header">
         <h4>${escapeHtml(plan.display_name)}</h4>
-        <span class="debt-strategy-plan-meta">${escapeHtml(plan.intensity)} · ${escapeHtml(formatCurrency(plan.monthly_allocation, cur))}/mo</span>
+        <span class="debt-strategy-plan-meta">${escapeHtml(plan.intensity)} · ${escapeHtml(formatCurrency(plan.monthly_allocation, cur))}/mo total</span>
       </header>
-      ${projection}
+      ${payoffStory}
       <div class="debt-strategy-plan-movements">${movementsHtml}</div>
       <footer class="debt-strategy-plan-actions">
         ${
@@ -317,44 +296,97 @@ function planCard(plan: PlanLite, movements: MovementLite[]): string {
   `;
 }
 
-function suggestedCard(sp: PlanLite): string {
+function suggestedCard(sp: SuggestedPlanWithPayoff): string {
   const cur = asCurrency(sp.currency);
+  const po = sp.payoff_options;
+  const baseline = po.baseline_monthly;
+
+  const intensityRows = po.intensities
+    .map(row => {
+      const clearDate =
+        row.projected_completion_date !== null
+          ? formatIsoDateUkLong(row.projected_completion_date)
+          : '—';
+      const months = formatApproxMonths(row.approx_months_remaining);
+      return `
+      <div class="debt-strategy-payoff-option">
+        <div class="debt-strategy-payoff-option-head">
+          <span class="debt-strategy-payoff-option-title">${escapeHtml(intensityShortLabel(row.intensity))}</span>
+          <span class="debt-strategy-payoff-option-total">${escapeHtml(formatCurrency(row.monthly_total, cur))}/mo toward this debt</span>
+        </div>
+        <p class="debt-strategy-payoff-option-body">
+          About <strong>${escapeHtml(formatCurrency(row.supplemental_monthly, cur))}</strong> extra per month on top of
+          <strong>${escapeHtml(formatCurrency(baseline, cur))}</strong> already going out.
+          If you kept this up, you could be clear by <strong>${escapeHtml(clearDate)}</strong> (~${escapeHtml(months)} months vs leaving only the matched payments).
+        </p>
+        <button type="button" class="btn btn-primary btn-sm"
+          data-action="activate-suggested"
+          data-plan-id="${escapeAttribute(sp.id)}"
+          data-activation="monthly"
+          data-intensity="${escapeAttribute(row.intensity)}"
+        >Choose this pace</button>
+      </div>`;
+    })
+    .join('');
+
+  const lumpBlock =
+    po.one_shot !== null
+      ? (() => {
+          const l = po.one_shot;
+          const lumpDate =
+            l.projected_completion_date !== null ? formatIsoDateUkLong(l.projected_completion_date) : '—';
+          const lumpMonths = formatApproxMonths(l.approx_months_remaining);
+          return `
+        <div class="debt-strategy-payoff-option debt-strategy-payoff-option--lump">
+          <div class="debt-strategy-payoff-option-head">
+            <span class="debt-strategy-payoff-option-title">One-off from spare cash</span>
+            <span class="debt-strategy-payoff-option-total">${escapeHtml(formatCurrency(l.amount, cur))} now</span>
+          </div>
+          <p class="debt-strategy-payoff-option-body">
+            Pay <strong>${escapeHtml(formatCurrency(l.amount, cur))}</strong> from deployable cash at your bank now, then add a
+            <strong>medium</strong> standing order for what is left — rough clear-by <strong>${escapeHtml(lumpDate)}</strong> (~${escapeHtml(lumpMonths)} months after the lump).
+          </p>
+          <button type="button" class="btn btn-sm"
+            data-action="activate-suggested"
+            data-plan-id="${escapeAttribute(sp.id)}"
+            data-activation="after_lump"
+          >Start monthly after lump</button>
+        </div>`;
+        })()
+      : '';
+
   return `
     <article class="debt-strategy-plan debt-strategy-plan--suggested">
       <header class="debt-strategy-plan-header">
         <h4>${escapeHtml(sp.display_name)}</h4>
-        <span class="debt-strategy-plan-meta">${escapeHtml(formatCurrency(sp.monthly_allocation, cur))}/mo at ${escapeHtml(sp.intensity)}</span>
+        <span class="debt-strategy-plan-meta">${escapeHtml(formatCurrency(po.current_balance, cur))} balance · ${escapeHtml(formatCurrency(baseline, cur))}/mo already matched</span>
       </header>
-      ${
-        sp.projected_completion_date !== null
-          ? `<div class="debt-strategy-plan-projection">Projected clear: ${escapeHtml(formatIsoDateUkLong(sp.projected_completion_date))}</div>`
-          : ''
-      }
-      <footer class="debt-strategy-plan-actions">
-        <button type="button" class="btn btn-primary btn-sm" data-action="activate-suggested" data-plan-id="${escapeAttribute(sp.id)}">Activate</button>
-      </footer>
+      <div class="debt-strategy-payoff-stack">
+        ${intensityRows}
+        ${lumpBlock}
+      </div>
     </article>
   `;
 }
 
 function render(state: DebtStrategyStateResponse): string {
-  const suggested = state.suggestedPlans.length > 0
-    ? state.suggestedPlans.map(suggestedCard).join('')
-    : '<p class="debt-strategy-empty">No suggestions right now — every active consumer debt has a plan.</p>';
-  const active = state.activePlans.length > 0
-    ? state.activePlans.map(p => planCard(p, state.movements)).join('')
-    : '<p class="debt-strategy-empty">No active plans yet. Activate a suggestion above to get started.</p>';
-  const paused = state.pausedPlans.length > 0
-    ? state.pausedPlans.map(p => planCard(p, state.movements)).join('')
-    : '';
-  const completed = state.completedPlans.length > 0
-    ? state.completedPlans.map(p => planCard(p, state.movements)).join('')
-    : '';
+  const active =
+    state.activePlans.length > 0
+      ? state.activePlans.map(p => planCard(p, state.movements)).join('')
+      : '<p class="debt-strategy-empty">No active plans yet. Pick a pace on a suggestion above when one appears.</p>';
+  const paused =
+    state.pausedPlans.length > 0
+      ? state.pausedPlans.map(p => planCard(p, state.movements)).join('')
+      : '';
+  const completed =
+    state.completedPlans.length > 0
+      ? state.completedPlans.map(p => planCard(p, state.movements)).join('')
+      : '';
 
   return `
     <section class="debt-strategy-section">
       <header class="debt-strategy-header">
-        <h3>Debt Strategy</h3>
+        <h3>Debt strategy</h3>
         <button
           type="button"
           class="btn btn-sm"
@@ -363,14 +395,10 @@ function render(state: DebtStrategyStateResponse): string {
         >Stress test scenarios</button>
       </header>
 
-      <h4 class="debt-strategy-subhead">Capital &amp; bill cover (through strategy end date)</h4>
-      ${renderStrategyCapital(state)}
-
-      <h4 class="debt-strategy-subhead">Headroom by bucket</h4>
-      ${renderHeadroom(state)}
+      ${renderEl5Strip(state)}
 
       <h4 class="debt-strategy-subhead">Suggested plans</h4>
-      <div class="debt-strategy-suggested-grid">${suggested}</div>
+      <div class="debt-strategy-suggested-grid">${renderSuggestedGrid(state)}</div>
 
       <h4 class="debt-strategy-subhead">Active plans</h4>
       <div class="debt-strategy-active-grid">${active}</div>
@@ -381,21 +409,22 @@ function render(state: DebtStrategyStateResponse): string {
   `;
 }
 
-async function activateSuggested(planId: string): Promise<void> {
-  const intensity = window.prompt('Intensity? (aggressive | medium | passive)', 'medium');
-  if (intensity === null) return;
-  if (!['aggressive', 'medium', 'passive'].includes(intensity)) {
-    window.alert('Invalid intensity. Choose aggressive, medium, or passive.');
-    return;
-  }
+async function activateSuggested(
+  planId: string,
+  mode: { kind: 'monthly'; intensity: PlanIntensity } | { kind: 'after_lump' },
+): Promise<void> {
+  const body =
+    mode.kind === 'after_lump'
+      ? { choice: 'after_lump' as const, dayOfMonth: 1 }
+      : { choice: 'monthly' as const, intensity: mode.intensity, dayOfMonth: 1 };
   const res = await fetch(`/api/debt-strategy/plans/${encodeURIComponent(planId)}/activate-suggested`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ intensity, dayOfMonth: 1 }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const body = await res.text();
-    window.alert(`Could not activate plan: ${body}`);
+    const text = await res.text();
+    window.alert(`Could not activate plan: ${text}`);
     return;
   }
   await fetchAndRender();
@@ -448,7 +477,9 @@ const SANDBOX_MODAL_ID = 'debt-strategy-sandbox-modal';
 let sandboxModalWired = false;
 
 function readScenarioMultiplier(): number | null {
-  const radios = document.querySelectorAll<HTMLInputElement>('#debt-strategy-sandbox-modal input[name="scenario"]');
+  const radios = document.querySelectorAll<HTMLInputElement>(
+    '#debt-strategy-sandbox-modal input[name="scenario"]',
+  );
   let selectedValue: string | null = null;
   for (const r of radios) {
     if (r.checked) {
@@ -468,14 +499,10 @@ function readScenarioMultiplier(): number | null {
   return Number.isFinite(num) ? num : null;
 }
 
-function renderSandboxResult(
-  before: BucketHeadroomLite[],
-  after: BucketHeadroomLite[],
-): void {
+function renderSandboxResult(before: BucketHeadroomLite[], after: BucketHeadroomLite[]): void {
   const tbody = document.getElementById('debt-strategy-sandbox-tbody');
   const result = document.getElementById('debt-strategy-sandbox-result');
   if (!tbody || !result) return;
-  // Index after by key to match against before order.
   const afterByKey = new Map(after.map(b => [b.key, b]));
   const rows = before
     .map(b => {
@@ -543,9 +570,6 @@ function wireSandboxModal(): void {
   const slider = document.getElementById('sandbox-custom-slider');
   if (slider instanceof HTMLInputElement) {
     slider.addEventListener('input', () => {
-      // Selecting the slider auto-selects the Custom radio so the
-      // user's intent is captured even if they didn't click the
-      // radio first.
       const customRadio = document.querySelector<HTMLInputElement>(
         '#debt-strategy-sandbox-modal input[name="scenario"][value="custom"]',
       );
@@ -563,7 +587,6 @@ function wireSandboxModal(): void {
     void runSandboxScenario();
   });
 
-  // Click outside the modal body closes it.
   modal.addEventListener('click', e => {
     if (e.target === modal) closeModal(SANDBOX_MODAL_ID);
   });
@@ -571,7 +594,6 @@ function wireSandboxModal(): void {
 
 function openSandboxModal(): void {
   wireSandboxModal();
-  // Reset state on each open: hide previous result, default to "Lose half".
   const result = document.getElementById('debt-strategy-sandbox-result');
   if (result) result.hidden = true;
   const halfRadio = document.querySelector<HTMLInputElement>(
@@ -589,8 +611,20 @@ function attachHandlers(container: HTMLElement): void {
     const action = target.dataset.action;
     const planId = target.dataset.planId;
     const movementId = target.dataset.movementId;
-    if (action === 'activate-suggested' && planId) {
-      void activateSuggested(planId);
+    if (action === 'go-debt-tab') {
+      activateTabByName('debt');
+    } else if (action === 'activate-suggested' && planId) {
+      const activation = target.dataset.activation;
+      const intensity = target.dataset.intensity;
+      if (activation === 'after_lump') {
+        void activateSuggested(planId, { kind: 'after_lump' });
+      } else if (
+        intensity === 'aggressive' ||
+        intensity === 'medium' ||
+        intensity === 'passive'
+      ) {
+        void activateSuggested(planId, { kind: 'monthly', intensity });
+      }
     } else if (action === 'pause' && planId) {
       void pauseOrResume(planId, 'pause');
     } else if (action === 'resume' && planId) {

@@ -25,10 +25,27 @@ function defaultInput(over: Partial<GeneratePlanInput> = {}): GeneratePlanInput 
     requiredBudgetedCategories: over.requiredBudgetedCategories ?? new Set(),
     moneyForDebtStrategy: over.moneyForDebtStrategy,
     strategyPeriodApproxMonths: over.strategyPeriodApproxMonths,
+    baselineMonthlyTowardTarget: over.baselineMonthlyTowardTarget,
   };
 }
 
 describe('generatePlan — happy path', () => {
+  it('pay-off-debt: plan monthly_allocation is baseline + intensity increment; movement is increment only', () => {
+    const out = generatePlan(
+      defaultInput({
+        availableHeadroom: 1000,
+        intensity: 'medium',
+        planId: 'p-base',
+        movementId: 'm-base',
+        baselineMonthlyTowardTarget: 399,
+      }),
+    );
+    expect(out.blocked).toBe(false);
+    if (out.blocked) return;
+    expect(out.plan.monthly_allocation).toBe(899);
+    expect(out.movements[0].amount).toBe(500);
+  });
+
   it('produces an active plan + 1 movement at the chosen intensity', () => {
     const out = generatePlan(defaultInput());
     expect(out.blocked).toBe(false);

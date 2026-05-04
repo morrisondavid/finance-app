@@ -26,9 +26,15 @@
 import type {
   EntityFoundationWarning,
   WarningSeverity,
+  CurrencyCode,
 } from '../../../shared/api-contracts.js';
 import type { Plan } from '../debt-strategy/schema.js';
 import type { Movement } from '../debt-strategy/movements-schema.js';
+
+function formatStandingOrderAmount(currency: CurrencyCode, amount: number): string {
+  if (currency === 'AED') return `AED ${amount.toFixed(2)}`;
+  return `£${amount.toFixed(2)}`;
+}
 
 /** Plan-transfer match window. Mirrors §1.8 stricter constants per spec. */
 export const PLAN_TRANSFER_DATE_TOLERANCE_DAYS = 3;
@@ -80,7 +86,8 @@ export function derivePlanTransferWarnings(
           title: `Set up your bank standing order for '${plan.display_name}'`,
           detail:
             `The plan has been active ${ageDays} days but no matching standing order ` +
-            `(£${movement.amount} from ${movement.from_account} to ${movement.to_account} on ` +
+            `(${formatStandingOrderAmount(plan.currency, movement.amount)} from ` +
+            `${movement.from_account} to ${movement.to_account} on ` +
             `the ${movement.day_of_month}th) has been detected. Either set it up at your bank, ` +
             `OR if you've already done it, tick "I've set this up" on the plan card so we know ` +
             `to start watching for the transfer.`,
@@ -118,7 +125,8 @@ export function derivePlanTransferWarnings(
       severity: 'warn',
       title: `Standing order for '${plan.display_name}' may have stopped`,
       detail:
-        `No matching £${movement.amount} transfer from ${movement.from_account} to ` +
+        `No matching ${formatStandingOrderAmount(plan.currency, movement.amount)} transfer from ` +
+        `${movement.from_account} to ` +
         `${movement.to_account} has been detected in the last ${PLAN_TRANSFER_MISSED_LOOKBACK_DAYS} days. ` +
         `${movement.acknowledged_at !== null ? `(Acknowledged ${movement.acknowledged_at}.)` : ''} ` +
         `The bank may have cancelled the standing order, or the amount/date drifted out of the ±3 ` +

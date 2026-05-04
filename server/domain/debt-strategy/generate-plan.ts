@@ -1,7 +1,7 @@
 /**
  * Pure: generate a Plan + its Movements from a goal + chosen intensity (§1.9).
  *
- * Composes `presentIntensityOptions` against the available headroom,
+ * Composes {@link buildDebtStrategyProposal} against the available headroom,
  * picks the chosen intensity's allocation, then builds the Plan +
  * one Movement per the §1.9 default ("one transfer per plan,
  * `from_account` → `target_account`, day-of-month derived from any
@@ -21,10 +21,8 @@ import type {
   EntityFoundationWarningCode,
 } from '../../../shared/api-contracts.js';
 import {
-  presentIntensityOptions,
-  type IntensityGoalInput,
-} from './present-intensity-options.js';
-import { effectiveHeadroomForStrategyPlanning } from './effective-headroom-for-strategy.js';
+  buildDebtStrategyProposal,
+} from './debt-strategy-proposal.js';
 import type {
   Plan,
   PlanIntensity,
@@ -80,6 +78,11 @@ export interface GeneratePlanInput {
    * `moneyForDebtStrategy` to derive a monthly equivalent.
    */
   readonly strategyPeriodApproxMonths?: number;
+  /**
+   * Pay-off-debt: sum of existing matched monthly payments (`DebtSummary.matchAmounts`).
+   * Plan `monthly_allocation` is baseline + intensity increment; the movement amount is only the increment.
+   */
+  readonly baselineMonthlyTowardTarget?: number;
 }
 
 export interface GeneratePlanSuccess {
@@ -109,67 +112,37 @@ function clampDayOfMonth(d: number): number {
 }
 
 export function generatePlan(input: GeneratePlanInput): GeneratePlanResult {
-  // 1. FZCO save-for-target is unsupported in v1 (no AED savings account).
-  if (input.goal.goalType === 'save-for-target' && input.goal.scope === 'autonize-it-fzco') {
-    return {
-      blocked: true,
-      code: 'plan-blocked-fzco-no-savings-account',
-      detail:
-        'FZCO save-for-target plans are unsupported in v1 (no AED savings account configured).',
-    };
-  }
-
-  // 2. Required budget categories must all have explicit caps.
-  const missing: string[] = [];
-  for (const cat of input.requiredBudgetedCategories) {
-    if (!input.budgetedCategories.has(cat)) missing.push(cat);
-  }
-  if (missing.length > 0) {
-    return {
-      blocked: true,
-      code: 'plan-blocked-incomplete-budgets',
-      detail: `Categories without explicit budget caps: ${missing.join(', ')}.`,
-      missingCategories: missing,
-    };
-  }
-
-  // 3. Compute intensity options from available headroom (+ capital-aware boost).
-  const intensityGoal: IntensityGoalInput = {
-    goalType: input.goal.goalType,
-    targetDateOrAsap: input.goal.targetDateOrAsap,
-    targetAmount: input.goal.targetAmount,
-  };
-  const headroomForIntensity = effectiveHeadroomForStrategyPlanning({
+  const proposal = buildDebtStrategyProposal({
+    goal: {
+      goalType: input.goal.goalType,
+      targetId: input.goal.targetId,
+      targetAmount: input.goal.targetAmount,
+      targetDateOrAsap: input.goal.targetDateOrAsap,
+      currency: input.goal.currency,
+      scope: input.goal.scope,
+      fromAccount: input.goal.fromAccount,
+      targetAccount: input.goal.targetAccount,
+    },
+    intensity: input.intensity,
     availableHeadroom: input.availableHeadroom,
+    today: input.today,
     moneyForDebtStrategy: input.moneyForDebtStrategy,
     strategyPeriodApproxMonths: input.strategyPeriodApproxMonths,
+    baselineMonthlyTowardTarget: input.baselineMonthlyTowardTarget,
+    budgetedCategories: input.budgetedCategories,
+    requiredBudgetedCategories: input.requiredBudgetedCategories,
   });
 
-  const opts = presentIntensityOptions({
-    availableHeadroom: headroomForIntensity,
-    goal: intensityGoal,
-    today: input.today,
-  });
-
-  if (!opts.feasible) {
+  if (!proposal.ok) {
     return {
       blocked: true,
-      code: 'plan-infeasible',
-      detail:
-        'Even at maximum intensity (95% of available headroom), the plan cannot reach the target by the deadline. Extend the deadline, free more headroom (deactivate another plan), or reduce the target amount.',
+      code: proposal.code,
+      detail: proposal.detail,
+      missingCategories: proposal.missingCategories,
     };
   }
 
-  const chosen = opts[input.intensity];
-  if (chosen.monthlyAllocation <= 0) {
-    return {
-      blocked: true,
-      code: 'plan-infeasible',
-      detail: 'Available headroom is zero — no allocation can be made.',
-    };
-  }
-
-  // 4. Build the plan + single movement.
+  // 2. Build the plan + single movement.
   const day = clampDayOfMonth(input.dayOfMonth);
   const plan: Plan = {
     id: input.planId,
@@ -183,11 +156,11 @@ export function generatePlan(input: GeneratePlanInput): GeneratePlanResult {
     currency: input.goal.currency,
     scope: input.goal.scope,
     intensity: input.intensity,
-    monthly_allocation: chosen.monthlyAllocation,
+    monthly_allocation: proposal.totalMonthly,
     status: 'active',
     activated_at: input.today,
     completed_at: null,
-    projected_completion_date: chosen.projectedCompletionDate,
+    projected_completion_date: proposal.projectedCompletionDate,
     notes: input.goal.notes ?? null,
     updated_at: input.today,
   };
@@ -197,10 +170,10 @@ export function generatePlan(input: GeneratePlanInput): GeneratePlanResult {
     plan_id: input.planId,
     from_account: input.goal.fromAccount,
     to_account: input.goal.targetAccount,
-    amount: chosen.monthlyAllocation,
+    amount: proposal.movementAmount,
     day_of_month: day,
     expected_start_date: input.today,
-    expected_end_date: chosen.projectedCompletionDate,
+    expected_end_date: proposal.projectedCompletionDate,
     acknowledged_at: null,
     dismissed_missed_until: null,
     updated_at: input.today,

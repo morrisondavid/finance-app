@@ -5819,7 +5819,37 @@ body {
   }
 }
 
-/* §1.9 Debt Strategy section (lives in its own #strategy tab) */
+/* §1.9 Debt Strategy (Strategy main tab — #strategy) */
+#strategy.tab-content {
+  padding: 16px 20px 32px;
+}
+.debt-strategy-prose {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text-muted, #6b7280);
+  margin-bottom: 12px;
+  max-width: 72ch;
+}
+.debt-strategy-advanced {
+  margin-top: 16px;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 8px;
+  padding: 8px 14px 14px;
+  background: var(--color-bg-elevated, #fafafa);
+}
+.debt-strategy-advanced summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 6px 0;
+  list-style-position: outside;
+}
+.debt-strategy-holistic-leader .debt-strategy-bucket--holistic-total {
+  border-width: 2px;
+  border-color: var(--color-accent, #6366f1);
+}
+.debt-strategy-bucket-row--muted strong {
+  font-weight: 500;
+}
 .debt-strategy-section-wrapper {
   /* No top margin needed — tab content has its own surrounding spacing. */
 }
@@ -5840,6 +5870,74 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--color-text-muted, #6b7280);
+}
+.debt-strategy-el5 {
+  font-size: 15px;
+  line-height: 1.55;
+  max-width: 72ch;
+  margin-bottom: 8px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--color-bg-elevated, #fafafa);
+  border: 1px solid var(--color-border, #e5e7eb);
+}
+.debt-strategy-el5 p {
+  margin: 0 0 0.5em;
+}
+.debt-strategy-debt-pointer {
+  margin-bottom: 0;
+}
+#strategy .btn-link,
+.debt-strategy-section .btn-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-accent, #6366f1);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+.debt-strategy-payoff-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+.debt-strategy-payoff-option {
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-bg, #fff);
+}
+.debt-strategy-payoff-option--lump {
+  border-style: dashed;
+}
+.debt-strategy-payoff-option-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  align-items: baseline;
+}
+.debt-strategy-payoff-option-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+.debt-strategy-payoff-option-total {
+  font-size: 13px;
+  color: var(--color-text-muted, #6b7280);
+}
+.debt-strategy-payoff-option-body {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-text-muted, #6b7280);
+  margin: 0 0 10px;
+}
+.debt-strategy-payoff-active-story p {
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0 0 8px;
 }
 .debt-strategy-headroom-grid,
 .debt-strategy-capital-grid,
