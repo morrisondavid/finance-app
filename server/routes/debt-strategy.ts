@@ -431,8 +431,8 @@ router.delete('/plans/:id', (req: Request, res: Response) => {
 
 const SandboxBody = z.object({
   scenario: z.object({
-    /** Multiplier applied to the income side of the planner. e.g. 0.5 to halve income. */
-    incomeMultiplier: z.number().positive().optional(),
+    /** Multiplier applied to the income side of the planner (0 = none, 1 = full). */
+    incomeMultiplier: z.number().min(0).max(1).optional(),
   }),
 });
 

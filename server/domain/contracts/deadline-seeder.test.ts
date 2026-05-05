@@ -84,13 +84,17 @@ describe('syncContractRenewalDeadlines (integration)', () => {
     expect(lf!.type).toBe('contract-renewal');
     // lf-2026-mar: end_date 2026-03-31 minus 60 days = 2026-01-30
     expect(lf!.dueDate).toBe('2026-01-30');
-    expect(lf!.title).toBe('La Fosse renewal (LAF-TEG-001)');
+    expect(lf!.title).toBe(
+      'La Fosse renewal (La Fosse · 06 Jan 2026–31 Mar 2026)',
+    );
     expect(lf!.completedDate).toBeNull();
 
     const dc = byId.get('contract-renewal-dc-sow-2026');
-    // dc-sow-2026: end_date 2027-03-01 minus 60 days = 2026-12-31
-    expect(dc!.dueDate).toBe('2026-12-31');
-    expect(dc!.title).toBe('Delta Capita renewal (DMORRISON02)');
+    // dc-sow-2026: end_date 2026-04-30 minus 60 days = 2026-03-01
+    expect(dc!.dueDate).toBe('2026-03-01');
+    expect(dc!.title).toBe(
+      'Delta Capita renewal (Delta Capita · 01 Jan 2026–30 Apr 2026)',
+    );
   });
 
   it('is idempotent across repeated calls', () => {
@@ -119,7 +123,7 @@ describe('syncContractRenewalDeadlines (integration)', () => {
     const contract = parseContractRow(lfContractRow);
     expect(contractRenewalDeadlineId(contract)).toBe('contract-renewal-lf-2026-mar');
     expect(contractRenewalDeadlineTitle(contract, 'La Fosse')).toBe(
-      'La Fosse renewal (LAF-TEG-001)',
+      'La Fosse renewal (La Fosse · 06 Jan 2026–31 Mar 2026)',
     );
   });
 
@@ -161,7 +165,11 @@ describe('syncContractRenewalDeadlines (integration)', () => {
     const lfFzco = byId.get('contract-renewal-lf-2026-apr');
     expect(lfUk!.dueDate).toBe('2026-01-30'); // 2026-03-31 − 60
     expect(lfFzco!.dueDate).toBe('2026-03-31'); // 2026-04-30 − 30
-    expect(lfUk!.title).toBe('La Fosse renewal (LAF-TEG-001)');
-    expect(lfFzco!.title).toBe('La Fosse renewal (LAF-TEG-002)');
+    expect(lfUk!.title).toBe(
+      'La Fosse renewal (La Fosse · 06 Jan 2026–31 Mar 2026)',
+    );
+    expect(lfFzco!.title).toBe(
+      'La Fosse renewal (La Fosse · 02 Mar 2026–30 Apr 2026)',
+    );
   });
 });

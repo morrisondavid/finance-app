@@ -125,8 +125,14 @@ describe('contracts registry gates', () => {
     it('gives O(1) access to each contract', () => {
       seedCsv(tmpDir, [dcSowRow, lfContractRow]);
       const reg = buildWithStubs(tmpDir);
-      expect(reg.indexes.byId.get('dc-sow-2026')?.reference).toBe('DMORRISON02');
-      expect(reg.indexes.byId.get('lf-2026-mar')?.reference).toBe('LAF-TEG-001');
+      expect(reg.indexes.byId.get('dc-sow-2026')?.reference).toBe(
+        'Delta Capita · 01 Jan 2026–30 Apr 2026',
+      );
+      expect(reg.indexes.byId.get('dc-sow-2026')?.placement_ref).toBeNull();
+      expect(reg.indexes.byId.get('lf-2026-mar')?.reference).toBe(
+        'La Fosse · 06 Jan 2026–31 Mar 2026',
+      );
+      expect(reg.indexes.byId.get('lf-2026-mar')?.placement_ref).toBe('LAF-TEG-001');
       expect(reg.indexes.byId.get('dc-sow-2026')?.master_id).toBe('dc-master-2025');
       expect(reg.indexes.byId.get('lf-2026-mar')?.master_id).toBeNull();
     });

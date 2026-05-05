@@ -634,6 +634,8 @@
         </div>
       </div>
 
+      <div id="contracts-invoice-gaps-banner" class="contracts-invoice-gaps-banner" hidden></div>
+
       <div id="contracts-aggregate-banner" class="contracts-aggregate"></div>
 
       <div class="contracts-section-divider" id="contracts-list-divider">
@@ -768,13 +770,17 @@
           <form id="invoices-generate-form" class="modal-body">
             <fieldset class="contracts-fieldset">
               <legend>Contract</legend>
-              <label class="contracts-full-width">Active contract
+              <label class="contracts-full-width">Supplier-issued contract
                 <select name="contract_id" id="invoices-generate-contract-select" required></select>
+              </label>
+              <label class="contracts-full-width">Billing month (service period)
+                <input type="month" id="invoices-generate-billing-month" name="billing_month" required />
               </label>
             </fieldset>
 
             <fieldset class="contracts-fieldset" id="invoices-generate-draft-fields" style="display:none">
               <legend>Draft (review before saving)</legend>
+              <div id="invoices-generate-overlap-warning" class="contracts-invoice-overlap-warning" style="display:none"></div>
               <div class="contracts-form-grid">
                 <label>Invoice ID
                   <input name="id" readonly />

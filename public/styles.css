@@ -4482,6 +4482,51 @@ body {
   flex-shrink: 0;
 }
 
+.contracts-invoice-gaps-banner {
+  margin-bottom: 16px;
+}
+
+.contracts-invoice-gaps-banner__inner {
+  padding: 14px 16px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+}
+
+.contracts-invoice-gaps-banner__title {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #92400e;
+}
+
+.contracts-invoice-gaps-banner__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.contracts-invoice-gaps-banner__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.92rem;
+  line-height: 1.35;
+  color: var(--color-text);
+}
+
+.contracts-invoice-gaps-banner__copy {
+  flex: 1;
+  min-width: 200px;
+}
+
 .contracts-aggregate {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -5361,6 +5406,17 @@ body {
   line-height: 1.4;
 }
 
+.contracts-invoice-overlap-warning {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+}
+
 .contracts-form-grid label,
 .contracts-full-width {
   display: flex;
@@ -5374,6 +5430,8 @@ body {
 
 .contracts-form-grid input,
 .contracts-form-grid select,
+.contracts-full-width input,
+.contracts-full-width select,
 .contracts-full-width textarea {
   font-size: 0.95rem;
   text-transform: none;

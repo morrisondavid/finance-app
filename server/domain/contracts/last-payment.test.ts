@@ -272,19 +272,19 @@ describe('resolveAccrualWindowStart', () => {
   });
 
   it('clamps to contract.start_date when the derived start would precede it', () => {
-    // dc.start_date = 2026-03-02. Last payment was on 2026-02-28 (before contract).
+    // dc.start_date = 2026-01-01. Last payment 2025-12-15 → base 2025-12-16.
     const got = resolveAccrualWindowStart({
       contract: dc,
-      lastPaymentDate: '2026-02-28',
+      lastPaymentDate: '2025-12-15',
       today: '2026-04-24',
     });
-    expect(got).toBe('2026-03-02');
+    expect(got).toBe('2026-01-01');
   });
 
   it('clamps to contract.start_date when month-start precedes it (contract started mid-month)', () => {
-    // dc.start_date = 2026-03-02. Today = 2026-03-10. Month start = 2026-03-01 → clamp to 03-02.
+    // lf-2026-apr (FZCO) starts 2026-03-02. Today = 2026-03-10. Month start = 2026-03-01 → clamp to 03-02.
     const got = resolveAccrualWindowStart({
-      contract: dc,
+      contract: lfFzco,
       lastPaymentDate: null,
       today: '2026-03-10',
     });

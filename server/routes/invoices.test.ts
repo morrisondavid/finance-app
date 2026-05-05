@@ -205,6 +205,26 @@ describe('GET /api/invoices/draft', () => {
     const raw: unknown = await res.json();
     expect(raw).toMatchObject({ error: 'self-bill-contract' });
   });
+
+  it('400 when billing_month does not overlap the contract', async () => {
+    const res = await fetch(
+      `${baseUrl}/api/invoices/draft?contract_id=dc-sow-2026&billing_month=2025-06`,
+    );
+    expect(res.status).toBe(400);
+    const raw: unknown = await res.json();
+    expect(raw).toMatchObject({ error: 'billing-month-outside-contract' });
+  });
+
+  it('accepts YYYY-MM billing_month and returns period within that month', async () => {
+    const res = await fetch(
+      `${baseUrl}/api/invoices/draft?contract_id=dc-sow-2026&billing_month=2026-03`,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { invoice: unknown };
+    const draft = InvoiceSchema.parse(body.invoice);
+    expect(draft.period_start).toBe('2026-03-01');
+    expect(draft.period_end).toBe('2026-03-31');
+  });
 });
 
 // ─── POST /generate ─────────────────────────────────────────────────────────

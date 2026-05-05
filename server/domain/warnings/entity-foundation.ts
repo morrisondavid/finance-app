@@ -47,6 +47,8 @@ import {
   UAE_VAT_MANDATORY_AED,
 } from '../../config/tax-rules.js';
 import { daysBetween, toIsoDate } from '../../../shared/iso-date.js';
+import { contractDisplayName } from '../../../shared/contract-display.js';
+import { formatIsoDateUkLong } from '../../../shared/formatting.js';
 
 const IFZA_RENEWAL_WINDOW_DAYS = 60;
 const MS_PER_DAY = 86_400_000;
@@ -265,20 +267,22 @@ function collectContractEndingSoon(
 
     const client = clientById.get(contract.client_id);
     const clientLabel = client?.trading_name ?? contract.client_id;
+    const engagementLabel = contractDisplayName(contract, client);
+    const endDateLabel = formatIsoDateUkLong(contract.end_date);
     const severity: WarningSeverity =
       daysLeft < 0 || daysLeft <= 14 ? 'critical' : 'warn';
 
     const detail = daysLeft < 0
-      ? `Contract ${contract.reference} with ${clientLabel} ended ${Math.abs(daysLeft)} day${Math.abs(daysLeft) === 1 ? '' : 's'} ago on ${contract.end_date} but is still marked active.`
-      : `Contract ${contract.reference} with ${clientLabel} ends in ${daysLeft} day${daysLeft === 1 ? '' : 's'} on ${contract.end_date}.`;
+      ? `Contract ${engagementLabel} with ${clientLabel} ended ${Math.abs(daysLeft)} day${Math.abs(daysLeft) === 1 ? '' : 's'} ago on ${endDateLabel} but is still marked active.`
+      : `Contract ${engagementLabel} with ${clientLabel} ends in ${daysLeft} day${daysLeft === 1 ? '' : 's'} on ${endDateLabel}.`;
 
     const title = daysLeft < 0
-      ? `Contract ${contract.reference} is overdue for renewal`
-      : `Contract ${contract.reference} is approaching renewal`;
+      ? `Contract ${engagementLabel} is overdue for renewal`
+      : `Contract ${engagementLabel} is approaching renewal`;
 
     const recommended_action = daysLeft < 0
       ? `Flip ${contract.id} to active=false in clients/contracts.csv once the engagement is truly over, or add the successor contract so the deadline clears.`
-      : `Confirm renewal intent with ${clientLabel} and sign the successor contract before ${contract.end_date}.`;
+      : `Confirm renewal intent with ${clientLabel} and sign the successor contract before ${endDateLabel}.`;
 
     out.push({
       id: warningId('contract-ending-soon', contract.id),

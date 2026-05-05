@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildDraftInvoice } from './build-draft.js';
+import { buildDraftInvoice, resolveBillingMonthPeriod } from './build-draft.js';
 import { parseContractRow } from '../contracts/csv-io.js';
 import { parseClientRow } from '../clients/csv-io.js';
 import { parseCompanyRow } from '../company/csv-io.js';
@@ -174,20 +174,32 @@ describe('buildDraftInvoice — resolveInvoiceVatRate integration', () => {
   });
 });
 
-describe('buildDraftInvoice — contract end_date clamp', () => {
-  it('ends the period on contract.end_date when it falls inside the calendar month', () => {
+describe('buildDraftInvoice — billing_month overrides period', () => {
+  it('uses the chosen calendar month clamped to the contract (not resolveNextPeriodStart)', () => {
+    const existing = [dcInvoice001, dcInvoice002]
+      .map(row => parseInvoiceRow({ ...row, contract_id: dc.id }));
+    const draft = buildDraftInvoice({
+      contract: dc,
+      client: deltaCapita,
+      company: ukLtd,
+      leaveRows: [],
+      existingInvoices: existing,
+      today: '2026-04-20',
+      billing_month: '2026-03-01',
+    });
+    expect(draft.period_start).toBe('2026-03-02');
+    expect(draft.period_end).toBe('2026-03-31');
+    expect(draft.invoice_date).toBe('2026-04-20');
+    expect(draft.due_date).toBe('2026-05-20');
+  });
+
+  it('returns null from resolveBillingMonthPeriod when the month clears the contract', () => {
     const shortened = parseContractRow({
       ...dcSowRow,
       end_date: '2026-04-15',
     });
-    const draft = buildDraftInvoice({
-      contract: shortened,
-      client: deltaCapita,
-      company: ukLtd,
-      leaveRows: [],
-      existingInvoices: [],
-      today: '2026-04-20',
-    });
-    expect(draft.period_end).toBe('2026-04-15');
+    expect(
+      resolveBillingMonthPeriod(shortened, '2026-05-01'),
+    ).toBeNull();
   });
 });

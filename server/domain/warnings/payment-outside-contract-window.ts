@@ -34,6 +34,8 @@ import {
   isValidAccountName,
 } from '../accounts/queries.js';
 import { shiftIsoDate, toIsoDate } from '../../../shared/iso-date.js';
+import { contractDisplayName } from '../../../shared/contract-display.js';
+import { formatIsoDateUkLong } from '../../../shared/formatting.js';
 
 /**
  * Lookback window for the DB query. 180 days covers the renewal /
@@ -129,16 +131,20 @@ function buildWarning(
 ): EntityFoundationWarning {
   const client = match.client;
   const contract = match.nearestContract;
-  const endedOn = contract.end_date ?? contract.start_date;
+  const endedOnIso = contract.end_date ?? contract.start_date;
+  const engagementLabel = contractDisplayName(contract, client);
+  const endedOnLabel = formatIsoDateUkLong(endedOnIso);
+  const startLabel = formatIsoDateUkLong(contract.start_date);
+  const txDateLabel = formatIsoDateUkLong(tx.date);
 
   const detail = tx.date < contract.start_date
-    ? `${formatAccount(tx.account)} deposit from ${client.trading_name} on ${tx.date} (${formatAmount(tx.amount, tx.account)}) arrived before contract ${contract.reference} started on ${contract.start_date}.`
-    : `${formatAccount(tx.account)} deposit from ${client.trading_name} on ${tx.date} (${formatAmount(tx.amount, tx.account)}) falls outside every active contract window. Nearest: ${contract.id} ended ${endedOn}.`;
+    ? `${formatAccount(tx.account)} deposit from ${client.trading_name} on ${txDateLabel} (${formatAmount(tx.amount, tx.account)}) arrived before contract ${engagementLabel} started on ${startLabel}.`
+    : `${formatAccount(tx.account)} deposit from ${client.trading_name} on ${txDateLabel} (${formatAmount(tx.amount, tx.account)}) falls outside every active contract window. Nearest: ${contract.id} ended ${endedOnLabel}.`;
 
   const recommended_action =
     tx.date < contract.start_date
-      ? `Confirm the deposit is for ${contract.reference} and that its start date is correctly set in clients/contracts.csv.`
-      : `Confirm whether a renewal contract starts on or after ${tx.date} and add it to clients/contracts.csv, or mark this deposit as a residual payment for ${contract.id}.`;
+      ? `Confirm the deposit is for ${engagementLabel} and that its start date is correctly set in clients/contracts.csv.`
+      : `Confirm whether a renewal contract starts on or after ${txDateLabel} and add it to clients/contracts.csv, or mark this deposit as a residual payment for ${contract.id}.`;
 
   return {
     id: `entity-foundation.payment-outside-contract-window.${client.id}.${tx.date}.${tx.account}.${tx.amount}`,

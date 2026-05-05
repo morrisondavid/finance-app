@@ -38,6 +38,13 @@ import {
   SELF_BILL_PARSERS,
 } from './parsers/index.js';
 
+/** PDF placement ref matches this first, else legacy `reference`. */
+export function selfBillPlacementMatchKey(contract: Contract): string {
+  const p = contract.placement_ref;
+  if (p !== null && p !== '') return p;
+  return contract.reference;
+}
+
 export interface IngestSelfBillInput {
   readonly rawText: string;
   readonly today: string;
@@ -117,7 +124,9 @@ export function ingestSelfBill(input: IngestSelfBillInput): IngestSelfBillResult
   }
 
   const contracts = listContractsByClient(clientId);
-  const matches = contracts.filter(c => c.reference === parsed.placementRef);
+  const matches = contracts.filter(
+    c => selfBillPlacementMatchKey(c) === parsed.placementRef,
+  );
   if (matches.length === 0) {
     return {
       ok: false,

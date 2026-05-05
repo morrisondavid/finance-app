@@ -46,6 +46,7 @@ export const CONTRACT_CSV_HEADERS = [
   'issuing_entity_id',
   'master_id',
   'reference',
+  'placement_ref',
   'start_date',
   'end_date',
   'works_monday',
@@ -91,6 +92,7 @@ export function parseContractRow(row: Record<string, string>): Contract {
     issuing_entity_id: requireNonEmpty(row.issuing_entity_id, 'issuing_entity_id', rowId),
     master_id: nullIfEmpty(row.master_id),
     reference: requireNonEmpty(row.reference, 'reference', rowId),
+    placement_ref: nullIfEmpty(row.placement_ref),
     start_date: requireIsoDate(row.start_date, 'start_date', rowId),
     end_date: decodeNullableIsoDate(row.end_date, 'end_date', rowId),
     works_monday: decodeStrictBoolean(row.works_monday, 'works_monday', rowId),
@@ -156,6 +158,8 @@ export function serializeContractRow(contract: Contract): string {
         return encodeOptional(contract.master_id);
       case 'reference':
         return contract.reference;
+      case 'placement_ref':
+        return encodeOptional(contract.placement_ref);
       case 'start_date':
         return contract.start_date;
       case 'end_date':

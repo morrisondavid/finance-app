@@ -1734,8 +1734,17 @@ export const ContractSchema = z.object({
   client_id: ClientIdSchema,
   issuing_entity_id: EntityIdSchema,
   master_id: MasterAgreementIdSchema.nullable(),
-  /** Human reference from the paperwork (e.g. `DMORRISON02`). */
+  /**
+   * Human-readable engagement label (warnings, UI, email templates).
+   * Not the agency PDF placement id — use {@link placement_ref} for self-bill ingest matching.
+   */
   reference: z.string().min(1),
+  /**
+   * Agency placement / SOW code as printed on self-bill PDFs (La Fosse etc.).
+   * Null when this engagement never uses that ingest path. Ingest matches
+   * `parsed.placementRef` to this field, falling back to `reference` only for legacy rows.
+   */
+  placement_ref: z.string().nullable(),
   start_date: IsoDateSchema,
   end_date: IsoDateSchema.nullable(),
   works_monday: z.boolean(),
@@ -2114,6 +2123,22 @@ export const InvoicesListResponseSchema = z.object({
   invoices: z.array(InvoiceSchema),
 });
 export type InvoicesListResponse = z.infer<typeof InvoicesListResponseSchema>;
+
+/** One missing calendar month for a monthly supplier-issued contract. */
+export const SupplierMonthGapSchema = z.object({
+  contract_id: ContractIdSchema,
+  client_id: ClientIdSchema,
+  month_start: IsoDateSchema,
+  month_end: IsoDateSchema,
+});
+export type SupplierMonthGap = z.infer<typeof SupplierMonthGapSchema>;
+
+export const SupplierMonthGapsResponseSchema = z.object({
+  gaps: z.array(SupplierMonthGapSchema),
+});
+export type SupplierMonthGapsResponse = z.infer<
+  typeof SupplierMonthGapsResponseSchema
+>;
 
 // ============================================
 // Warnings — Phase 7 / Roadmap 1.1 Entity Foundation slice

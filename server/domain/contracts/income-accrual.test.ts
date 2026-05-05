@@ -124,29 +124,30 @@ describe('computeAccrual — no matched payment (fallback to month-start)', () =
     expect(res.leave_days_in_period).toBe(0);
   });
 
-  it('contract starts mid-period: both window starts clip to start_date', () => {
+  it('contract starts mid-period: both window starts clip to month start (contract already active)', () => {
     const res = computeAccrual({
       contract: dc,
       leaveRows: [],
       today: '2026-03-15',
       lastPaymentDate: null,
     });
-    expect(res.period_start).toBe('2026-03-02');
+    expect(res.period_start).toBe('2026-03-01');
     expect(res.period_end).toBe('2026-03-31');
-    expect(res.owed_window_start).toBe('2026-03-02');
+    expect(res.owed_window_start).toBe('2026-03-01');
   });
 
   it('today before contract start: owed window is empty, everything zeroes', () => {
     const res = computeAccrual({
       contract: dc,
       leaveRows: [],
-      today: '2026-03-01',
+      today: '2025-12-15',
       lastPaymentDate: null,
     });
-    expect(res.period_start).toBe('2026-03-02');
+    expect(res.period_start).toBe('2025-12-01');
     expect(res.worked_days_to_date).toBe(0);
-    // Projection still runs across the remaining contract days in March.
-    expect(res.worked_days_remaining).toBeGreaterThan(0);
+    // Projection still runs across the remaining contract days in December
+    // (none — contract has not started).
+    expect(res.worked_days_remaining).toBe(0);
   });
 });
 
@@ -345,9 +346,8 @@ describe('computeAccrual — passthrough fields', () => {
 
 describe('computeAccrual — total_contract_working_days / total_contract_value', () => {
   it('contract with end_date: computes total working days and value from start to end', () => {
-    // dc-sow-2026 runs 2026-01-05 → 2026-12-31, Mon–Fri, £550/day.
-    // Exact count depends on public holidays; assert >200 days and
-    // value = days × 550 (leave excluded since no leave rows here).
+    // dc-sow-2026 runs 2026-01-01 → 2026-04-30, Mon–Fri, £550/day.
+    // Exact count depends on public holidays; assert band for a ~4-month engagement.
     const res = computeAccrual({
       contract: dc,
       leaveRows: [],
@@ -355,8 +355,8 @@ describe('computeAccrual — total_contract_working_days / total_contract_value'
       lastPaymentDate: null,
     });
     expect(res.total_contract_working_days).not.toBeNull();
-    expect(res.total_contract_working_days).toBeGreaterThanOrEqual(200);
-    expect(res.total_contract_working_days).toBeLessThanOrEqual(270); // upper bound for Mon-Fri year
+    expect(res.total_contract_working_days).toBeGreaterThanOrEqual(75);
+    expect(res.total_contract_working_days).toBeLessThanOrEqual(95);
     expect(res.total_contract_value).not.toBeNull();
     // total_contract_value = total_contract_working_days × 550
     expect(res.total_contract_value).toBeCloseTo(

@@ -71,9 +71,10 @@ export const dcSowRow = rowFromHeaders({
   client_id: 'delta-capita',
   issuing_entity_id: 'autonize-it-ltd',
   master_id: 'dc-master-2025',
-  reference: 'DMORRISON02',
-  start_date: '2026-03-02',
-  end_date: '2027-03-01',
+  reference: 'Delta Capita · 01 Jan 2026–30 Apr 2026',
+  placement_ref: '',
+  start_date: '2026-01-01',
+  end_date: '2026-04-30',
   works_monday: 'true',
   works_tuesday: 'true',
   works_wednesday: 'true',
@@ -87,17 +88,17 @@ export const dcSowRow = rowFromHeaders({
   invoice_cadence: 'monthly',
   invoice_mechanism: 'supplier-issued',
   payment_terms_days: '30',
-  company_notice_weeks: '1',
-  supplier_notice_weeks: '1',
+  company_notice_weeks: '4',
+  supplier_notice_weeks: '4',
   renewal_warning_days: '60',
-  job_title: 'Senior Engineer',
+  job_title: 'Full Stack Developer',
   work_location: 'Remote / London',
   conduct_regs: 'opted-out',
   engagement_tax_status: 'outside-ir35',
   jurisdiction: 'England',
-  signed_at: '2026-01-15',
+  signed_at: '2025-12-22',
   active: 'true',
-  updated_at: '2026-04-21',
+  updated_at: '2026-04-24',
 });
 
 /** La Fosse agency engagement ending 2026-03-31. */
@@ -106,7 +107,8 @@ export const lfContractRow = rowFromHeaders({
   client_id: 'la-fosse',
   issuing_entity_id: 'autonize-it-ltd',
   master_id: '',
-  reference: 'LAF-TEG-001',
+  reference: 'La Fosse · 06 Jan 2026–31 Mar 2026',
+  placement_ref: 'LAF-TEG-001',
   start_date: '2026-01-06',
   end_date: '2026-03-31',
   works_monday: 'true',
@@ -132,7 +134,7 @@ export const lfContractRow = rowFromHeaders({
   jurisdiction: 'England',
   signed_at: '2025-12-20',
   active: 'true',
-  updated_at: '2026-04-21',
+  updated_at: '2026-04-24',
 });
 
 /**
@@ -144,10 +146,12 @@ export const lfContractRow = rowFromHeaders({
 export const lfExtensionRow = rowFromHeaders({
   ...lfContractRow,
   id: 'lf-extension-1',
-  reference: 'LAF-TEG-001-EXT1',
+  reference: 'La Fosse · 01 Apr 2026–30 Jun 2026',
+  placement_ref: 'LAF-TEG-001-EXT1',
   start_date: '2026-04-01',
   end_date: '2026-06-30',
   signed_at: '2026-03-15',
+  active: 'true',
 });
 
 /**
@@ -165,7 +169,8 @@ export const lfFzcoContractRow = rowFromHeaders({
   client_id: 'la-fosse',
   issuing_entity_id: 'autonize-it-fzco',
   master_id: '',
-  reference: 'LAF-TEG-002',
+  reference: 'La Fosse · 02 Mar 2026–30 Apr 2026',
+  placement_ref: 'LAF-TEG-002',
   start_date: '2026-03-02',
   end_date: '2026-04-30',
   works_monday: 'true',
@@ -185,7 +190,7 @@ export const lfFzcoContractRow = rowFromHeaders({
   supplier_notice_weeks: '2',
   renewal_warning_days: '30',
   job_title: 'Full Stack Engineer',
-  work_location: 'Remote with occasional office visits',
+  work_location: 'Remote with occasional office visits (London, Sheffield or Newcastle)',
   jurisdiction: 'England',
   signed_at: '2026-04-02',
   active: 'true',
@@ -195,6 +200,7 @@ export const lfFzcoContractRow = rowFromHeaders({
 export const dcSowInactiveRow = rowFromHeaders({
   ...dcSowRow,
   id: 'dc-sow-2025-prior',
+  reference: 'Delta Capita · 02 Mar 2025–01 Mar 2026',
   start_date: '2025-03-02',
   end_date: '2026-03-01',
   signed_at: '2025-01-15',

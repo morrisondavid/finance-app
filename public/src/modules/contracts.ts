@@ -16,7 +16,7 @@
  */
 
 import { escapeHtml, openModal, closeModal } from '../utils/dom';
-import { formatCurrency, formatIsoDateUkLong } from '../utils/formatting';
+import { formatCurrency, formatIsoDateUk, formatIsoDateUkLong } from '../utils/formatting';
 import { daysBetween, todayIsoLocal } from '../../../shared/iso-date.js';
 import type {
   AccrualResponse,
@@ -30,6 +30,8 @@ import type {
   LeaveRequest,
   LeaveRow,
   LeaveType,
+  SupplierMonthGap,
+  SupplierMonthGapsResponse,
   TemplatePreviewRequest,
   TemplatePreviewResponse,
 } from '../../../shared/api-contracts.js';
@@ -39,6 +41,7 @@ import { initLeaveCalendar, updateLeaveCalendarContracts } from './leave-calenda
 const LIST_ID = 'contracts-list';
 const LIST_DIVIDER_ID = 'contracts-list-divider';
 const BANNER_ID = 'contracts-aggregate-banner';
+const GAPS_BANNER_ID = 'contracts-invoice-gaps-banner';
 const MODAL_ID = 'contracts-leave-modal';
 const SCOPE_ID = 'contracts-leave-scope';
 const PREVIEWS_ID = 'contracts-leave-previews';
@@ -78,6 +81,8 @@ let previewDebounce: ReturnType<typeof setTimeout> | null = null;
  * to the neutral blue style when the threshold is unknown.
  */
 let fixedMonthlyExpenses: number | null = null;
+/** Monthly supplier-issued gaps from `GET /api/invoices/supplier-month-gaps`. */
+let supplierMonthGaps: readonly SupplierMonthGap[] = [];
 let leaveCalendarInitialised = false;
 
 function getEl(id: string): HTMLElement | null {
@@ -499,6 +504,34 @@ function entityTileHtml(entry: AggregateAccrualResponse['entities'][number]): st
   </div>`;
 }
 
+function renderInvoiceGapsBanner(): void {
+  const el = getEl(GAPS_BANNER_ID);
+  if (el === null) return;
+  if (supplierMonthGaps.length === 0) {
+    el.innerHTML = '';
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  const items = supplierMonthGaps.map(g => {
+    const client = clientsById.get(g.client_id);
+    const contract = contracts.find(c => c.id === g.contract_id);
+    const name = escapeHtml(client?.trading_name ?? g.client_id);
+    const ref = escapeHtml(contract?.reference ?? g.contract_id);
+    const monthUk = escapeHtml(formatIsoDateUk(g.month_start));
+    const bm = escapeHtml(g.month_start.slice(0, 7));
+    const cid = escapeHtml(g.contract_id);
+    return `<li class="contracts-invoice-gaps-banner__item">
+      <span class="contracts-invoice-gaps-banner__copy"><strong>${name}</strong> · ${ref} — no supplier invoice for ${monthUk}</span>
+      <button type="button" class="btn btn-sm" data-role="invoice-gap" data-contract-id="${cid}" data-billing-month="${bm}">Generate…</button>
+    </li>`;
+  }).join('');
+  el.innerHTML = `<div class="contracts-invoice-gaps-banner__inner">
+    <p class="contracts-invoice-gaps-banner__title">Missing invoices (monthly supplier-issued)</p>
+    <ul class="contracts-invoice-gaps-banner__list">${items}</ul>
+  </div>`;
+}
+
 function renderAggregateBanner(): void {
   const el = getEl(BANNER_ID);
   if (!el) return;
@@ -651,9 +684,13 @@ function renderTile(contract: Contract): string {
       <div class="contracts-tile__footer-actions">
         <button type="button" class="btn btn-ghost" data-role="download" data-contract-id="${id}">Contract</button>
         ${contract.active
-          ? `<button type="button" class="btn btn-ghost" data-role="renew" data-contract-id="${id}">Renew</button>
-             <button type="button" class="btn btn-ghost" data-role="invoice" data-contract-id="${id}" data-invoice-mechanism="${escapeHtml(contract.invoice_mechanism)}">Invoice</button>
-             <button type="button" class="btn btn-primary" data-role="book" data-contract-id="${id}">Holiday</button>`
+          ? `<button type="button" class="btn btn-ghost" data-role="renew" data-contract-id="${id}">Renew</button>`
+          : ''}
+        ${contract.invoice_mechanism === 'supplier-issued'
+          ? `<button type="button" class="btn btn-ghost" data-role="invoice" data-contract-id="${id}" data-invoice-mechanism="${escapeHtml(contract.invoice_mechanism)}">Invoice</button>`
+          : ''}
+        ${contract.active
+          ? `<button type="button" class="btn btn-primary" data-role="book" data-contract-id="${id}">Holiday</button>`
           : ''}
       </div>
       <button type="button" class="contracts-link-button" data-role="toggle" data-contract-id="${id}">
@@ -1174,6 +1211,18 @@ function selfBillIngestHint(contractId: string): string {
 // ---------------------------------------------------------------------------
 
 export function initContracts(): void {
+  getEl(GAPS_BANNER_ID)?.addEventListener('click', ev => {
+    const target = ev.target;
+    if (!(target instanceof HTMLElement)) return;
+    const btn = target.closest<HTMLElement>('[data-role="invoice-gap"]');
+    if (btn === null) return;
+    const id = btn.dataset.contractId;
+    const bm = btn.dataset.billingMonth;
+    if (id !== undefined && bm !== undefined) {
+      void openSupplierInvoiceForContract(id, { billingMonth: bm });
+    }
+  });
+
   const list = getEl(LIST_ID);
   if (list) {
     list.addEventListener('click', ev => {
@@ -1265,19 +1314,22 @@ async function fetchFixedMonthlyExpenses(): Promise<number | null> {
 
 export async function loadContracts(): Promise<void> {
   try {
-    const [listRes, clientsRes, companiesRes, accrualRes, expenses] = await Promise.all([
+    const [listRes, clientsRes, companiesRes, accrualRes, gapsRes, expenses] = await Promise.all([
       getJson<{ contracts: Contract[] }>('/api/contracts'),
       getJson<{ clients: Client[] }>('/api/clients'),
       getJson<{ companies: Company[] }>('/api/company'),
       getJson<AggregateAccrualResponse>('/api/contracts/income-accrual'),
+      getJson<SupplierMonthGapsResponse>('/api/invoices/supplier-month-gaps'),
       fetchFixedMonthlyExpenses(),
     ]);
     contracts = listRes.contracts;
     clientsById = new Map(clientsRes.clients.map(c => [c.id, c]));
     companiesById = new Map(companiesRes.companies.map(c => [c.id, c]));
     aggregate = accrualRes;
+    supplierMonthGaps = gapsRes.gaps;
     perContract = new Map(accrualRes.contracts.map(row => [row.contract_id, row]));
     fixedMonthlyExpenses = expenses;
+    renderInvoiceGapsBanner();
     renderAggregateBanner();
     renderList();
     updateLeaveCalendarContracts(contracts);

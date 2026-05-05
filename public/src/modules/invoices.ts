@@ -4,8 +4,8 @@
  * Renders every row in `invoices.csv` grouped by issuing entity, plus
  * two composition flows:
  *
- *   - **Generate invoice** — pick an active **supplier-issued** contract,
- *     review the server-computed draft, save → PDF streamed in a new tab.
+ *   - **Generate invoice** — pick a **supplier-issued** contract,
+ *     choose billing month, review the server-computed draft, save → PDF.
  *   - **Ingest self-bill PDFs** — upload one or more agency PDFs; the
  *     server ingests each file in turn (same route as a single upload).
  *
@@ -26,6 +26,7 @@ import type {
 } from '../../../shared/api-contracts.js';
 import { escapeHtml, openModal, closeModal } from '../utils/dom';
 import { formatCurrency, formatIsoDateUk } from '../utils/formatting';
+import { monthRange, todayIsoLocal } from '../../../shared/iso-date.js';
 import { activateTabByName } from './tabs.js';
 
 const GROUPS_ID = 'invoices-groups';
@@ -38,7 +39,9 @@ const GEN_MODAL_CLOSE_ID = 'invoices-generate-modal-close';
 const GEN_MODAL_CANCEL_ID = 'invoices-generate-modal-cancel';
 const GEN_FORM_ID = 'invoices-generate-form';
 const GEN_CONTRACT_SELECT_ID = 'invoices-generate-contract-select';
+const GEN_BILLING_MONTH_ID = 'invoices-generate-billing-month';
 const GEN_DRAFT_FIELDS_ID = 'invoices-generate-draft-fields';
+const GEN_OVERLAP_WARNING_ID = 'invoices-generate-overlap-warning';
 const GEN_SUBMIT_ID = 'invoices-generate-submit';
 const GEN_ERROR_ID = 'invoices-generate-error';
 
@@ -52,6 +55,8 @@ const INGEST_CONTEXT_HINT_ID = 'invoices-ingest-context-hint';
 const INGEST_SUBMIT_ID = 'invoices-ingest-submit';
 
 let currentDraft: Invoice | null = null;
+/** Last invoice list from `loadInvoices` — used for same-month overlap hint only. */
+let cachedInvoicesForGenerate: readonly Invoice[] = [];
 
 function getEl(id: string): HTMLElement | null {
   return document.getElementById(id);
@@ -81,6 +86,109 @@ interface ContractsListResponse { readonly contracts: readonly Contract[] }
 interface ClientsListResponse { readonly clients: readonly Client[] }
 interface CompaniesListResponse { readonly companies: readonly Company[] }
 
+function periodsOverlap(
+  aStart: string,
+  aEnd: string,
+  bStart: string,
+  bEnd: string,
+): boolean {
+  return !(aEnd < bStart || aStart > bEnd);
+}
+
+function currentLocalYYYYMM(): string {
+  return todayIsoLocal().slice(0, 7);
+}
+
+function defaultBillingMonthForContract(contract: Contract | null): string {
+  const today = todayIsoLocal();
+  if (
+    contract !== null
+    && contract.end_date !== null
+    && contract.end_date < today
+  ) {
+    return contract.end_date.slice(0, 7);
+  }
+  return today.slice(0, 7);
+}
+
+function clearOverlapWarning(): void {
+  const el = getEl(GEN_OVERLAP_WARNING_ID);
+  if (el === null) return;
+  el.textContent = '';
+  el.style.display = 'none';
+}
+
+function updateOverlapWarning(contractId: string, billingYYYYMM: string): void {
+  const el = getEl(GEN_OVERLAP_WARNING_ID);
+  if (el === null) return;
+  const { start: mStart, end: mEnd } = monthRange(`${billingYYYYMM}-01`);
+  const overlap = cachedInvoicesForGenerate.some(
+    inv =>
+      inv.contract_id === contractId
+      && inv.status !== 'draft'
+      && periodsOverlap(inv.period_start, inv.period_end, mStart, mEnd),
+  );
+  if (!overlap) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+  el.textContent =
+    'You already have at least one non-draft invoice whose period overlaps this month — confirm before issuing another.';
+  el.style.display = '';
+}
+
+async function fetchDraftInvoice(
+  contractId: string,
+  billingMonthYYYYMM: string,
+): Promise<Invoice> {
+  const params = new URLSearchParams({
+    contract_id: contractId,
+    billing_month: billingMonthYYYYMM,
+  });
+  const res = await fetch(`/api/invoices/draft?${params}`);
+  const text = await res.text();
+  if (!res.ok) {
+    let msg = `GET /api/invoices/draft failed (${res.status})`;
+    try {
+      const raw: unknown = JSON.parse(text);
+      if (
+        typeof raw === 'object'
+        && raw !== null
+        && 'message' in raw
+        && typeof (raw as { message: unknown }).message === 'string'
+      ) {
+        msg = (raw as { message: string }).message;
+      } else if (
+        typeof raw === 'object'
+        && raw !== null
+        && 'error' in raw
+        && typeof (raw as { error: unknown }).error === 'string'
+      ) {
+        msg = (raw as { error: string }).error;
+      }
+    } catch {
+      if (text.length > 0) msg = text;
+    }
+    throw new Error(msg);
+  }
+  const body = JSON.parse(text) as { invoice: Invoice };
+  return body.invoice;
+}
+
+function getBillingMonthValue(): string {
+  const el = getEl(GEN_BILLING_MONTH_ID);
+  if (!(el instanceof HTMLInputElement)) return currentLocalYYYYMM();
+  const v = el.value.trim();
+  return v.length >= 7 ? v.slice(0, 7) : currentLocalYYYYMM();
+}
+
+function setBillingMonthValue(yyyyMm: string): void {
+  const el = getEl(GEN_BILLING_MONTH_ID);
+  if (!(el instanceof HTMLInputElement)) return;
+  el.value = yyyyMm.length === 7 ? yyyyMm : yyyyMm.slice(0, 7);
+}
+
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
@@ -104,6 +212,7 @@ export async function loadInvoices(): Promise<void> {
       clientsRes.clients,
       companiesRes.companies,
     );
+    cachedInvoicesForGenerate = invoicesRes.invoices;
     populateContractSelect(contractsRes.contracts, clientsRes.clients);
   } catch (err) {
     groups.innerHTML = `<div class="clients-form-error">Failed to load invoices: ${escapeHtml(
@@ -216,18 +325,22 @@ function populateContractSelect(
   const select = getEl(GEN_CONTRACT_SELECT_ID);
   if (!(select instanceof HTMLSelectElement)) return;
   const clientById = new Map(clients.map(c => [c.id, c]));
-  const today = new Date().toISOString().slice(0, 10);
-  const active = contracts.filter(
-    c =>
-      c.active &&
-      (c.end_date === null || c.end_date >= today) &&
-      c.invoice_mechanism === 'supplier-issued',
+  const supplier = contracts.filter(
+    c => c.invoice_mechanism === 'supplier-issued',
   );
+  const sorted = [...supplier].sort((a, b) => {
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    if (a.end_date === null && b.end_date === null) return 0;
+    if (a.end_date === null) return -1;
+    if (b.end_date === null) return 1;
+    return a.end_date >= b.end_date ? -1 : 1;
+  });
   const options = [
     '<option value="">— Pick a contract —</option>',
-    ...active.map(c => {
+    ...sorted.map(c => {
       const client = clientById.get(c.client_id);
-      const label = `${client?.trading_name ?? c.client_id} · ${c.reference}`;
+      const inactive = c.active ? '' : ' · inactive';
+      const label = `${client?.trading_name ?? c.client_id} · ${c.reference}${inactive}`;
       return `<option value="${escapeHtml(c.id)}">${escapeHtml(label)}</option>`;
     }),
   ];
@@ -237,27 +350,49 @@ function populateContractSelect(
 function openGenerateModal(): void {
   currentDraft = null;
   clearGenerateError();
+  clearOverlapWarning();
   hideDraftFields();
   setGenerateSubmitDisabled(true);
   const form = getEl(GEN_FORM_ID);
   if (form instanceof HTMLFormElement) form.reset();
+  setBillingMonthValue(currentLocalYYYYMM());
   openModal(GEN_MODAL_ID);
+}
+
+export interface OpenSupplierInvoiceOptions {
+  readonly billingMonth?: string;
 }
 
 /**
  * Switch to Invoices, load options, open Generate with `contract_id`
  * selected and the server draft applied (same as picking the contract
  * in the modal manually).
+ *
+ * @param billingMonth optional `YYYY-MM` for the billing-month control
+ *        (defaults from contract end date when the engagement has ended).
  */
-export async function openSupplierInvoiceForContract(contractId: string): Promise<void> {
+export async function openSupplierInvoiceForContract(
+  contractId: string,
+  options: OpenSupplierInvoiceOptions = {},
+): Promise<void> {
   activateTabByName('invoices');
   await loadInvoices();
   currentDraft = null;
   clearGenerateError();
+  clearOverlapWarning();
   hideDraftFields();
   setGenerateSubmitDisabled(true);
   const form = getEl(GEN_FORM_ID);
   if (form instanceof HTMLFormElement) form.reset();
+
+  let billingMonth = options.billingMonth?.slice(0, 7);
+  if (billingMonth === undefined || billingMonth.length !== 7) {
+    const contractsRes = await getJson<ContractsListResponse>('/api/contracts');
+    const c = contractsRes.contracts.find(x => x.id === contractId) ?? null;
+    billingMonth = defaultBillingMonthForContract(c);
+  }
+  setBillingMonthValue(billingMonth);
+
   const select = getEl(GEN_CONTRACT_SELECT_ID);
   if (!(select instanceof HTMLSelectElement)) {
     openModal(GEN_MODAL_ID);
@@ -323,17 +458,18 @@ function clearGenerateError(): void {
 
 async function onContractSelected(contractId: string): Promise<void> {
   clearGenerateError();
+  clearOverlapWarning();
   hideDraftFields();
   setGenerateSubmitDisabled(true);
   currentDraft = null;
   if (contractId === '') return;
 
   try {
-    const res = await getJson<{ invoice: Invoice }>(
-      `/api/invoices/draft?contract_id=${encodeURIComponent(contractId)}`,
-    );
-    currentDraft = res.invoice;
-    populateDraftFields(res.invoice);
+    const billingMonth = getBillingMonthValue();
+    const invoice = await fetchDraftInvoice(contractId, billingMonth);
+    currentDraft = invoice;
+    populateDraftFields(invoice);
+    updateOverlapWarning(contractId, billingMonth);
     showDraftFields();
     setGenerateSubmitDisabled(false);
   } catch (err) {
@@ -635,6 +771,13 @@ export function initInvoices(): void {
   contractSelect?.addEventListener('change', ev => {
     const target = ev.target;
     if (target instanceof HTMLSelectElement) void onContractSelected(target.value);
+  });
+
+  getEl(GEN_BILLING_MONTH_ID)?.addEventListener('change', () => {
+    const select = getEl(GEN_CONTRACT_SELECT_ID);
+    if (select instanceof HTMLSelectElement && select.value !== '') {
+      void onContractSelected(select.value);
+    }
   });
 
   const genForm = getEl(GEN_FORM_ID);

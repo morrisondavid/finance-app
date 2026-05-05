@@ -63,6 +63,14 @@ export interface BuildDraftInput {
    */
   readonly existingInvoices: readonly Invoice[];
   readonly today: string;
+  /**
+   * When set, invoice line dates use this calendar month (any ISO day in
+   * the month) clamped to the contract instead of `resolveNextPeriodStart`
+   * + the month containing `today`. Issuer still uses `today` for
+   * `invoice_date` / `due_date`. Callers must pre-validate with
+   * {@link resolveBillingMonthPeriod} (HTTP layer returns 400 when null).
+   */
+  readonly billing_month?: string | undefined;
   /** Entity-scoped public holidays forwarded to `calculateWorkload`. */
   readonly publicHolidayDates?: ReadonlySet<string>;
 }
@@ -70,6 +78,29 @@ export interface BuildDraftInput {
 /** `min` for two ISO date strings. */
 function minIso(a: string, b: string): string {
   return a <= b ? a : b;
+}
+
+/** `max` for two ISO date strings. */
+function maxIso(a: string, b: string): string {
+  return a >= b ? a : b;
+}
+
+/**
+ * Billable window for a chosen calendar month clipped to the contract.
+ * Returns `null` when the month does not overlap the engagement
+ * (`period_start` would fall after `period_end`).
+ */
+export function resolveBillingMonthPeriod(
+  contract: Contract,
+  billingMonthAnyDay: string,
+): { readonly periodStart: string; readonly periodEnd: string } | null {
+  const { start: mStart, end: mEnd } = monthRange(billingMonthAnyDay);
+  const periodStart = maxIso(mStart, contract.start_date);
+  const periodEnd = contract.end_date === null
+    ? mEnd
+    : minIso(mEnd, contract.end_date);
+  if (periodStart > periodEnd) return null;
+  return { periodStart, periodEnd };
 }
 
 /**
@@ -84,21 +115,34 @@ function minIso(a: string, b: string): string {
  */
 export function buildDraftInvoice(input: BuildDraftInput): Invoice {
   const { contract, client, company, leaveRows, existingInvoices, today,
-    publicHolidayDates } = input;
+    billing_month: billingMonth, publicHolidayDates } = input;
 
   const contractInvoices = existingInvoices
     .filter(inv => inv.contract_id === contract.id);
 
-  const periodStart = resolveNextPeriodStart({
-    contract,
-    invoices: contractInvoices,
-    today,
-  });
+  let periodStart: string;
+  let periodEnd: string;
+  if (billingMonth !== undefined) {
+    const resolved = resolveBillingMonthPeriod(contract, billingMonth);
+    if (resolved === null) {
+      throw new Error(
+        'buildDraftInvoice: billing_month does not overlap contract — validate with resolveBillingMonthPeriod first',
+      );
+    }
+    periodStart = resolved.periodStart;
+    periodEnd = resolved.periodEnd;
+  } else {
+    periodStart = resolveNextPeriodStart({
+      contract,
+      invoices: contractInvoices,
+      today,
+    });
 
-  const monthEnd = monthRange(today).end;
-  const periodEnd = contract.end_date === null
-    ? monthEnd
-    : minIso(monthEnd, contract.end_date);
+    const monthEnd = monthRange(today).end;
+    periodEnd = contract.end_date === null
+      ? monthEnd
+      : minIso(monthEnd, contract.end_date);
+  }
 
   const workload = calculateWorkload({
     contract,

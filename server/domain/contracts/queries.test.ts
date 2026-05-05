@@ -97,7 +97,7 @@ describe('listActiveContracts', () => {
 describe('findContractForTransaction', () => {
   it('returns the DC SOW for a date inside its range', () => {
     const c = findContractForTransaction(
-      { clientId: 'delta-capita', issuingEntityId: 'autonize-it-ltd', date: '2026-05-01' },
+      { clientId: 'delta-capita', issuingEntityId: 'autonize-it-ltd', date: '2026-04-15' },
       full,
     );
     expect(c?.id).toBe('dc-sow-2026');

@@ -156,8 +156,8 @@ describe('renderTemplate — happy paths', () => {
       context: invoiceCoverCtx(),
       readFile: mkReadFile(ALL_SHARED_TEMPLATES),
     });
-    expect(result.subject).toBe('Invoice — DMORRISON02');
-    expect(result.body).toContain('DMORRISON02');
+    expect(result.subject).toBe('Invoice — Delta Capita · 01 Jan 2026–30 Apr 2026');
+    expect(result.body).toContain('Delta Capita · 01 Jan 2026–30 Apr 2026');
     expect(result.recipients.to).toEqual(['lily.lovegrove@deltacapita.com']);
   });
 
@@ -177,7 +177,7 @@ describe('renderTemplate — happy paths', () => {
       context: renewalCtx(),
       readFile: mkReadFile(ALL_SHARED_TEMPLATES),
     });
-    expect(result.subject).toBe('Renewal — LAF-TEG-001');
+    expect(result.subject).toBe('Renewal — La Fosse · 06 Jan 2026–31 Mar 2026');
     expect(result.body).toContain('The Edwin Group Ltd');
     expect(result.recipients.to).toEqual(['accounts@lafosse.com']);
   });

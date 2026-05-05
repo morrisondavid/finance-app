@@ -512,7 +512,7 @@ router.get('/:id/document', (req: Request<{ id: string }>, res: Response) => {
     });
     return;
   }
-  res.download(docPath, `${contract.reference}.pdf`);
+  res.download(docPath, `${contract.id}.pdf`);
 });
 
 // ---------------------------------------------------------------------------

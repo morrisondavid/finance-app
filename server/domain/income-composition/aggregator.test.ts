@@ -9,6 +9,7 @@ function makeContract(over: Partial<Contract> = {}): Contract {
     issuing_entity_id: 'autonize-it-ltd',
     master_id: null,
     reference: 'REF',
+    placement_ref: null,
     start_date: '2026-01-01',
     end_date: null,
     works_monday: true,

@@ -349,6 +349,16 @@ describe('DELETE /api/debt-strategy/plans/:id', () => {
 });
 
 describe('POST /api/debt-strategy/sandbox', () => {
+  it('accepts incomeMultiplier 0 (lose-all-contracts scenario)', async () => {
+    assembleMock.mockReturnValue(emptyBundle());
+    const res = await fetch(`${baseUrl}/api/debt-strategy/sandbox`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scenario: { incomeMultiplier: 0 } }),
+    });
+    expect(res.status).toBe(200);
+  });
+
   it('returns a bundle matching the sandbox response shape', async () => {
     assembleMock.mockReturnValue(emptyBundle());
     const res = await fetch(`${baseUrl}/api/debt-strategy/sandbox`, {

@@ -78,8 +78,14 @@ export {
 
 export {
   buildDraftInvoice,
+  resolveBillingMonthPeriod,
   type BuildDraftInput,
 } from './build-draft.js';
+
+export {
+  listSupplierMonthlyInvoiceGaps,
+  type ListSupplierMonthlyInvoiceGapsInput,
+} from './supplier-month-gaps.js';
 
 export {
   writeIngestedPdf,

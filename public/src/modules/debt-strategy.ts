@@ -542,7 +542,18 @@ async function runSandboxScenario(): Promise<void> {
     body: JSON.stringify({ scenario: { incomeMultiplier: mult } }),
   });
   if (!res.ok) {
-    window.alert('Sandbox failed.');
+    let detail = res.statusText || `HTTP ${res.status}`;
+    try {
+      const errBody = (await res.json()) as { message?: string; error?: string };
+      if (typeof errBody.message === 'string' && errBody.message.length > 0) {
+        detail = errBody.message;
+      } else if (typeof errBody.error === 'string' && errBody.error.length > 0) {
+        detail = errBody.error;
+      }
+    } catch {
+      /* ignore */
+    }
+    window.alert(`Stress test failed: ${detail}`);
     return;
   }
   const body = (await res.json()) as DebtStrategyStateResponse;

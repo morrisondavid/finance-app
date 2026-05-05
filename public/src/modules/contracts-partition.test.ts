@@ -22,6 +22,7 @@ function contract(overrides: Partial<Contract> & { id: string; end_date: string 
     issuing_entity_id: 'autonize-it-ltd',
     master_id: null,
     reference: 'REF',
+    placement_ref: null,
     start_date: '2026-01-01',
     end_date: overrides.end_date,
     works_monday: true,

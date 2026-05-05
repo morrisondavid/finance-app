@@ -4,6 +4,10 @@
  * Endpoints:
  *
  *   GET  /api/invoices                  — Phase 1 list.
+ *   GET  /api/invoices/supplier-month-gaps
+ *                                       — complete past months with no
+ *                                         covering supplier invoice
+ *                                         (monthly cadence only).
  *   GET  /api/invoices/draft?contract_id=...
  *                                       — Phase 2 builds a draft via the
  *                                         canonical `buildDraftInvoice`
@@ -36,11 +40,13 @@ import {
   allInvoices,
   allInvoicePayments,
   buildDraftInvoice,
+  resolveBillingMonthPeriod,
   createInvoice,
   findInvoiceById,
   InvoiceSchema,
   listInvoicesByStatus,
   listInvoicesByIssuingEntityId,
+  listSupplierMonthlyInvoiceGaps,
   persistIngestedSelfBillFromBuffer,
   planReconciliation,
   recordInvoicePayments,
@@ -51,7 +57,7 @@ import {
   type ReconcileTransaction,
   type ReconciliationPlan,
 } from '../domain/invoices/index.js';
-import { findContractById } from '../domain/contracts/index.js';
+import { findContractById, allContracts } from '../domain/contracts/index.js';
 import { allClients, findClientById } from '../domain/clients/index.js';
 import { companyById } from '../domain/company/index.js';
 import { leaveForContract } from '../domain/leave/index.js';
@@ -60,6 +66,8 @@ import { holidayDatesForEntity } from '../domain/working-days/public-holidays.js
 import { DEFAULT_INVOICES_DIR } from '../domain/invoices/registry.js';
 import {
   EntityIdSchema,
+  IsoDateSchema,
+  SupplierMonthGapsResponseSchema,
   type Client,
   type ClientId,
   type EntityId,
@@ -80,6 +88,12 @@ router.get('/', (_req: Request, res: Response) => {
 
 const DraftQuerySchema = z.object({
   contract_id: z.string().min(1),
+  billing_month: z
+    .union([
+      z.string().regex(/^\d{4}-\d{2}$/, 'billing_month: use YYYY-MM or YYYY-MM-DD'),
+      IsoDateSchema,
+    ])
+    .optional(),
 });
 
 router.get('/draft', (req: Request, res: Response) => {
@@ -121,8 +135,29 @@ router.get('/draft', (req: Request, res: Response) => {
   }
 
   const today = todayIsoLocal();
-  const yearStart = today.slice(0, 4) + '-01-01';
-  const yearEnd = today.slice(0, 4) + '-12-31';
+  const billingMonthRaw = parsed.data.billing_month;
+  const billingMonthNormalized = billingMonthRaw === undefined
+    ? undefined
+    : billingMonthRaw.length === 7
+      ? `${billingMonthRaw}-01`
+      : billingMonthRaw;
+  if (billingMonthNormalized !== undefined) {
+    if (resolveBillingMonthPeriod(contract, billingMonthNormalized) === null) {
+      res.status(400).json({
+        error: 'billing-month-outside-contract',
+        message:
+          'That month does not overlap this contract after the start/end dates are applied.',
+      });
+      return;
+    }
+  }
+
+  const yToday = today.slice(0, 4);
+  const yBill = billingMonthNormalized?.slice(0, 4) ?? yToday;
+  const yMin = yBill < yToday ? yBill : yToday;
+  const yMax = yBill > yToday ? yBill : yToday;
+  const yearStart = `${yMin}-01-01`;
+  const yearEnd = `${yMax}-12-31`;
   const draft = buildDraftInvoice({
     contract,
     client,
@@ -130,12 +165,25 @@ router.get('/draft', (req: Request, res: Response) => {
     leaveRows: leaveForContract(contract.id),
     existingInvoices: allInvoices(),
     today,
+    billing_month: billingMonthNormalized,
     publicHolidayDates: holidayDatesForEntity(
       contract.issuing_entity_id, yearStart, yearEnd,
     ),
   });
 
   res.json({ invoice: draft });
+});
+
+// ─── GET /supplier-month-gaps ───────────────────────────────────────────────
+
+router.get('/supplier-month-gaps', (_req: Request, res: Response) => {
+  const today = todayIsoLocal();
+  const gaps = listSupplierMonthlyInvoiceGaps({
+    today,
+    contracts: allContracts(),
+    invoices: allInvoices(),
+  });
+  res.json(SupplierMonthGapsResponseSchema.parse({ gaps }));
 });
 
 // ─── POST /generate ─────────────────────────────────────────────────────────
