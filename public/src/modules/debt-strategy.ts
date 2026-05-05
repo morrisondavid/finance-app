@@ -309,7 +309,7 @@ function suggestedCard(sp: SuggestedPlanWithPayoff): string {
           : '—';
       const months = formatApproxMonths(row.approx_months_remaining);
       return `
-      <div class="debt-strategy-payoff-option">
+      <div class="debt-strategy-payoff-option debt-strategy-payoff-option--${escapeAttribute(row.intensity)}">
         <div class="debt-strategy-payoff-option-head">
           <span class="debt-strategy-payoff-option-title">${escapeHtml(intensityShortLabel(row.intensity))}</span>
           <span class="debt-strategy-payoff-option-total">${escapeHtml(formatCurrency(row.monthly_total, cur))}/mo toward this debt</span>
@@ -373,7 +373,7 @@ function render(state: DebtStrategyStateResponse): string {
   const active =
     state.activePlans.length > 0
       ? state.activePlans.map(p => planCard(p, state.movements)).join('')
-      : '<p class="debt-strategy-empty">No active plans yet. Pick a pace on a suggestion above when one appears.</p>';
+      : '<p class="debt-strategy-empty">No active plans yet. When suggestions appear below, pick a pace to activate one.</p>';
   const paused =
     state.pausedPlans.length > 0
       ? state.pausedPlans.map(p => planCard(p, state.movements)).join('')
@@ -397,11 +397,11 @@ function render(state: DebtStrategyStateResponse): string {
 
       ${renderEl5Strip(state)}
 
-      <h4 class="debt-strategy-subhead">Suggested plans</h4>
-      <div class="debt-strategy-suggested-grid">${renderSuggestedGrid(state)}</div>
-
       <h4 class="debt-strategy-subhead">Active plans</h4>
       <div class="debt-strategy-active-grid">${active}</div>
+
+      <h4 class="debt-strategy-subhead">Suggested plans</h4>
+      <div class="debt-strategy-suggested-grid">${renderSuggestedGrid(state)}</div>
 
       ${paused ? `<h4 class="debt-strategy-subhead">Paused plans</h4><div class="debt-strategy-paused-grid">${paused}</div>` : ''}
       ${completed ? `<h4 class="debt-strategy-subhead">Completed plans</h4><div class="debt-strategy-completed-grid">${completed}</div>` : ''}

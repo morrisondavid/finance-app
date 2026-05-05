@@ -80,4 +80,42 @@ describe('buildSuggestedPlanPayoffOptions', () => {
     expect(po.one_shot).not.toBeNull();
     expect(po.one_shot?.amount).toBe(1000);
   });
+
+  it('uses matchAmounts[0] only as contractual monthly baseline (Novuna-style multi-entry)', () => {
+    const suggested = {
+      id: 'suggested:novuna',
+      display_name: 'Clear Novuna',
+      goal_type: 'pay-off-debt' as const,
+      target_id: 'novuna',
+      target_amount: null,
+      target_account: 'barclays-current' as const,
+      target_date_or_asap: 'ASAP' as const,
+      currency: 'GBP' as const,
+      scope: 'household' as const,
+      intensity: 'medium' as const,
+      monthly_allocation: 400,
+      activated_at: '2026-05-01',
+      completed_at: null,
+      projected_completion_date: null,
+      notes: null,
+      updated_at: '2026-05-01',
+      status: 'suggested' as const,
+    };
+
+    const po = buildSuggestedPlanPayoffOptions({
+      suggested,
+      debt: {
+        id: 'novuna',
+        currentBalance: 5500,
+        matchAmounts: [390.71, 412.71],
+      },
+      availableHeadroom: 500,
+      holisticMoneyForDebt: 0,
+      strategyPeriodApproxMonths: 12,
+      today: '2026-05-01',
+    });
+
+    expect(po.baseline_monthly).toBe(390.71);
+    expect(po.baseline_monthly).not.toBe(803.42);
+  });
 });

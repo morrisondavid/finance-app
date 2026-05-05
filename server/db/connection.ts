@@ -231,7 +231,7 @@ export function initSchema(): void {
   `).run();
   db.prepare(`
     INSERT OR IGNORE INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
-    VALUES ('barclays-current', 475.05, '2023-12-29', CURRENT_TIMESTAMP)
+    VALUES ('barclays-current', 63035.54, '2022-04-19', CURRENT_TIMESTAMP)
   `).run();
   db.prepare(`
     INSERT INTO account_balances (account, opening_balance, opening_balance_date, updated_at)

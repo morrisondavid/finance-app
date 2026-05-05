@@ -31,7 +31,12 @@ export function getOpeningBalance(account: AccountName): { balance: number; date
 }
 
 /**
- * Set the opening balance for an account
+ * Persist the opening anchor for running-balance queries.
+ *
+ * When `date` is set, it is the **inclusive** first calendar day whose
+ * `transactions` rows count toward {@link getAccountBalance}: movements
+ * strictly before that day are already represented inside `balance`
+ * (or out of scope for this ledger).
  */
 export function setOpeningBalance(account: AccountName, balance: number, date?: string): void {
   const db = getDb();
@@ -46,17 +51,31 @@ export function setOpeningBalance(account: AccountName, balance: number, date?: 
 }
 
 /**
- * Calculate the current balance for an account
- * Current balance = opening balance + sum of all transactions
+ * Running balance for an account.
+ *
+ * `currentBalance = openingBalance + transactionTotal`, where `transactionTotal`
+ * is the sum of rows matching the filters below.
+ *
+ * When `opening_balance_date` is **non-null**, only transactions with
+ * **`date >= opening_balance_date`** are summed (inclusive start of ledger
+ * processing). When it is **null**, **all** rows for the account are summed
+ * (legacy behaviour).
+ *
+ * Optional `financialYear` further restricts to that FY’s `[startDate, endDate]`,
+ * intersecting with the opening-date window when both apply.
  */
 export function getAccountBalance(account: AccountName, filters: DashboardFilters = {}): AccountBalance {
   const db = getDb();
   const opening = getOpeningBalance(account);
-  
-  // Build filter conditions
+
   let whereClause = 'WHERE account = ?';
   const params: (string | number)[] = [account];
-  
+
+  if (opening.date !== null && opening.date !== '') {
+    whereClause += ' AND date >= ?';
+    params.push(opening.date);
+  }
+
   if (filters.financialYear) {
     const range = getFinancialYearRange(filters.financialYear);
     whereClause += ' AND date >= ? AND date <= ?';

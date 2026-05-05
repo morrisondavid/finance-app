@@ -231,7 +231,7 @@ function debtToAutoSuggestDebt(s: DebtSummary): AutoSuggestDebt | null {
     kind: s.kind,
     archived: s.archived,
     currentBalance: s.currentBalance,
-    baselineMonthlyFromMatching: s.matchAmounts.reduce((a, b) => a + b, 0),
+    baselineMonthlyFromMatching: s.matchAmounts[0] ?? 0,
     fromAccount,
     currency: cfg.currency,
     scope: scopeForAccount(fromAccount),

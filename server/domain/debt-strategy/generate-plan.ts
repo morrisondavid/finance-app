@@ -79,8 +79,9 @@ export interface GeneratePlanInput {
    */
   readonly strategyPeriodApproxMonths?: number;
   /**
-   * Pay-off-debt: sum of existing matched monthly payments (`DebtSummary.matchAmounts`).
-   * Plan `monthly_allocation` is baseline + intensity increment; the movement amount is only the increment.
+   * Pay-off-debt: contractual monthly payment already going to the debt — `matchAmounts[0]`
+   * (see `Debt` schema; do not sum the array). Plan `monthly_allocation` is baseline + intensity
+   * increment; the movement amount is only the increment.
    */
   readonly baselineMonthlyTowardTarget?: number;
 }

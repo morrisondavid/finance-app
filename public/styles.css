@@ -1293,13 +1293,6 @@ body {
   margin: 0 0 6px 0;
 }
 
-.warnings-subtitle {
-  margin: 0;
-  color: var(--color-text-muted, #4b5563);
-  font-size: 0.9rem;
-  max-width: 720px;
-}
-
 .warnings-empty-state {
   padding: 24px 20px;
   background: var(--color-surface);
@@ -5908,9 +5901,31 @@ body {
   border-radius: 8px;
   border: 1px solid var(--color-border, #e5e7eb);
   background: var(--color-bg, #fff);
+  border-left-width: 4px;
+  border-left-style: solid;
+  border-left-color: transparent;
+}
+/* Traffic-light tiles: slightly stronger tints; aggressive = cool rose, medium = gold (hue split from red) */
+.debt-strategy-payoff-option--aggressive {
+  background: rgba(220, 100, 110, 0.14);
+  border-color: rgba(200, 80, 95, 0.32);
+  border-left-color: rgba(190, 55, 75, 0.78);
+}
+.debt-strategy-payoff-option--medium {
+  background: rgba(235, 170, 55, 0.16);
+  border-color: rgba(210, 140, 40, 0.35);
+  border-left-color: rgba(200, 125, 30, 0.72);
+}
+.debt-strategy-payoff-option--passive {
+  background: rgba(55, 150, 105, 0.13);
+  border-color: rgba(45, 130, 90, 0.3);
+  border-left-color: rgba(35, 115, 80, 0.75);
 }
 .debt-strategy-payoff-option--lump {
   border-style: dashed;
+  background: rgba(99, 102, 241, 0.12);
+  border-color: rgba(90, 85, 220, 0.32);
+  border-left-color: rgba(80, 75, 200, 0.65);
 }
 .debt-strategy-payoff-option-head {
   display: flex;

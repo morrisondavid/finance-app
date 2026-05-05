@@ -71,7 +71,7 @@ export function buildSuggestedPlanPayoffOptions(
   input: BuildSuggestedPayoffOptionsInput,
 ): SuggestedPlanPayoffOptions {
   const { suggested, debt, today } = input;
-  const baseline = debt.matchAmounts.reduce((a, b) => a + b, 0);
+  const baseline = debt.matchAmounts[0] ?? 0;
 
   const goalBase = {
     goalType: 'pay-off-debt' as const,
@@ -157,7 +157,7 @@ export function buildActivePlanPayoffSummary(input: {
 }): ActivePlanPayoffSummary | null {
   const { plan, debt } = input;
   if (plan.goal_type !== 'pay-off-debt' || debt === undefined) return null;
-  const baseline = debt.matchAmounts.reduce((a, b) => a + b, 0);
+  const baseline = debt.matchAmounts[0] ?? 0;
   const total = plan.monthly_allocation;
   const bal = debt.currentBalance;
   let approxMonths: number | null = null;

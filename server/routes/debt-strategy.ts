@@ -171,7 +171,7 @@ router.post('/plans', (req: Request, res: Response) => {
         ? (() => {
             const d = getDebt(body.targetId);
             if (d === null || d.matchAmounts.length === 0) return undefined;
-            return d.matchAmounts.reduce((a, b) => a + b, 0);
+            return d.matchAmounts[0] ?? 0;
           })()
         : undefined;
 
@@ -269,7 +269,7 @@ router.post('/plans/:id/activate-suggested', (req: Request, res: Response) => {
     const baselineMonthlyTowardTarget =
       debt.matchAmounts.length === 0
         ? undefined
-        : debt.matchAmounts.reduce((a, b) => a + b, 0);
+        : debt.matchAmounts[0] ?? 0;
 
     const targetAmountForGoal = (() => {
       if (choice !== 'after_lump' || suggested.target_id === null) {
