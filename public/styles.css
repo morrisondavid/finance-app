@@ -51,6 +51,66 @@ body {
   margin-top: 5px;
 }
 
+/* Strategy tab — prominent holistic runway (GET /api/runway) */
+.strategy-runway-hero {
+  margin: 0 0 22px 0;
+  padding: 18px 20px 20px;
+  border-radius: 12px;
+  background: linear-gradient(145deg, var(--color-surface-elevated, #f1f5f9) 0%, var(--color-surface, #fff) 55%);
+  border: 1px solid var(--color-border, #e5e7eb);
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.07);
+}
+
+.strategy-runway-hero-label {
+  margin: 0 0 6px 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-text-muted, #64748b);
+}
+
+.strategy-runway-hero-date {
+  margin: 0 0 8px 0;
+  font-size: 1.85rem;
+  font-weight: 800;
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+  color: var(--color-text, #0f172a);
+}
+
+.strategy-runway-hero-date--ok {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #15803d;
+}
+
+.strategy-runway-hero-sub {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--color-text-muted, #475569);
+  line-height: 1.45;
+}
+
+.strategy-runway-hero-expenses {
+  margin: 14px 0 0 0;
+  padding-top: 12px;
+  border-top: 1px dashed var(--color-border, #e2e8f0);
+  font-size: 0.9rem;
+  color: var(--color-text-muted, #64748b);
+  line-height: 1.4;
+}
+
+.strategy-runway-hero--error {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #7f1d1d;
+}
+
+.strategy-runway-hero--error p {
+  margin: 0;
+}
+
 /* Tabs */
 .tabs {
   display: flex;
@@ -6205,7 +6265,88 @@ body {
   pointer-events: none;
 }
 
-/* §1.9 Sandbox before/after table */
+/* §1.9 Sandbox income toggles + scenario holistic stress line */
+.modal-overlay .modal.debt-strategy-sandbox-panel {
+  max-width: 520px;
+}
+
+#debt-strategy-sandbox-modal.modal-overlay .modal-body {
+  padding: 18px 22px 20px;
+}
+
+#debt-strategy-sandbox-modal.modal-overlay .modal-footer {
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  flex-shrink: 0;
+}
+
+/* Checkbox rows are <label>s — undo generic modal label column layout */
+#debt-strategy-sandbox-modal.modal-overlay .modal-body label.sandbox-toggle-row {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+  font-weight: 400;
+}
+
+.debt-strategy-sandbox-intro {
+  margin: 0 0 12px 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--color-text);
+}
+
+.debt-strategy-sandbox-subhead {
+  margin: 0 0 8px 0;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted, #6b7280);
+}
+
+.debt-strategy-sandbox-toggles-wrap {
+  margin-bottom: 14px;
+}
+
+.debt-strategy-sandbox-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.sandbox-toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.sandbox-toggle-row input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.sandbox-toggle-label {
+  flex: 1;
+  line-height: 1.35;
+}
+
+.debt-strategy-sandbox-empty {
+  margin: 8px 0;
+  font-size: 0.9rem;
+  color: var(--color-text-muted, #6b7280);
+}
+
+.debt-strategy-sandbox-contracts-empty {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--color-text-muted, #6b7280);
+}
+
 .debt-strategy-sandbox-result {
   margin-top: 16px;
   padding-top: 16px;
@@ -6220,36 +6361,51 @@ body {
   color: var(--color-text-muted, #6b7280);
 }
 
-.debt-strategy-sandbox-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
+.debt-strategy-sandbox-scenario-out {
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--color-text);
 }
 
-.debt-strategy-sandbox-table th,
-.debt-strategy-sandbox-table td {
-  padding: 8px 10px;
-  text-align: left;
-  border-bottom: 1px solid var(--color-border, #e5e7eb);
+.debt-strategy-sandbox-scenario-line {
+  margin: 0;
 }
 
-.debt-strategy-sandbox-table th.numeric,
-.debt-strategy-sandbox-table td.numeric {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.debt-strategy-sandbox-scenario-kicker {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted, #64748b);
 }
 
-.debt-strategy-sandbox-table tbody tr:last-child td {
-  border-bottom: none;
+.debt-strategy-sandbox-scenario-date-row {
+  margin-bottom: 4px;
 }
 
-.debt-strategy-sandbox-table .delta-negative {
-  color: #b91c1c;
-  font-weight: 600;
+.debt-strategy-sandbox-scenario-date {
+  margin: 0 0 8px 0;
+  font-size: 1.65rem;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--color-text, #0f172a);
 }
 
-.debt-strategy-sandbox-table .delta-zero {
-  color: var(--color-text-muted, #6b7280);
+.debt-strategy-sandbox-scenario-date--ok {
+  display: block;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #15803d;
+  margin-bottom: 8px;
+}
+
+.debt-strategy-sandbox-scenario-detail {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--color-text-muted, #475569);
+  line-height: 1.45;
 }
 
 .visually-hidden {

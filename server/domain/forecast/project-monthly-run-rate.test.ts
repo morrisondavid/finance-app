@@ -28,6 +28,7 @@ vi.mock('./load-inputs.js', () => ({
 
 import {
   projectMonthlyRunRate,
+  recurringIncomeStableKey,
   DEFAULT_RUN_RATE_WINDOW_DAYS,
 } from './project-monthly-run-rate.js';
 import { bucketKey } from './project-income.js';
@@ -98,6 +99,7 @@ function makeContract(over: Partial<Contract> & Pick<Contract, 'id'>): Contract 
     issuing_entity_id: over.issuing_entity_id ?? 'autonize-it-ltd',
     master_id: null,
     reference: over.reference ?? `REF-${over.id}`,
+    placement_ref: over.placement_ref ?? null,
     start_date: over.start_date ?? '2026-01-01',
     end_date: over.end_date ?? null,
     works_monday: over.works_monday ?? true,
@@ -148,6 +150,9 @@ function makeRecurringIncome(over: Partial<RecurringExpense> & {
     billingMonth: null,
     nativeAmount: over.nativeAmount,
     nativeCurrency: over.nativeCurrency,
+    ...(over.declaredObligationId !== undefined
+      ? { declaredObligationId: over.declaredObligationId }
+      : {}),
   };
 }
 
@@ -259,6 +264,66 @@ describe('projectMonthlyRunRate — recurring income', () => {
     expect(bucket?.recurringIncome).toBe(2500);
     expect(bucket?.contractAccrual).toBe(0);
     expect(bucket?.total).toBe(2500);
+  });
+
+  it('excludedContractIds skips accrual but still lists contract in sandboxIncomeSources', () => {
+    const contract = makeContract({ id: 'dc-2026', day_rate: 600 });
+    loadForecastInputsMock.mockReturnValue(preLoaded({ contracts: [contract] }));
+
+    const gated = projectMonthlyRunRate({
+      today: '2026-04-27',
+      excludedContractIds: ['dc-2026'],
+    });
+    expect(gated.byBucket.size).toBe(0);
+    expect(gated.sandboxIncomeSources.contracts).toHaveLength(1);
+    expect(gated.sandboxIncomeSources.contracts[0]).toMatchObject({
+      contractId: 'dc-2026',
+      bucketKey: bucketKey('GBP', 'autonize-it-ltd'),
+    });
+    expect(gated.sandboxIncomeSources.contracts[0].monthlyAccrual).toBeGreaterThan(0);
+  });
+
+  it('excludedRecurringIncomeKeys skips recurring but keeps it in sandboxIncomeSources', () => {
+    const rental = makeRecurringIncome({
+      merchant: 'Heath Park tenant',
+      amount: 2500,
+      sourceAccount: 'natwest',
+    });
+    loadForecastInputsMock.mockReturnValue(
+      preLoaded({ pipeline: emptyPipeline([rental]) }),
+    );
+
+    const key = recurringIncomeStableKey(rental);
+
+    const gated = projectMonthlyRunRate({
+      today: '2026-04-27',
+      excludedRecurringIncomeKeys: [key],
+    });
+    expect(gated.byBucket.size).toBe(0);
+    expect(gated.sandboxIncomeSources.recurring).toHaveLength(1);
+    expect(gated.sandboxIncomeSources.recurring[0].key).toBe(key);
+    expect(gated.sandboxIncomeSources.recurring[0].monthlyAmount).toBe(2500);
+  });
+
+  it('declared recurring uses declared:* key and exclusion matches', () => {
+    const row = makeRecurringIncome({
+      merchant: 'Rent',
+      amount: 100,
+      sourceAccount: 'natwest',
+      declaredObligationId: 'obl-income-1',
+    });
+    loadForecastInputsMock.mockReturnValue(
+      preLoaded({ pipeline: emptyPipeline([row]) }),
+    );
+
+    const full = projectMonthlyRunRate({ today: '2026-04-27' });
+    expect(full.sandboxIncomeSources.recurring[0].key).toBe('declared:obl-income-1');
+
+    const gated = projectMonthlyRunRate({
+      today: '2026-04-27',
+      excludedRecurringIncomeKeys: ['declared:obl-income-1'],
+    });
+    expect(gated.byBucket.size).toBe(0);
   });
 
   it('contract + recurring on the same bucket sum together', () => {

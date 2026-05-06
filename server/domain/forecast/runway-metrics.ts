@@ -3,6 +3,7 @@
  */
 
 import type { CurrencyCode } from '../../../shared/api-contracts.js';
+import { convertAmountSync } from '../../config/exchange-rates.js';
 import type { ForecastAccountSeries, ForecastDailyPoint } from './build-forecast.js';
 
 function round2(n: number): number {
@@ -27,6 +28,34 @@ export function mergeAccountSeriesByCurrency(
   return [...byDate.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, balance]) => ({ date, balance: round2(balance) }));
+}
+
+/**
+ * Single GBP-denominated household cash path: sums GBP accounts plus AED
+ * accounts converted with {@link convertAmountSync} (static rate table).
+ */
+export function mergeHolisticCashPathToGbp(
+  accounts: readonly ForecastAccountSeries[],
+): ForecastDailyPoint[] {
+  const gbp = mergeAccountSeriesByCurrency(accounts, 'GBP');
+  const aed = mergeAccountSeriesByCurrency(accounts, 'AED');
+  if (gbp.length === 0 && aed.length === 0) {
+    return [];
+  }
+  const dateSet = new Set<string>();
+  for (const p of gbp) dateSet.add(p.date);
+  for (const p of aed) dateSet.add(p.date);
+  const dates = [...dateSet].sort((a, b) => a.localeCompare(b));
+  const gbpByDate = new Map(gbp.map(p => [p.date, p.balance]));
+  const aedByDate = new Map(aed.map(p => [p.date, p.balance]));
+  let lastG = 0;
+  let lastA = 0;
+  return dates.map(date => {
+    if (gbpByDate.has(date)) lastG = gbpByDate.get(date) ?? lastG;
+    if (aedByDate.has(date)) lastA = aedByDate.get(date) ?? lastA;
+    const combined = round2(lastG + convertAmountSync(lastA, 'AED', 'GBP'));
+    return { date, balance: combined };
+  });
 }
 
 /** First calendar date where balance is strictly negative (cash stress). */

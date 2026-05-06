@@ -54,6 +54,7 @@ router.get('/', (req: Request, res: Response) => {
       today: assembled.today,
       horizonDays: assembled.horizonDays,
       household: assembled.household,
+      holisticGbp: assembled.holisticGbp,
       insight: sheet.insight,
       insightNote: scopeNote,
       stress: {

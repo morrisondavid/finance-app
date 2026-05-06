@@ -33,6 +33,12 @@ function makeAssembled(over: {
     today: '2026-01-01',
     horizonDays: 720,
     household: over.household ?? {},
+    holisticGbp: {
+      firstStressDateFullRecurring: null,
+      runwayMonthsFullRecurring: null,
+      firstStressDateMandatoryRecurring: null,
+      runwayMonthsMandatoryRecurring: null,
+    },
     fullRecurring: {
       result,
       mergedByCurrency: over.fullMerged ?? new Map(),

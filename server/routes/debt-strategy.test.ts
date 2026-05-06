@@ -26,6 +26,17 @@ const persistPlanMock = vi.fn();
 const persistMovementMock = vi.fn();
 const deletePlanMock = vi.fn();
 
+const { assembleRunwayScenarioMock } = vi.hoisted(() => ({
+  assembleRunwayScenarioMock: vi.fn(() => ({
+    firstStressDate: null as string | null,
+    runwayMonths: null as number | null,
+  })),
+}));
+
+vi.mock('../domain/forecast/assemble-runway.js', () => ({
+  assembleRunwayScenario: assembleRunwayScenarioMock,
+}));
+
 vi.mock('../domain/debt-strategy/assemble.js', () => ({
   assembleDebtStrategy: () => assembleMock(),
 }));
@@ -124,6 +135,7 @@ function emptyBundle(): AssembledDebtStrategy {
       targetCurrency: 'GBP',
     }),
     debtStrategyContext,
+    sandboxIncomeSources: { contracts: [], recurring: [] },
   };
 }
 
@@ -178,6 +190,11 @@ afterAll(async () => {
 
 beforeEach(() => {
   assembleMock.mockReset();
+  assembleRunwayScenarioMock.mockReset();
+  assembleRunwayScenarioMock.mockReturnValue({
+    firstStressDate: null,
+    runwayMonths: null,
+  });
   persistPlanMock.mockReset();
   persistMovementMock.mockReset();
   deletePlanMock.mockReset();
@@ -349,14 +366,60 @@ describe('DELETE /api/debt-strategy/plans/:id', () => {
 });
 
 describe('POST /api/debt-strategy/sandbox', () => {
-  it('accepts incomeMultiplier 0 (lose-all-contracts scenario)', async () => {
+  it('accepts exclusion lists and calls assemble twice', async () => {
     assembleMock.mockReturnValue(emptyBundle());
     const res = await fetch(`${baseUrl}/api/debt-strategy/sandbox`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ scenario: { incomeMultiplier: 0 } }),
+      body: JSON.stringify({
+        scenario: {
+          excludedContractIds: ['c1'],
+          excludedRecurringIncomeKeys: ['declared:x'],
+        },
+      }),
     });
     expect(res.status).toBe(200);
+    expect(assembleMock).toHaveBeenCalledTimes(2);
+    expect(assembleRunwayScenarioMock).toHaveBeenCalledWith({
+      excludedContractIds: ['c1'],
+      excludedRecurringIncomeKeys: ['declared:x'],
+    });
+  });
+
+  it('omits second assemble when scenario has no exclusions', async () => {
+    assembleMock.mockReturnValue(emptyBundle());
+    const res = await fetch(`${baseUrl}/api/debt-strategy/sandbox`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scenario: {} }),
+    });
+    expect(res.status).toBe(200);
+    expect(assembleMock).toHaveBeenCalledTimes(1);
+    expect(assembleRunwayScenarioMock).toHaveBeenCalledWith({
+      excludedContractIds: [],
+      excludedRecurringIncomeKeys: [],
+    });
+  });
+
+  it('returns scenarioHolisticGbpRunway from assembleRunwayScenario', async () => {
+    assembleMock.mockReturnValue(emptyBundle());
+    assembleRunwayScenarioMock.mockReturnValue({
+      firstStressDate: '2026-09-01',
+      runwayMonths: 4.25,
+    });
+    const res = await fetch(`${baseUrl}/api/debt-strategy/sandbox`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        scenario: { excludedContractIds: ['any'], excludedRecurringIncomeKeys: [] },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as {
+      scenarioHolisticGbpRunway: { firstStressDate: string; runwayMonths: number };
+    };
+    expect(body.scenarioHolisticGbpRunway.firstStressDate).toBe('2026-09-01');
+    expect(body.scenarioHolisticGbpRunway.runwayMonths).toBe(4.25);
   });
 
   it('returns a bundle matching the sandbox response shape', async () => {
@@ -364,7 +427,9 @@ describe('POST /api/debt-strategy/sandbox', () => {
     const res = await fetch(`${baseUrl}/api/debt-strategy/sandbox`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ scenario: { incomeMultiplier: 0.5 } }),
+      body: JSON.stringify({
+        scenario: { excludedContractIds: ['any'], excludedRecurringIncomeKeys: [] },
+      }),
     });
     expect(res.status).toBe(200);
     const body = await res.json() as { activePlans: Plan[]; suggestedPlans: SuggestedPlan[] };

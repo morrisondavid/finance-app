@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   mergeAccountSeriesByCurrency,
+  mergeHolisticCashPathToGbp,
   firstNegativeBalanceDate,
   runwayMonthsToDate,
 } from './runway-metrics.js';
@@ -54,6 +55,53 @@ describe('mergeAccountSeriesByCurrency', () => {
     expect(mergeAccountSeriesByCurrency(accounts, 'AED')).toEqual([
       { date: '2026-01-01', balance: 5_000 },
     ]);
+  });
+});
+
+describe('mergeHolisticCashPathToGbp', () => {
+  it('sums GBP balance plus AED converted to GBP per day (static 0.21 rate)', () => {
+    const accounts: ForecastAccountSeries[] = [
+      {
+        account: 'natwest',
+        currency: 'GBP',
+        entityId: null,
+        daily: [{ date: '2026-01-01', balance: 100 }],
+      },
+      {
+        account: 'emirates-islamic',
+        currency: 'AED',
+        entityId: 'autonize-it-fzco',
+        daily: [{ date: '2026-01-01', balance: 1_000 }],
+      },
+    ];
+    expect(mergeHolisticCashPathToGbp(accounts)).toEqual([
+      { date: '2026-01-01', balance: 310 },
+    ]);
+  });
+
+  it('carries last known balance per currency when only one leg has a new point', () => {
+    const accounts: ForecastAccountSeries[] = [
+      {
+        account: 'natwest',
+        currency: 'GBP',
+        entityId: null,
+        daily: [
+          { date: '2026-01-01', balance: 100 },
+          { date: '2026-01-02', balance: 90 },
+        ],
+      },
+      {
+        account: 'emirates-islamic',
+        currency: 'AED',
+        entityId: 'autonize-it-fzco',
+        daily: [{ date: '2026-01-01', balance: 1_000 }],
+      },
+    ];
+    const m = mergeHolisticCashPathToGbp(accounts);
+    expect(m[1]).toEqual({
+      date: '2026-01-02',
+      balance: 90 + 1_000 * 0.21,
+    });
   });
 });
 

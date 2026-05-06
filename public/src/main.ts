@@ -100,7 +100,7 @@ function initializeTabNavigation(): void {
  */
 async function initializeApp(): Promise<void> {
   await loadAccountConfig();
-  
+
   // Initialize tab navigation
   initializeTabNavigation();
   

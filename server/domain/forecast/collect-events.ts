@@ -142,6 +142,45 @@ export function collectRecurringEvents(
   return events;
 }
 
+/** Monthly / annual **income** inflows (positive amounts), same schedule shape as expenses. */
+export function collectIncomeRecurringEvents(
+  input: CollectRecurringEventsInput,
+): ForecastEvent[] {
+  const { monthlyRecurring, annualRecurring, today, horizon, currencyByAccount } = input;
+  const events: ForecastEvent[] = [];
+
+  for (const item of monthlyRecurring) {
+    let nextDate = item.nextExpectedDate;
+    if (!nextDate || nextDate < today) continue;
+    while (nextDate <= horizon) {
+      events.push({
+        date: nextDate,
+        amount: Math.abs(item.amount),
+        account: item.sourceAccount as AccountName,
+        currency: accountCurrency(item.sourceAccount as AccountName, currencyByAccount),
+        source: 'recurring',
+        label: item.merchant,
+      });
+      nextDate = advanceMonth(nextDate, 1);
+    }
+  }
+
+  for (const item of annualRecurring) {
+    if (!item.nextExpectedDate || item.nextExpectedDate > horizon) continue;
+    if (item.nextExpectedDate < today) continue;
+    events.push({
+      date: item.nextExpectedDate,
+      amount: Math.abs(item.amount),
+      account: item.sourceAccount as AccountName,
+      currency: accountCurrency(item.sourceAccount as AccountName, currencyByAccount),
+      source: 'recurring',
+      label: item.merchant,
+    });
+  }
+
+  return events;
+}
+
 // ─── 3. Invoice receipts ─────────────────────────────────────────────────────
 
 export interface CollectInvoiceReceiptEventsInput {
@@ -241,6 +280,7 @@ export function collectAccrualEvents(
       currency: accountCurrency(account, currencyByAccount),
       source: 'accrual',
       label: `Accrual ${contract.id}`,
+      contractId: contract.id,
     });
   }
 

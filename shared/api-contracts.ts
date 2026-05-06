@@ -1308,6 +1308,13 @@ export const RunwayHouseholdCurrencySchema = z.object({
   totalAvailableCredit: z.number(),
 });
 
+export const RunwayHolisticGbpSchema = z.object({
+  firstStressDateFullRecurring: z.string().nullable(),
+  runwayMonthsFullRecurring: z.number().nullable(),
+  firstStressDateMandatoryRecurring: z.string().nullable(),
+  runwayMonthsMandatoryRecurring: z.number().nullable(),
+});
+
 export const RunwayHouseholdSchema = z.object({
   GBP: RunwayHouseholdCurrencySchema.optional(),
   AED: RunwayHouseholdCurrencySchema.optional(),
@@ -1322,6 +1329,8 @@ export const RunwayResponseSchema = z.object({
   today: IsoDateSchema,
   horizonDays: z.number().int().positive(),
   household: RunwayHouseholdSchema,
+  /** Merged GBP cash path (AED converted); primary “one date” runway. */
+  holisticGbp: RunwayHolisticGbpSchema,
   insight: ExpensesInsightSchema,
   /** Explains scope/limitations of `insight` (e.g. rolling window, GBP-centric personal split). */
   insightNote: z.string(),

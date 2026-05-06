@@ -157,6 +157,45 @@ interface CrossScopeTransferPreview {
   reason_codes: readonly string[];
 }
 
+interface SandboxIncomeContractRow {
+  contractId: string;
+  label: string;
+  bucketKey: string;
+  monthlyAccrual: number;
+}
+
+interface SandboxIncomeRecurringRow {
+  key: string;
+  label: string;
+  bucketKey: string;
+  monthlyAmount: number;
+  declaredObligationId: string | null;
+}
+
+interface SandboxIncomeSourcesPayload {
+  contracts: SandboxIncomeContractRow[];
+  recurring: SandboxIncomeRecurringRow[];
+}
+
+/** GET /api/runway → fixed-expenses insight (monthly total). */
+interface RunwayInsightLite {
+  totalFixedMonthlyExpenses: number;
+}
+
+/** GET /api/runway → `holisticGbp` (Strategy tab only). */
+interface RunwayHolisticGbpPayload {
+  firstStressDateFullRecurring: string | null;
+  runwayMonthsFullRecurring: number | null;
+  firstStressDateMandatoryRecurring: string | null;
+  runwayMonthsMandatoryRecurring: number | null;
+}
+
+/** POST /api/debt-strategy/sandbox → `scenarioHolisticGbpRunway`. */
+interface ScenarioHolisticGbpRunwayPayload {
+  firstStressDate: string | null;
+  runwayMonths: number | null;
+}
+
 interface DebtStrategyStateResponse {
   today: string;
   headroomByBucket: BucketHeadroomLite[];
@@ -169,6 +208,7 @@ interface DebtStrategyStateResponse {
   refinanceRecommendations: RefinanceRecommendationRow[];
   creditCardPaydownHints: CreditCardPaydownHintRow[];
   crossScopeTransferPreview: CrossScopeTransferPreview;
+  sandboxIncomeSources?: SandboxIncomeSourcesPayload;
 }
 
 interface DebtStrategyTabState {
@@ -179,15 +219,30 @@ const tabState: DebtStrategyTabState = {
   data: null,
 };
 
+let strategyHolisticRunway: RunwayHolisticGbpPayload | null = null;
+let strategyRunwayHorizonDays = 720;
+let strategyRunwayInsight: RunwayInsightLite | null = null;
+
 async function fetchState(): Promise<void> {
-  const res = await fetch('/api/debt-strategy/state');
+  const [res, runwayRes] = await Promise.all([
+    fetch('/api/debt-strategy/state'),
+    fetch('/api/runway'),
+  ]);
   if (!res.ok) throw new Error(`Failed to load debt strategy state: ${res.status}`);
   tabState.data = (await res.json()) as DebtStrategyStateResponse;
-}
-
-function bucketLabel(b: BucketHeadroomLite): string {
-  const scopeLabel = b.scope === 'household' ? 'Household' : b.scope;
-  return `${scopeLabel} (${b.currency})`;
+  if (runwayRes.ok) {
+    const rw = (await runwayRes.json()) as {
+      holisticGbp: RunwayHolisticGbpPayload;
+      horizonDays: number;
+      insight: RunwayInsightLite;
+    };
+    strategyHolisticRunway = rw.holisticGbp;
+    strategyRunwayHorizonDays = rw.horizonDays;
+    strategyRunwayInsight = rw.insight;
+  } else {
+    strategyHolisticRunway = null;
+    strategyRunwayInsight = null;
+  }
 }
 
 function intensityShortLabel(i: PlanIntensity): string {
@@ -207,6 +262,41 @@ function formatApproxMonths(n: number | null): string {
   if (n === null) return '—';
   if (n <= 0) return '0';
   return String(n);
+}
+
+function renderHolisticRunwayLine(): string {
+  if (strategyHolisticRunway === null) {
+    return `<div class="strategy-runway-hero strategy-runway-hero--error" role="status"><p>Could not load consolidated cash runway.</p></div>`;
+  }
+  const h = strategyHolisticRunway;
+  const mand = h.firstStressDateMandatoryRecurring;
+  const mandNote =
+    mand === null
+      ? 'Bills-only path: no stress in this horizon.'
+      : `Bills-only path: around ${formatIsoDateUkLong(mand)}.`;
+  const expTotal = strategyRunwayInsight?.totalFixedMonthlyExpenses;
+  const expLine =
+    typeof expTotal === 'number'
+      ? `<p class="strategy-runway-hero-expenses">Total fixed monthly expenses (detector / sheet model): <strong title="From the same insight as Fixed Expenses — recurring fixed costs in GBP.">${escapeHtml(formatCurrency(expTotal, 'GBP'))}</strong>/mo</p>`
+      : '';
+  const title = `${mandNote} GBP + AED merged at static FX; forecast spans about ${strategyRunwayHorizonDays} days.`;
+  const stress = h.firstStressDateFullRecurring;
+  if (stress === null) {
+    return `<div class="strategy-runway-hero" role="status" title="${escapeAttribute(title)}">
+    <p class="strategy-runway-hero-label">Consolidated cash runway</p>
+    <p class="strategy-runway-hero-date strategy-runway-hero-date--ok">No stress in window</p>
+    <p class="strategy-runway-hero-sub">Cash stays positive within this forecast (~${strategyRunwayHorizonDays} days on today's path).</p>
+    ${expLine}
+    </div>`;
+  }
+  const months = h.runwayMonthsFullRecurring;
+  const mo = months === null ? '—' : String(months);
+  return `<div class="strategy-runway-hero" role="status" title="${escapeAttribute(title)}">
+    <p class="strategy-runway-hero-label">Cash runs out (holistic GBP)</p>
+    <p class="strategy-runway-hero-date">${escapeHtml(formatIsoDateUkLong(stress))}</p>
+    <p class="strategy-runway-hero-sub">About <strong>${escapeHtml(mo)}</strong> months on today's path · AED merged at static rates</p>
+    ${expLine}
+    </div>`;
 }
 
 function renderEl5Strip(state: DebtStrategyStateResponse): string {
@@ -391,9 +481,11 @@ function render(state: DebtStrategyStateResponse): string {
           type="button"
           class="btn btn-sm"
           id="debt-strategy-sandbox-btn"
-          title="See how your headroom holds up under common shocks (lose a contract, drop to 4-day weeks, etc.)"
-        >Stress test scenarios</button>
+          title="Exclude contract accrual or recurring income and re-run the holistic GBP cash forecast"
+        >Income scenario</button>
       </header>
+
+      ${renderHolisticRunwayLine()}
 
       ${renderEl5Strip(state)}
 
@@ -471,76 +563,128 @@ async function acknowledgeMovement(planId: string, movementId: string): Promise<
   await fetchAndRender();
 }
 
-// ── Stress-test scenarios modal ─────────────────────────────────
-
 const SANDBOX_MODAL_ID = 'debt-strategy-sandbox-modal';
 let sandboxModalWired = false;
+let sandboxRecalcTimer: number | undefined;
+let sandboxScenarioRequestGen = 0;
 
-function readScenarioMultiplier(): number | null {
-  const radios = document.querySelectorAll<HTMLInputElement>(
-    '#debt-strategy-sandbox-modal input[name="scenario"]',
-  );
-  let selectedValue: string | null = null;
-  for (const r of radios) {
-    if (r.checked) {
-      selectedValue = r.value;
-      break;
-    }
-  }
-  if (selectedValue === null) return null;
-  if (selectedValue === 'custom') {
-    const slider = document.getElementById('sandbox-custom-slider');
-    if (!(slider instanceof HTMLInputElement)) return null;
-    const pct = Number(slider.value);
-    if (!Number.isFinite(pct) || pct < 0 || pct > 100) return null;
-    return pct / 100;
-  }
-  const num = Number(selectedValue);
-  return Number.isFinite(num) ? num : null;
+function bucketKeyCurrency(bucketKeyStr: string): CurrencyCode {
+  const cur = bucketKeyStr.split('::')[0];
+  return cur === 'AED' ? 'AED' : 'GBP';
 }
 
-function renderSandboxResult(before: BucketHeadroomLite[], after: BucketHeadroomLite[]): void {
-  const tbody = document.getElementById('debt-strategy-sandbox-tbody');
-  const result = document.getElementById('debt-strategy-sandbox-result');
-  if (!tbody || !result) return;
-  const afterByKey = new Map(after.map(b => [b.key, b]));
-  const rows = before
-    .map(b => {
-      const a = afterByKey.get(b.key);
-      const cur = asCurrency(b.currency);
-      const beforeAvail = b.availableHeadroom;
-      const afterAvail = a?.availableHeadroom ?? 0;
-      const delta = afterAvail - beforeAvail;
-      const deltaClass = delta < 0 ? 'delta-negative' : delta === 0 ? 'delta-zero' : '';
-      const sign = delta > 0 ? '+' : '';
-      return `
-      <tr>
-        <td>${escapeHtml(bucketLabel(b))}</td>
-        <td class="numeric">${escapeHtml(formatCurrency(beforeAvail, cur))}</td>
-        <td class="numeric">${escapeHtml(formatCurrency(afterAvail, cur))}</td>
-        <td class="numeric ${deltaClass}">${sign}${escapeHtml(formatCurrency(delta, cur))}</td>
-      </tr>`;
+function shortBucketLabelFromKey(bucketKeyStr: string): string {
+  const parts = bucketKeyStr.split('::');
+  const cur = parts[0] ?? '';
+  const scope = parts[1] ?? '';
+  const scopeLabel = scope === 'household' ? 'Household' : scope;
+  return `${scopeLabel} (${cur})`;
+}
+
+function renderSandboxIncomeToggles(state: DebtStrategyStateResponse): void {
+  const contractsEl = document.getElementById('debt-strategy-sandbox-contracts');
+  const recurringEl = document.getElementById('debt-strategy-sandbox-recurring');
+  const emptyEl = document.getElementById('debt-strategy-sandbox-empty');
+  const wrapC = document.getElementById('debt-strategy-sandbox-contracts-wrap');
+  const wrapR = document.getElementById('debt-strategy-sandbox-recurring-wrap');
+  if (
+    contractsEl === null ||
+    recurringEl === null ||
+    emptyEl === null ||
+    wrapC === null ||
+    wrapR === null
+  ) {
+    return;
+  }
+
+  const src = state.sandboxIncomeSources ?? { contracts: [], recurring: [] };
+  const hasC = src.contracts.length > 0;
+  const hasR = src.recurring.length > 0;
+  emptyEl.hidden = hasC || hasR;
+  wrapC.hidden = false;
+
+  contractsEl.innerHTML = hasC
+    ? src.contracts
+        .map(c => {
+          const cur = bucketKeyCurrency(c.bucketKey);
+          return `<label class="sandbox-toggle-row">
+        <input type="checkbox" checked data-sandbox-contract="${escapeAttribute(c.contractId)}" />
+        <span class="sandbox-toggle-label">${escapeHtml(c.label)} — ${escapeHtml(formatCurrency(c.monthlyAccrual, cur))}/mo · ${escapeHtml(shortBucketLabelFromKey(c.bucketKey))}</span>
+      </label>`;
+        })
+        .join('')
+    : `<p class="debt-strategy-sandbox-contracts-empty">No contract accrual lines in the monthly run-rate window — the scenario forecast still includes contract income unless you exclude it when it appears here.</p>`;
+
+  wrapR.hidden = !hasR;
+
+  recurringEl.innerHTML = src.recurring
+    .map(r => {
+      const cur = bucketKeyCurrency(r.bucketKey);
+      return `<label class="sandbox-toggle-row">
+        <input type="checkbox" checked data-sandbox-recurring="${escapeAttribute(r.key)}" />
+        <span class="sandbox-toggle-label">${escapeHtml(r.label)} — ${escapeHtml(formatCurrency(r.monthlyAmount, cur))}/mo · ${escapeHtml(shortBucketLabelFromKey(r.bucketKey))}</span>
+      </label>`;
     })
     .join('');
-  tbody.innerHTML = rows;
+}
+
+function readSandboxExclusions(): {
+  excludedContractIds: string[];
+  excludedRecurringIncomeKeys: string[];
+} {
+  const modal = document.getElementById('debt-strategy-sandbox-modal');
+  const excludedContractIds: string[] = [];
+  const excludedRecurringIncomeKeys: string[] = [];
+  if (modal === null) {
+    return { excludedContractIds, excludedRecurringIncomeKeys };
+  }
+  for (const el of modal.querySelectorAll<HTMLInputElement>('input[data-sandbox-contract]')) {
+    if (!el.checked && el.dataset.sandboxContract !== undefined) {
+      excludedContractIds.push(el.dataset.sandboxContract);
+    }
+  }
+  for (const el of modal.querySelectorAll<HTMLInputElement>('input[data-sandbox-recurring]')) {
+    if (!el.checked && el.dataset.sandboxRecurring !== undefined) {
+      excludedRecurringIncomeKeys.push(el.dataset.sandboxRecurring);
+    }
+  }
+  return { excludedContractIds, excludedRecurringIncomeKeys };
+}
+
+function renderSandboxScenarioRunway(scenario: ScenarioHolisticGbpRunwayPayload): void {
+  const result = document.getElementById('debt-strategy-sandbox-result');
+  const out = document.getElementById('debt-strategy-sandbox-scenario-out');
+  if (result === null || out === null) return;
+  const title =
+    'Holistic GBP cash path with exclusions (AED converted at static rates). Same horizon as the main runway API.';
+  if (scenario.firstStressDate === null) {
+    out.innerHTML = `<div class="debt-strategy-sandbox-scenario-line" title="${escapeAttribute(title)}"><span class="debt-strategy-sandbox-scenario-date debt-strategy-sandbox-scenario-date--ok">No stress in window</span><p class="debt-strategy-sandbox-scenario-detail">Consolidated cash stays positive for this scenario within the forecast.</p></div>`;
+  } else {
+    const mo = scenario.runwayMonths === null ? '—' : String(scenario.runwayMonths);
+    out.innerHTML = `<div class="debt-strategy-sandbox-scenario-line" title="${escapeAttribute(title)}">
+    <div class="debt-strategy-sandbox-scenario-date-row"><span class="debt-strategy-sandbox-scenario-kicker">Cash runs out</span></div>
+    <p class="debt-strategy-sandbox-scenario-date">${escapeHtml(formatIsoDateUkLong(scenario.firstStressDate))}</p>
+    <p class="debt-strategy-sandbox-scenario-detail">About <strong>${escapeHtml(mo)}</strong> months from today at this income path.</p>
+    </div>`;
+  }
   result.hidden = false;
 }
 
 async function runSandboxScenario(): Promise<void> {
-  const mult = readScenarioMultiplier();
-  if (mult === null) {
-    window.alert('Pick a scenario first.');
-    return;
-  }
   if (tabState.data === null) {
     window.alert('Strategy data not loaded yet — try again.');
     return;
   }
+  const reqId = ++sandboxScenarioRequestGen;
+  const { excludedContractIds, excludedRecurringIncomeKeys } = readSandboxExclusions();
   const res = await fetch('/api/debt-strategy/sandbox', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ scenario: { incomeMultiplier: mult } }),
+    body: JSON.stringify({
+      scenario: { excludedContractIds, excludedRecurringIncomeKeys },
+    }),
   });
+  if (reqId !== sandboxScenarioRequestGen) return;
   if (!res.ok) {
     let detail = res.statusText || `HTTP ${res.status}`;
     try {
@@ -553,19 +697,24 @@ async function runSandboxScenario(): Promise<void> {
     } catch {
       /* ignore */
     }
-    window.alert(`Stress test failed: ${detail}`);
+    window.alert(`Scenario failed: ${detail}`);
     return;
   }
-  const body = (await res.json()) as DebtStrategyStateResponse;
-  renderSandboxResult(tabState.data.headroomByBucket, body.headroomByBucket);
+  const body = (await res.json()) as DebtStrategyStateResponse & {
+    scenarioHolisticGbpRunway: ScenarioHolisticGbpRunwayPayload;
+  };
+  if (reqId !== sandboxScenarioRequestGen) return;
+  renderSandboxScenarioRunway(body.scenarioHolisticGbpRunway);
 }
 
-function syncCustomPctDisplay(): void {
-  const slider = document.getElementById('sandbox-custom-slider');
-  const display = document.getElementById('sandbox-custom-pct-display');
-  if (slider instanceof HTMLInputElement && display) {
-    display.textContent = slider.value;
+function scheduleSandboxRecalc(): void {
+  if (sandboxRecalcTimer !== undefined) {
+    window.clearTimeout(sandboxRecalcTimer);
   }
+  sandboxRecalcTimer = window.setTimeout(() => {
+    sandboxRecalcTimer = undefined;
+    void runSandboxScenario();
+  }, 320);
 }
 
 function wireSandboxModal(): void {
@@ -573,21 +722,7 @@ function wireSandboxModal(): void {
   sandboxModalWired = true;
 
   const modal = document.getElementById(SANDBOX_MODAL_ID);
-  if (!modal) return;
-
-  modal.addEventListener('change', () => {
-    syncCustomPctDisplay();
-  });
-  const slider = document.getElementById('sandbox-custom-slider');
-  if (slider instanceof HTMLInputElement) {
-    slider.addEventListener('input', () => {
-      const customRadio = document.querySelector<HTMLInputElement>(
-        '#debt-strategy-sandbox-modal input[name="scenario"][value="custom"]',
-      );
-      if (customRadio !== null) customRadio.checked = true;
-      syncCustomPctDisplay();
-    });
-  }
+  if (modal === null) return;
 
   const closeBtn = document.getElementById('debt-strategy-sandbox-modal-close');
   const cancelBtn = document.getElementById('debt-strategy-sandbox-cancel');
@@ -598,6 +733,16 @@ function wireSandboxModal(): void {
     void runSandboxScenario();
   });
 
+  modal.addEventListener('change', e => {
+    const t = e.target;
+    if (
+      t instanceof HTMLInputElement &&
+      (t.hasAttribute('data-sandbox-contract') || t.hasAttribute('data-sandbox-recurring'))
+    ) {
+      scheduleSandboxRecalc();
+    }
+  });
+
   modal.addEventListener('click', e => {
     if (e.target === modal) closeModal(SANDBOX_MODAL_ID);
   });
@@ -606,13 +751,14 @@ function wireSandboxModal(): void {
 function openSandboxModal(): void {
   wireSandboxModal();
   const result = document.getElementById('debt-strategy-sandbox-result');
-  if (result) result.hidden = true;
-  const halfRadio = document.querySelector<HTMLInputElement>(
-    '#debt-strategy-sandbox-modal input[name="scenario"][value="0.5"]',
-  );
-  if (halfRadio !== null) halfRadio.checked = true;
-  syncCustomPctDisplay();
+  if (result !== null) result.hidden = true;
+  const out = document.getElementById('debt-strategy-sandbox-scenario-out');
+  if (out !== null) out.innerHTML = '';
+  if (tabState.data !== null) {
+    renderSandboxIncomeToggles(tabState.data);
+  }
   openModal(SANDBOX_MODAL_ID);
+  void runSandboxScenario();
 }
 
 function attachHandlers(container: HTMLElement): void {

@@ -23,4 +23,6 @@ export interface ForecastEvent {
   readonly currency: CurrencyCode;
   readonly source: ForecastEventSource;
   readonly label: string;
+  /** When `source === 'accrual'`, the contract that produced this inflow. */
+  readonly contractId?: string;
 }

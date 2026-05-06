@@ -23,6 +23,7 @@ import {
   type CurrencyCode,
   type EntityId,
   type RunwayHouseholdCurrency,
+  type UpcomingRecurring,
 } from '../../../shared/api-contracts.js';
 import { isMandatoryCategory } from '../../../shared/expenses-insight.js';
 import type { AccountBalance } from '../../db/repositories/balance.js';
@@ -32,12 +33,19 @@ import { sumCashAndCreditByCurrency } from '../accounts/runway-credit.js';
 import { loadForecastInputs } from './load-inputs.js';
 import {
   assembleForecastEvents,
+  upcomingRecurringStableKey,
+} from './assemble-forecast-events.js';
+import {
   buildForecast,
+  type ForecastDailyPoint,
+  type ForecastResult,
+} from './build-forecast.js';
+import {
   firstNegativeBalanceDate,
   mergeAccountSeriesByCurrency,
+  mergeHolisticCashPathToGbp,
   runwayMonthsToDate,
-} from './index.js';
-import type { ForecastDailyPoint, ForecastResult } from './build-forecast.js';
+} from './runway-metrics.js';
 import type { ForecastEvent } from './events.js';
 
 export const RUNWAY_HEADLINE_CURRENCIES: readonly CurrencyCode[] = ['GBP', 'AED'];
@@ -49,11 +57,21 @@ export interface AssembleRunwayInput {
   readonly filterEntityId?: EntityId;
 }
 
+/** Holistic household runway in GBP (AED converted via static FX table). */
+export interface RunwayHolisticGbp {
+  readonly firstStressDateFullRecurring: string | null;
+  readonly runwayMonthsFullRecurring: number | null;
+  readonly firstStressDateMandatoryRecurring: string | null;
+  readonly runwayMonthsMandatoryRecurring: number | null;
+}
+
 export interface AssembledRunway {
   readonly today: string;
   readonly horizonDays: number;
   /** Per-currency household block (same shape served by `/api/runway`). */
   readonly household: { GBP?: RunwayHouseholdCurrency; AED?: RunwayHouseholdCurrency };
+  /** Single cash-out story: merged GBP path from all household accounts. */
+  readonly holisticGbp: RunwayHolisticGbp;
   /** Full-recurring stress: forecast result + per-currency merged daily series. */
   readonly fullRecurring: {
     readonly result: ForecastResult;
@@ -162,11 +180,99 @@ export function assembleRunway(input: AssembleRunwayInput = {}): AssembledRunway
     mergedManByCurrency.set(c, mergeAccountSeriesByCurrency(forecastMan.accounts, c));
   }
 
+  const holisticFullDaily = mergeHolisticCashPathToGbp(forecastFull.accounts);
+  const holisticManDaily = mergeHolisticCashPathToGbp(forecastMan.accounts);
+  const hFull = firstNegativeBalanceDate(holisticFullDaily);
+  const hMan = firstNegativeBalanceDate(holisticManDaily);
+  const holisticGbp: RunwayHolisticGbp = {
+    firstStressDateFullRecurring: hFull,
+    runwayMonthsFullRecurring: runwayMonthsToDate(today, hFull),
+    firstStressDateMandatoryRecurring: hMan,
+    runwayMonthsMandatoryRecurring: runwayMonthsToDate(today, hMan),
+  };
+
   return {
     today,
     horizonDays,
     household,
+    holisticGbp,
     fullRecurring: { result: forecastFull, mergedByCurrency: mergedFullByCurrency },
     mandatoryRecurring: { result: forecastMan, mergedByCurrency: mergedManByCurrency },
+  };
+}
+
+export interface RunwayScenarioInput {
+  readonly horizonDays?: number;
+  readonly filterEntityId?: EntityId;
+  readonly excludedContractIds: readonly string[];
+  readonly excludedRecurringIncomeKeys: readonly string[];
+}
+
+export interface RunwayScenarioHolisticGbp {
+  readonly firstStressDate: string | null;
+  readonly runwayMonths: number | null;
+}
+
+/**
+ * What-if holistic GBP stress date: contract accrual on (unless contract id
+ * excluded); recurring rows filtered by the same stable keys as the debt
+ * sandbox; cash path merged to GBP.
+ */
+export function assembleRunwayScenario(
+  input: RunwayScenarioInput,
+): RunwayScenarioHolisticGbp {
+  const horizonDays = input.horizonDays ?? 720;
+  const forecastInputs = loadForecastInputs({
+    horizonDays,
+    filterEntityId: input.filterEntityId,
+  });
+  const { today, allowedAccountSet, startingBalances } = forecastInputs;
+
+  const excludedC = new Set(input.excludedContractIds);
+  const excludedR = new Set(input.excludedRecurringIncomeKeys);
+  const recurringPred = (item: UpcomingRecurring) =>
+    !excludedR.has(upcomingRecurringStableKey(item));
+
+  const commonAssemble = {
+    today: forecastInputs.today,
+    horizon: forecastInputs.horizon,
+    defaultAccountByType: forecastInputs.defaultAccountByType,
+    currencyByAccount: forecastInputs.currencyByAccount,
+    accountsByEntity: forecastInputs.accountsByEntity,
+    obligations: forecastInputs.obligations,
+    pipeline: forecastInputs.pipeline,
+    upcomingBuckets: forecastInputs.upcomingBuckets,
+    unpaidInvoices: forecastInputs.unpaidInvoices,
+    contracts: forecastInputs.contracts,
+    leaveRows: forecastInputs.leaveRows,
+    publicHolidayDatesByEntity: forecastInputs.publicHolidayDatesByEntity,
+    includeInvoiceReceipts: false,
+    includeAccrual: true,
+    includeDetectedIncomeRecurring: true,
+    recurringPredicate: recurringPred,
+  };
+
+  let eventsFull = assembleForecastEvents({
+    ...commonAssemble,
+  });
+  eventsFull = filterEventsToAccountSet(eventsFull, allowedAccountSet);
+  eventsFull = eventsFull.filter(
+    e =>
+      e.source !== 'accrual' ||
+      e.contractId === undefined ||
+      !excludedC.has(e.contractId),
+  );
+
+  const forecastFull = buildForecast({
+    today,
+    horizonDays,
+    startingBalances,
+    events: eventsFull,
+  });
+  const holisticDaily = mergeHolisticCashPathToGbp(forecastFull.accounts);
+  const stress = firstNegativeBalanceDate(holisticDaily);
+  return {
+    firstStressDate: stress,
+    runwayMonths: runwayMonthsToDate(today, stress),
   };
 }

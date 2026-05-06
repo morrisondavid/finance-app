@@ -1021,75 +1021,34 @@
 
       <!-- §1.9 Stress-test scenarios modal -->
       <div class="modal-overlay" id="debt-strategy-sandbox-modal" style="display:none">
-        <div class="modal">
+        <div class="modal debt-strategy-sandbox-panel">
           <div class="modal-header">
             <div>
-              <h3>Stress test scenarios</h3>
-              <p class="modal-subtitle">See how your headroom holds up under common shocks.</p>
+              <h3>Income scenario — cash stress</h3>
+              <p class="modal-subtitle">Toggle contract accrual or recurring income to see how the holistic GBP cash path moves (AED merged at static rates).</p>
             </div>
             <button type="button" class="modal-close" id="debt-strategy-sandbox-modal-close" aria-label="Close">&times;</button>
           </div>
           <form id="debt-strategy-sandbox-form" class="modal-body">
-            <fieldset class="debt-strategy-scenarios">
-              <legend class="visually-hidden">Pick a scenario</legend>
+            <p class="debt-strategy-sandbox-intro">
+              Unchecked lines are excluded from a fresh forecast run with accrual on. The outcome is one consolidated “cash runs out” date in GBP — not a bucket headroom grid.
+            </p>
 
-              <label class="scenario-card">
-                <input type="radio" name="scenario" value="0" />
-                <div class="scenario-card-body">
-                  <span class="scenario-title">Lose all contracts</span>
-                  <span class="scenario-detail">Income from contracts drops to zero. Recurring income (rental, dividends) is preserved.</span>
-                </div>
-              </label>
+            <div id="debt-strategy-sandbox-contracts-wrap" class="debt-strategy-sandbox-toggles-wrap">
+              <h4 class="debt-strategy-sandbox-subhead">Contracts (monthly accrual)</h4>
+              <div id="debt-strategy-sandbox-contracts" class="debt-strategy-sandbox-toggles" aria-label="Contract income toggles"></div>
+            </div>
 
-              <label class="scenario-card">
-                <input type="radio" name="scenario" value="0.5" checked />
-                <div class="scenario-card-body">
-                  <span class="scenario-title">Lose half my contract income</span>
-                  <span class="scenario-detail">e.g. one of two clients ends their engagement.</span>
-                </div>
-              </label>
+            <div id="debt-strategy-sandbox-recurring-wrap" class="debt-strategy-sandbox-toggles-wrap">
+              <h4 class="debt-strategy-sandbox-subhead">Recurring income (detected)</h4>
+              <div id="debt-strategy-sandbox-recurring" class="debt-strategy-sandbox-toggles" aria-label="Recurring income toggles"></div>
+            </div>
 
-              <label class="scenario-card">
-                <input type="radio" name="scenario" value="0.8" />
-                <div class="scenario-card-body">
-                  <span class="scenario-title">Drop to a 4-day work week</span>
-                  <span class="scenario-detail">Roughly 80% of normal contract income.</span>
-                </div>
-              </label>
-
-              <label class="scenario-card scenario-card--custom">
-                <input type="radio" name="scenario" value="custom" />
-                <div class="scenario-card-body">
-                  <span class="scenario-title">Custom shock</span>
-                  <span class="scenario-detail">
-                    Income at <span id="sandbox-custom-pct-display">75</span>% of current.
-                  </span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value="75"
-                    id="sandbox-custom-slider"
-                    class="scenario-slider"
-                    aria-label="Custom income percentage"
-                  />
-                </div>
-              </label>
-            </fieldset>
+            <p id="debt-strategy-sandbox-empty" class="debt-strategy-sandbox-empty" hidden>No contract or recurring income lines in the monthly run-rate — nothing to toggle.</p>
 
             <div id="debt-strategy-sandbox-result" class="debt-strategy-sandbox-result" hidden>
-              <h4>Before vs after</h4>
-              <table class="debt-strategy-sandbox-table">
-                <thead>
-                  <tr>
-                    <th>Bucket</th>
-                    <th class="numeric">Today</th>
-                    <th class="numeric">Under scenario</th>
-                    <th class="numeric">Delta</th>
-                  </tr>
-                </thead>
-                <tbody id="debt-strategy-sandbox-tbody"></tbody>
-              </table>
+              <h4>Scenario outcome</h4>
+              <div id="debt-strategy-sandbox-scenario-out" class="debt-strategy-sandbox-scenario-out"></div>
             </div>
           </form>
           <div class="modal-footer">

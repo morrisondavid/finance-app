@@ -24,6 +24,7 @@ import {
   assembleDebtStrategy,
   type AssembledDebtStrategy,
 } from '../domain/debt-strategy/assemble.js';
+import { assembleRunwayScenario } from '../domain/forecast/assemble-runway.js';
 import {
   generatePlan,
   type GeneratePlanGoal,
@@ -68,7 +69,7 @@ const CreatePlanBody = z.object({
   notes: z.string().nullable().optional(),
 });
 
-function bundleToResponse(bundle: AssembledDebtStrategy): unknown {
+function bundleToResponse(bundle: AssembledDebtStrategy): Record<string, unknown> {
   return {
     today: bundle.today,
     headroomByBucket: Array.from(bundle.headroomByBucket.entries()).map(([key, b]) => ({
@@ -107,6 +108,7 @@ function bundleToResponse(bundle: AssembledDebtStrategy): unknown {
     creditCardPaydownHints: bundle.creditCardPaydownHints,
     crossScopeTransferPreview: bundle.crossScopeTransferPreview,
     debtStrategyContext: bundle.debtStrategyContext,
+    sandboxIncomeSources: bundle.sandboxIncomeSources,
   };
 }
 
@@ -431,8 +433,8 @@ router.delete('/plans/:id', (req: Request, res: Response) => {
 
 const SandboxBody = z.object({
   scenario: z.object({
-    /** Multiplier applied to the income side of the planner (0 = none, 1 = full). */
-    incomeMultiplier: z.number().min(0).max(1).optional(),
+    excludedContractIds: z.array(z.string()).optional(),
+    excludedRecurringIncomeKeys: z.array(z.string()).optional(),
   }),
 });
 
@@ -445,19 +447,28 @@ router.post('/sandbox', (req: Request, res: Response) => {
     }
     const today = todayIsoLocal();
     const live = assembleDebtStrategy({ today });
-    const incomeOverrides = new Map<string, number>();
-    if (parsed.data.scenario.incomeMultiplier !== undefined) {
-      const mult = parsed.data.scenario.incomeMultiplier;
-      for (const [key, b] of live.headroomByBucket) {
-        // Re-derive income proxy from the headroom + mandatory + budgets:
-        // this is approximate; the orchestrator's only override hook is
-        // total income, so we apply the multiplier there.
-        const totalIncome = b.totalHeadroom + 0; // headroom approximates income−mandatory−budgets
-        incomeOverrides.set(key, totalIncome * mult);
-      }
-    }
-    const sandbox = assembleDebtStrategy({ today, incomeOverrides });
-    res.json(bundleToResponse(sandbox));
+    const sc = parsed.data.scenario;
+    const excludedContractIds = sc.excludedContractIds ?? [];
+    const excludedRecurringIncomeKeys = sc.excludedRecurringIncomeKeys ?? [];
+    const hasExclusions =
+      excludedContractIds.length > 0 || excludedRecurringIncomeKeys.length > 0;
+    const sandbox = hasExclusions
+      ? assembleDebtStrategy({
+          today,
+          incomeExclusions: {
+            excludedContractIds,
+            excludedRecurringIncomeKeys,
+          },
+        })
+      : live;
+    const scenarioHolisticGbpRunway = assembleRunwayScenario({
+      excludedContractIds,
+      excludedRecurringIncomeKeys,
+    });
+    res.json({
+      ...bundleToResponse(sandbox),
+      scenarioHolisticGbpRunway,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown';
     res.status(500).json({ error: 'sandbox-failed', message });

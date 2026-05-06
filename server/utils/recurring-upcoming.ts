@@ -141,6 +141,66 @@ export function buildUpcomingRecurring(
   return { thisMonth, thisYear };
 }
 
+/**
+ * Upcoming charge buckets for **detected income** (rental, transfers in, etc.),
+ * parallel to {@link buildUpcomingRecurring} for expenses. Scenario runway uses
+ * this so sandbox income toggles map to real forecast inflows.
+ */
+export function buildUpcomingIncomeRecurring(
+  pipeline: PipelineResult,
+  today: Date,
+): UpcomingRecurringBuckets {
+  const thisMonth: UpcomingRecurring[] = [];
+  const thisYear: UpcomingRecurring[] = [];
+
+  const in365Days = addDays(today, 365);
+  const monthStart = buildDate(today.getUTCFullYear(), today.getUTCMonth(), 1);
+  const monthEnd = buildDate(today.getUTCFullYear(), today.getUTCMonth() + 1, 0);
+
+  const pushItem = (expense: RecurringExpense, frequency: 'monthly' | 'annual') => {
+    const lastChargeDate = resolveLastChargeDate(expense, pipeline.incomeAccumulators);
+    const nextExpectedDate = predictNextChargeDate(
+      frequency,
+      expense.billingDayOfMonth,
+      expense.billingMonth,
+      today,
+      lastChargeDate,
+    );
+    if (!nextExpectedDate) return;
+
+    const item: UpcomingRecurring = {
+      merchant: expense.merchant,
+      category: expense.category,
+      colour: expense.colour,
+      logoUrl: expense.logoUrl,
+      amount: expense.amount,
+      frequency,
+      sourceAccount: expense.sourceAccount,
+      nextExpectedDate,
+      lastChargeDate,
+    };
+    if (expense.declaredObligationId !== undefined) {
+      item.declaredObligationId = expense.declaredObligationId;
+    }
+
+    const next = parseIsoDate(nextExpectedDate);
+    if (next >= monthStart && next <= monthEnd) {
+      thisMonth.push(item);
+    }
+    if (frequency === 'annual' && next <= in365Days && next >= today) {
+      thisYear.push(item);
+    }
+  };
+
+  for (const e of pipeline.monthlyIncomeRecurring) pushItem(e, 'monthly');
+  for (const e of pipeline.annualIncomeRecurring) pushItem(e, 'annual');
+
+  thisMonth.sort((a, b) => a.nextExpectedDate.localeCompare(b.nextExpectedDate));
+  thisYear.sort((a, b) => a.nextExpectedDate.localeCompare(b.nextExpectedDate));
+
+  return { thisMonth, thisYear };
+}
+
 // ---------- date helpers (UTC-based, calendar semantics) ----------
 
 function buildDate(year: number, monthIndex: number, day: number): Date {

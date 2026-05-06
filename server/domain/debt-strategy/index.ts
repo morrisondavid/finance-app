@@ -112,6 +112,7 @@ export {
   type AssembleDebtStrategyInput,
   type AssembledDebtStrategy,
   type BucketHeadroom,
+  type SandboxIncomeSourcesLabeled,
 } from './assemble.js';
 
 export {

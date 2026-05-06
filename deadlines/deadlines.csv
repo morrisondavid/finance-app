@@ -1,6 +1,6 @@
 id,type,title,due_date,recurrence,notes,url,completed_date,updated_at
 companies-house-confirmation-statement,companies-house,Companies House confirmation statement,2026-11-01,annual,Filed annually via Companies House WebFiling. Adjust due_date to your company's actual made-up date; CH allows a 14-day filing window after that.,https://www.gov.uk/file-your-confirmation-statement-with-companies-house,,2026-04-21T00:00:00.000Z
-contract-renewal-dc-sow-2026,contract-renewal,Delta Capita renewal (Delta Capita · 01 Jan 2026–30 Apr 2026),2026-03-01,one-off,,,,2026-05-05T07:37:12.705Z
-contract-renewal-lf-2026-apr,contract-renewal,La Fosse renewal (La Fosse · 02 Mar 2026–30 Apr 2026),2026-03-31,one-off,,,,2026-05-05T07:37:12.705Z
+contract-renewal-dc-sow-2026,contract-renewal,Delta Capita renewal (Delta Capita · 01 Jan 2026–30 Apr 2026),2026-03-01,one-off,,,,2026-05-05T23:20:14.396Z
+contract-renewal-lf-2026-apr,contract-renewal,La Fosse renewal (La Fosse · 02 Mar 2026–30 Apr 2026),2026-03-31,one-off,,,,2026-05-05T23:20:14.397Z
 contract-renewal-lf-2026-mar,contract-renewal,La Fosse renewal (La Fosse · 06 Jan 2026–31 Mar 2026),2026-01-30,one-off,,,,2026-04-24T00:24:18.805Z
 ifza-license-renewal,other,IFZA license renewal (Autonize IT FZCO),2026-11-04,annual,"License number 73348. Renewed annually on the anniversary of FZCO formation (2025-11-04). Renew via corporate service provider (Marian, MCE Advisory). A missed renewal voids the entity's trade license and its ability to invoice, so schedule at least 30 days of lead time.",,,2026-04-21T00:00:00.000Z

@@ -58,6 +58,12 @@ describe('RunwayResponseSchema', () => {
           totalAvailableCredit: 500,
         },
       },
+      holisticGbp: {
+        firstStressDateFullRecurring: '2026-11-15',
+        runwayMonthsFullRecurring: 11.2,
+        firstStressDateMandatoryRecurring: '2026-12-20',
+        runwayMonthsMandatoryRecurring: 12.1,
+      },
       insight: zeroInsight,
       insightNote: 'test',
       stress: {

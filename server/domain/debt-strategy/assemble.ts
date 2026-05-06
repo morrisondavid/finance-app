@@ -34,11 +34,13 @@ import { getAllDebtSummaries, type DebtSummary } from '../../db/repositories/deb
 import { listBudgets } from '../../db/repositories/budgets.js';
 import { ACCOUNT_CONFIG_DATA } from '../accounts/data.js';
 import { todayIsoLocal } from '../../../shared/iso-date.js';
+import { contractDisplayName } from '../../../shared/contract-display.js';
 import {
   loadForecastInputs,
   type LoadedForecastInputs,
 } from '../forecast/load-inputs.js';
 import { projectMonthlyRunRate } from '../forecast/project-monthly-run-rate.js';
+import { getClientRegistry } from '../clients/registry.js';
 
 import type { Plan, PlanScope } from './schema.js';
 import {
@@ -105,6 +107,22 @@ export interface BucketHeadroom {
   readonly intensityOptions: IntensityOptionsResult;
 }
 
+export interface SandboxIncomeSourcesLabeled {
+  readonly contracts: readonly {
+    readonly contractId: string;
+    readonly label: string;
+    readonly bucketKey: string;
+    readonly monthlyAccrual: number;
+  }[];
+  readonly recurring: readonly {
+    readonly key: string;
+    readonly label: string;
+    readonly bucketKey: string;
+    readonly monthlyAmount: number;
+    readonly declaredObligationId: string | null;
+  }[];
+}
+
 export interface AssembledDebtStrategy {
   readonly today: string;
   readonly headroomByBucket: ReadonlyMap<string, BucketHeadroom>;
@@ -128,20 +146,20 @@ export interface AssembledDebtStrategy {
   readonly crossScopeTransferPreview: ReturnType<typeof evaluateCrossScopeTransferPlaceholder>;
   /** Canonical inputs snapshot — avoids re-deriving holistic figures outside this module. */
   readonly debtStrategyContext: DebtStrategyContext;
+  /** Income lines the sandbox can toggle (labels for UI). */
+  readonly sandboxIncomeSources: SandboxIncomeSourcesLabeled;
 }
 
 /**
  * Optional inputs the route can supply for the what-if sandbox to
- * tweak the inputs (e.g. simulate a removed contract).
+ * omit specific contract accruals or recurring income rows.
  */
 export interface AssembleDebtStrategyInput {
   readonly today?: string;
-  /**
-   * Override the forecasted monthly income per (currency, scope)
-   * bucket. Used by the sandbox endpoint to model "what if I lost
-   * this contract?". Live mode passes nothing.
-   */
-  readonly incomeOverrides?: ReadonlyMap<string, number>;
+  readonly incomeExclusions?: {
+    readonly excludedContractIds: readonly string[];
+    readonly excludedRecurringIncomeKeys: readonly string[];
+  };
 }
 
 function scopeForAccount(account: AccountName): PlanScope {
@@ -257,20 +275,58 @@ export function assembleDebtStrategy(
   //     specific date, not steady-state monthly income. (For the
   //     date-bounded "what's arriving in the bank between X and Y?"
   //     question, callers use `projectIncomeForWindow` directly.)
-  const monthlyIncome = projectMonthlyRunRate({
+  const fullRunRate = projectMonthlyRunRate({
     today,
     preLoaded: inputs,
     windowDays: HEADROOM_WINDOW_DAYS,
   });
+  const exclusions = input.incomeExclusions;
+  const hasIncomeExclusions =
+    exclusions !== undefined &&
+    (exclusions.excludedContractIds.length > 0 ||
+      exclusions.excludedRecurringIncomeKeys.length > 0);
+
+  const monthlyIncome = hasIncomeExclusions
+    ? projectMonthlyRunRate({
+        today,
+        preLoaded: inputs,
+        windowDays: HEADROOM_WINDOW_DAYS,
+        excludedContractIds: exclusions?.excludedContractIds,
+        excludedRecurringIncomeKeys: exclusions?.excludedRecurringIncomeKeys,
+      })
+    : fullRunRate;
+
   const incomeByBucket = new Map<string, number>();
   for (const [k, b] of monthlyIncome.byBucket) {
     incomeByBucket.set(k, b.total);
   }
-  if (input.incomeOverrides !== undefined) {
-    for (const [k, v] of input.incomeOverrides) {
-      incomeByBucket.set(k, v);
-    }
-  }
+
+  const clients = getClientRegistry();
+  const sandboxIncomeSources: SandboxIncomeSourcesLabeled = {
+    contracts: fullRunRate.sandboxIncomeSources.contracts.map(c => {
+      const contract = inputs.contracts.find(ct => ct.id === c.contractId);
+      const label =
+        contract !== undefined
+          ? contractDisplayName(contract, clients.indexes.byId.get(contract.client_id))
+          : c.contractId;
+      return {
+        contractId: c.contractId,
+        label,
+        bucketKey: c.bucketKey,
+        monthlyAccrual: c.monthlyAccrual,
+      };
+    }),
+    recurring: fullRunRate.sandboxIncomeSources.recurring.map(r => ({
+      key: r.key,
+      label:
+        r.declaredObligationId !== null
+          ? `${r.merchant} · ${r.sourceAccount} (declared)`
+          : `${r.merchant} · ${r.sourceAccount}`,
+      bucketKey: r.bucketKey,
+      monthlyAmount: r.monthlyAmount,
+      declaredObligationId: r.declaredObligationId,
+    })),
+  };
 
   // 1b. Mandatory side — steady-state monthly recurring mandatory
   //     outflows (mortgages, insurance, utilities, subscriptions).
@@ -525,5 +581,6 @@ export function assembleDebtStrategy(
     creditCardPaydownHints,
     crossScopeTransferPreview,
     debtStrategyContext,
+    sandboxIncomeSources,
   };
 }

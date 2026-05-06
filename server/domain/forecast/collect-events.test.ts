@@ -10,6 +10,7 @@ import type {
 import {
   collectObligationEvents,
   collectRecurringEvents,
+  collectIncomeRecurringEvents,
   collectInvoiceReceiptEvents,
 } from './collect-events.js';
 
@@ -177,6 +178,21 @@ describe('collectRecurringEvents', () => {
       currencyByAccount,
     });
     expect(events).toHaveLength(0);
+  });
+});
+
+describe('collectIncomeRecurringEvents', () => {
+  it('emits positive monthly inflows on the same schedule as expenses', () => {
+    const events = collectIncomeRecurringEvents({
+      monthlyRecurring: [makeRecurring({ nextExpectedDate: '2026-05-01', amount: 500 })],
+      annualRecurring: [],
+      today: TODAY,
+      horizon: HORIZON,
+      currencyByAccount,
+    });
+    expect(events.length).toBeGreaterThan(0);
+    expect(events[0].amount).toBe(500);
+    expect(events[0].source).toBe('recurring');
   });
 });
 

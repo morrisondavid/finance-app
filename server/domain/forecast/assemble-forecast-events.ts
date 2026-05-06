@@ -14,14 +14,41 @@ import type {
   UpcomingRecurring,
 } from '../../../shared/api-contracts.js';
 import type { PipelineResult } from '../../utils/recurring-pipeline.js';
+import { recurringKey } from '../../utils/recurring-pipeline.js';
 import type { UpcomingRecurringBuckets } from '../../utils/recurring-upcoming.js';
+import { buildUpcomingIncomeRecurring } from '../../utils/recurring-upcoming.js';
 import {
   collectAccrualEvents,
+  collectIncomeRecurringEvents,
   collectInvoiceReceiptEvents,
   collectObligationEvents,
   collectRecurringEvents,
 } from './collect-events.js';
 import type { ForecastEvent } from './events.js';
+
+/**
+ * Stable sandbox / exclusion id for an upcoming recurring row (matches
+ * {@link recurringIncomeStableKey} for pipeline {@link RecurringExpense} rows).
+ */
+export function upcomingRecurringStableKey(item: UpcomingRecurring): string {
+  const declared = item.declaredObligationId;
+  if (declared !== undefined && declared.length > 0) {
+    return `declared:${declared}`;
+  }
+  return recurringKey({
+    merchant: item.merchant,
+    category: item.category,
+    colour: item.colour,
+    amount: item.amount,
+    frequency: item.frequency,
+    monthsActive: 0,
+    annualTotal: 0,
+    logoUrl: item.logoUrl,
+    sourceAccount: item.sourceAccount,
+    billingDayOfMonth: null,
+    billingMonth: null,
+  });
+}
 
 export interface AssembleForecastEventsParams {
   readonly today: string;
@@ -40,6 +67,12 @@ export interface AssembleForecastEventsParams {
   readonly publicHolidayDatesByEntity: ReadonlyMap<EntityId, ReadonlySet<string>>;
   readonly includeInvoiceReceipts: boolean;
   readonly includeAccrual: boolean;
+  /**
+   * When true, adds detected **income** recurring (pipeline monthly/annual
+   * income) as positive cash events — used by debt-strategy sandbox scenarios
+   * so income toggles affect the merged runway.
+   */
+  readonly includeDetectedIncomeRecurring?: boolean;
   /** When set, only recurring events whose `UpcomingRecurring` passes are included. */
   readonly recurringPredicate?: (item: UpcomingRecurring) => boolean;
 }
@@ -67,6 +100,33 @@ export function pickMonthlyRecurringForForecast(
     sourceAccount: e.sourceAccount,
     nextExpectedDate: shiftIsoDate(today, 1),
     lastChargeDate: null,
+    ...(e.declaredObligationId !== undefined
+      ? { declaredObligationId: e.declaredObligationId }
+      : {}),
+  }));
+}
+
+function pickMonthlyIncomeRecurringForForecast(
+  today: string,
+  pipeline: PipelineResult,
+  incomeUpcoming: UpcomingRecurringBuckets,
+): readonly UpcomingRecurring[] {
+  if (incomeUpcoming.thisMonth.length > 0) {
+    return incomeUpcoming.thisMonth;
+  }
+  return pipeline.monthlyIncomeRecurring.map(e => ({
+    merchant: e.merchant,
+    category: e.category,
+    colour: e.colour,
+    logoUrl: e.logoUrl,
+    amount: e.amount,
+    frequency: 'monthly' as const,
+    sourceAccount: e.sourceAccount,
+    nextExpectedDate: shiftIsoDate(today, 1),
+    lastChargeDate: null,
+    ...(e.declaredObligationId !== undefined
+      ? { declaredObligationId: e.declaredObligationId }
+      : {}),
   }));
 }
 
@@ -96,6 +156,7 @@ export function assembleForecastEvents(params: AssembleForecastEventsParams): Fo
     publicHolidayDatesByEntity,
     includeInvoiceReceipts,
     includeAccrual,
+    includeDetectedIncomeRecurring,
     recurringPredicate,
   } = params;
 
@@ -119,6 +180,26 @@ export function assembleForecastEvents(params: AssembleForecastEventsParams): Fo
     horizon,
     currencyByAccount,
   });
+
+  let incomeRecurringEvents: ForecastEvent[] = [];
+  if (includeDetectedIncomeRecurring === true) {
+    const incomeBuckets = buildUpcomingIncomeRecurring(
+      pipeline,
+      new Date(`${today}T00:00:00Z`),
+    );
+    const incomeMonthlies = applyRecurringFilter(
+      pickMonthlyIncomeRecurringForForecast(today, pipeline, incomeBuckets),
+      recurringPredicate,
+    );
+    const incomeAnnuals = applyRecurringFilter(incomeBuckets.thisYear, recurringPredicate);
+    incomeRecurringEvents = collectIncomeRecurringEvents({
+      monthlyRecurring: incomeMonthlies,
+      annualRecurring: incomeAnnuals,
+      today,
+      horizon,
+      currencyByAccount,
+    });
+  }
 
   const invoiceEvents = includeInvoiceReceipts
     ? collectInvoiceReceiptEvents({
@@ -150,6 +231,7 @@ export function assembleForecastEvents(params: AssembleForecastEventsParams): Fo
   return [
     ...obligationEvents,
     ...recurringEvents,
+    ...incomeRecurringEvents,
     ...invoiceEvents,
     ...accrualEvents,
   ].sort((a, b) => a.date.localeCompare(b.date));

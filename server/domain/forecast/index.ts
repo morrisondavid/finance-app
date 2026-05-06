@@ -37,6 +37,7 @@ export {
 export {
   assembleForecastEvents,
   pickMonthlyRecurringForForecast,
+  upcomingRecurringStableKey,
   type AssembleForecastEventsParams,
 } from './assemble-forecast-events.js';
 
@@ -45,11 +46,16 @@ export {
   firstNegativeBalanceDate,
   runwayMonthsToDate,
   daysBetweenIsoUtc,
+  mergeHolisticCashPathToGbp,
 } from './runway-metrics.js';
 
 export {
   assembleRunway,
+  assembleRunwayScenario,
   RUNWAY_HEADLINE_CURRENCIES,
   type AssembleRunwayInput,
   type AssembledRunway,
+  type RunwayHolisticGbp,
+  type RunwayScenarioInput,
+  type RunwayScenarioHolisticGbp,
 } from './assemble-runway.js';

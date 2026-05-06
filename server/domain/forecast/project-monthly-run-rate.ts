@@ -30,10 +30,12 @@ import { shiftIsoDate } from '../../../shared/iso-date.js';
 import {
   type AccountName,
   type CurrencyCode,
+  type RecurringExpense,
 } from '../../../shared/api-contracts.js';
 import { calculateWorkload } from '../contracts/workload.js';
 import { primaryAccountForEntity } from './collect-events.js';
 import { ACCOUNT_CONFIG_DATA } from '../accounts/data.js';
+import { recurringKey } from '../../utils/recurring-pipeline.js';
 import {
   loadForecastInputs,
   type LoadedForecastInputs,
@@ -62,11 +64,47 @@ export interface ProjectMonthlyRunRateInput {
     readonly scope?: PlanScope;
   };
   /**
+   * When set, contract accrual for these ids is omitted (sandbox /
+   * what-if). Keys match {@link recurringIncomeStableKey} for recurring rows.
+   */
+  readonly excludedContractIds?: ReadonlySet<string> | readonly string[];
+  readonly excludedRecurringIncomeKeys?: ReadonlySet<string> | readonly string[];
+  /**
    * Days the run-rate looks forward over. Default
    * {@link DEFAULT_RUN_RATE_WINDOW_DAYS} (30) — roughly one month of
    * working days for a standard Mon–Fri contract.
    */
   readonly windowDays?: number;
+}
+
+/**
+ * Stable id for a recurring income row: declared obligation when present,
+ * else the same composite as {@link recurringKey} (category, merchant,
+ * account, amount band).
+ */
+export function recurringIncomeStableKey(item: RecurringExpense): string {
+  const declared = item.declaredObligationId;
+  if (declared !== undefined && declared.length > 0) {
+    return `declared:${declared}`;
+  }
+  return recurringKey(item);
+}
+
+export interface SandboxContractIncomeSource {
+  readonly contractId: string;
+  readonly bucketKey: string;
+  /** Monthly accrual for this contract in this bucket (same basis as headroom income). */
+  readonly monthlyAccrual: number;
+}
+
+export interface SandboxRecurringIncomeSource {
+  readonly key: string;
+  readonly bucketKey: string;
+  readonly monthlyAmount: number;
+  readonly merchant: string;
+  readonly sourceAccount: string;
+  readonly category: string;
+  readonly declaredObligationId: string | null;
 }
 
 export interface MonthlyRunRateBucketBreakdown {
@@ -83,6 +121,15 @@ export interface ProjectedMonthlyRunRate {
   readonly today: string;
   readonly windowDays: number;
   readonly byBucket: ReadonlyMap<string, MonthlyRunRateBucketBreakdown>;
+  /**
+   * All contract + recurring lines that count toward run-rate income when
+   * not excluded — used by the debt-strategy sandbox toggles. Present even
+   * when exclusions are applied; amounts are the full per-source figures.
+   */
+  readonly sandboxIncomeSources: {
+    readonly contracts: readonly SandboxContractIncomeSource[];
+    readonly recurring: readonly SandboxRecurringIncomeSource[];
+  };
 }
 
 interface MutableBucket {
@@ -118,6 +165,16 @@ function passesBucketFilter(
   return true;
 }
 
+function toIdSet(ids: ProjectMonthlyRunRateInput['excludedContractIds']): ReadonlySet<string> {
+  if (ids === undefined) return new Set();
+  return ids instanceof Set ? ids : new Set(ids);
+}
+
+function toKeySet(keys: ProjectMonthlyRunRateInput['excludedRecurringIncomeKeys']): ReadonlySet<string> {
+  if (keys === undefined) return new Set();
+  return keys instanceof Set ? keys : new Set(keys);
+}
+
 export function projectMonthlyRunRate(
   input: ProjectMonthlyRunRateInput,
 ): ProjectedMonthlyRunRate {
@@ -125,8 +182,23 @@ export function projectMonthlyRunRate(
   const windowDays = input.windowDays ?? DEFAULT_RUN_RATE_WINDOW_DAYS;
   const today = input.today;
   const windowEndAbsolute = shiftIsoDate(today, windowDays);
+  const excludedContracts = toIdSet(input.excludedContractIds);
+  const excludedRecurring = toKeySet(input.excludedRecurringIncomeKeys);
 
   const buckets = new Map<string, MutableBucket>();
+  const contractManifest = new Map<string, { bucketKey: string; accrual: number }>();
+  const recurringManifest = new Map<
+    string,
+    {
+      stableKey: string;
+      bucketKey: string;
+      amount: number;
+      merchant: string;
+      sourceAccount: string;
+      category: string;
+      declaredObligationId: string | null;
+    }
+  >();
 
   // 1. Active contracts: workdays × day-rate over the window.
   for (const contract of inputs.contracts) {
@@ -157,7 +229,17 @@ export function projectMonthlyRunRate(
     const scope = scopeForAccount(account);
     if (!passesBucketFilter(currency, scope, input.bucketFilter)) continue;
 
-    const bucket = getOrCreateBucket(buckets, bucketKey(currency, scope));
+    const bk = bucketKey(currency, scope);
+    const prevM = contractManifest.get(contract.id);
+    if (prevM === undefined) {
+      contractManifest.set(contract.id, { bucketKey: bk, accrual: workload.subtotal });
+    } else {
+      prevM.accrual += workload.subtotal;
+    }
+
+    if (excludedContracts.has(contract.id)) continue;
+
+    const bucket = getOrCreateBucket(buckets, bk);
     bucket.contractAccrual += workload.subtotal;
     bucket.contributingContractIds.push(contract.id);
   }
@@ -180,7 +262,31 @@ export function projectMonthlyRunRate(
     if (amount <= 0) continue;
     if (!passesBucketFilter(currency, scope, input.bucketFilter)) continue;
 
-    const bucket = getOrCreateBucket(buckets, bucketKey(currency, scope));
+    const bk = bucketKey(currency, scope);
+    const stableKey = recurringIncomeStableKey(item);
+    const manifestKey = `${stableKey}\0${bk}`;
+    const declared =
+      item.declaredObligationId !== undefined && item.declaredObligationId.length > 0
+        ? item.declaredObligationId
+        : null;
+    const prevR = recurringManifest.get(manifestKey);
+    if (prevR === undefined) {
+      recurringManifest.set(manifestKey, {
+        stableKey,
+        bucketKey: bk,
+        amount,
+        merchant: item.merchant,
+        sourceAccount: item.sourceAccount,
+        category: item.category,
+        declaredObligationId: declared,
+      });
+    } else {
+      prevR.amount += amount;
+    }
+
+    if (excludedRecurring.has(stableKey)) continue;
+
+    const bucket = getOrCreateBucket(buckets, bk);
     bucket.recurringIncome += amount;
   }
 
@@ -196,5 +302,30 @@ export function projectMonthlyRunRate(
     });
   }
 
-  return { today, windowDays, byBucket: out };
+  const contracts = [...contractManifest.entries()]
+    .map(([contractId, v]) => ({
+      contractId,
+      bucketKey: v.bucketKey,
+      monthlyAccrual: Math.round(v.accrual * 100) / 100,
+    }))
+    .sort((a, b) => a.contractId.localeCompare(b.contractId));
+
+  const recurring = [...recurringManifest.values()]
+    .map(row => ({
+      key: row.stableKey,
+      bucketKey: row.bucketKey,
+      monthlyAmount: Math.round(row.amount * 100) / 100,
+      merchant: row.merchant,
+      sourceAccount: row.sourceAccount,
+      category: row.category,
+      declaredObligationId: row.declaredObligationId,
+    }))
+    .sort((a, b) => a.key.localeCompare(b.key) || a.bucketKey.localeCompare(b.bucketKey));
+
+  return {
+    today,
+    windowDays,
+    byBucket: out,
+    sandboxIncomeSources: { contracts, recurring },
+  };
 }
