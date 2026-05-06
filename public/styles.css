@@ -111,6 +111,304 @@ body {
   margin: 0;
 }
 
+/* Dashboard tab — liquidity hero (GET /api/dashboard/summary → liquidityOverview) */
+.liquidity-dashboard {
+  max-width: 720px;
+  margin: 0 auto 32px;
+  padding: 0 4px;
+}
+
+.liquidity-dashboard__inner {
+  width: 100%;
+}
+
+.liquidity-dashboard__card {
+  margin: 0;
+  padding: 22px 24px 24px;
+  border-radius: 12px;
+  background: linear-gradient(155deg, var(--color-surface) 0%, #f8fafc 100%);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
+}
+
+.liquidity-dashboard__card--loading {
+  min-height: 280px;
+}
+
+.liquidity-dashboard__kicker {
+  margin: 0 0 14px 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+
+.liquidity-dashboard__split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 20px;
+  margin-bottom: 10px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--color-border);
+}
+
+.liquidity-dashboard__split-pane {
+  min-width: 0;
+}
+
+.liquidity-dashboard__split-pane--cash {
+  padding-right: 10px;
+  border-right: 1px solid var(--color-border);
+}
+
+.liquidity-dashboard__split-pane--credit {
+  padding-left: 10px;
+}
+
+.liquidity-dashboard__pane-kicker {
+  margin: 0 0 6px 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+.liquidity-dashboard__split-summary {
+  margin: 0 0 16px 0;
+  font-size: 0.92rem;
+  color: var(--color-text);
+  line-height: 1.45;
+}
+
+.liquidity-dashboard__split-summary strong {
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.liquidity-dashboard__breakdown-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px 24px;
+  align-items: start;
+}
+
+.liquidity-dashboard__breakdown-heading {
+  margin: 0 0 8px 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.liquidity-dashboard__breakdown-heading--cash {
+  color: #16a34a;
+}
+
+.liquidity-dashboard__breakdown-heading--credit {
+  color: #14532d;
+}
+
+.liquidity-dashboard__breakdown-empty {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+}
+
+.liquidity-dashboard__list--breakdown {
+  border-top: 1px dashed var(--color-border);
+}
+
+.liquidity-dashboard__total {
+  margin: 0;
+  font-size: 1.85rem;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.liquidity-dashboard__total--cash {
+  color: #16a34a;
+}
+
+.liquidity-dashboard__total--credit {
+  color: #14532d;
+}
+
+.liquidity-dashboard__subtitle {
+  margin: 0 0 20px 0;
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+  line-height: 1.45;
+  max-width: 42rem;
+}
+
+.liquidity-dashboard__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px dashed var(--color-border);
+}
+
+.liquidity-dashboard__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.liquidity-dashboard__row:last-child {
+  border-bottom: none;
+}
+
+.liquidity-dashboard__row--credit {
+  border-left: 3px solid var(--color-primary);
+  margin-left: -3px;
+  padding-left: 14px;
+}
+
+.liquidity-dashboard__row-text {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.liquidity-dashboard__row-label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.98rem;
+  color: var(--color-text);
+}
+
+.liquidity-dashboard__credit-label {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.liquidity-dashboard__row-amounts {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.liquidity-dashboard__native {
+  display: block;
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--color-text);
+}
+
+.liquidity-dashboard__gbp-eq {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.liquidity-dashboard__footnote {
+  margin: 18px 0 0 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  line-height: 1.45;
+}
+
+.liquidity-dashboard__empty {
+  margin: 8px 0 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.95rem;
+}
+
+.liquidity-dashboard__card--error {
+  border-color: #fecaca;
+  background: #fef2f2;
+  box-shadow: var(--shadow-sm);
+}
+
+.liquidity-dashboard__error-title {
+  margin: 0 0 6px 0;
+  font-weight: 700;
+  color: #7f1d1d;
+}
+
+.liquidity-dashboard__error-detail {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #991b1b;
+}
+
+@keyframes liquidity-dashboard-pulse {
+  0% { opacity: 0.55; }
+  50% { opacity: 0.95; }
+  100% { opacity: 0.55; }
+}
+
+.liquidity-dashboard__skeleton-line {
+  height: 14px;
+  max-width: 90%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #e2e8f0, #f1f5f9, #e2e8f0);
+  background-size: 200% 100%;
+  animation: liquidity-dashboard-pulse 1.4s ease-in-out infinite;
+}
+
+.liquidity-dashboard__skeleton-line--kicker {
+  height: 12px;
+  max-width: 7.5rem;
+  margin-bottom: 8px;
+}
+
+.liquidity-dashboard__skeleton-line--split-meta {
+  height: 16px;
+  max-width: 100%;
+  margin-bottom: 16px;
+}
+
+.liquidity-dashboard__skeleton-row {
+  height: 48px;
+  margin-top: 12px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #e2e8f0, #f1f5f9, #e2e8f0);
+  background-size: 200% 100%;
+  animation: liquidity-dashboard-pulse 1.4s ease-in-out infinite;
+}
+
+@media (max-width: 520px) {
+  .liquidity-dashboard__split {
+    grid-template-columns: 1fr;
+    gap: 18px 0;
+    padding-bottom: 12px;
+  }
+
+  .liquidity-dashboard__split-pane--cash {
+    padding-right: 0;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: 14px;
+  }
+
+  .liquidity-dashboard__split-pane--credit {
+    padding-left: 0;
+  }
+
+  .liquidity-dashboard__breakdown-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .liquidity-dashboard__total {
+    font-size: 1.65rem;
+  }
+
+  .liquidity-dashboard__row-amounts {
+    text-align: left;
+    width: 100%;
+  }
+}
+
 /* Tabs */
 .tabs {
   display: flex;

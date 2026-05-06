@@ -222,6 +222,7 @@ describe('DashboardSummaryResponseSchema', () => {
     totals: { income: 100, expenses: 50, net: 50, vatLiability: 10, transfersIn: 0, transfersOut: 0, passThroughIncome: 0 },
     monthly: [],
     byAccount: {},
+    liquidityOverview: { totalCashGbp: 0, totalCreditGbp: 0, totalAvailableGbp: 0, lines: [] },
     taxLiabilities: {
       corporationTax: 50000,
       corporationTaxRate: 25,
@@ -260,6 +261,21 @@ describe('DashboardSummaryResponseSchema', () => {
         transactionTotal: -12000,
         currentBalance: 51035.54,
         transactionCount: 500,
+      },
+      liquidityOverview: {
+        totalCashGbp: 51035.54,
+        totalCreditGbp: 0,
+        totalAvailableGbp: 51035.54,
+        lines: [
+          {
+            account: 'barclays-current',
+            label: 'Barclays Current',
+            kind: 'cash' as const,
+            currency: 'GBP' as const,
+            amountNative: 51035.54,
+            amountGbp: 51035.54,
+          },
+        ],
       },
     };
     const result = DashboardSummaryResponseSchema.safeParse(withBalances);

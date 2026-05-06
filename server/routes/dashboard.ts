@@ -8,6 +8,7 @@ import {
   allAccountBalancesForApi,
   type AccountConfig,
 } from '../domain/accounts/index.js';
+import { buildLiquidityOverview } from '../domain/accounts/liquidity-overview.js';
 import type {
   DashboardSummaryResponse,
   AccountConfigsResponse,
@@ -94,15 +95,17 @@ router.get('/summary', (req: Request<object, DashboardSummaryResponse, object, S
       });
     }
 
+    const allBalances = getAllAccountBalances();
     const summary = {
       totals: getDashboardTotals(filters),
       monthly: getMonthlySummary(filters),
       byAccount: getAccountSummary({ financialYear: selectedFY }),
-      balances: allAccountBalancesForApi(getAllAccountBalances()),
+      balances: allAccountBalancesForApi(allBalances),
       currentAccountBalance: accountBalanceForApi(
         selectedAccount,
         getAccountBalance(selectedAccount),
       ),
+      liquidityOverview: buildLiquidityOverview(allBalances),
       taxLiabilities: getTaxLiabilities(filters),
       transactionCount: getTransactionCount(filters),
       transferCount: getTransferCount(filters),

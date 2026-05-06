@@ -15,6 +15,7 @@ import { formatCurrency, currencySymbol } from '../utils/formatting';
 import { escapeHtml } from '../utils/dom';
 import { getSelectedCurrency } from './state';
 import { loadDashboard } from './dashboard';
+import { loadLiquidityDashboard } from './liquidity-dashboard';
 import { eligibleCategoriesForPeriod } from './budget-sheet-utils';
 import {
   isQoLCategory,
@@ -117,6 +118,7 @@ async function submitBudget(): Promise<void> {
     });
     amtEl.value = '';
     await loadBudgetSheet();
+    void loadLiquidityDashboard();
     await loadDashboard();
   } catch (e) {
     console.error('[Budget] save', e);
@@ -193,6 +195,7 @@ export async function loadBudgetSheet(): Promise<void> {
         try {
           await deleteBudget(id);
           await loadBudgetSheet();
+          void loadLiquidityDashboard();
           await loadDashboard();
         } catch (err) {
           console.error('[Budget] delete', err);

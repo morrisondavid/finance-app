@@ -9,6 +9,7 @@ import { fetchTransactions, fetchVATPayments } from '../utils/api';
 import { formatCurrency } from '../utils/formatting';
 import { escapeHtml } from '../utils/dom';
 import { loadDashboard } from './dashboard';
+import { loadLiquidityDashboard } from './liquidity-dashboard';
 
 export function initTransactionsModal(): void {
   const modal = document.getElementById('transactions-modal');
@@ -64,7 +65,8 @@ export function initBalanceModal(): void {
       }
 
       modal.style.display = 'none';
-      loadDashboard();
+      void loadLiquidityDashboard();
+      void loadDashboard();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       alert('Error saving balance: ' + errorMessage);

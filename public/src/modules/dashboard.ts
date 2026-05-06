@@ -319,5 +319,4 @@ export function initDashboard(): void {
   initBudgetNudgeInteractions();
   initVatPaymentsHandler();
   initSummaryCardHandlers();
-  loadDashboard();
 }

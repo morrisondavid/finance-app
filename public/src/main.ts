@@ -10,6 +10,7 @@ import 'flag-icons/css/flag-icons.min.css';
 import { setState } from './modules/state';
 import { initTabs } from './modules/tabs';
 import { initDashboard, loadDashboard, populateAccountSelectors } from './modules/dashboard';
+import { loadLiquidityDashboard } from './modules/liquidity-dashboard';
 import { initStatements, loadStatements } from './modules/statements';
 import { initUpload } from './modules/upload';
 import { initFixedExpensesSheet, loadFixedExpensesSheet } from './modules/fixed-expenses-sheet';
@@ -65,7 +66,9 @@ function initializeTabNavigation(): void {
       
       // Load data for the active tab
       if (target === 'dashboard') {
-        loadDashboard();
+        void loadLiquidityDashboard();
+      } else if (target === 'accounts') {
+        void loadDashboard();
       } else if (target === 'fixed-expenses') {
         loadFixedExpensesSheet();
       } else if (target === 'ad-hoc-expenses') {
@@ -121,12 +124,14 @@ async function initializeApp(): Promise<void> {
   initStatements();
   initUpload({
     onUploadSuccess: () => {
-      loadDashboard();
+      void loadLiquidityDashboard();
+      void loadDashboard();
       loadStatements();
       void loadInvoices();
     },
   });
-  
+
+  void loadLiquidityDashboard();
 }
 
 // Start the app when DOM is ready

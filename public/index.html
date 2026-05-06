@@ -15,6 +15,7 @@
 
     <nav class="tabs">
       <button class="tab active" data-tab="dashboard">Dashboard</button>
+      <button class="tab" data-tab="accounts">Accounts</button>
       <button class="tab" data-tab="ad-hoc-expenses">Ad Hoc Expenses</button>
       <button class="tab" data-tab="fixed-expenses">Fixed Expenses</button>
       <button class="tab" data-tab="budget">Budget</button>
@@ -30,8 +31,13 @@
       <button class="tab" data-tab="upload">Upload</button>
     </nav>
 
-    <!-- Dashboard Tab -->
-    <section id="dashboard" class="tab-content active">
+    <!-- Dashboard Tab — liquidity at a glance -->
+    <section id="dashboard" class="tab-content active" aria-label="Dashboard">
+      <div id="liquidity-dashboard-root" class="liquidity-dashboard" aria-live="polite"></div>
+    </section>
+
+    <!-- Accounts Tab — per-account analytics, FY, charts -->
+    <section id="accounts" class="tab-content">
       <!-- Account Selector -->
       <div class="account-selector" aria-label="Account"></div>
 

@@ -271,6 +271,22 @@ export const BudgetNudgeSchema = z.object({
   logoUrl: z.string().nullable(),
 });
 
+export const LiquidityOverviewLineSchema = z.object({
+  account: AccountNameSchema,
+  label: z.string(),
+  kind: z.enum(['cash', 'credit']),
+  currency: CurrencyCodeSchema,
+  amountNative: z.number(),
+  amountGbp: z.number(),
+});
+
+export const LiquidityOverviewSchema = z.object({
+  totalCashGbp: z.number(),
+  totalCreditGbp: z.number(),
+  totalAvailableGbp: z.number(),
+  lines: z.array(LiquidityOverviewLineSchema),
+});
+
 // GET /api/dashboard/summary
 export const DashboardSummaryResponseSchema = z.object({
   totals: DashboardTotalsSchema,
@@ -278,6 +294,7 @@ export const DashboardSummaryResponseSchema = z.object({
   byAccount: z.record(z.string(), AccountSummarySchema),
   balances: z.record(z.string(), AccountBalanceSchema).optional(),
   currentAccountBalance: AccountBalanceSchema.optional(),
+  liquidityOverview: LiquidityOverviewSchema,
   taxLiabilities: TaxLiabilitiesSchema,
   transactionCount: z.number(),
   transferCount: z.number(),
