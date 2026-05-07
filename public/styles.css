@@ -113,7 +113,7 @@ body {
 
 /* Dashboard tab — liquidity hero (GET /api/dashboard/summary → liquidityOverview) */
 .liquidity-dashboard {
-  max-width: 720px;
+  max-width: 1100px;
   margin: 0 auto 32px;
   padding: 0 4px;
 }
@@ -144,26 +144,96 @@ body {
   color: var(--color-text-muted);
 }
 
-.liquidity-dashboard__split {
+.liquidity-dashboard__hero-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0 20px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px 18px;
   margin-bottom: 10px;
   padding-bottom: 14px;
   border-bottom: 1px dashed var(--color-border);
 }
 
-.liquidity-dashboard__split-pane {
+.liquidity-dashboard__hero-grid--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.liquidity-dashboard__hero-tile {
   min-width: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border);
 }
 
-.liquidity-dashboard__split-pane--cash {
-  padding-right: 10px;
-  border-right: 1px solid var(--color-border);
+.liquidity-dashboard__hero-tile--cash {
+  border-left: 3px solid #16a34a;
 }
 
-.liquidity-dashboard__split-pane--credit {
-  padding-left: 10px;
+.liquidity-dashboard__hero-tile--credit {
+  border-left: 3px solid #14532d;
+}
+
+.liquidity-dashboard__hero-tile--committed {
+  border-left: 3px solid #dc2626;
+}
+
+.liquidity-dashboard__hero-tile--after {
+  border-left: 3px solid #334155;
+}
+
+.liquidity-dashboard__total--committed {
+  color: #b91c1c;
+}
+
+.liquidity-dashboard__total--after {
+  color: #0f172a;
+}
+
+.liquidity-dashboard__hero-underwater {
+  margin: 6px 0 0 0;
+  font-size: 0.74rem;
+  color: #b45309;
+}
+
+.liquidity-dashboard__commitments-panel {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--color-border);
+}
+
+.liquidity-dashboard__commitments-panel-title {
+  margin: 0 0 8px 0;
+  font-size: 0.88rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #b91c1c;
+}
+
+.liquidity-dashboard__commitments-panel-meta {
+  margin: 0 0 14px 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  line-height: 1.45;
+}
+
+.liquidity-dashboard__commitment-significant-flag {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+
+.liquidity-dashboard__row--commitment-significant {
+  border-left-color: #ea580c;
+  background: linear-gradient(90deg, #fff7ed 0%, transparent 100%);
 }
 
 .liquidity-dashboard__pane-kicker {
@@ -189,7 +259,7 @@ body {
 
 .liquidity-dashboard__breakdown-columns {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px 24px;
   align-items: start;
 }
@@ -208,6 +278,119 @@ body {
 
 .liquidity-dashboard__breakdown-heading--credit {
   color: #14532d;
+}
+
+.liquidity-dashboard__breakdown-heading--commitments {
+  color: #b91c1c;
+}
+
+.liquidity-dashboard__commitment-group-title {
+  margin: 12px 0 6px 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.liquidity-dashboard__commitment-group-title:first-child {
+  margin-top: 0;
+}
+
+.liquidity-dashboard__row--commitment {
+  border-left: 3px solid #dc2626;
+  margin-left: -3px;
+  padding-left: 14px;
+}
+
+.liquidity-dashboard__row-amounts--commitment .liquidity-dashboard__native {
+  color: #b91c1c;
+}
+
+.liquidity-dashboard__commitment-due {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.liquidity-dashboard__commitment-total {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 14px 0 0 0;
+  padding-top: 12px;
+  border-top: 1px dashed var(--color-border);
+  font-variant-numeric: tabular-nums;
+}
+
+.liquidity-dashboard__commitment-total-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+}
+
+.liquidity-dashboard__commitment-total-amount {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #b91c1c;
+}
+
+.liquidity-dashboard__cash-after {
+  margin-top: 18px;
+  padding: 14px 14px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid var(--color-border);
+}
+
+.liquidity-dashboard__cash-after-kicker {
+  margin: 0 0 6px 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+.liquidity-dashboard__cash-after-figure {
+  margin: 0;
+  font-size: 1.65rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: #0f172a;
+}
+
+.liquidity-dashboard__cash-after-note {
+  margin: 8px 0 0 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.liquidity-dashboard__cash-after-underwater {
+  margin: 6px 0 0 0;
+  font-size: 0.78rem;
+  color: #b45309;
+}
+
+.liquidity-dashboard__double-count-note {
+  margin: 12px 0 0 0;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.liquidity-dashboard__credit-commitments-note {
+  margin: 10px 0 0 0;
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+  line-height: 1.4;
 }
 
 .liquidity-dashboard__breakdown-empty {
@@ -377,22 +560,19 @@ body {
   animation: liquidity-dashboard-pulse 1.4s ease-in-out infinite;
 }
 
-@media (max-width: 520px) {
-  .liquidity-dashboard__split {
+@media (max-width: 900px) {
+  .liquidity-dashboard__hero-grid:not(.liquidity-dashboard__hero-grid--two) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .liquidity-dashboard__breakdown-columns {
     grid-template-columns: 1fr;
-    gap: 18px 0;
-    padding-bottom: 12px;
   }
+}
 
-  .liquidity-dashboard__split-pane--cash {
-    padding-right: 0;
-    border-right: none;
-    border-bottom: 1px solid var(--color-border);
-    padding-bottom: 14px;
-  }
-
-  .liquidity-dashboard__split-pane--credit {
-    padding-left: 0;
+@media (max-width: 520px) {
+  .liquidity-dashboard__hero-grid {
+    grid-template-columns: 1fr;
   }
 
   .liquidity-dashboard__breakdown-columns {

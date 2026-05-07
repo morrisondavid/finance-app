@@ -308,6 +308,30 @@ export const LiquidityOverviewSchema = z.object({
   lines: z.array(LiquidityOverviewLineSchema),
 });
 
+export const LiquidityCommitmentLineSchema = z.object({
+  label: z.string(),
+  amountGbp: z.number(),
+  source: z.enum(['obligation', 'recurring-fixed']),
+  dueDate: z.string().nullable(),
+  obligationId: z.string().optional(),
+  /** True when amount is at or above the commitment `significantThresholdGbp` (save-ahead). */
+  significant: z.boolean().optional().default(false),
+});
+
+export const LiquidityCommitmentsOverviewSchema = z.object({
+  /** Inclusive start of projection (usually today). */
+  horizonStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** Inclusive end of projection (today + 12 calendar months). */
+  horizonEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** Human-readable horizon, e.g. "Next 12 months (to 7 May 2027)". */
+  horizonLabel: z.string(),
+  /** GBP amount at/above which a line is marked `significant`. */
+  significantThresholdGbp: z.number(),
+  totalCommittedGbp: z.number(),
+  cashAfterCommitmentsGbp: z.number(),
+  lines: z.array(LiquidityCommitmentLineSchema),
+});
+
 // GET /api/dashboard/summary
 export const DashboardSummaryResponseSchema = z.object({
   totals: DashboardTotalsSchema,
@@ -316,6 +340,7 @@ export const DashboardSummaryResponseSchema = z.object({
   balances: z.record(z.string(), AccountBalanceSchema).optional(),
   currentAccountBalance: AccountBalanceSchema.optional(),
   liquidityOverview: LiquidityOverviewSchema,
+  liquidityCommitments: LiquidityCommitmentsOverviewSchema.nullable(),
   taxLiabilities: TaxLiabilitiesSchema,
   transactionCount: z.number(),
   transferCount: z.number(),
@@ -2118,6 +2143,7 @@ export const AiLiquidityResponseSchema = z.object({
   today: IsoDateSchema,
   balances: z.record(z.string(), AccountBalanceSchema),
   liquidityOverview: LiquidityOverviewSchema,
+  liquidityCommitments: LiquidityCommitmentsOverviewSchema.nullable(),
   taxLiabilities: TaxLiabilitiesSchema,
   byEntity: z.record(EntityIdSchema, AiEntityBalancesSchema).optional(),
 });
@@ -2571,6 +2597,8 @@ export type RecurringExpensesResponse = z.infer<typeof RecurringExpensesResponse
 
 // API Response Types
 export type DashboardSummaryResponse = z.infer<typeof DashboardSummaryResponseSchema>;
+export type LiquidityCommitmentLine = z.infer<typeof LiquidityCommitmentLineSchema>;
+export type LiquidityCommitmentsOverview = z.infer<typeof LiquidityCommitmentsOverviewSchema>;
 export type AccountConfigsResponse = z.infer<typeof AccountConfigsResponseSchema>;
 export type TransactionsResponse = z.infer<typeof TransactionsResponseSchema>;
 export type AccountBalanceResponse = z.infer<typeof AccountBalanceResponseSchema>;

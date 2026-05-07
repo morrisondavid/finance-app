@@ -9,6 +9,7 @@ import type { AccountName, AiLiquidityResponse } from '../../../shared/api-contr
 import { AiLiquidityResponseSchema } from '../../../shared/api-contracts.js';
 import { allAccountBalancesForApi } from '../accounts/balance-for-api.js';
 import { buildLiquidityOverview } from '../accounts/liquidity-overview.js';
+import { buildLiquidityCommitments } from '../accounts/liquidity-commitments.js';
 import { accountsForEntity, validateAccount } from '../accounts/queries.js';
 import { allEntityIds } from '../company/queries.js';
 import { getAllAccountBalances, getAvailableFinancialYears, getTaxLiabilities } from '../../db/index.js';
@@ -28,6 +29,10 @@ export function composeAiLiquidity(opts: ComposeAiLiquidityOpts = {}): AiLiquidi
   const allBalances = getAllAccountBalances();
   const balances = allAccountBalancesForApi(allBalances);
   const liquidityOverview = buildLiquidityOverview(allBalances);
+  const liquidityCommitments = buildLiquidityCommitments({
+    todayIso: today,
+    totalCashGbp: liquidityOverview.totalCashGbp,
+  });
   const taxLiabilities = getTaxLiabilities({ account: selectedAccount, financialYear: selectedFY });
 
   let byEntity: AiLiquidityResponse['byEntity'];
@@ -55,6 +60,7 @@ export function composeAiLiquidity(opts: ComposeAiLiquidityOpts = {}): AiLiquidi
     today,
     balances,
     liquidityOverview,
+    liquidityCommitments,
     taxLiabilities,
     byEntity,
   });

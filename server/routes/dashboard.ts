@@ -9,6 +9,8 @@ import {
   type AccountConfig,
 } from '../domain/accounts/index.js';
 import { buildLiquidityOverview } from '../domain/accounts/liquidity-overview.js';
+import { buildLiquidityCommitments } from '../domain/accounts/liquidity-commitments.js';
+import { todayIsoLocal } from '../../shared/iso-date.js';
 import type {
   DashboardSummaryResponse,
   AccountConfigsResponse,
@@ -96,6 +98,11 @@ router.get('/summary', (req: Request<object, DashboardSummaryResponse, object, S
     }
 
     const allBalances = getAllAccountBalances();
+    const liquidityOverview = buildLiquidityOverview(allBalances);
+    const liquidityCommitments = buildLiquidityCommitments({
+      todayIso: todayIsoLocal(),
+      totalCashGbp: liquidityOverview.totalCashGbp,
+    });
     const summary = {
       totals: getDashboardTotals(filters),
       monthly: getMonthlySummary(filters),
@@ -105,7 +112,8 @@ router.get('/summary', (req: Request<object, DashboardSummaryResponse, object, S
         selectedAccount,
         getAccountBalance(selectedAccount),
       ),
-      liquidityOverview: buildLiquidityOverview(allBalances),
+      liquidityOverview,
+      liquidityCommitments,
       taxLiabilities: getTaxLiabilities(filters),
       transactionCount: getTransactionCount(filters),
       transferCount: getTransferCount(filters),

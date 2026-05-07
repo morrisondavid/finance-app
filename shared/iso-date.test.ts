@@ -9,6 +9,7 @@ import {
   isoWeekRange,
   monthRange,
   parseIsoFromDDMMYYYY,
+  isoDateAddCalendarMonths,
 } from './iso-date.js';
 
 describe('toIsoDate', () => {
@@ -19,6 +20,17 @@ describe('toIsoDate', () => {
   it('zero-pads single-digit months and days', () => {
     expect(toIsoDate(new Date(Date.UTC(2026, 0, 1)))).toBe('2026-01-01');
     expect(toIsoDate(new Date(Date.UTC(2026, 8, 9)))).toBe('2026-09-09');
+  });
+});
+
+describe('isoDateAddCalendarMonths', () => {
+  it('adds months in local calendar sense', () => {
+    expect(isoDateAddCalendarMonths('2026-05-08', 12)).toBe('2027-05-08');
+    expect(isoDateAddCalendarMonths('2026-01-31', 1)).toBe('2026-02-28');
+  });
+
+  it('subtracts months when negative', () => {
+    expect(isoDateAddCalendarMonths('2026-05-08', -12)).toBe('2025-05-08');
   });
 });
 

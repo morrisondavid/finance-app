@@ -108,6 +108,7 @@ const STATIC: AiManifestResponse = {
     'ExpectedReceiptsResponseSchema',
     'ExpensesSheetResponseSchema',
     'IncomeCompositionResponseSchema',
+    'LiquidityCommitmentsOverviewSchema',
     'ObligationRowSchema',
     'RecurringExpensesResponseSchema',
     'RunwayResponseSchema',

@@ -32,6 +32,20 @@ export function shiftIsoDate(iso: string, days: number): string {
 }
 
 /**
+ * Move a calendar `YYYY-MM-DD` by `deltaMonths` months. Day-of-month is
+ * clamped to the target month's length (e.g. 31 Jan + 1 mo → 28 Feb).
+ */
+export function isoDateAddCalendarMonths(iso: string, deltaMonths: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const startMonthIndex = m - 1 + deltaMonths;
+  const targetYear = y + Math.floor(startMonthIndex / 12);
+  const targetMonth = ((startMonthIndex % 12) + 12) % 12;
+  const dim = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const day = Math.min(d, dim);
+  return `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/**
  * Signed day distance `a - b` for two ISO dates (`YYYY-MM-DD`).
  * Positive when `a` is after `b`. Uses UTC so DST transitions don't
  * create off-by-one results.

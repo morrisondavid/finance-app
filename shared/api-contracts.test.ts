@@ -234,6 +234,7 @@ describe('DashboardSummaryResponseSchema', () => {
     fileCount: 5,
     financialYears: ['2025/26'],
     selectedFinancialYear: null,
+    liquidityCommitments: null,
   };
 
   it('validates a minimal dashboard response', () => {
