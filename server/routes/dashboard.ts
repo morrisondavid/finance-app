@@ -11,8 +11,9 @@ import {
 import { buildLiquidityOverview } from '../domain/accounts/liquidity-overview.js';
 import { buildLiquidityCommitments } from '../domain/accounts/liquidity-commitments.js';
 import { todayIsoLocal } from '../../shared/iso-date.js';
-import type {
-  DashboardSummaryResponse,
+import {
+  DashboardSummaryResponseSchema,
+  type DashboardSummaryResponse,
   AccountConfigsResponse,
   TransactionsResponse,
   AccountBalanceResponse,
@@ -40,6 +41,7 @@ import { normalizeFinancialYear } from '../db/utils/financial-year.js';
 import { round2 } from '../utils/math.js';
 import { buildExpensePipelineForAccount, transactionRowToRaw } from '../utils/expenses-overview-pipeline.js';
 import { computeBudgetNudges } from '../utils/budget-nudges.js';
+import { composeAiFinancialSafety } from '../domain/ai/index.js';
 
 const router = express.Router();
 
@@ -124,9 +126,13 @@ router.get('/summary', (req: Request<object, DashboardSummaryResponse, object, S
       budgetComparisons,
       yearlyBudgetComparisons,
       budgetNudges,
+      financialSafety: composeAiFinancialSafety({
+        account: selectedAccount,
+        financialYear: selectedFY,
+      }),
     };
-    
-    res.json(summary as DashboardSummaryResponse);
+
+    res.json(DashboardSummaryResponseSchema.parse(summary));
   } catch (error) {
     console.error('Error generating summary:', error);
     res.status(500).json({ error: 'Failed to generate summary' });

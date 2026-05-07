@@ -122,6 +122,96 @@ body {
   width: 100%;
 }
 
+/* §2.2 Financial Safety hero (embedded financialSafety on dashboard summary) */
+.financial-safety-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
+  margin: 0 0 16px 0;
+  padding: 18px 22px;
+  border-radius: 12px;
+  border: 2px solid var(--fs-score-border, rgba(100, 120, 140, 0.35));
+  background: var(--fs-score-bg, #f4fbf6);
+  color: var(--fs-score-fg, #0f1f14);
+  box-shadow: var(--shadow-sm);
+}
+
+.financial-safety-hero--loading {
+  min-height: 72px;
+  border-style: dashed;
+  opacity: 0.85;
+}
+
+.financial-safety-hero__skeleton-bar {
+  height: 40px;
+  width: 100%;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.06) 0%,
+    rgba(0, 0, 0, 0.12) 50%,
+    rgba(0, 0, 0, 0.06) 100%
+  );
+  background-size: 200% 100%;
+  animation: liquidity-dashboard-pulse 1.4s ease-in-out infinite;
+}
+
+.financial-safety-hero__copy {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.financial-safety-hero__kicker {
+  margin: 0 0 6px 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+.financial-safety-hero__label {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.financial-safety-hero__nudge {
+  margin: 8px 0 0 0;
+  font-size: 0.88rem;
+  opacity: 0.92;
+}
+
+.financial-safety-hero__meta {
+  margin: 10px 0 0 0;
+  font-size: 0.78rem;
+  opacity: 0.75;
+  line-height: 1.4;
+}
+
+.financial-safety-hero__score-block {
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+.financial-safety-hero__score {
+  margin: 0;
+  font-size: 2.75rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.financial-safety-hero__out-of {
+  margin-left: 4px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
 .liquidity-dashboard__card {
   margin: 0;
   padding: 22px 24px 24px;

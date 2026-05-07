@@ -5,6 +5,7 @@ import {
   composeAiPipeline,
   composeAiSnapshot,
   composeAiFinancialSnapshot,
+  composeAiFinancialSafety,
   buildAiManifest,
   composeAiIncomeComposition,
   composeAiDebtStrategyState,
@@ -68,6 +69,25 @@ describe('MCP resource payloads vs composers', () => {
     expect(fromMcp.verdict).toEqual(expected.verdict);
     expect(fromMcp.schemaVersion).toBe(expected.schemaVersion);
   });
+
+  it(
+    'financial-safety resource matches composeAiFinancialSafety with defaults (except timestamps)',
+    () => {
+      const fromMcp = JSON.parse(
+        readBankStatementsAiResource(BankStatementsAiResourceUris['financial-safety']),
+      );
+      const expected = composeAiFinancialSafety();
+      expect(fromMcp.score).toBe(expected.score);
+      expect(fromMcp.formulaVersion).toBe(expected.formulaVersion);
+      expect(fromMcp.pillars).toEqual(expected.pillars);
+      expect(fromMcp.warningAdjustment).toEqual(expected.warningAdjustment);
+      expect(fromMcp.baseScoreBeforeWarnings).toBe(expected.baseScoreBeforeWarnings);
+      expect(fromMcp.schemaVersion).toBe(expected.schemaVersion);
+      expect(typeof fromMcp.generatedAt).toBe('string');
+      expect(fromMcp.inputsRef?.financialSnapshotGeneratedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    },
+    25_000,
+  );
 
   it('manifest resource matches buildAiManifest', () => {
     const fromMcp = JSON.parse(readBankStatementsAiResource(BankStatementsAiResourceUris.manifest));

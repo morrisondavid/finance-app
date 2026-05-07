@@ -12,7 +12,7 @@
 >
 > **What's next (Tier 2):** **§2.2 Financial Safety Score** (multi-factor “am I safe?” — **liquidity vs commitments, runway, income durability / contract runway, expense & debt load**; §1.8 warnings as a **secondary modifier**, not the sole driver). Then **§2.3 Warnings metadata & agent ergonomics** — richer, stable warning identity + routing hints + optional user/orchestrator state stored **in this app** so MCP clients and external orchestrators can dedupe, prioritise, and drive actions without re-parsing prose. **Channels** (WhatsApp, email, Slack, *etc.*) and **conversational orchestration** stay **outside** this repo (separate agent stack). Context unchanged: two entities (UK Ltd + UAE FZCO), agency and direct clients, mixed self-bill and supplier-issued mechanisms.
 >
-> **Below:** Tier 0–1 narrative unchanged; **§2.0** foundation + **§2.0.H** extended AI surface remain as documented. **§2.4** (in-repo chat) is **not** a tracked milestone — see strikethrough heading under **§2.3**.
+> **Below:** Tier 0–1 narrative unchanged; **§2.0** foundation + **§2.0.H** extended AI surface remain as documented.
 
 ---
 
@@ -186,7 +186,7 @@ function-calling, Claude tool-use) is:
    auto-discover the tool menu instead of guessing field meanings
    (2.0.F).
 
-**Gate.** Blocks Tier 2 numbering **§2.1–§2.3** as defined below until 2.0 acceptance criteria pass. (**Former §2.4** in-repo chat/WhatsApp is **out of scope** — use an external orchestrator + this app’s HTTP/MCP.)
+**Gate.** Blocks Tier 2 numbering **§2.1–§2.3** as defined below until 2.0 acceptance criteria pass. **In-repo chat / WhatsApp** and **message delivery** are **out of scope** — use an external orchestrator + this app’s HTTP/MCP.
 
 #### 2.0.A Balance semantics — explicit discriminator
 
@@ -564,6 +564,14 @@ Weights and curves (e.g. logistic on **cash ÷ committed**, piecewise on **runwa
 
 **Acceptance.** Example: high cash **with** commitments ≫ cash → low pillar A → low headline score **without** requiring a bespoke “ratio warning.” Selling a house updates income/expense inputs → pillar C/D move when data is updated. Warnings-free but **catastrophic runway** still scores poorly via pillar B.
 
+**Implementation & quality bar**
+
+- **Single derivation implementation:** one **pure** `computeFinancialSafety` in **`shared/financial-safety/`** — **Vitest** exercises it without DB; the server **only** assembles `FinancialSafetyInput` from existing composers and calls it (no duplicate formula in UI or MCP callbacks).
+- **API surfaces:** `GET /api/ai/financial-safety` + MCP resource parity; **`GET /api/dashboard/summary`** also returns optional **`financialSafety`** (same payload) so the Dashboard does not need a second request.
+- **Unit tests:** table-driven cases — pillar isolation (e.g. weak liquidity **without** warnings), warning-only modifier, runway stress, clamps in **0–10**, regression for high cash + commitments ≫ cash ⇒ low score.
+- **Contract tests:** MCP/HTTP parity for the new slice; schema parse in **`shared/api-contracts.test.ts`**.
+- **Dashboard UX:** prominent **Financial Safety** hero on the Dashboard (with liquidity): headline **0–10**, colour band **green → amber → red** via a small **`scoreToSafetyTheme`** helper in **`shared/`** (HSL/CSS custom properties).
+
 **Naming.** “Confidence” may stay as UI copy; roadmap uses **Financial Safety Score** to avoid implying “model self-confidence” rather than **user solvency / runway**.
 
 ### 2.3 Warnings metadata & agent ergonomics (for MCP / orchestrators)
@@ -607,12 +615,6 @@ Extend **`EntityFoundationWarning`** / **`GET /api/ai/warnings`** (and keep UI p
 - WhatsApp / Meta / Twilio / email senders; cron workers that push messages; template selection for push notifications.
 
 **Acceptance.** Orchestrator can prioritise and dedupe warnings from JSON alone; chronic tax / obligation warnings remain present until domain data fixes the underlying condition; snooze does not conflate with “paid HMRC.”
-
-### ~~2.4 WhatsApp / Chat Interface~~ — **DEFERRED / EXTERNAL**
-
-**Removed as an in-repo milestone.** Conversation and channel plumbing (WhatsApp, *etc.*) are expected to run in a **separate orchestration stack** that uses this application as the **source of truth** (HTTP + MCP). In-repo work focuses on **data**, **warnings**, **§2.3 metadata**, and **explicit mutations** — not chat transport.
-
----
 
 ## Tier 3 — Historical & Polish
 
@@ -936,7 +938,7 @@ more “step 6 = §1.8” skew between list index and section number).
     1.1 / 1.3.
 17. **Historical Invoice Parser Fallbacks (3.3)** — OCR + inbound
     automation.
-18. **(External)** Agent orchestration & notification channels — conversational stack (e.g. WhatsApp) consumes **`bankstatements://ai/*`** + REST; delivery not an in-repo milestone (~~§2.4~~).
+18. **(External)** Agent orchestration & notification channels — conversational stack (e.g. WhatsApp) consumes **`bankstatements://ai/*`** + REST; delivery not an in-repo milestone.
 
 ---
 

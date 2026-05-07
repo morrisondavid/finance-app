@@ -50,7 +50,6 @@ import {
   findLeaveById,
   leaveForContract,
   upsertLeaveRows,
-  allLeave,
   composeLeaveId,
 } from '../domain/leave/index.js';
 import { findClientById } from '../domain/clients/queries.js';

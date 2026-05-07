@@ -332,6 +332,44 @@ export const LiquidityCommitmentsOverviewSchema = z.object({
   lines: z.array(LiquidityCommitmentLineSchema),
 });
 
+const FinancialSafetyRawMetricValueSchema = z.union([z.number(), z.string(), z.boolean(), z.null()]);
+
+export const AiFinancialSafetyPillarSchema = z.object({
+  id: z.enum(['A', 'B', 'C', 'D']),
+  label: z.string(),
+  contribution: z.number(),
+  weight: z.number(),
+  rawMetrics: z.record(z.string(), FinancialSafetyRawMetricValueSchema),
+});
+
+export const AiFinancialSafetyWarningAdjustmentSchema = z.object({
+  pointsDeducted: z.number(),
+  linkedWarnings: z.array(
+    z.object({
+      id: z.string(),
+      code: z.string(),
+    }),
+  ),
+  capApplied: z.number().nullable(),
+});
+
+/** §2.2 Financial Safety Score — MCP / dashboard parity with `GET /api/ai/financial-safety`. */
+export const AiFinancialSafetyResponseSchema = z.object({
+  generatedAt: z.string(),
+  schemaVersion: z.string(),
+  inputsRef: z
+    .object({
+      financialSnapshotGeneratedAt: z.string(),
+    })
+    .optional(),
+  score: z.number(),
+  formulaVersion: z.literal('1.0.0'),
+  pillars: z.array(AiFinancialSafetyPillarSchema),
+  warningAdjustment: AiFinancialSafetyWarningAdjustmentSchema,
+  baseScoreBeforeWarnings: z.number(),
+});
+export type AiFinancialSafetyResponse = z.infer<typeof AiFinancialSafetyResponseSchema>;
+
 // GET /api/dashboard/summary
 export const DashboardSummaryResponseSchema = z.object({
   totals: DashboardTotalsSchema,
@@ -351,6 +389,8 @@ export const DashboardSummaryResponseSchema = z.object({
   budgetComparisons: z.array(BudgetComparisonSchema).default([]),
   yearlyBudgetComparisons: z.array(YearlyBudgetComparisonSchema).default([]),
   budgetNudges: z.array(BudgetNudgeSchema).default([]),
+  /** §2.2 — same payload as `GET /api/ai/financial-safety` when present. */
+  financialSafety: AiFinancialSafetyResponseSchema.optional(),
 });
 
 // GET /api/dashboard/accounts

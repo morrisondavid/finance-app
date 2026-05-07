@@ -54,6 +54,20 @@ const STATIC: AiManifestResponse = {
     },
     {
       method: 'GET',
+      path: '/api/ai/financial-safety',
+      queryParams: [
+        'days',
+        'entityId',
+        'detail',
+        'account',
+        'financialYear',
+        'groupByEntity',
+        'commitmentDays',
+      ],
+      responseSchemaExport: 'AiFinancialSafetyResponseSchema',
+    },
+    {
+      method: 'GET',
       path: '/api/ai/manifest',
       queryParams: [],
       responseSchemaExport: 'AiManifestResponseSchema',
@@ -110,6 +124,7 @@ const STATIC: AiManifestResponse = {
   contractSchemaExports: [
     'AccountBalanceSchema',
     'AdHocExpensesResponseSchema',
+    'AiFinancialSafetyResponseSchema',
     'AiFinancialSnapshotResponseSchema',
     'AiLiquidityResponseSchema',
     'AiManifestResponseSchema',

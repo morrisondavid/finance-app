@@ -19,6 +19,7 @@ import {
   CompanySchema,
   UkCompanySchema,
   UaeCompanySchema,
+  AiFinancialSafetyResponseSchema,
 } from './api-contracts.js';
 
 describe('HmrcPaymentMatchSchema', () => {
@@ -805,6 +806,54 @@ describe('UaeCompanySchema', () => {
   it('rejects an invalid ct_registered value', () => {
     const result = UaeCompanySchema.safeParse({ ...validUae, ct_registered: 'maybe' });
     expect(result.success).toBe(false);
+  });
+});
+
+describe('AiFinancialSafetyResponseSchema', () => {
+  it('accepts a minimal valid §2.2 payload', () => {
+    const result = AiFinancialSafetyResponseSchema.safeParse({
+      generatedAt: '2026-05-06T12:00:00.000Z',
+      schemaVersion: '2.2.0',
+      score: 7.2,
+      formulaVersion: '1.0.0',
+      pillars: [
+        {
+          id: 'A',
+          label: 'Liquidity vs commitments',
+          contribution: 8,
+          weight: 0.35,
+          rawMetrics: { totalCashGbp: 100 },
+        },
+        {
+          id: 'B',
+          label: 'Runway / stress',
+          contribution: 7,
+          weight: 0.3,
+          rawMetrics: { verdictKind: 'safe' },
+        },
+        {
+          id: 'C',
+          label: 'Income durability',
+          contribution: 6,
+          weight: 0.15,
+          rawMetrics: {},
+        },
+        {
+          id: 'D',
+          label: 'Expense & debt headroom',
+          contribution: 7,
+          weight: 0.2,
+          rawMetrics: {},
+        },
+      ],
+      warningAdjustment: {
+        pointsDeducted: 1,
+        linkedWarnings: [{ id: 'w1', code: 'obligation-missed' }],
+        capApplied: null,
+      },
+      baseScoreBeforeWarnings: 8.1,
+    });
+    expect(result.success).toBe(true);
   });
 });
 

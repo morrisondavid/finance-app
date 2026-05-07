@@ -5,6 +5,7 @@ export {
   composeAiFinancialSnapshot,
   type ComposeAiFinancialSnapshotOpts,
 } from './compose-financial-snapshot.js';
+export { composeAiFinancialSafety, type ComposeAiFinancialSafetyOpts } from './compose-financial-safety.js';
 export { composeAiIncomeComposition } from './compose-income-composition.js';
 export { composeAiDebtStrategyState } from './compose-debt-strategy.js';
 export { composeAiSpendContext } from './compose-spend-context.js';

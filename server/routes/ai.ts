@@ -16,6 +16,7 @@ import {
   composeAiPipeline,
   composeAiSnapshot,
   composeAiFinancialSnapshot,
+  composeAiFinancialSafety,
   composeAiIncomeComposition,
   composeAiDebtStrategyState,
   composeAiSpendContext,
@@ -162,6 +163,40 @@ router.get('/financial-snapshot', (req: Request, res: Response) => {
     console.error('[AI] GET /financial-snapshot error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     res.status(500).json({ error: `Failed to build AI financial snapshot: ${message}` });
+  }
+});
+
+router.get('/financial-safety', (req: Request, res: Response) => {
+  try {
+    const parsed = FinancialSnapshotQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid-params', issues: parsed.error.issues });
+      return;
+    }
+    const {
+      days: horizonDays,
+      entityId: filterEntityId,
+      detail: runwayDetail,
+      account,
+      financialYear,
+      groupByEntity,
+      commitmentDays,
+    } = parsed.data;
+    res.json(
+      composeAiFinancialSafety({
+        horizonDays,
+        commitmentDays,
+        filterEntityId,
+        runwayDetail,
+        account,
+        financialYear,
+        groupByEntity,
+      }),
+    );
+  } catch (error) {
+    console.error('[AI] GET /financial-safety error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: `Failed to build AI financial safety: ${message}` });
   }
 });
 

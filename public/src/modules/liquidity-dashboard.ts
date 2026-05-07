@@ -3,6 +3,7 @@
  */
 
 import type { DashboardSummaryResponse } from '../../../shared/api-contracts.js';
+import { renderFinancialSafetyHero } from './financial-safety-hero.js';
 import { fetchDashboard } from '../utils/api';
 import { formatCurrency } from '../utils/formatting';
 import { escapeHtml } from '../utils/dom';
@@ -106,6 +107,9 @@ function splitSummary(cashGbp: number, totalGbp: number): string {
 function renderSkeleton(): string {
   return `
     <div class="liquidity-dashboard__inner">
+      <div class="financial-safety-hero financial-safety-hero--loading" role="status" aria-busy="true">
+        <div class="financial-safety-hero__skeleton-bar"></div>
+      </div>
       <div class="liquidity-dashboard__card liquidity-dashboard__card--loading" role="status" aria-busy="true">
         <p class="liquidity-dashboard__kicker">${escapeHtml(HERO_KICKER)}</p>
         <div class="liquidity-dashboard__hero-grid" aria-hidden="true">
@@ -207,12 +211,15 @@ function renderCommitmentsDetail(commitments: NonNullable<DashboardSummaryRespon
 function renderCard(
   overview: DashboardSummaryResponse['liquidityOverview'],
   commitments: DashboardSummaryResponse['liquidityCommitments'],
+  financialSafety: DashboardSummaryResponse['financialSafety'],
 ): string {
   const { totalCashGbp, totalCreditGbp, totalAvailableGbp, lines } = overview;
+  const fsHero = renderFinancialSafetyHero(financialSafety);
 
   if (lines.length === 0) {
     return `
       <div class="liquidity-dashboard__inner">
+        ${fsHero}
         <div class="liquidity-dashboard__card">
           <p class="liquidity-dashboard__kicker">${escapeHtml(HERO_KICKER)}</p>
           ${renderHeroMetrics(0, 0, 0, commitments)}
@@ -240,6 +247,7 @@ function renderCard(
 
   return `
     <div class="liquidity-dashboard__inner">
+      ${fsHero}
       <div class="liquidity-dashboard__card">
         <p class="liquidity-dashboard__kicker">${escapeHtml(HERO_KICKER)}</p>
         ${renderHeroMetrics(totalCashGbp, totalCreditGbp, totalAvailableGbp, commitments)}
@@ -277,7 +285,7 @@ export async function loadLiquidityDashboard(): Promise<void> {
       account: state.selectedAccount,
       financialYear: state.selectedFinancialYear || undefined,
     });
-    el.innerHTML = renderCard(data.liquidityOverview, data.liquidityCommitments);
+    el.innerHTML = renderCard(data.liquidityOverview, data.liquidityCommitments, data.financialSafety);
   } catch (error) {
     console.error('[Liquidity dashboard]', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
