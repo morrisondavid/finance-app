@@ -9,6 +9,7 @@ import {
   composeAiLiquidity,
   composeAiPipeline,
   composeAiSnapshot,
+  composeAiFinancialSnapshot,
   buildAiManifest,
   composeAiIncomeComposition,
   composeAiDebtStrategyState,
@@ -25,6 +26,7 @@ export const BankStatementsAiResourceUris = {
   pipeline: `${BANK_STATEMENTS_AI_RESOURCE_BASE}/pipeline`,
   runway: `${BANK_STATEMENTS_AI_RESOURCE_BASE}/runway`,
   snapshot: `${BANK_STATEMENTS_AI_RESOURCE_BASE}/snapshot`,
+  'financial-snapshot': `${BANK_STATEMENTS_AI_RESOURCE_BASE}/financial-snapshot`,
   manifest: `${BANK_STATEMENTS_AI_RESOURCE_BASE}/manifest`,
   warnings: `${BANK_STATEMENTS_AI_RESOURCE_BASE}/warnings`,
   incomeComposition: `${BANK_STATEMENTS_AI_RESOURCE_BASE}/income-composition`,
@@ -48,6 +50,8 @@ export function readBankStatementsAiResource(uri: string): string {
     }
     case BankStatementsAiResourceUris.snapshot:
       return JSON.stringify(composeAiSnapshot());
+    case BankStatementsAiResourceUris['financial-snapshot']:
+      return JSON.stringify(composeAiFinancialSnapshot());
     case BankStatementsAiResourceUris.manifest:
       return JSON.stringify(buildAiManifest());
     case BankStatementsAiResourceUris.warnings:

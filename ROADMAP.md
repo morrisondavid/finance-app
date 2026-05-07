@@ -4,11 +4,15 @@
 >
 > Everything below is organized around one principle: closing the gap between "I can see what happened" and "nothing can surprise me."
 >
-> **What's shipped (Tier 0):** obligations registry, HMRC auto-seeders (VAT / CT / SA / TTP), **budgets** (monthly + yearly vs actual on the **Accounts** tab, plus **nudges** for high-spend merchants without a budget line), **household liquidity** on the **Dashboard** tab (GBP headline with **cash vs credit** split, static FX, per-account breakdown via `liquidityOverview` on `GET /api/dashboard/summary`), recurring detection, overdue hero, missed-obligation detector, multi-currency foundations (GBP + AED), and the Deadlines tab + calendar + ICS export.
+> **What's shipped (Tier 0):** obligations registry, HMRC auto-seeders (VAT / CT / SA / TTP), **budgets** (monthly + yearly vs actual on the **Accounts** tab, plus **nudges** for high-spend merchants without a budget line), **household liquidity** on the **Dashboard** tab (`GET /api/dashboard/summary`): **`liquidityOverview`** (GBP **cash vs credit** split, static FX, per-account breakdown) plus **`liquidityCommitments`** — **rolling 12 calendar months** from today (obligations in window + projected fixed recurring from `runExpensesOverviewPipeline`; **cash after commitments** = cash-only, signed on the wire, headline floored at £0; **Save ahead** flags for lines ≥ threshold; overlap footnote), same subtree on **`GET /api/ai/liquidity`** / MCP liquidity resource; recurring detection, overdue hero, missed-obligation detector, multi-currency foundations (GBP + AED), and the Deadlines tab + calendar + ICS export.
 >
 > **What's shipped (Tier 1):** **Multi-Entity Foundation (1.1)**, **Clients, Contracts & Renewals (1.2)** phases A–E, **Invoicing (1.3)** Phases 1–4 (incl. payment reconciler with FX), **Working-Days Ledger (1.4)** with public holidays + leave calendar, **Cash Flow Forecast (1.5)** at `GET /api/forecast`, **Worst Case / Runway (1.6)** at `GET /api/runway` (household-first, GBP + AED dual headline, entity drill-down, credit headroom; **Strategy** tab hero uses `holisticGbp` from this API — **accrual off**, “contracts stop paying”; the **sandbox** `assembleRunwayScenario` uses **accrual on** plus optional income exclusions, so “cash runs out” can legitimately differ), and **Income Composition & Diversification (1.7)** at `GET /api/income-composition` (metrics + typed `riskSignals[]`, `properties/` registry).
 >
-> **What's next (Tier 1 → Tier 2):** Tier 1 (§1.1 – §1.9) is shipped. **§2.0** structured-data primitives, slices, snapshot, manifest, and MCP adaptor are the foundation. **§2.0.H** is shipped: manifest + **`/api/ai/*`** + MCP now expose **warnings, spend/expenses, income composition, and debt strategy** with the same JSON as the Tier 1 routes (composition only—no second implementations). **Next:** **§2.1–2.4** (affordability snapshot, confidence, alerts, WhatsApp). Context unchanged: two entities (UK Ltd + UAE FZCO), agency and direct clients, mixed self-bill and supplier-issued mechanisms.
+> **Tier 2 started:** ~~**§2.1 Financial Snapshot**~~ ✅ **SHIPPED** — **`GET /api/ai/financial-snapshot`**, MCP **`bankstatements://ai/financial-snapshot`**, **`AiFinancialSnapshotResponseSchema`**, manifest **`AI_MANIFEST_SCHEMA_VERSION` 2.1.3** (composed: liquidity + `liquidityCommitments`, near-term obligation window, runway `holisticGbp`, outstanding invoices + aggregate accrual, discretionary, budget nudges, verdict). See **§2.1** for deferred nuance (near-term sum = pipeline obligations only).
+>
+> **What's next (Tier 2):** **§2.2 Financial Safety Score** (multi-factor “am I safe?” — **liquidity vs commitments, runway, income durability / contract runway, expense & debt load**; §1.8 warnings as a **secondary modifier**, not the sole driver). Then **§2.3 Warnings metadata & agent ergonomics** — richer, stable warning identity + routing hints + optional user/orchestrator state stored **in this app** so MCP clients and external orchestrators can dedupe, prioritise, and drive actions without re-parsing prose. **Channels** (WhatsApp, email, Slack, *etc.*) and **conversational orchestration** stay **outside** this repo (separate agent stack). Context unchanged: two entities (UK Ltd + UAE FZCO), agency and direct clients, mixed self-bill and supplier-issued mechanisms.
+>
+> **Below:** Tier 0–1 narrative unchanged; **§2.0** foundation + **§2.0.H** extended AI surface remain as documented. **§2.4** (in-repo chat) is **not** a tracked milestone — see strikethrough heading under **§2.3**.
 
 ---
 
@@ -30,7 +34,10 @@
 
 ### 0.2 Dashboard vs Accounts shell ✅ SHIPPED
 
-- **Dashboard** tab (default): household **liquidity** — `totalCashGbp` / `totalCreditGbp` / combined GBP (static FX), split %, per-account rows (`buildLiquidityOverview` + `GET /api/dashboard/summary` → `liquidityOverview`).
+- **Dashboard** tab (default): household **liquidity** — hero **"Household liquidity"** with **four headline tiles**: Cash & savings, Credit available, **Committed (12 mo)**, **Cash after commitments** (headline uses **max(0, model)**; API returns signed `cashAfterCommitmentsGbp`). Below: **two-column** breakdown (cash accounts | credit cards), then full-width **committed outflows** panel with horizon label (`horizonStartDate` → `horizonEndDate`, **+12 calendar months** from today, **not** tied to the FY selector). Static FX note and footnotes (credit not netted into cash-after; obligations vs recurring may overlap).
+- **Domain:** `server/domain/accounts/liquidity-commitments.ts` — `buildLiquidityCommitments({ todayIso, totalCashGbp })`; obligations via `getAllObligations` (`minDueDate` ≈ today−365 for overdue capture, `maxDueDate` = horizon end); recurring from `runExpensesOverviewPipeline()` (monthly × month-buckets in range; annual when due falls in window). **`significantThresholdGbp`** (default £2,000) drives **Save ahead** in UI.
+- **API:** `GET /api/dashboard/summary` → `liquidityCommitments` (always built when balances load — **independent of selected FY**). **`composeAiLiquidity`** includes the same block; **`AiLiquidityResponseSchema`** + MCP liquidity resource parity (contract tests).
+- **Deferred / vNext (not shipped):** dedupe obligation vs recurring for the same underlying bill; optional accountant-adjusted CT override in commitments total; richer “discretionary vs mandatory” split on the dashboard.
 - **Accounts** tab: FY filter, charts, budgets, VAT, balance editing — unchanged analytics surface; loads the same summary on first visit (lazy).
 
 ---
@@ -50,7 +57,7 @@
 Structural anchor for every income-side calculation. Both **agency-mediated** (e.g. La Fosse → Edwin) and **direct** (e.g. Delta Capita) shapes are first-class.
 
 - **A — Registries + renewal deadlines.** Canonical `clients`, `master-agreements`, and `contracts` registries with build-time FK joins; renewal deadlines auto-seeded into the unified deadlines feed + ICS.
-- **B — Templates + recipient routing.** Pure `renderTemplate` + `resolveRecipients` over `.hbs` files (`leave`, `sickness`, `invoice-cover`, `renewal`); per-client overrides; structured errors. Consumed today by 1.2.E leave preview, by 2.3 for send.
+- **B — Templates + recipient routing.** Pure `renderTemplate` + `resolveRecipients` over `.hbs` files (`leave`, `sickness`, `invoice-cover`, `renewal`); per-client overrides; structured errors. Consumed today by 1.2.E leave preview; any future template-driven outbound comms would use the same primitives (delivery **outside** this repo unless explicitly added later).
 - **C — Timeline-aware payer matcher.** `matchPayerToContract` resolves transactions to active contracts via the `byClientAndEntity` index. `payment-outside-contract-window` joins the entity-foundation warnings feed.
 - **D — Clients page UI.** End-client-first tiled view; agency rows surface twice (agency block + end-client block); `PUT /api/clients/:id` is the sole write path with kind-flip protection; `client-tbc-fields` warnings render as per-tile badges.
 - **E — Contracts tab.** Per-contract accrual + Retained-after-tax banner; Book Leave flow writes to `working-days/leave.csv` via a canonical leave registry; `GET /api/contracts/:id/income-accrual` derives worked / accrued / projected days from the `works_*` weekday mask minus leave (and public holidays via 1.4); accrual rebases onto the last matched invoice payment.
@@ -125,8 +132,7 @@ surfaces don't parse prose.
   + `GET /api/warnings/all` (forward-naming alias). The frontend
   Warnings tab gains an entity filter and an optional source-group
   toggle; existing CSS classes reused.
-- The warning schema remains the spine for §2.2 Confidence Score
-  and §2.3 Alert Queue.
+- The warning schema is a **primary spine** for §2.3; it is one **input** (risk modifier) to §2.2 alongside liquidity, runway, and income — see **§2.2**.
 - **Leveraged-passive-income:** property leverage uses `debt.matchAmounts[0]` per property (not pipeline pattern sums that merged distinct mortgages); optional `match_tolerance_pct` on debts; regression tests lock behaviour.
 
 ### 1.9 Debt Strategy Advisor ✅ SHIPPED
@@ -147,7 +153,7 @@ Goal-driven planner (clear a debt / save for a target): standing-order instructi
 
 ### 2.0 Structured Data for AI Consumption (agent prerequisite)
 
-Before Open Close (2.3 + 2.4) or any external AI assistant
+Before any external AI assistant
 (ChatGPT / Claude / MCP bridges) can be trusted with real analysis
 of this data, the app needs a small, well-named set of endpoints
 whose field semantics are unambiguous.
@@ -180,8 +186,7 @@ function-calling, Claude tool-use) is:
    auto-discover the tool menu instead of guessing field meanings
    (2.0.F).
 
-**Gate.** Blocks 2.1, 2.2, 2.3, 2.4. No Open Close work should start
-until 2.0 acceptance criteria pass.
+**Gate.** Blocks Tier 2 numbering **§2.1–§2.3** as defined below until 2.0 acceptance criteria pass. (**Former §2.4** in-repo chat/WhatsApp is **out of scope** — use an external orchestrator + this app’s HTTP/MCP.)
 
 #### 2.0.A Balance semantics — explicit discriminator
 
@@ -319,9 +324,7 @@ just exposure arithmetic.
 Three small composed endpoints, each with a single clear purpose.
 These are the *primary* surface for agent reads:
 
-- `GET /api/ai/liquidity` — per-entity and global: `cash`,
-  `creditRemaining`, `debtOwed`, `earmarkedForTax`. Reduces over
-  2.0.A balances + existing tax-reserve fields from 1.2.E.
+- `GET /api/ai/liquidity` — composed today: **`liquidityOverview`** + **`taxLiabilities`** + optional **`byEntity`**, and **`liquidityCommitments`** (rolling 12-month committed model + `significantThresholdGbp`, same as dashboard summary). *(Original 2.0.E sketch also listed per-field cash/credit/debt slices; shipped shape is Zod-locked in `AiLiquidityResponseSchema`.)*
 - `GET /api/ai/pipeline` — expected receipts (2.0.C) + upcoming
   obligations (existing) merged onto a single dated timeline, per
   account. Answers "what lands when?" in one call.
@@ -419,7 +422,7 @@ server/mcp/
 - Cursor can answer questions about your live finances inside the
   IDE (attach `server/mcp/server.ts` via stdio in `.cursor/mcp.json`).
 - Claude Desktop can do the same.
-- Any future agent — including Open Close (2.3/2.4) — becomes an MCP
+- Any future agent or orchestrator becomes an MCP
   *client*, so swapping the underlying model (Claude / GPT-5 /
   Qwen / local) is a config change, not a rewrite.
 - Remote LLMs (ChatGPT via bridge) consume exactly the same surface
@@ -454,8 +457,8 @@ Liquidity, pipeline, runway, and snapshot answer **survival and timing** questio
 
 **Shipped in this repo.**
 
-- **`AI_MANIFEST_SCHEMA_VERSION` 2.1.0** — expanded `slices[]` and `contractSchemaExports` in `server/domain/ai/manifest.ts` (warnings, income-composition, debt-strategy, spend-context, expenses routes).
-- **HTTP** — `GET /api/ai/warnings`, `/income-composition`, `/debt-strategy`, `/spend-context` in `server/routes/ai.ts`.
+- **`AI_MANIFEST_SCHEMA_VERSION`** — **2.1.0** shipped the expanded `slices[]` and `contractSchemaExports` (warnings, income-composition, debt-strategy, spend-context, expenses routes); **2.1.2+** adds **`LiquidityCommitmentsOverviewSchema`** for nested **`liquidityCommitments`** on the liquidity slice (dashboard parity); **2.1.3** adds **`AiFinancialSnapshotResponseSchema`** for **`GET /api/ai/financial-snapshot`** (§2.1).
+- **HTTP** — `GET /api/ai/warnings`, `/income-composition`, `/debt-strategy`, `/spend-context`, **`/financial-snapshot`** (§2.1; manifest **2.1.3+**) in `server/routes/ai.ts`.
 - **MCP** — matching resources in `server/mcp/bank-mcp-server.ts`; parity in `server/mcp/bank-mcp-server.contract.test.ts` and `server/routes/ai-parity.test.ts`.
 - **Debt-strategy JSON** — `debtStrategyBundleToResponseJson` materialises Maps/Sets (including nested `forecastInputs`) so wire JSON matches `JSON.stringify` semantics for agents; **`GET /api/debt-strategy/state`** uses the same helper (UI unchanged where it only consumes top-level plan/headroom fields).
 
@@ -465,7 +468,7 @@ Liquidity, pipeline, runway, and snapshot answer **survival and timing** questio
 
 **Acceptance for 2.0.H.** Full **`npx vitest run`** green; manifest lists new slices; MCP matches composers; no duplicate business logic in MCP; contracts in `shared/api-contracts.ts` (e.g. `DebtStrategyStateResponseSchema`, `AiSpendContextResponseSchema`).
 
-**Gate.** Delivers agent parity on Tier 1 insight; **§2.1** Open Close can proceed on this foundation.
+**Gate.** Delivers agent parity on Tier 1 insight; **§2.1** Financial Snapshot shipped on this foundation (see §2.1).
 
 #### 2.0 acceptance criteria
 
@@ -487,10 +490,20 @@ account types, debt types, or tax types. `balanceSemantics`,
 `debtKind`, `adjustmentBasis` are non-optional discriminators.
 `/api/ai/manifest` is generated from the schema, not hand-written.
 
-### 2.1 Financial Snapshot / Commitment Approval
+### 2.1 Financial Snapshot / Commitment Approval — initial slice ✅ SHIPPED
 
 Single endpoint the agent calls before answering any spending
 question.
+
+**Shipped checklist**
+
+- [x] **`GET /api/ai/financial-snapshot`** (`commitmentDays` query param; defaults aligned with other AI routes).
+- [x] MCP **`bankstatements://ai/financial-snapshot`** + contract test vs `composeAiFinancialSnapshot`.
+- [x] **`AiFinancialSnapshotResponseSchema`** on manifest **`contractSchemaExports`**; schema version **2.1.3**.
+- [x] Composed **liquidity** (including **`liquidityCommitments`**) via `composeAiLiquidity`; **runway** via same forecast path as snapshot; **income** (outstanding invoices GBP + **`buildAggregateAccrualResponse`**); **discretionary**; **spendVsBudget** (dashboard-style nudges); **verdict** (`deriveFinancialVerdict` + unit tests).
+- [x] **`GET /api/contracts/income-accrual`** thins to **`buildAggregateAccrualResponse`** in **`server/domain/contracts/aggregate-accrual.ts`**.
+
+**Partially covered elsewhere:** the **Dashboard** + **`GET /api/ai/liquidity`** already expose **`liquidityCommitments`** (rolling **12-month** committed model, cash-after, significant lines) — see **§0.2**. §2.1 adds the **task-shaped** bundle on top (near-term window vs 12‑month block, runway headline, invoices + accrual rollup, nudges, verdict).
 
 - Current liquid balance across accounts, per entity and global.
 - Committed outgoings for next N days (from obligations + recurring
@@ -505,55 +518,99 @@ Replaces the agent-side shape that `/api/dashboard/summary` can't
 provide (the summary is UI-shaped and not task-shaped for
 affordability questions).
 
-### 2.2 Confidence Score (reduction over the Warnings Engine)
+**Deferred / nuance.** Near-term **`commitmentWindow.committedOutflowsGbp`** sums **AI pipeline obligation rows** only (see `discretionary.note` on the wire); full “obligations + recurring detector” parity for the window may be tightened later. **§2.2** (financial safety score) and **§2.3** (warnings metadata for agents) remain open.
 
-A daily psychological stabiliser: a single number that answers "am I
-safe?"
+### 2.2 Financial Safety Score (multi-factor; warnings = modifier, not base) — **NEXT**
 
-No longer an independent calculation — it is a weighted reduction
-over the Solvency Warnings Engine (1.8) output. A warning-free state
-is 10 / 10; each active warning deducts based on `severity ×
-time-to-impact`. The score can never lie about its reasoning because
-the list that drives it is always clickable and specific.
+**Goal.** One headline number (and explainability) for **“how safe am I financially?”** — aligned with how a principal **actually** thinks: *cash vs what I’m on the hook for*, *how long before stress*, *whether income will cover outflows*, not merely **“how few warnings fired today.”**
 
-- Financial Safety: 8.5 / 10.
-- Unknown Risk: Low / Medium / High, derived from data-staleness
-  warnings specifically.
-- Inputs flow through 1.8, not directly:
-  - Missed-obligation signal (existing overdue hero +
-    auto-matcher).
-  - Forecast health (from 1.5).
-  - Invoice-to-working-days discrepancies (from 1.3 + 1.4).
-  - Budget adherence (from existing budgets).
-  - Income composition — client concentration, active/passive
-    ratio, time-independence ratio, and income-goal progress (from
-    1.7).
-  - Scheduled-leave shortfall (from 1.4).
-  - Multi-entity specific — FZCO CT unknown, UAE thresholds,
-    inter-company movements, `TBC` fields (from 1.1 + 1.2).
-- Score drop → the warning(s) that moved it are surfaced verbatim;
-  the agent has the list without re-deriving.
+**Why the old framing was wrong.** Treating the score as **only** a reduction over §1.8 warnings makes **“fewer warnings ⇒ safer”** the main story. Warnings are **high-value tripwires** (missed filing, runway threshold, data gaps) but **secondary** to **structural affordability**: e.g. **£36k cash** with **~£180k committed over 12 months** (see **`liquidityCommitments`** on dashboard / **`GET /api/ai/liquidity`**) should drag the score down **even if** no new warning code exists yet.
 
-### 2.3 Alert & Notification Queue (delivery path for the Warnings Engine)
+**Design principles**
 
-The schema of *what to alert about* lives in 1.8. 2.3 is purely
-delivery: take an emitted warning and get it to the right channel at
-the severity-appropriate time.
+1. **Primary drivers = quantitative spine** already in the app: liquidity, rolling commitments, forecast runway, contract-accrual / expected receipts, income composition, debt-strategy headroom, spend context. The score **aggregates** these; it does not replace them.
+2. **Warnings = modifier.** Active warnings **cap or subtract** from a **base score** derived from pillars (weighted `severity × urgency`), or define a **floor** (“never above 6/10 while critical overdue tax exists”). They must **not** be the only input.
+3. **Reproducible.** Any consumer (UI, **`GET /api/ai/*`**, external LLM via MCP) can **recompute the same number** from the same **versioned formula id** + **published inputs snapshot** (see below). No hand-wavy prose as the source of truth.
+4. **Structural life changes** (e.g. sell a house → more income / lower rent) move the score when **registry + transactions** move — same as today’s domain; the score reflects **updated model inputs**, not a separate magic state.
 
-- New `pending_alerts` CSV/table
-  (`alert_id, warning_id, channel, severity, scheduled_for,
-  delivery_status, delivered_at`).
-- Trigger rule: any warning with `severity ≥ threshold` and
-  `scheduled_for <= now` is queued for delivery.
-- Delivery adaptors: WhatsApp API, email.
-- Warning resolution (state changes that clear the trigger condition)
-  auto-cancels any pending alert for that warning so you are never
-  pinged about something you have already fixed.
+**Pillars (contributors — implement as weighted sub-scores with documented floors/caps)**
 
-### 2.4 WhatsApp / Chat Interface
+| Pillar | What it captures | Typical inputs (already or soon on MCP / AI routes) |
+|--------|------------------|-----------------------------------------------------|
+| **A — Liquidity vs commitments** | Cash vs rolling **spoken-for** outflows | `liquidityOverview.totalCashGbp` (or available), **`liquidityCommitments.totalCommittedGbp`**, **`cashAfterCommitmentsGbp`**; credit semantics from balance discriminators |
+| **B — Runway / stress** | Time-to-negative under stress scenarios | **`runway.holisticGbp`**, **`financial-snapshot.verdict`**; optional mandatory-only variant |
+| **C — Income durability & contract runway** | Will money keep arriving on pace? | **`financial-snapshot.income`** (accrual totals, outstanding invoices), **`pipeline`** expected-receipt rows, **contracts** end dates / renewal risk (encode as derived metrics), **§1.7 income composition** (concentration, active vs passive) |
+| **D — Expense & debt load** | Fixed + debt drag vs headroom | **`debt-strategy`** state / headroom, **spend-context** (recurring + ad-hoc), budget nudges from snapshot |
+| **E — Warnings modifier** | Explicit regime / data / obligation tripwires | **`GET /api/ai/warnings`** — severity, codes, urgency when §2.3 lands |
 
-Delivery channel, not logic. Wraps 2.1 + 2.2 + 2.3 in conversation.
-Ship last — the agent is only as good as the layers underneath it.
+**Optional pillar F — Input quality / staleness.** When the ledger or key registries are stale or incomplete, **cap** the headline score (often overlaps §1.8 codes today; may later get explicit **“data health”** primitives on MCP so orchestrators need not infer from prose).
+
+Weights and curves (e.g. logistic on **cash ÷ committed**, piecewise on **runway months**) are **product choices** — ship in one domain module + tests; **document in API** via `formulaVersion`.
+
+**Wire shape (targets)**
+
+- **`GET /api/ai/financial-safety`** (name TBD) returns:
+  - **`score`** — e.g. 0–10 or 0–100 (single convention).
+  - **`formulaVersion`** — string; bump when weights/curves change.
+  - **`pillars[]`** — `{ id, label, contribution, rawMetrics: Record<…>, weight }` for UI + agents.
+  - **`warningAdjustment`** — points deducted / cap applied + **warning ids or fingerprints** linked (after §2.3).
+  - **`inputsRef`** — optional `generatedAt` alignment with **`financial-snapshot`** / **`liquidity`** so auditors see one consistent instant.
+
+**MCP & external AI parity**
+
+- **Manifest** lists the new response schema + guarantees the **input slices** used are already MCP resources: at minimum **`financial-snapshot`**, **`liquidity`**, **`runway`**, **`pipeline`**, **`income-composition`**, **`debt-strategy`**, **`spend-context`**, **`warnings`** (same JSON as HTTP).
+- **Recomputation contract:** response includes **`formulaVersion`** + **pillar breakdown** with **numeric primitives** (not just labels) so an external model can **reproduce** the shipped score or **critique** it transparently.
+- If the orchestrator prefers to **score offline**, it may **ignore** `score` and consume **`pillars[].rawMetrics`** only — still one canonical export of the contributing numbers.
+
+**Acceptance.** Example: high cash **with** commitments ≫ cash → low pillar A → low headline score **without** requiring a bespoke “ratio warning.” Selling a house updates income/expense inputs → pillar C/D move when data is updated. Warnings-free but **catastrophic runway** still scores poorly via pillar B.
+
+**Naming.** “Confidence” may stay as UI copy; roadmap uses **Financial Safety Score** to avoid implying “model self-confidence” rather than **user solvency / runway**.
+
+### 2.3 Warnings metadata & agent ergonomics (for MCP / orchestrators)
+
+**Replaces the old “Alert & Notification Queue” idea.** This repo does **not** own WhatsApp, email workers, or a `pending_alerts` delivery grid. **Channel delivery, cadence, and conversation** live in an **external orchestrator** (or equivalent) that calls **`GET /api/ai/warnings`**, **`GET /api/warnings/all`**, MCP **`bankstatements://ai/warnings`**, and existing **mutation** routes / future MCP tools.
+
+**Problem solved.** Agents need more than `title` / `detail` / `recommended_action` strings. They need **stable identity** across runs, **machine-actionable links** into domain objects, **urgency / time-to-impact** surfaced consistently, and optional **user or orchestrator state** (snooze, ack, last surfaced) that does **not** pretend an unpaid HMRC liability has gone away just because a notification fired once.
+
+**Design principles**
+
+1. **Truth vs fatigue:** Persisted metadata must distinguish **(A)** “condition still true in domain data” (e.g. SA still overdue) from **(B)** “we already nudged the user” / “hide from UI until Tuesday.” **(A)** remains driven by §1.8 emitters; **(B)** is snooze / notify state.
+2. **Chronic warnings:** Snooze hides or dampens **surfacing**, never **resolution**. Clearing the warning requires **domain resolution** (paid obligation, updated registry, *etc.*), same as today.
+3. **Orchestrator-friendly:** Every warning should be **routeable** — which obligation, contract, invoice, debt, plan movement — without NLP on `detail`.
+
+**Wire / schema shape (targets — implement incrementally)**
+
+Extend **`EntityFoundationWarning`** / **`GET /api/ai/warnings`** (and keep UI parity) with fields such as:
+
+| Area | Purpose |
+|------|---------|
+| **`fingerprint`** | Stable string per “logical” warning (e.g. hash of `code` + `entityId` + sorted stable `context` keys + linked ids). Survives **day-to-day `id` churn** so orchestrators can dedupe and track state. |
+| **`firstSeenAt` / `lastActiveAt`** | When this logical warning first appeared / last appeared in a consolidated feed (optional; may derive from `warning_snapshots`). |
+| **`urgency`** | Normalised **`critical` / `soon` / `overdue`** (or dates): `dueDate`, `daysOverdue`, `stressDate` — whichever applies; avoids agents parsing English. |
+| **`links`** | Structured handles: `obligationId`, `contractId`, `invoiceId`, `debtId`, `planId`, `movementId` where applicable (nullable union), in addition to today’s `sources[]` strings. |
+| **`actionHints`** | Small enum list or codes: e.g. `record_bank_payment`, `open_obligations`, `open_debt_strategy`, `reconcile_invoices` — maps to **existing APIs** or **future MCP tools** without embedding URLs. |
+| **`userState`** (optional, persisted) | **`snoozedUntil`**, **`acknowledgedAt`**, maybe **`surface:dashboard|agent|both`** — user-scoped. Feeds respect snooze for **listing**; emitters still emit while condition holds unless product policy says otherwise. |
+| **`orchestratorState`** (optional, persisted or delegated) | **`lastNotifiedAt`**, **`notifyCount`**, **`lastChannel`** — **either** stored here for audit **or** documented as **orchestrator-owned**; if stored, keyed by `fingerprint`. |
+
+**Persistence**
+
+- Prefer **`warning_user_state`** (or similar) keyed by **`fingerprint`** (+ account/user id if multi-user later).
+- Reuse / complement **`warning_snapshots`** for `firstSeen` / diff lineage where it already helps.
+
+**MCP / tools (later tranche)**
+
+- **Read:** richer warnings resource (above fields) — no duplicate business logic.
+- **Write (optional):** thin tools `warnings_snooze`, `warnings_ack`, `warnings_clear_snooze` calling the same persistence the UI would use.
+
+**Out of scope (this repo)**
+
+- WhatsApp / Meta / Twilio / email senders; cron workers that push messages; template selection for push notifications.
+
+**Acceptance.** Orchestrator can prioritise and dedupe warnings from JSON alone; chronic tax / obligation warnings remain present until domain data fixes the underlying condition; snooze does not conflate with “paid HMRC.”
+
+### ~~2.4 WhatsApp / Chat Interface~~ — **DEFERRED / EXTERNAL**
+
+**Removed as an in-repo milestone.** Conversation and channel plumbing (WhatsApp, *etc.*) are expected to run in a **separate orchestration stack** that uses this application as the **source of truth** (HTTP + MCP). In-repo work focuses on **data**, **warnings**, **§2.3 metadata**, and **explicit mutations** — not chat transport.
 
 ---
 
@@ -813,10 +870,10 @@ Multi-Entity Foundation ✅   Clients + Contracts (1.2 A–E) ✅─→ Working-
                                                                                                                                      ├─→ Forecast (1.5) ✅─┐
                                                                                                                                      │                  │
                                                                                                                                      ├─→ Warnings (1.8) ✅┤
-                                                                                                                                     │                  ├─→ AI Primitives (2.0) ─→ Snapshot (2.1)
-                                                                                                                                     ├─→ Worst Case (1.6) ✅┤                        Confidence Score (2.2)
-                                                                                                                                     │                  │                          Alert Queue (2.3)
-                                                                                                                                     ├─→ Income Composition (1.7) ✅─┤              WhatsApp (2.4)
+                                                                                                                                     │                  ├─→ AI Primitives (2.0) ─→ Snapshot (2.1) ✅
+                                                                                                                                     ├─→ Worst Case (1.6) ✅┤                        Financial safety (2.2)
+                                                                                                                                     │                  │                          Warnings metadata (2.3)
+                                                                                                                                     ├─→ Income Composition (1.7) ✅─┤              (channels → ext. orchestrator)
                                                                                                                                      │                  │
                                                                                                                                      └─→ Debt Strategy (1.9) ✅──┘
 ```
@@ -829,17 +886,12 @@ free.
 
 **Clients + Contracts → Invoicing → Working-Days Ledger → Forecast →
 Runway → Income Composition → Warnings → Debt Strategy** — **§1.1–§1.9** are
-shipped. **§2.0.A–G** (AI primitives, slices, manifest, MCP) forms the base agent layer. **§2.0.H** is shipped (manifest + `/api/ai/*` + MCP for warnings, spend/expenses, income composition, debt strategy). **Next:** **§2.1** Snapshot / **§2.2** Confidence / Alerts / WhatsApp per the build
-order below.
+shipped. **§2.0.A–G** (AI primitives, slices, manifest, MCP) forms the base agent layer. **§2.0.H** is shipped (manifest + `/api/ai/*` + MCP for warnings, spend/expenses, income composition, debt strategy). **Tier 0 extension:** dashboard **`liquidityCommitments`** (12-month rolling projection) + AI/MCP parity — **§0.2**, **`AiLiquidityResponseSchema`**. **§2.1** Financial Snapshot — **`GET /api/ai/financial-snapshot`** / MCP + manifest **2.1.3** (see §2.1). **Next:** **§2.2** Financial Safety Score, then **§2.3** Warnings metadata (see build order below); **channels** stay outside this repo.
 
-**The Warnings Engine (1.8)** remains the single severity-ranked spine for Tier 2.
-Both the Confidence Score and the Alert Queue become reductions over its
-output, not independent calculations, so there is exactly one place
-where "is this user safe?" is decided.
+**The Warnings Engine (1.8)** remains the single severity-ranked spine for **explicit risk flags**. §2.2 **combines** that spine (as a **modifier**) with **liquidity, runway, and income** so “safe” is not defined by warning count alone. §2.3 adds **agent-facing metadata** on warnings (not a second engine).
 
-**Structured Data for AI (2.0) gates all of Tier 2.** Snapshot (2.1),
-Confidence Score (2.2), Alerts (2.3) and the WhatsApp / Chat interface
-(2.4) all depend on 2.0's semantic-drift cleanup (balance / debt /
+**Structured Data for AI (2.0) gates all of Tier 2.** ~~Snapshot (2.1)~~ ✅ **shipped**;
+Financial Safety Score (2.2) and Warnings metadata (2.3) depend on 2.0's semantic-drift cleanup (balance / debt /
 tax discriminators), its core slice endpoints (`/api/ai/liquidity`,
 `/api/ai/pipeline`, `/api/ai/runway`), the generated manifest, and
 its thin MCP adaptor (2.0.G). **§2.0.H** is shipped: that surface now includes
@@ -875,20 +927,20 @@ more “step 6 = §1.8” skew between list index and section number).
 11. ~~**Extended AI surface (2.0.H)**~~ ✅ SHIPPED — manifest 2.1.0 + `/api/ai/{warnings,income-composition,debt-strategy,spend-context}` +
     MCP resource parity; manifest rows for `/api/expenses/overview|recurring|ad-hoc`;
     `consolidated-feed` + shared expense read-builders; `vitest` + MCP contract + HTTP parity tests.
-12. **Financial Snapshot (2.1)** + **Confidence Score (2.2)** —
-    the agent's two core reads; both consume 2.0's slices.
-13. **Alert & Notification Queue (2.3)** — delivery path for 1.8.
-14. **Net Worth Snapshots (3.1)** — entity-aware from day one.
-15. **Multi-Currency extensions (3.2)** — whatever did not land in
+    **Follow-on (also shipped):** dashboard **`liquidityCommitments`** — rolling **12-month** committed outflows + cash-after model, mirrored on **`GET /api/ai/liquidity`** / MCP; **`LiquidityCommitmentsOverviewSchema`** on manifest; schema version **2.1.2** — see **§0.2**.
+12. ~~**Financial Snapshot (2.1)**~~ ✅ SHIPPED (initial) — `GET /api/ai/financial-snapshot`, MCP `bankstatements://ai/financial-snapshot`, **`AiFinancialSnapshotResponseSchema`**, manifest **2.1.3**; see **§2.1**.
+13. **NEXT — Financial Safety Score (2.2)** — multi-factor score (liquidity vs commitments, runway, income durability, expense/debt); §1.8 warnings as modifier; **`GET /api/ai/financial-safety`** + MCP + `formulaVersion` + pillar **`rawMetrics`** for external recomputation; see **§2.2**.
+14. **Warnings metadata & agent ergonomics (2.3)** — stable `fingerprint`, structured `links`, `actionHints`, urgency fields, optional `userState` / `orchestratorState`; extends `GET /api/ai/warnings` / MCP; **no** in-repo message delivery; see **§2.3**.
+15. **Net Worth Snapshots (3.1)** — entity-aware from day one.
+16. **Multi-Currency extensions (3.2)** — whatever did not land in
     1.1 / 1.3.
-16. **Historical Invoice Parser Fallbacks (3.3)** — OCR + inbound
+17. **Historical Invoice Parser Fallbacks (3.3)** — OCR + inbound
     automation.
-17. **WhatsApp / Chat Interface (2.4)** — delivery channel, ships
-    last.
+18. **(External)** Agent orchestration & notification channels — conversational stack (e.g. WhatsApp) consumes **`bankstatements://ai/*`** + REST; delivery not an in-repo milestone (~~§2.4~~).
 
 ---
 
 ## One-Line Summary
 
 > You don't need more analytics — you need a system that **guarantees** no obligation
-> can exist, be missed, or go unnoticed, past or future.
+> can exist, be missed, or go unnoticed, past or future — and that surfaces **what cash is spoken for** on a rolling horizon, not just balances.

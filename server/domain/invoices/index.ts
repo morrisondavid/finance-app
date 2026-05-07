@@ -140,6 +140,8 @@ export {
   type ReconciliationNote,
 } from './reconcile-payments.js';
 
+export { outstandingInvoicesGbpSummary } from './outstanding.js';
+
 export {
   buildInvoiceDocDefinition,
 } from './pdf/doc-definition.js';

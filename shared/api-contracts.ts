@@ -1400,6 +1400,7 @@ export const RunwayHolisticGbpSchema = z.object({
   firstStressDateMandatoryRecurring: z.string().nullable(),
   runwayMonthsMandatoryRecurring: z.number().nullable(),
 });
+export type RunwayHolisticGbp = z.infer<typeof RunwayHolisticGbpSchema>;
 
 export const RunwayHouseholdSchema = z.object({
   GBP: RunwayHouseholdCurrencySchema.optional(),
@@ -2180,6 +2181,88 @@ export const AiSnapshotResponseSchema = z.object({
   runway: RunwayResponseSchema,
 });
 export type AiSnapshotResponse = z.infer<typeof AiSnapshotResponseSchema>;
+
+/** Near-term obligation outflows from the AI pipeline (GBP). */
+export const AiFinancialSnapshotCommitmentWindowSchema = z.object({
+  days: z.number().int().positive(),
+  endDate: IsoDateSchema,
+  /** Sum of obligation rows due in [today, endDate], converted to GBP. */
+  committedOutflowsGbp: z.number(),
+});
+
+/** §2.1 discretionary headline — complements 12‑month `liquidityCommitments`. */
+export const AiFinancialSnapshotDiscretionarySchema = z.object({
+  totalCashGbp: z.number(),
+  cashAfter12MonthCommitmentsGbp: z.number(),
+  /**
+   * `totalCashGbp − committedOutflowsGbp` for the near-term window (obligation
+   * pipeline rows only — excludes recurring items not on the pipeline).
+   */
+  cashAfterNearTermWindowGbp: z.number(),
+  nearTermWindowDays: z.number().int().positive(),
+  note: z.string(),
+});
+
+export const AiFinancialSnapshotIncomeSchema = z.object({
+  outstandingInvoices: z.object({
+    count: z.number().int().nonnegative(),
+    totalOutstandingGbp: z.number(),
+  }),
+  accrual: z.object({
+    today: IsoDateSchema,
+    entityRollupCount: z.number().int().nonnegative(),
+    totals: AggregateAccrualTotalsSchema.nullable(),
+  }),
+});
+
+export const AiFinancialSnapshotSpendVsBudgetSchema = z.object({
+  financialYear: z.string().nullable(),
+  selectedAccount: AccountNameSchema.optional(),
+  budgetNudgeCount: z.number().int().nonnegative(),
+  topNudges: z.array(BudgetNudgeSchema),
+  insightNote: z.string(),
+});
+
+export const AiFinancialSnapshotVerdictSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('safe'),
+    reasons: z.array(z.string()),
+  }),
+  z.object({
+    kind: z.literal('runway_stressed'),
+    reasons: z.array(z.string()),
+    firstStressDateFullRecurring: z.string().nullable(),
+    runwayMonthsFullRecurring: z.number().nullable(),
+    deficitInDays: z.number().int().nonnegative().nullable(),
+  }),
+  z.object({
+    kind: z.literal('deficit_imminent'),
+    reasons: z.array(z.string()),
+    firstStressDateFullRecurring: z.string(),
+    runwayMonthsFullRecurring: z.number().nullable(),
+    deficitInDays: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal('negative_after_commitments'),
+    reasons: z.array(z.string()),
+    cashAfter12MonthCommitmentsGbp: z.number(),
+  }),
+]);
+
+/** §2.1 single composed read for affordability / commitment questions. */
+export const AiFinancialSnapshotResponseSchema = z.object({
+  generatedAt: z.string(),
+  schemaVersion: z.string(),
+  liquidity: AiLiquidityResponseSchema,
+  commitmentWindow: AiFinancialSnapshotCommitmentWindowSchema,
+  runway: RunwayResponseSchema,
+  income: AiFinancialSnapshotIncomeSchema,
+  discretionary: AiFinancialSnapshotDiscretionarySchema,
+  spendVsBudget: AiFinancialSnapshotSpendVsBudgetSchema,
+  verdict: AiFinancialSnapshotVerdictSchema,
+});
+export type AiFinancialSnapshotResponse = z.infer<typeof AiFinancialSnapshotResponseSchema>;
+export type AiFinancialSnapshotVerdict = z.infer<typeof AiFinancialSnapshotVerdictSchema>;
 
 export const AiManifestSliceSchema = z.object({
   method: z.literal('GET'),

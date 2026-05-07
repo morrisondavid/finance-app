@@ -15,6 +15,7 @@ import {
   composeAiLiquidity,
   composeAiPipeline,
   composeAiSnapshot,
+  composeAiFinancialSnapshot,
   composeAiIncomeComposition,
   composeAiDebtStrategyState,
   composeAiSpendContext,
@@ -44,6 +45,10 @@ const RunwayQuerySchema = HorizonEntityQuerySchema.extend({
 });
 
 const SnapshotQuerySchema = RunwayQuerySchema.merge(LiquidityQuerySchema);
+
+const FinancialSnapshotQuerySchema = SnapshotQuerySchema.extend({
+  commitmentDays: z.coerce.number().int().positive().default(90),
+});
 
 router.get('/liquidity', (req: Request, res: Response) => {
   try {
@@ -123,6 +128,40 @@ router.get('/snapshot', (req: Request, res: Response) => {
     console.error('[AI] GET /snapshot error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     res.status(500).json({ error: `Failed to build AI snapshot: ${message}` });
+  }
+});
+
+router.get('/financial-snapshot', (req: Request, res: Response) => {
+  try {
+    const parsed = FinancialSnapshotQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid-params', issues: parsed.error.issues });
+      return;
+    }
+    const {
+      days: horizonDays,
+      entityId: filterEntityId,
+      detail: runwayDetail,
+      account,
+      financialYear,
+      groupByEntity,
+      commitmentDays,
+    } = parsed.data;
+    res.json(
+      composeAiFinancialSnapshot({
+        horizonDays,
+        commitmentDays,
+        filterEntityId,
+        runwayDetail,
+        account,
+        financialYear,
+        groupByEntity,
+      }),
+    );
+  } catch (error) {
+    console.error('[AI] GET /financial-snapshot error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: `Failed to build AI financial snapshot: ${message}` });
   }
 });
 

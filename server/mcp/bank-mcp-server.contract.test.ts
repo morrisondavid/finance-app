@@ -4,6 +4,7 @@ import {
   composeAiLiquidity,
   composeAiPipeline,
   composeAiSnapshot,
+  composeAiFinancialSnapshot,
   buildAiManifest,
   composeAiIncomeComposition,
   composeAiDebtStrategyState,
@@ -21,7 +22,7 @@ import {
 describe('MCP resource payloads vs composers', () => {
   beforeAll(async () => {
     await initDatabase();
-  });
+  }, 120_000);
 
   afterAll(() => {
     closeDatabase();
@@ -50,6 +51,21 @@ describe('MCP resource payloads vs composers', () => {
     expect(fromMcp.liquidity).toEqual(expected.liquidity);
     expect(fromMcp.pipeline).toEqual(expected.pipeline);
     expect(fromMcp.runway).toEqual(expected.runway);
+    expect(fromMcp.schemaVersion).toBe(expected.schemaVersion);
+  });
+
+  it('financial-snapshot resource matches composeAiFinancialSnapshot with defaults', () => {
+    const fromMcp = JSON.parse(
+      readBankStatementsAiResource(BankStatementsAiResourceUris['financial-snapshot']),
+    );
+    const expected = composeAiFinancialSnapshot();
+    expect(fromMcp.liquidity).toEqual(expected.liquidity);
+    expect(fromMcp.runway).toEqual(expected.runway);
+    expect(fromMcp.commitmentWindow).toEqual(expected.commitmentWindow);
+    expect(fromMcp.income).toEqual(expected.income);
+    expect(fromMcp.discretionary).toEqual(expected.discretionary);
+    expect(fromMcp.spendVsBudget).toEqual(expected.spendVsBudget);
+    expect(fromMcp.verdict).toEqual(expected.verdict);
     expect(fromMcp.schemaVersion).toBe(expected.schemaVersion);
   });
 
