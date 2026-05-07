@@ -57,6 +57,8 @@ export const COMPANY_CSV_HEADERS = [
   'ct_registered',
   'qfzp_elected',
   'vat_registered',
+  'historical_effective_ct_rate',
+  'historical_effective_vat_rate',
   'active',
   'updated_at',
 ] as const;
@@ -119,7 +121,23 @@ function decodeNullableDateOrTbc(
   return raw;
 }
 
-// ─── Row parser ─────────────────────────────────────────────────────────────
+/** Empty cell → null; else decimal fraction 0–1. */
+function decodeOptionalEffectiveRate(
+  value: string | undefined,
+  field: string,
+  rowId: string,
+): number | null {
+  const raw = nullIfEmpty(value);
+  if (raw === null) return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) {
+    throw new Error(`Company ${rowId}: ${field} must be a decimal 0–1 or empty, got '${raw}'`);
+  }
+  if (n < 0 || n > 1) {
+    throw new Error(`Company ${rowId}: ${field} must be between 0 and 1, got '${raw}'`);
+  }
+  return n;
+}
 
 /**
  * Rehydrate a flat CSV row into the correct discriminated-union variant
@@ -142,6 +160,16 @@ export function parseCompanyRow(row: Record<string, string>): Company {
     accountant_name: decodeNullableStringOrTbc(row.accountant_name),
     accountant_email: decodeNullableStringOrTbc(row.accountant_email),
     vat_registered: decodeBooleanOrTbc(row.vat_registered, 'vat_registered', rowId),
+    historical_effective_ct_rate: decodeOptionalEffectiveRate(
+      row.historical_effective_ct_rate,
+      'historical_effective_ct_rate',
+      rowId,
+    ),
+    historical_effective_vat_rate: decodeOptionalEffectiveRate(
+      row.historical_effective_vat_rate,
+      'historical_effective_vat_rate',
+      rowId,
+    ),
     active: decodeStrictBoolean(row.active, 'active', rowId),
     updated_at: nullIfEmpty(row.updated_at),
   };
@@ -276,6 +304,10 @@ export function serializeCompanyRow(company: Company): string {
           : '';
       case 'vat_registered':
         return encodeBooleanOrTbc(company.vat_registered);
+      case 'historical_effective_ct_rate':
+        return company.historical_effective_ct_rate == null ? '' : String(company.historical_effective_ct_rate);
+      case 'historical_effective_vat_rate':
+        return company.historical_effective_vat_rate == null ? '' : String(company.historical_effective_vat_rate);
       case 'active':
         return encodeStrictBoolean(company.active);
       case 'updated_at':

@@ -114,6 +114,9 @@ function createAllDomainTables(db: Database.Database): void {
       entity TEXT NOT NULL,
       frequency TEXT NOT NULL,
       expected_amount REAL,
+      naive_amount REAL,
+      adjustment_basis TEXT,
+      adjustment_source TEXT,
       due_date TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
       paid_amount REAL,
@@ -179,6 +182,10 @@ function createAllDomainTables(db: Database.Database): void {
       budget_period TEXT NOT NULL DEFAULT 'monthly',
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(account, category)
+    );
+
+    CREATE TABLE IF NOT EXISTS fixed_expense_simulation_exclusions (
+      line_key TEXT PRIMARY KEY NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS warning_snapshots (

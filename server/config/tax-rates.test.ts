@@ -6,6 +6,8 @@ import {
   VAT_QUARTERS,
   UAE_CORPORATION_TAX,
   calculateCorporationTax,
+  corporationTaxObligationAmounts,
+  vatObligationAmounts,
   calculateDividendTax,
   calculateRetainedReserves,
   getVatQuarterForDate,
@@ -14,6 +16,15 @@ import {
 } from './tax-rates.js';
 import { parseCompanyRow } from '../domain/company/csv-io.js';
 import { ukRow, uaeRow, rowFromHeaders } from '../domain/company/test-helpers.js';
+import type { UkCompany } from '../../shared/api-contracts.js';
+
+function ukLtdFromRow(row: Record<string, string>): UkCompany {
+  const c = parseCompanyRow(row);
+  if (c.jurisdiction !== 'UK' || c.kind !== 'ltd') {
+    throw new Error('expected UK ltd company fixture');
+  }
+  return c;
+}
 
 describe('Tax Constants', () => {
   describe('VAT', () => {
@@ -145,6 +156,68 @@ describe('calculateCorporationTax', () => {
     
     // At £150k, effective rate should be around 22%
     expect(result.effectiveRate).toBeCloseTo(0.22, 1);
+  });
+});
+
+describe('corporationTaxObligationAmounts', () => {
+  it('returns null when naive CT is zero', () => {
+    const co = ukLtdFromRow(ukRow);
+    expect(corporationTaxObligationAmounts(0, co)).toBeNull();
+  });
+
+  it('uses marginal-relief naive and matches expected when no historical rate', () => {
+    const co = ukLtdFromRow(
+      rowFromHeaders({ ...ukRow, historical_effective_ct_rate: '' }),
+    );
+    const profit = 169136.01;
+    const r = corporationTaxObligationAmounts(profit, co);
+    expect(r).not.toBeNull();
+    expect(r!.naiveAmount).toBeCloseTo(calculateCorporationTax(profit).tax, 2);
+    expect(r!.expectedAmount).toBe(r!.naiveAmount);
+    expect(r!.adjustmentSource).toBe('computed');
+  });
+
+  it('applies historical_effective_ct_rate to expectedAmount', () => {
+    const co = ukLtdFromRow(
+      rowFromHeaders({ ...ukRow, historical_effective_ct_rate: '0.21' }),
+    );
+    const profit = 100000;
+    const r = corporationTaxObligationAmounts(profit, co);
+    expect(r).not.toBeNull();
+    expect(r!.naiveAmount).toBeCloseTo(calculateCorporationTax(profit).tax, 2);
+    expect(r!.expectedAmount).toBeCloseTo(21000, 2);
+    expect(r!.adjustmentSource).toBe('company.historical_effective_ct_rate');
+  });
+});
+
+describe('vatObligationAmounts', () => {
+  it('returns null when naive VAT is zero', () => {
+    const co = ukLtdFromRow(ukRow);
+    expect(vatObligationAmounts(0, co)).toBeNull();
+  });
+
+  it('matches ledger × fraction when no historical VAT rate', () => {
+    const co = ukLtdFromRow(
+      rowFromHeaders({ ...ukRow, historical_effective_vat_rate: '' }),
+    );
+    const income = 12000;
+    const r = vatObligationAmounts(income, co);
+    expect(r).not.toBeNull();
+    expect(r!.naiveAmount).toBeCloseTo(2000, 2);
+    expect(r!.expectedAmount).toBe(r!.naiveAmount);
+    expect(r!.adjustmentSource).toBe('computed');
+  });
+
+  it('applies historical_effective_vat_rate on gross income', () => {
+    const co = ukLtdFromRow(
+      rowFromHeaders({ ...ukRow, historical_effective_vat_rate: '0.18' }),
+    );
+    const income = 10000;
+    const r = vatObligationAmounts(income, co);
+    expect(r).not.toBeNull();
+    expect(r!.naiveAmount).toBeCloseTo(10000 / 6, 2);
+    expect(r!.expectedAmount).toBeCloseTo(1800, 2);
+    expect(r!.adjustmentSource).toBe('company.historical_effective_vat_rate');
   });
 });
 

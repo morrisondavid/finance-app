@@ -78,6 +78,38 @@ function clip(
   return clippedEnd < clippedStart ? null : { start: clippedStart, end: clippedEnd };
 }
 
+/**
+ * Calendar-month projection net (fees only, invoice currency) for the month
+ * containing `today`, clipped to the contract window. Same definition as
+ * {@link computeAccrual}'s `projected_period_total` — exposed for warnings
+ * and other consumers without building a full accrual row.
+ */
+export interface ProjectedPeriodTotalInput {
+  readonly contract: Contract;
+  readonly leaveRows: readonly LeaveRow[];
+  readonly today: string;
+  readonly publicHolidayDates?: ReadonlySet<string>;
+}
+
+export function computeProjectedPeriodTotal(input: ProjectedPeriodTotalInput): number {
+  const { contract, leaveRows, today, publicHolidayDates } = input;
+  const rawProjection = monthRange(today);
+  const clippedProjection = clip(
+    rawProjection.start,
+    rawProjection.end,
+    contract.start_date,
+    contract.end_date,
+  );
+  if (clippedProjection === null) return 0;
+  return calculateWorkload({
+    contract,
+    leaveRows,
+    start: clippedProjection.start,
+    end: clippedProjection.end,
+    publicHolidayDates,
+  }).subtotal;
+}
+
 export function computeAccrual(input: ComputeAccrualInput): AccrualResponse {
   const { contract, leaveRows, today, lastPaymentDate, publicHolidayDates } = input;
   const day_rate = contract.day_rate;
@@ -122,14 +154,12 @@ export function computeAccrual(input: ComputeAccrualInput): AccrualResponse {
   } else {
     period_start = clippedProjection.start;
     period_end = clippedProjection.end;
-    const projection = calculateWorkload({
+    projected_period_total = computeProjectedPeriodTotal({
       contract,
       leaveRows,
-      start: period_start,
-      end: period_end,
+      today,
       publicHolidayDates,
     });
-    projected_period_total = projection.subtotal;
     // `worked_days_remaining` is the forward-looking subset: tomorrow
     // through projection end. Same leave set, different window.
     const tomorrow = shiftIsoDate(today, 1);

@@ -10,25 +10,13 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { IncomeCompositionResponseSchema } from '../../shared/api-contracts.js';
-import { todayIsoLocal } from '../../shared/iso-date.js';
-import { assembleIncomeComposition } from '../domain/income-composition/index.js';
+import { composeAiIncomeComposition } from '../domain/ai/compose-income-composition.js';
 
 const router = Router();
 
 router.get('/', (_req: Request, res: Response) => {
   try {
-    const today = todayIsoLocal();
-    const { sources, composition, riskSignals } = assembleIncomeComposition();
-
-    const body = IncomeCompositionResponseSchema.parse({
-      today,
-      household: composition.household,
-      byEntity: composition.byEntity,
-      sources,
-      riskSignals,
-    });
-    res.json(body);
+    res.json(composeAiIncomeComposition());
   } catch (error) {
     console.error('[IncomeComposition] GET / error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';

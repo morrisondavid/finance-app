@@ -20,10 +20,8 @@ import {
   CurrencyCodeSchema,
   EntityIdSchema,
 } from '../../shared/api-contracts.js';
-import {
-  assembleDebtStrategy,
-  type AssembledDebtStrategy,
-} from '../domain/debt-strategy/assemble.js';
+import { assembleDebtStrategy } from '../domain/debt-strategy/assemble.js';
+import { debtStrategyBundleToResponseJson } from '../domain/debt-strategy/bundle-to-response-json.js';
 import { assembleRunwayScenario } from '../domain/forecast/assemble-runway.js';
 import {
   generatePlan,
@@ -69,53 +67,10 @@ const CreatePlanBody = z.object({
   notes: z.string().nullable().optional(),
 });
 
-function bundleToResponse(bundle: AssembledDebtStrategy): Record<string, unknown> {
-  return {
-    today: bundle.today,
-    headroomByBucket: Array.from(bundle.headroomByBucket.entries()).map(([key, b]) => ({
-      key,
-      currency: b.currency,
-      scope: b.scope,
-      totalHeadroom: b.totalHeadroom,
-      availableHeadroom: b.availableHeadroom,
-      intensityOptions: b.intensityOptions,
-    })),
-    activePlans: bundle.activePlans,
-    pausedPlans: bundle.pausedPlans,
-    completedPlans: bundle.completedPlans,
-    suggestedPlans: bundle.suggestedPlans,
-    movements: bundle.movements,
-    feasibilityReports: Array.from(bundle.feasibilityReports.entries()).map(([id, r]) => ({
-      planId: id,
-      ...r,
-    })),
-    refinanceComparisons: Array.from(bundle.refinanceComparisons.entries()).map(([id, r]) => ({
-      debtId: id,
-      ...r,
-    })),
-    targetReachedReports: Array.from(bundle.targetReachedReports.entries()).map(([id, r]) => ({
-      planId: id,
-      ...r,
-    })),
-    strategyCapital: bundle.strategyCapital,
-    refinanceRecommendations: Array.from(bundle.refinanceRecommendations.entries()).map(
-      ([debtId, r]) => ({
-        debtId,
-        kind: r.kind,
-        total_cost_savings_vs_keep: r.total_cost_savings_vs_keep,
-      }),
-    ),
-    creditCardPaydownHints: bundle.creditCardPaydownHints,
-    crossScopeTransferPreview: bundle.crossScopeTransferPreview,
-    debtStrategyContext: bundle.debtStrategyContext,
-    sandboxIncomeSources: bundle.sandboxIncomeSources,
-  };
-}
-
 router.get('/state', (_req: Request, res: Response) => {
   try {
     const bundle = assembleDebtStrategy({});
-    res.json(bundleToResponse(bundle));
+    res.json(debtStrategyBundleToResponseJson(bundle));
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown';
     res.status(500).json({ error: 'state-failed', message });
@@ -466,7 +421,7 @@ router.post('/sandbox', (req: Request, res: Response) => {
       excludedRecurringIncomeKeys,
     });
     res.json({
-      ...bundleToResponse(sandbox),
+      ...debtStrategyBundleToResponseJson(sandbox),
       scenarioHolisticGbpRunway,
     });
   } catch (err) {

@@ -101,6 +101,18 @@ export const dcSowRow = rowFromHeaders({
   updated_at: '2026-04-24',
 });
 
+/**
+ * Delta Capita SOW with a mid-month start — used by invoice period tests
+ * that exercise clamping to `contract.start_date` (see
+ * `resolve-next-period.test.ts`, `build-draft.test.ts`).
+ */
+export const dcSowRowMarchStart = rowFromHeaders({
+  ...dcSowRow,
+  reference: 'Delta Capita · 02 Mar 2026–30 Apr 2026',
+  start_date: '2026-03-02',
+  job_title: 'Senior Engineer',
+});
+
 /** La Fosse agency engagement ending 2026-03-31. */
 export const lfContractRow = rowFromHeaders({
   id: 'lf-2026-mar',

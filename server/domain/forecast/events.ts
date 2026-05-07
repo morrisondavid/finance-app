@@ -23,6 +23,8 @@ export interface ForecastEvent {
   readonly currency: CurrencyCode;
   readonly source: ForecastEventSource;
   readonly label: string;
+  /** When `source === 'obligation'`, the `financial_obligations.id`. */
+  readonly obligationId?: string;
   /** When `source === 'accrual'`, the contract that produced this inflow. */
   readonly contractId?: string;
 }

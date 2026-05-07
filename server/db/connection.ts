@@ -390,6 +390,9 @@ export function migrateObligationsIfNeeded(): void {
       entity TEXT NOT NULL,
       frequency TEXT NOT NULL,
       expected_amount REAL,
+      naive_amount REAL,
+      adjustment_basis TEXT,
+      adjustment_source TEXT,
       due_date TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
       paid_amount REAL,
@@ -414,6 +417,19 @@ export function migrateObligationsIfNeeded(): void {
   // bugs during the refactor. SQLite 3.25+ supports RENAME COLUMN directly.
   if (columns.some(c => c.name === 'recurrence') && !columns.some(c => c.name === 'frequency')) {
     db.exec('ALTER TABLE financial_obligations RENAME COLUMN recurrence TO frequency');
+  }
+
+  let cols = db.prepare('PRAGMA table_info(financial_obligations)').all() as Array<{ name: string }>;
+  if (!cols.some(c => c.name === 'naive_amount')) {
+    db.exec('ALTER TABLE financial_obligations ADD COLUMN naive_amount REAL');
+    cols = db.prepare('PRAGMA table_info(financial_obligations)').all() as Array<{ name: string }>;
+  }
+  if (!cols.some(c => c.name === 'adjustment_basis')) {
+    db.exec('ALTER TABLE financial_obligations ADD COLUMN adjustment_basis TEXT');
+    cols = db.prepare('PRAGMA table_info(financial_obligations)').all() as Array<{ name: string }>;
+  }
+  if (!cols.some(c => c.name === 'adjustment_source')) {
+    db.exec('ALTER TABLE financial_obligations ADD COLUMN adjustment_source TEXT');
   }
 }
 

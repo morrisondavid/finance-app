@@ -30,7 +30,7 @@ import type { AccountBalance } from '../../db/repositories/balance.js';
 import { getAllAccountBalances } from '../../db/repositories/balance.js';
 import { getAccountConfig } from '../accounts/queries.js';
 import { sumCashAndCreditByCurrency } from '../accounts/runway-credit.js';
-import { loadForecastInputs } from './load-inputs.js';
+import { loadForecastInputs, type LoadedForecastInputs } from './load-inputs.js';
 import {
   assembleForecastEvents,
   upcomingRecurringStableKey,
@@ -51,10 +51,21 @@ import type { ForecastEvent } from './events.js';
 export const RUNWAY_HEADLINE_CURRENCIES: readonly CurrencyCode[] = ['GBP', 'AED'];
 
 export interface AssembleRunwayInput {
-  /** Forecast horizon in days. Defaults to 720 (matches the API default). */
+  /**
+   * Forecast horizon in days. Defaults to 720 (matches the API default).
+   * Ignored when {@link forecastInputs} is set (horizon comes from the bundle).
+   */
   readonly horizonDays?: number;
-  /** Optional entity filter; restricts the calculation to that entity's accounts. */
+  /**
+   * Optional entity filter; restricts the calculation to that entity's accounts.
+   * Ignored when {@link forecastInputs} is set.
+   */
   readonly filterEntityId?: EntityId;
+  /**
+   * When set, skips {@link loadForecastInputs} — caller must have loaded with the
+   * intended horizon and entity filter (e.g. AI snapshot).
+   */
+  readonly forecastInputs?: LoadedForecastInputs;
 }
 
 /** Holistic household runway in GBP (AED converted via static FX table). */
@@ -115,8 +126,13 @@ function buildHouseholdCurrencyBlock(
 }
 
 export function assembleRunway(input: AssembleRunwayInput = {}): AssembledRunway {
-  const horizonDays = input.horizonDays ?? 720;
-  const inputs = loadForecastInputs({ horizonDays, filterEntityId: input.filterEntityId });
+  const inputs =
+    input.forecastInputs ??
+    loadForecastInputs({
+      horizonDays: input.horizonDays ?? 720,
+      filterEntityId: input.filterEntityId,
+    });
+  const horizonDays = inputs.horizonDays;
   const { today, allowedAccountSet, startingBalances } = inputs;
 
   // Re-fetch the full balances map for `buildHouseholdCurrencyBlock`'s

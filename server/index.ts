@@ -19,6 +19,7 @@ import warningsRouter from './routes/warnings.js';
 import publicHolidaysRouter from './routes/public-holidays.js';
 import forecastRouter from './routes/forecast.js';
 import runwayRouter from './routes/runway.js';
+import aiRouter from './routes/ai.js';
 import incomeCompositionRouter from './routes/income-composition.js';
 import debtStrategyRouter from './routes/debt-strategy.js';
 import { normalizeAllFiles } from './utils/filename-normalizer.js';
@@ -59,6 +60,7 @@ app.use('/api/warnings', warningsRouter);
 app.use('/api/public-holidays', publicHolidaysRouter);
 app.use('/api/forecast', forecastRouter);
 app.use('/api/runway', runwayRouter);
+app.use('/api/ai', aiRouter);
 app.use('/api/income-composition', incomeCompositionRouter);
 app.use('/api/debt-strategy', debtStrategyRouter);
 

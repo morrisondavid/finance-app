@@ -8,7 +8,7 @@
 >
 > **What's shipped (Tier 1):** **Multi-Entity Foundation (1.1)**, **Clients, Contracts & Renewals (1.2)** phases A–E, **Invoicing (1.3)** Phases 1–4 (incl. payment reconciler with FX), **Working-Days Ledger (1.4)** with public holidays + leave calendar, **Cash Flow Forecast (1.5)** at `GET /api/forecast`, **Worst Case / Runway (1.6)** at `GET /api/runway` (household-first, GBP + AED dual headline, entity drill-down, credit headroom; **Strategy** tab hero uses `holisticGbp` from this API — **accrual off**, “contracts stop paying”; the **sandbox** `assembleRunwayScenario` uses **accrual on** plus optional income exclusions, so “cash runs out” can legitimately differ), and **Income Composition & Diversification (1.7)** at `GET /api/income-composition` (metrics + typed `riskSignals[]`, `properties/` registry).
 >
-> **What's next (Tier 1 → Tier 2):** Tier 1 (§1.1 – §1.9) is shipped. Next: **§2.0** structured-data endpoints for AI consumption (semantic discriminators, expected-receipts calendar, slice endpoints), then the rest of Tier 2 (snapshot, confidence score, alert queue, WhatsApp tool surface). Context unchanged: two entities (UK Ltd + UAE FZCO), agency and direct clients, mixed self-bill and supplier-issued mechanisms.
+> **What's next (Tier 1 → Tier 2):** Tier 1 (§1.1 – §1.9) is shipped. **§2.0** structured-data primitives, slices, snapshot, manifest, and MCP adaptor are the foundation. **§2.0.H** is shipped: manifest + **`/api/ai/*`** + MCP now expose **warnings, spend/expenses, income composition, and debt strategy** with the same JSON as the Tier 1 routes (composition only—no second implementations). **Next:** **§2.1–2.4** (affordability snapshot, confidence, alerts, WhatsApp). Context unchanged: two entities (UK Ltd + UAE FZCO), agency and direct clients, mixed self-bill and supplier-issued mechanisms.
 
 ---
 
@@ -446,7 +446,26 @@ server/mcp/
 
 **Order within 2.0.** 2.0.G lands *after* 2.0.A–F because it has
 nothing of its own to test until the slice endpoints and the
-generated manifest exist. It closes out 2.0.
+generated manifest exist. It closes out the **initial** 2.0 tranche.
+
+#### 2.0.H Extended AI surface — insights, spend behaviour & MCP parity ✅ SHIPPED
+
+Liquidity, pipeline, runway, and snapshot answer **survival and timing** questions well. This milestone widened **discoverability** so agents reading only **`GET /api/ai/manifest`** and **MCP** `bankstatements://ai/*` can fetch the **same** Tier 1 JSON as the app: consolidated **warnings** (`GET /api/ai/warnings` ↔ `GET /api/warnings/all`), **income composition**, **debt strategy** read bundle, **spend-context** (overview + default recurring + ad-hoc in one object), plus manifest entries for **`GET /api/expenses/{overview,recurring,ad-hoc}`**. Implementation follows **2.0.E–G**: thin composers and **`server/domain/warnings/consolidated-feed.ts`** / shared expense read-builders—**no** second categorisation or warning derivation in MCP.
+
+**Shipped in this repo.**
+
+- **`AI_MANIFEST_SCHEMA_VERSION` 2.1.0** — expanded `slices[]` and `contractSchemaExports` in `server/domain/ai/manifest.ts` (warnings, income-composition, debt-strategy, spend-context, expenses routes).
+- **HTTP** — `GET /api/ai/warnings`, `/income-composition`, `/debt-strategy`, `/spend-context` in `server/routes/ai.ts`.
+- **MCP** — matching resources in `server/mcp/bank-mcp-server.ts`; parity in `server/mcp/bank-mcp-server.contract.test.ts` and `server/routes/ai-parity.test.ts`.
+- **Debt-strategy JSON** — `debtStrategyBundleToResponseJson` materialises Maps/Sets (including nested `forecastInputs`) so wire JSON matches `JSON.stringify` semantics for agents; **`GET /api/debt-strategy/state`** uses the same helper (UI unchanged where it only consumes top-level plan/headroom fields).
+
+**Deferred (optional, as in original plan).** Extending **`GET /api/ai/snapshot`** with condensed warnings/spend/income summaries is **not** done; agents fetch slices separately.
+
+**Interpretive / qualitative questions** remain **out of scope** as dedicated endpoints.
+
+**Acceptance for 2.0.H.** Full **`npx vitest run`** green; manifest lists new slices; MCP matches composers; no duplicate business logic in MCP; contracts in `shared/api-contracts.ts` (e.g. `DebtStrategyStateResponseSchema`, `AiSpendContextResponseSchema`).
+
+**Gate.** Delivers agent parity on Tier 1 insight; **§2.1** Open Close can proceed on this foundation.
 
 #### 2.0 acceptance criteria
 
@@ -810,8 +829,7 @@ free.
 
 **Clients + Contracts → Invoicing → Working-Days Ledger → Forecast →
 Runway → Income Composition → Warnings → Debt Strategy** — **§1.1–§1.9** are
-shipped. **Next:** **§2.0** (structured AI primitives + slices + manifest + MCP
-adaptor), then Snapshot / Confidence Score / Alerts / WhatsApp per the build
+shipped. **§2.0.A–G** (AI primitives, slices, manifest, MCP) forms the base agent layer. **§2.0.H** is shipped (manifest + `/api/ai/*` + MCP for warnings, spend/expenses, income composition, debt strategy). **Next:** **§2.1** Snapshot / **§2.2** Confidence / Alerts / WhatsApp per the build
 order below.
 
 **The Warnings Engine (1.8)** remains the single severity-ranked spine for Tier 2.
@@ -822,12 +840,13 @@ where "is this user safe?" is decided.
 **Structured Data for AI (2.0) gates all of Tier 2.** Snapshot (2.1),
 Confidence Score (2.2), Alerts (2.3) and the WhatsApp / Chat interface
 (2.4) all depend on 2.0's semantic-drift cleanup (balance / debt /
-tax discriminators), its slice endpoints (`/api/ai/liquidity`,
+tax discriminators), its core slice endpoints (`/api/ai/liquidity`,
 `/api/ai/pipeline`, `/api/ai/runway`), the generated manifest, and
-its thin MCP adaptor (2.0.G) that exposes the same slices to any
-MCP-aware client (Cursor, Claude Desktop, ChatGPT-via-bridge, Open
-Close). No Open Close work starts before 2.0's acceptance criteria
-pass — the agent can only be as reliable as the primitives beneath
+its thin MCP adaptor (2.0.G). **§2.0.H** is shipped: that surface now includes
+**warnings, spend behaviour, income composition, debt strategy**, and
+expenses manifest entries—still via composition,
+not re-implemented math. No Open Close work starts before 2.0.A–G acceptance
+criteria pass — the agent can only be as reliable as the primitives beneath
 it, and it ships *as an MCP client* against this server rather than
 re-implementing the glue.
 
@@ -850,22 +869,21 @@ more “step 6 = §1.8” skew between list index and section number).
    per-property `leveraged-passive-income` signal, new `properties/` registry; see §1.7.
 8. ~~**Solvency Warnings Engine (1.8)**~~ ✅ SHIPPED — unified tab + typed `context` + snapshot diff + `reserves/`; see §1.8.
 9. ~~**Debt Strategy Advisor (1.9)**~~ ✅ SHIPPED — **Strategy** tab planner + sandbox, `plans.csv` / `movements.csv`, 12 warning codes; Budgets QoL/Malleable pills; see §1.9.
-10. **Structured Data for AI Consumption (2.0)** — prerequisite to
-    all of Tier 2: semantic discriminators, expected-receipts
-    calendar, slice endpoints (`/api/ai/liquidity`,
-    `/api/ai/pipeline`, `/api/ai/runway`), snapshot composer +
-    `/api/ai/manifest`, and a thin MCP server exposing the same
-    slices as Resources + Tools with both stdio + HTTP+SSE
-    transports. Gates Open Close.
-11. **Financial Snapshot (2.1)** + **Confidence Score (2.2)** —
+10. ~~**Structured Data for AI Consumption (2.0 A–G)**~~ ✅ SHIPPED (per repo): semantic
+    discriminators, expected receipts, `GET /api/ai/{liquidity,pipeline,runway,snapshot,manifest}`,
+    `GET /api/contracts/expected-receipts`, MCP resources over core slices.
+11. ~~**Extended AI surface (2.0.H)**~~ ✅ SHIPPED — manifest 2.1.0 + `/api/ai/{warnings,income-composition,debt-strategy,spend-context}` +
+    MCP resource parity; manifest rows for `/api/expenses/overview|recurring|ad-hoc`;
+    `consolidated-feed` + shared expense read-builders; `vitest` + MCP contract + HTTP parity tests.
+12. **Financial Snapshot (2.1)** + **Confidence Score (2.2)** —
     the agent's two core reads; both consume 2.0's slices.
-12. **Alert & Notification Queue (2.3)** — delivery path for 1.8.
-13. **Net Worth Snapshots (3.1)** — entity-aware from day one.
-14. **Multi-Currency extensions (3.2)** — whatever did not land in
+13. **Alert & Notification Queue (2.3)** — delivery path for 1.8.
+14. **Net Worth Snapshots (3.1)** — entity-aware from day one.
+15. **Multi-Currency extensions (3.2)** — whatever did not land in
     1.1 / 1.3.
-15. **Historical Invoice Parser Fallbacks (3.3)** — OCR + inbound
+16. **Historical Invoice Parser Fallbacks (3.3)** — OCR + inbound
     automation.
-16. **WhatsApp / Chat Interface (2.4)** — delivery channel, ships
+17. **WhatsApp / Chat Interface (2.4)** — delivery channel, ships
     last.
 
 ---

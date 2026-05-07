@@ -11,12 +11,9 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import {
   EntityIdSchema,
-  RunwayResponseSchema,
 } from '../../shared/api-contracts.js';
-import { buildExpensesSheetResponse } from '../../shared/expenses-sheet-build.js';
-import { runExpensesOverviewPipeline } from '../utils/expenses-overview-pipeline.js';
-import { buildExpensesSheetInputFromPipeline } from '../utils/expenses-pipeline-to-sheet.js';
 import { assembleRunway } from '../domain/forecast/index.js';
+import { runwayResponseFromAssembled } from '../domain/forecast/runway-api-response.js';
 
 const router = Router();
 
@@ -37,37 +34,7 @@ router.get('/', (req: Request, res: Response) => {
 
     const { days: horizonDays, entityId: filterEntityId, detail } = parsed.data;
     const assembled = assembleRunway({ horizonDays, filterEntityId });
-
-    // The expenses-insight panel is a separate concern — runway leaves the
-    // pipeline running once already (inside `assembleRunway`), so this is a
-    // second cheap pass through the cached result.
-    const pipeline = runExpensesOverviewPipeline();
-    const sheetIn = buildExpensesSheetInputFromPipeline(pipeline);
-    const sheet = buildExpensesSheetResponse(sheetIn);
-
-    const scopeNote =
-      filterEntityId === undefined
-        ? 'Insight uses rolling UK-centric recurring detection; bills vs QoL split is strongest for GBP/personal lines. Holistic runways merge all accounts in each currency.'
-        : `Insight uses rolling UK-centric recurring detection. Runway is scoped to entity ${filterEntityId} accounts only.`;
-
-    const body = RunwayResponseSchema.parse({
-      today: assembled.today,
-      horizonDays: assembled.horizonDays,
-      household: assembled.household,
-      holisticGbp: assembled.holisticGbp,
-      insight: sheet.insight,
-      insightNote: scopeNote,
-      stress: {
-        fullRecurring: {
-          entities: assembled.fullRecurring.result.entities,
-          accounts: detail === 'accounts' ? assembled.fullRecurring.result.accounts : undefined,
-        },
-        mandatoryRecurring: {
-          entities: assembled.mandatoryRecurring.result.entities,
-          accounts: detail === 'accounts' ? assembled.mandatoryRecurring.result.accounts : undefined,
-        },
-      },
-    });
+    const body = runwayResponseFromAssembled(assembled, filterEntityId, { detail });
     res.json(body);
   } catch (error) {
     console.error('[Runway] GET / error:', error);

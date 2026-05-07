@@ -30,6 +30,7 @@ const DOMAIN_ROOT = path.resolve(__dirname, '..');
  */
 const NON_REGISTRY_DIRS = new Set<string>([
   '_shared',
+  'ai',
   'deadlines',
   'forecast',
   'income-composition',
@@ -39,6 +40,7 @@ const NON_REGISTRY_DIRS = new Set<string>([
   'warnings',
   'working-days',
   'templates',
+  'expenses',
 ]);
 
 /**

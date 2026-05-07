@@ -6,31 +6,28 @@ import {
   type ExpensesSheetResponse,
   type RecurringExpensesResponse,
 } from '../../shared/api-contracts.js';
-import { ACCOUNTS } from '../types.js';
-import { isValidAccountName } from '../domain/accounts/index.js';
 import type { AccountName } from '../types.js';
 import {
   getTransactions,
   getAvailableFinancialYears,
   getFinancialYearRange,
 } from '../db/index.js';
-import { buildExpensesSheetResponse, applySimulationExclusions } from '../../shared/expenses-sheet-build.js';
-import { buildExpensesSheetInputFromPipeline } from '../utils/expenses-pipeline-to-sheet.js';
 import {
   getFixedExpenseSimulationExclusions,
   replaceFixedExpenseSimulationExclusions,
 } from '../db/repositories/fixed-expense-simulation-exclusions.js';
-import { accKey, type RawTransaction } from '../utils/recurring-pipeline.js';
+import { isValidAccountName } from '../domain/accounts/index.js';
 import {
-  runExpensesOverviewPipeline,
-  buildExpensePipelineForAccount,
-  transactionRowToRaw,
-} from '../utils/expenses-overview-pipeline.js';
+  buildAdHocExpensesResponse,
+  buildExpensesOverviewSheetResponse,
+  buildRecurringExpensesResponse,
+} from '../domain/expenses/read-response-builders.js';
+import { accKey } from '../utils/recurring-pipeline.js';
+import { buildExpensePipelineForAccount, transactionRowToRaw } from '../utils/expenses-overview-pipeline.js';
 import {
   AD_HOC_DEFAULT_LIMIT,
   AD_HOC_DEFAULT_MIN_TOTAL,
   AD_HOC_MAX_LIMIT,
-  computeAdHocExpenseGroups,
 } from '../utils/ad-hoc-expenses.js';
 import {
   computeAdHocMerchantSeries,
@@ -38,11 +35,6 @@ import {
 } from '../utils/ad-hoc-merchant-series.js';
 
 export { accKey };
-
-function oldestIsoDate(rows: RawTransaction[]): string {
-  if (rows.length === 0) return '';
-  return rows.reduce((min, r) => (r.date < min ? r.date : min), rows[0].date);
-}
 
 function formatUkLong(iso: string): string {
   const d = new Date(`${iso}T12:00:00`);
@@ -59,13 +51,7 @@ interface OverviewQuery {
 
 router.get('/overview', (_req: Request<object, ExpensesSheetResponse, object, OverviewQuery>, res: Response<ExpensesSheetResponse | { error: string }>) => {
   try {
-    const pipeline = runExpensesOverviewPipeline();
-    const sheetInput = buildExpensesSheetInputFromPipeline(pipeline);
-    const baseline = buildExpensesSheetResponse(sheetInput);
-    const persisted = new Set(getFixedExpenseSimulationExclusions());
-    const response = applySimulationExclusions(baseline, persisted);
-
-    res.json(response);
+    res.json(buildExpensesOverviewSheetResponse());
   } catch (error) {
     console.error('Error generating expenses sheet overview:', error);
     res.status(500).json({ error: 'Failed to generate expenses sheet overview' });
@@ -198,11 +184,10 @@ router.get(
 router.get('/ad-hoc', (req: Request<object, AdHocExpensesResponse, object, AdHocQuery>, res: Response<AdHocExpensesResponse | { error: string }>) => {
   try {
     const accountRaw = req.query.account;
-    if (!accountRaw || typeof accountRaw !== 'string' || !isValidAccountName(accountRaw)) {
+    if (!accountRaw || typeof accountRaw !== 'string') {
       res.status(400).json({ error: 'Invalid or missing account' });
       return;
     }
-    const account = accountRaw as AccountName;
 
     const fyRaw = req.query.financialYear;
     const financialYear =
@@ -226,46 +211,17 @@ router.get('/ad-hoc', (req: Request<object, AdHocExpensesResponse, object, AdHoc
       AD_HOC_MAX_LIMIT,
     );
 
-    const pipeline = buildExpensePipelineForAccount(account, financialYear ?? undefined);
-
-    const expenseRows = getTransactions({
-      account,
-      financialYear: financialYear ?? undefined,
-      type: 'expense',
-    });
-    const expenseTransactions = expenseRows.map(transactionRowToRaw);
-
-    const items = computeAdHocExpenseGroups({
-      pipeline,
-      account,
-      expenseTransactions,
-      minTotal,
-      limit,
-    });
-
-    let periodDescription: string;
-    let analysisCutoff: string;
-    if (financialYear !== null) {
-      const range = getFinancialYearRange(financialYear);
-      periodDescription = `${formatUkLong(range.startDate)} – ${formatUkLong(range.endDate)} (${range.label})`;
-      analysisCutoff = range.startDate;
-    } else {
-      periodDescription = 'All time';
-      analysisCutoff = oldestIsoDate(expenseTransactions);
-    }
-
-    const body: AdHocExpensesResponse = {
-      account,
+    const built = buildAdHocExpensesResponse({
+      account: accountRaw,
       financialYear,
-      periodDescription,
-      analysisCutoff,
-      pipelineMonths: pipeline.monthsCovered,
-      analysisMonths: pipeline.monthsCovered,
       minTotal,
       limit,
-      items,
-    };
-    res.json(body);
+    });
+    if ('error' in built) {
+      res.status(400).json({ error: built.error });
+      return;
+    }
+    res.json(built);
   } catch (error) {
     console.error('Error generating ad hoc expenses:', error);
     res.status(500).json({ error: 'Failed to generate ad hoc expenses' });
@@ -281,26 +237,9 @@ interface RecurringQuery {
 
 router.get('/recurring', (req: Request<object, RecurringExpensesResponse, object, RecurringQuery>, res: Response<RecurringExpensesResponse | { error: string }>) => {
   try {
-    const { account, financialYear } = req.query;
-    const selectedAccount = account || ACCOUNTS[0];
-
-    const allYears = getAvailableFinancialYears();
-    const selectedFY = financialYear || allYears[0] || '';
-
-    const pipeline = buildExpensePipelineForAccount(
-      selectedAccount as AccountName,
-      selectedFY || undefined,
-    );
-
-    const response: RecurringExpensesResponse = {
-      monthly: pipeline.monthlyExpenseRecurring,
-      annual: pipeline.annualExpenseRecurring,
-      account: selectedAccount,
-      financialYear: selectedFY,
-      monthsCovered: pipeline.monthsCovered,
-    };
-
-    res.json(response);
+    const account = typeof req.query.account === 'string' ? req.query.account : undefined;
+    const financialYear = typeof req.query.financialYear === 'string' ? req.query.financialYear : undefined;
+    res.json(buildRecurringExpensesResponse({ account, financialYear }));
   } catch (error) {
     console.error('Error generating recurring expenses:', error);
     res.status(500).json({ error: 'Failed to generate recurring expenses' });

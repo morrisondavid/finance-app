@@ -25,6 +25,9 @@ describe('obligations repository', () => {
         entity: 'HMRC',
         frequency: 'quarterly',
         expected_amount: 5000,
+        naive_amount: null,
+        adjustment_basis: null,
+        adjustment_source: null,
         due_date: '2025-03-07',
         status: 'pending',
         paid_amount: null,
@@ -56,6 +59,9 @@ describe('obligations repository', () => {
         entity: 'HMRC',
         frequency: 'quarterly',
         expected_amount: 1000,
+        naive_amount: null,
+        adjustment_basis: null,
+        adjustment_source: null,
         due_date: '2025-06-07',
         status: 'paid',
         paid_amount: 1000,
@@ -86,6 +92,9 @@ describe('obligations repository', () => {
         entity: 'Entity',
         frequency: 'one-off',
         expected_amount: null,
+        naive_amount: null,
+        adjustment_basis: null,
+        adjustment_source: null,
         due_date: null,
         status: 'pending',
         paid_amount: null,
@@ -117,6 +126,9 @@ describe('obligations repository', () => {
         entity: 'HMRC',
         frequency: 'annual',
         expected_amount: 11430,
+        naive_amount: null,
+        adjustment_basis: null,
+        adjustment_source: null,
         due_date: '2026-01-31',
         status: 'pending',
         paid_amount: null,
@@ -149,6 +161,9 @@ function createObligationsSchema(): void {
       entity TEXT NOT NULL,
       frequency TEXT NOT NULL,
       expected_amount REAL,
+      naive_amount REAL,
+      adjustment_basis TEXT,
+      adjustment_source TEXT,
       due_date TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
       paid_amount REAL,
@@ -175,8 +190,8 @@ function insertObligation(o: {
 }): void {
   testDb.prepare(`
     INSERT INTO financial_obligations
-      (id, source, type, name, entity, frequency, expected_amount, due_date, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, source, type, name, entity, frequency, expected_amount, naive_amount, adjustment_basis, adjustment_source, due_date, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)
   `).run(
     o.id,
     o.source ?? 'manual',

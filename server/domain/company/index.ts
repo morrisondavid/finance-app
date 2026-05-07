@@ -34,6 +34,7 @@ export {
   allEntityIds,
   companiesByJurisdiction,
   companyById,
+  ukLtdCompanyOrNull,
 } from './queries.js';
 
 export {

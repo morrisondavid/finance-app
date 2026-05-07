@@ -8,6 +8,7 @@
  * don't reduce principal).
  */
 
+import type { DebtSemanticKind } from '../../../shared/api-contracts.js';
 import { getDb, DEBTS_DIR } from '../connection.js';
 import type { AccountName } from '../../types.js';
 import { isValidAccountName } from '../../domain/accounts/index.js';
@@ -69,6 +70,7 @@ export interface Debt {
 }
 
 export interface DebtSummary extends Debt {
+  debtKind: DebtSemanticKind;
   currentBalance: number;
   paidSinceOpening: number;
   lastPaymentDate: string | null;
@@ -536,6 +538,11 @@ function fetchLastPayment(debt: Debt): LastPayment | null {
   return { date: row.date, amount: round2(Math.abs(row.amount)) };
 }
 
+function debtKindForApi(debt: Debt): DebtSemanticKind {
+  if (debt.kind === 'mortgage') return 'mortgage';
+  return 'amortising-loan';
+}
+
 export function getDebtSummary(debt: Debt): DebtSummary {
   const agg = computeAggregates(debt);
   const last = fetchLastPayment(debt);
@@ -552,6 +559,7 @@ export function getDebtSummary(debt: Debt): DebtSummary {
     : 0;
   return {
     ...debt,
+    debtKind: debtKindForApi(debt),
     currentBalance,
     paidSinceOpening: agg.paidSinceOpening,
     lastPaymentDate: last ? last.date : agg.lastPaymentDate,

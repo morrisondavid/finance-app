@@ -250,6 +250,12 @@ describe('DashboardSummaryResponseSchema', () => {
       ...minimalDashboard,
       balances: {
         'barclays-current': {
+          balanceSemantics: 'cash',
+          cashBalance: 51035.54,
+          creditLimit: null,
+          creditUsed: null,
+          creditRemaining: null,
+          debtOwed: null,
           openingBalance: 63035.54,
           transactionTotal: -12000,
           currentBalance: 51035.54,
@@ -257,6 +263,12 @@ describe('DashboardSummaryResponseSchema', () => {
         },
       },
       currentAccountBalance: {
+        balanceSemantics: 'cash',
+        cashBalance: 51035.54,
+        creditLimit: null,
+        creditUsed: null,
+        creditRemaining: null,
+        debtOwed: null,
         openingBalance: 63035.54,
         transactionTotal: -12000,
         currentBalance: 51035.54,

@@ -77,6 +77,7 @@ export function collectObligationEvents(
       currency: accountCurrency(account, currencyByAccount),
       source: 'obligation',
       label: ob.name,
+      obligationId: ob.id,
     });
   }
   return events;

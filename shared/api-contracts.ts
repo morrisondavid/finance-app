@@ -139,12 +139,33 @@ export const AccountSummarySchema = z.object({
   newestTransaction: z.string().nullable()
 });
 
+export const BalanceSemanticsSchema = z.enum([
+  'cash',
+  'credit-remaining',
+  'debt-owed',
+  'passthrough',
+]);
+export type BalanceSemantics = z.infer<typeof BalanceSemanticsSchema>;
+
 export const AccountBalanceSchema = z.object({
   account: z.string().optional(),
+  /**
+   * How to interpret `openingBalance` / `currentBalance` for this account.
+   * Prefer the explicit `cashBalance` / `credit*` / `debtOwed` fields for agents.
+   */
+  balanceSemantics: BalanceSemanticsSchema,
+  /** Cash/savings/current native balance; null when `balanceSemantics` is not `cash`. */
+  cashBalance: z.number().nullable(),
+  /** Credit line limit; meaningful for `credit-remaining` (limit-seeded cards). */
+  creditLimit: z.number().nullable(),
+  /** Portion of the line currently used; meaningful for `credit-remaining`. */
+  creditUsed: z.number().nullable(),
+  /** Headroom left on the line; meaningful for `credit-remaining` (matches legacy `currentBalance`). */
+  creditRemaining: z.number().nullable(),
+  /** Positive balance owed (card debt); meaningful for `credit-remaining` / `debt-owed`. */
+  debtOwed: z.number().nullable(),
   openingBalance: z.number(),
   openingBalanceDate: z.string().nullable().optional(),
-  /** Credit cards only: same as `openingBalance` (line limit in this app’s model). */
-  creditLimit: z.number().optional(),
   transactionTotal: z.number(),
   currentBalance: z.number(),
   transactionCount: z.number(),
@@ -662,6 +683,10 @@ export const ObligationRowSchema = z.object({
   entity: z.string(),
   frequency: ObligationFrequencySchema,
   expectedAmount: z.number().nullable(),
+  /** CT: marginal-relief / full-rate ceiling; equals `expectedAmount` when no accountant rate applies. */
+  naiveAmount: z.number().nullable().optional(),
+  adjustmentBasis: z.string().nullable().optional(),
+  adjustmentSource: z.string().nullable().optional(),
   dueDate: z.string().nullable(),
   status: ObligationStatusSchema,
   paidAmount: z.number().nullable(),
@@ -939,6 +964,11 @@ export const DebtIdSchema = z
 export const IsoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 export const DebtKindSchema = z.enum(['consumer', 'mortgage']);
+/**
+ * API-facing debt classification for agents (roadmap §2.0.A). Derived from
+ * stored {@link DebtKindSchema} rows — `consumer` → `amortising-loan`.
+ */
+export const DebtSemanticKindSchema = z.enum(['amortising-loan', 'revolving-credit', 'mortgage']);
 export const RepaymentTypeSchema = z.enum(['repayment', 'interest-only']);
 
 export const DebtSchema = z.object({
@@ -966,6 +996,8 @@ export const DebtSchema = z.object({
 });
 
 export const DebtSummarySchema = DebtSchema.extend({
+  /** Normalised kind for autonomous consumers (prefer this over `kind`). */
+  debtKind: DebtSemanticKindSchema,
   currentBalance: z.number(),
   paidSinceOpening: z.number(),
   lastPaymentDate: z.string().nullable(),
@@ -1195,6 +1227,18 @@ const CompanyCommonFields = {
    * pending accountant review.
    */
   vat_registered: BooleanOrTbcSchema,
+  /**
+   * Rolling average effective CT rate from filed years (0–1). When set,
+   * auto CT obligations use it for `expectedAmount` while keeping the
+   * marginal-relief `naiveAmount` alongside.
+   */
+  historical_effective_ct_rate: z.number().min(0).max(1).nullable().optional(),
+  /**
+   * Rolling average effective VAT rate from filed years (0–1). Reserved
+   * for VAT obligation adjustments; CT uses
+   * `historical_effective_ct_rate` today.
+   */
+  historical_effective_vat_rate: z.number().min(0).max(1).nullable().optional(),
   active: z.boolean(),
   /** ISO date the row was last touched. Allowed nullable for legacy rows. */
   updated_at: IsoDateSchema.nullable(),
@@ -2035,6 +2079,110 @@ export const AggregateAccrualResponseSchema = z.object({
 });
 export type AggregateAccrualResponse = z.infer<typeof AggregateAccrualResponseSchema>;
 
+// ---------------------------------------------------------------------------
+// Expected receipts — shared by GET /api/contracts/expected-receipts + /api/ai/pipeline
+// ---------------------------------------------------------------------------
+
+export const ExpectedReceiptSourceSchema = z.enum(['accrual', 'invoice-receipt']);
+export type ExpectedReceiptSource = z.infer<typeof ExpectedReceiptSourceSchema>;
+
+export const ExpectedReceiptRowSchema = z.object({
+  expectedDate: IsoDateSchema,
+  amount: z.number(),
+  currency: CurrencyCodeSchema,
+  account: AccountNameSchema,
+  source: ExpectedReceiptSourceSchema,
+  contractId: ContractIdSchema.nullable(),
+  invoiceId: z.string().nullable(),
+});
+export type ExpectedReceiptRow = z.infer<typeof ExpectedReceiptRowSchema>;
+
+export const ExpectedReceiptsResponseSchema = z.object({
+  asOf: IsoDateSchema,
+  horizon: IsoDateSchema,
+  receipts: z.array(ExpectedReceiptRowSchema),
+});
+export type ExpectedReceiptsResponse = z.infer<typeof ExpectedReceiptsResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// §2.0.E AI slices (same leaf types as product routes; composition-only envelopes)
+// ---------------------------------------------------------------------------
+
+export const AiEntityBalancesSchema = z.object({
+  entityId: EntityIdSchema,
+  accountNames: z.array(AccountNameSchema),
+  balances: z.record(z.string(), AccountBalanceSchema),
+});
+
+export const AiLiquidityResponseSchema = z.object({
+  today: IsoDateSchema,
+  balances: z.record(z.string(), AccountBalanceSchema),
+  liquidityOverview: LiquidityOverviewSchema,
+  taxLiabilities: TaxLiabilitiesSchema,
+  byEntity: z.record(EntityIdSchema, AiEntityBalancesSchema).optional(),
+});
+export type AiLiquidityResponse = z.infer<typeof AiLiquidityResponseSchema>;
+
+export const AiPipelineRowSchema = z.object({
+  date: IsoDateSchema,
+  amount: z.number(),
+  currency: CurrencyCodeSchema,
+  account: AccountNameSchema,
+  kind: z.enum(['obligation', 'expected-receipt']),
+  label: z.string(),
+  obligationId: z.string().nullable(),
+  /** Set for `expected-receipt` rows; null for obligations. */
+  receiptSource: ExpectedReceiptSourceSchema.nullable(),
+  obligationType: ObligationTypeSchema.nullable(),
+  contractId: ContractIdSchema.nullable(),
+  invoiceId: z.string().nullable(),
+});
+export type AiPipelineRow = z.infer<typeof AiPipelineRowSchema>;
+
+export const AiPipelineResponseSchema = z.object({
+  asOf: IsoDateSchema,
+  horizon: IsoDateSchema,
+  rows: z.array(AiPipelineRowSchema),
+});
+export type AiPipelineResponse = z.infer<typeof AiPipelineResponseSchema>;
+
+export const AiSnapshotResponseSchema = z.object({
+  generatedAt: z.string(),
+  schemaVersion: z.string(),
+  liquidity: AiLiquidityResponseSchema,
+  pipeline: AiPipelineResponseSchema,
+  runway: RunwayResponseSchema,
+});
+export type AiSnapshotResponse = z.infer<typeof AiSnapshotResponseSchema>;
+
+export const AiManifestSliceSchema = z.object({
+  method: z.literal('GET'),
+  path: z.string(),
+  queryParams: z.array(z.string()),
+  responseSchemaExport: z.string(),
+});
+
+export const AiManifestResponseSchema = z.object({
+  schemaVersion: z.string(),
+  description: z.string(),
+  slices: z.array(AiManifestSliceSchema),
+  /** Zod schema export names in `shared/api-contracts.ts` that define slice wire shapes. */
+  contractSchemaExports: z.array(z.string()),
+});
+export type AiManifestResponse = z.infer<typeof AiManifestResponseSchema>;
+
+/** §1.9 debt-strategy read bundle (`GET /api/debt-strategy/state`, AI mirror). */
+export const DebtStrategyStateResponseSchema = z.record(z.string(), z.unknown());
+export type DebtStrategyStateResponse = z.infer<typeof DebtStrategyStateResponseSchema>;
+
+/** Default overview + recurring + ad-hoc spend (`GET /api/ai/spend-context`). */
+export const AiSpendContextResponseSchema = z.object({
+  overview: ExpensesSheetResponseSchema,
+  recurring: RecurringExpensesResponseSchema,
+  adHoc: AdHocExpensesResponseSchema,
+});
+export type AiSpendContextResponse = z.infer<typeof AiSpendContextResponseSchema>;
+
 // ============================================
 // Invoices — Roadmap 1.3 (§1.3 Phase 1: domain registry only)
 // ============================================
@@ -2474,6 +2622,7 @@ export type ObligationCategory = IncomingObligationCategory | OutgoingObligation
 
 // Debts Types
 export type DebtKind = z.infer<typeof DebtKindSchema>;
+export type DebtSemanticKind = z.infer<typeof DebtSemanticKindSchema>;
 export type RepaymentType = z.infer<typeof RepaymentTypeSchema>;
 export type DebtId = z.infer<typeof DebtIdSchema>;
 export type Debt = z.infer<typeof DebtSchema>;

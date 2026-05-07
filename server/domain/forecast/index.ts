@@ -59,3 +59,5 @@ export {
   type RunwayScenarioInput,
   type RunwayScenarioHolisticGbp,
 } from './assemble-runway.js';
+
+export { runwayResponseFromAssembled, type RunwayApiResponseOpts } from './runway-api-response.js';

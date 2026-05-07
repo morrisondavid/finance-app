@@ -26,8 +26,10 @@
 import { getDb } from '../connection.js';
 import {
   calculateCorporationTax,
+  corporationTaxObligationAmounts,
   VAT,
 } from '../../config/tax-rates.js';
+import { ukLtdCompanyOrNull } from '../../domain/company/index.js';
 import { HMRC_PATTERNS } from '../../domain/payees/index.js';
 import { businessPaymentAccounts } from '../../domain/accounts/index.js';
 import { insertAutoObligation } from './obligations.js';
@@ -202,8 +204,22 @@ export function deriveAndInsertAutoCtObligations(referenceDate: Date = new Date(
     // which point the user adds a manual obligation that supersedes this).
     const incomeNetOfVat = income - round2(income * VAT.FRACTION);
     const taxableProfit = Math.max(0, incomeNetOfVat);
-    const expectedAmount = round2(calculateCorporationTax(taxableProfit).tax);
-    if (expectedAmount <= 0) continue;
+
+    const ukCo = ukLtdCompanyOrNull();
+    const amounts =
+      ukCo !== null
+        ? corporationTaxObligationAmounts(taxableProfit, ukCo)
+        : (() => {
+            const naiveAmount = round2(calculateCorporationTax(taxableProfit).tax);
+            if (naiveAmount <= 0) return null;
+            return {
+              naiveAmount,
+              expectedAmount: naiveAmount,
+              adjustmentBasis: 'marginal relief / statutory rates (UK Ltd company row missing from registry)',
+              adjustmentSource: 'computed',
+            };
+          })();
+    if (amounts === null) continue;
 
     const id = `auto-ct-${slot.fyEnd}`;
     if (isDismissed(id)) continue;
@@ -222,7 +238,10 @@ export function deriveAndInsertAutoCtObligations(referenceDate: Date = new Date(
       name: `Corporation Tax — FY ${slot.fyLabel}`,
       entity: 'HMRC',
       frequency: 'annual',
-      expectedAmount,
+      expectedAmount: amounts.expectedAmount,
+      naiveAmount: amounts.naiveAmount,
+      adjustmentBasis: amounts.adjustmentBasis,
+      adjustmentSource: amounts.adjustmentSource,
       dueDate: slot.dueDate,
       status,
       paidAmount: match ? round2(Math.abs(match.amount)) : null,

@@ -148,6 +148,8 @@ function input(overrides: Partial<EntityFoundationWarningInput> = {}): EntityFou
     companies: [cleanUk(), cleanFzco()],
     clients: [] as Client[],
     contracts: [] as Contract[],
+    leaveRows: [],
+    publicHolidayDatesByEntity: new Map(),
     fzcoTrailing12mIncomeAed: 0,
     interCompanyMovementCount: 0,
     today: new Date('2026-03-15T00:00:00Z'),
@@ -506,6 +508,26 @@ describe('deriveEntityFoundationWarnings', () => {
       expect(byContractSource('fzco-row')?.sources).toContain('entity:autonize-it-fzco');
     });
 
+    it('includes monthly exposure context using computeProjectedPeriodTotal + retained reserves', () => {
+      const contract = buildContract({
+        id: 'ctx-row',
+        end_date: '2026-05-04',
+        renewal_warning_days: 30,
+        invoice_cadence: 'monthly',
+        day_rate: 550,
+      });
+      const warnings = deriveEntityFoundationWarnings(
+        input({
+          contracts: [contract],
+          today,
+        }),
+      );
+      const w = warnings.find(x => x.code === 'contract-ending-soon');
+      expect(w?.context?.monthly_exposure_gross).toBeDefined();
+      expect(w?.context?.monthly_exposure_retained).toBeDefined();
+      expect(w?.context?.percent_of_entity_revenue).toBe(100);
+    });
+
     it('moves between bands as today advances (today-injection)', () => {
       const contract = buildContract({
         id: 'drifting',
@@ -573,6 +595,8 @@ describe('deriveEntityFoundationWarnings', () => {
       companies: [] as Company[],
       clients: [] as Client[],
       contracts: [] as Contract[],
+      leaveRows: [],
+      publicHolidayDatesByEntity: new Map(),
       fzcoTrailing12mIncomeAed: 1_000_000,
       interCompanyMovementCount: 5,
       today: new Date('2026-03-15T00:00:00Z'),

@@ -106,6 +106,7 @@ describe('collectObligationEvents', () => {
     expect(events[0].date).toBe('2026-05-07');
     expect(events[0].source).toBe('obligation');
     expect(events[0].account).toBe('barclays-current');
+    expect(events[0].obligationId).toBe('auto-vat-q1');
   });
 
   it('uses paidFromAccount when set', () => {

@@ -1,5 +1,11 @@
 import { getDb } from '../connection.js';
-import { VAT, getVatQuarterForDate, type VatQuarterRange } from '../../config/tax-rates.js';
+import {
+  VAT,
+  getVatQuarterForDate,
+  vatObligationAmounts,
+  type VatQuarterRange,
+} from '../../config/tax-rates.js';
+import { ukLtdCompanyOrNull } from '../../domain/company/index.js';
 import { HMRC_PATTERNS } from '../../domain/payees/index.js';
 import { businessPaymentAccounts, vatApplicableAccounts } from '../../domain/accounts/index.js';
 import { findHmrcPayments, type HmrcPaymentMatch } from './tax.js';
@@ -194,16 +200,20 @@ export function deriveAndInsertAutoObligations(): void {
   db.prepare("DELETE FROM financial_obligations WHERE source = 'auto'").run();
 
   const rows = buildVatReconciliationSet();
+  const ukCo = ukLtdCompanyOrNull();
   let count = 0;
 
-  for (const { quarter: q, reconciliation: recon } of rows) {
+  for (const { quarter: q, income, reconciliation: recon } of rows) {
     if (!INSERTABLE_STATUSES.has(recon.status)) continue;
+
+    const amounts = vatObligationAmounts(income, ukCo);
+    const expectedForRow = amounts?.expectedAmount ?? recon.expectedAmount;
 
     // A zero-£ obligation cannot meaningfully be "unpaid" — there is nothing
     // to pay. Surfacing these as overdue creates the nonsense "£0 overdue VAT"
     // row the user specifically flagged. Skip them; if HMRC ever chases the
     // user over a zero-turnover quarter the manual obligation UI still works.
-    if (recon.status === 'unpaid' && recon.expectedAmount === 0) continue;
+    if (recon.status === 'unpaid' && expectedForRow === 0) continue;
 
     const id = `auto-vat-${q.startDate}`;
 
@@ -216,7 +226,10 @@ export function deriveAndInsertAutoObligations(): void {
       name: `VAT ${q.label}`,
       entity: 'HMRC',
       frequency: 'quarterly',
-      expectedAmount: recon.expectedAmount,
+      expectedAmount: expectedForRow,
+      naiveAmount: amounts?.naiveAmount ?? null,
+      adjustmentBasis: amounts?.adjustmentBasis ?? null,
+      adjustmentSource: amounts?.adjustmentSource ?? null,
       dueDate: q.dueDate,
       status: recon.status,
       paidAmount: recon.paidAmount > 0 ? recon.paidAmount : null,

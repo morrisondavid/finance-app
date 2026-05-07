@@ -13,7 +13,7 @@ import { parseContractRow } from '../contracts/csv-io.js';
 import { parseClientRow } from '../clients/csv-io.js';
 import { parseCompanyRow } from '../company/csv-io.js';
 import { parseInvoiceRow } from './csv-io.js';
-import { dcSowRow } from '../contracts/test-helpers.js';
+import { dcSowRow, dcSowRowMarchStart } from '../contracts/test-helpers.js';
 import { directRow, agencyRow } from '../clients/test-helpers.js';
 import { ukRow, uaeRow } from '../company/test-helpers.js';
 import { dcInvoice001, dcInvoice002, fzcoInvoice001 } from './test-helpers.js';
@@ -21,7 +21,7 @@ import type { LeaveRow } from '../../../shared/api-contracts.js';
 
 const deltaCapita = parseClientRow(directRow);
 const laFosse = parseClientRow(agencyRow);
-const dc = parseContractRow(dcSowRow);
+const dc = parseContractRow(dcSowRowMarchStart);
 const ukLtd = parseCompanyRow(ukRow);
 const fzco = parseCompanyRow(uaeRow);
 

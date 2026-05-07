@@ -40,8 +40,13 @@ import type {
   Contract,
   EntityFoundationWarning,
   EntityFoundationWarningCode,
+  EntityId,
+  LeaveRow,
   WarningSeverity,
 } from '../../../shared/api-contracts.js';
+import { calculateRetainedReserves } from '../../config/tax-rates.js';
+import { computeProjectedPeriodTotal } from '../contracts/income-accrual.js';
+import { round2 } from '../../utils/math.js';
 import {
   UAE_VAT_VOLUNTARY_AED,
   UAE_VAT_MANDATORY_AED,
@@ -70,6 +75,16 @@ export interface EntityFoundationWarningInput {
    * by an imminent expiry.
    */
   readonly contracts: readonly Contract[];
+  /**
+   * Leave rows for workload-aware projected revenue (same inputs as
+   * income-accrual). Empty array when nothing is booked.
+   */
+  readonly leaveRows: readonly LeaveRow[];
+  /**
+   * Entity-scoped public-holiday sets for the projection window; same
+   * convention as invoice-days-mismatch / accrual routes.
+   */
+  readonly publicHolidayDatesByEntity: ReadonlyMap<EntityId, ReadonlySet<string>>;
   /**
    * Trailing-12-month income on the FZCO entity, in AED. The UAE VAT
    * threshold check is a pure comparison against this number; the
@@ -123,7 +138,14 @@ export function deriveEntityFoundationWarnings(
     }
   }
 
-  for (const warning of collectContractEndingSoon(input.contracts, input.clients, input.today)) {
+  for (const warning of collectContractEndingSoon(
+    input.contracts,
+    input.clients,
+    input.companies,
+    input.leaveRows,
+    input.publicHolidayDatesByEntity,
+    input.today,
+  )) {
     warnings.push(warning);
   }
 
@@ -250,13 +272,38 @@ function collectClientTbcFields(client: Client): string[] {
  * Skipped entirely when the contract is inactive, open-ended, or
  * still outside its `renewal_warning_days` window.
  */
+function sumActiveProjectedNetForEntity(
+  entityId: EntityId,
+  contracts: readonly Contract[],
+  leaveRows: readonly LeaveRow[],
+  publicHolidayDatesByEntity: ReadonlyMap<EntityId, ReadonlySet<string>>,
+  todayIso: string,
+): number {
+  const hol = publicHolidayDatesByEntity.get(entityId);
+  let sum = 0;
+  for (const c of contracts) {
+    if (!c.active || c.issuing_entity_id !== entityId) continue;
+    sum += computeProjectedPeriodTotal({
+      contract: c,
+      leaveRows,
+      today: todayIso,
+      publicHolidayDates: hol,
+    });
+  }
+  return round2(sum);
+}
+
 function collectContractEndingSoon(
   contracts: readonly Contract[],
   clients: readonly Client[],
+  companies: readonly Company[],
+  leaveRows: readonly LeaveRow[],
+  publicHolidayDatesByEntity: ReadonlyMap<EntityId, ReadonlySet<string>>,
   today: Date,
 ): EntityFoundationWarning[] {
   const todayIso = toIsoDate(today);
   const clientById = new Map(clients.map(c => [c.id, c]));
+  const companyById = new Map(companies.map(c => [c.id, c]));
   const out: EntityFoundationWarning[] = [];
 
   for (const contract of contracts) {
@@ -284,6 +331,37 @@ function collectContractEndingSoon(
       ? `Flip ${contract.id} to active=false in clients/contracts.csv once the engagement is truly over, or add the successor contract so the deadline clears.`
       : `Confirm renewal intent with ${clientLabel} and sign the successor contract before ${endDateLabel}.`;
 
+    const company = companyById.get(contract.issuing_entity_id);
+    const hol = publicHolidayDatesByEntity.get(contract.issuing_entity_id);
+
+    const baseContext: Record<string, string | number | boolean | null> = {
+      contract_id: contract.id,
+      end_date: contract.end_date,
+      days_until: daysLeft,
+    };
+
+    if (company !== undefined) {
+      const monthlyNetProjected = computeProjectedPeriodTotal({
+        contract,
+        leaveRows,
+        today: todayIso,
+        publicHolidayDates: hol,
+      });
+      const retainedClaim = calculateRetainedReserves(monthlyNetProjected, company);
+      const entityDenom = sumActiveProjectedNetForEntity(
+        contract.issuing_entity_id,
+        contracts,
+        leaveRows,
+        publicHolidayDatesByEntity,
+        todayIso,
+      );
+      const pctRevenue =
+        entityDenom > 0 ? Math.round((100 * monthlyNetProjected) / entityDenom) : null;
+      baseContext.monthly_exposure_gross = round2(monthlyNetProjected);
+      baseContext.monthly_exposure_retained = round2(retainedClaim.retained_period);
+      baseContext.percent_of_entity_revenue = pctRevenue;
+    }
+
     out.push({
       id: warningId('contract-ending-soon', contract.id),
       code: 'contract-ending-soon',
@@ -296,6 +374,7 @@ function collectContractEndingSoon(
         `entity:${contract.issuing_entity_id}`,
         `contract:${contract.id}`,
       ],
+      context: baseContext,
     });
   }
 

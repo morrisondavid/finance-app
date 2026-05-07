@@ -35,6 +35,8 @@ import {
   AggregateAccrualTotalsSchema,
   ContractIdSchema,
   ContractsListResponseSchema,
+  EntityIdSchema,
+  ExpectedReceiptsResponseSchema,
   LeaveCreateResponseSchema,
   LeaveIdSchema,
   LeaveListResponseSchema,
@@ -76,6 +78,7 @@ import {
 } from '../domain/templates/index.js';
 import { todayIsoLocal } from '../../shared/iso-date.js';
 import { holidayDatesForEntity } from '../domain/working-days/public-holidays.js';
+import { buildExpectedReceipts } from '../domain/contracts/expected-receipts.js';
 
 const router = express.Router();
 
@@ -254,6 +257,31 @@ router.get('/income-accrual', (_req: Request, res: Response) => {
   } catch (error) {
     console.error('[Contracts] GET /income-accrual error:', error);
     res.status(500).json({ error: `Failed to compute aggregate accrual: ${errorMessage(error)}` });
+  }
+});
+
+const ExpectedReceiptsQuerySchema = z.object({
+  days: z.coerce.number().int().positive().default(720),
+  entityId: EntityIdSchema.optional(),
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/contracts/expected-receipts
+// ---------------------------------------------------------------------------
+
+router.get('/expected-receipts', (req: Request, res: Response) => {
+  try {
+    const parsed = ExpectedReceiptsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid-params', issues: parsed.error.issues });
+      return;
+    }
+    const { days: horizonDays, entityId: filterEntityId } = parsed.data;
+    const body = buildExpectedReceipts({ horizonDays, filterEntityId });
+    res.json(ExpectedReceiptsResponseSchema.parse(body));
+  } catch (error) {
+    console.error('[Contracts] GET /expected-receipts error:', error);
+    res.status(500).json({ error: `Failed to build expected receipts: ${errorMessage(error)}` });
   }
 });
 

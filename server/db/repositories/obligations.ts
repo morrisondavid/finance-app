@@ -52,6 +52,9 @@ interface ObligationDbRow {
   entity: string;
   frequency: string;
   expected_amount: number | null;
+  naive_amount: number | null;
+  adjustment_basis: string | null;
+  adjustment_source: string | null;
   due_date: string | null;
   status: string;
   paid_amount: number | null;
@@ -98,9 +101,10 @@ export function loadManualObligationsFromCsv(): void {
 
   const insert = db.prepare(`
     INSERT OR REPLACE INTO financial_obligations
-      (id, source, type, name, entity, frequency, expected_amount, due_date, status,
+      (id, source, type, name, entity, frequency, expected_amount, naive_amount, adjustment_basis, adjustment_source,
+       due_date, status,
        paid_amount, paid_date, paid_from_account, notes, person_id, created_at, updated_at)
-    VALUES (?, 'manual', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    VALUES (?, 'manual', ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `);
 
   for (const r of projected) {
@@ -126,6 +130,9 @@ export function insertAutoObligation(obligation: {
   entity: string;
   frequency: string;
   expectedAmount: number | null;
+  naiveAmount?: number | null;
+  adjustmentBasis?: string | null;
+  adjustmentSource?: string | null;
   dueDate: string | null;
   status: string;
   paidAmount: number | null;
@@ -137,12 +144,17 @@ export function insertAutoObligation(obligation: {
   const db = getDb();
   db.prepare(`
     INSERT OR REPLACE INTO financial_obligations
-      (id, source, type, name, entity, frequency, expected_amount, due_date, status,
+      (id, source, type, name, entity, frequency, expected_amount, naive_amount, adjustment_basis, adjustment_source,
+       due_date, status,
        paid_amount, paid_date, paid_from_account, notes, person_id, created_at, updated_at)
-    VALUES (?, 'auto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    VALUES (?, 'auto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `).run(
     obligation.id, obligation.type, obligation.name, obligation.entity,
-    obligation.frequency, obligation.expectedAmount, obligation.dueDate,
+    obligation.frequency, obligation.expectedAmount,
+    obligation.naiveAmount ?? null,
+    obligation.adjustmentBasis ?? null,
+    obligation.adjustmentSource ?? null,
+    obligation.dueDate,
     obligation.status, obligation.paidAmount, obligation.paidDate,
     obligation.paidFromAccount, obligation.notes, obligation.personId ?? null,
   );
@@ -516,6 +528,9 @@ export function toApiObligation(row: ObligationDbRow): ObligationRow {
     entity: row.entity,
     frequency,
     expectedAmount: row.expected_amount,
+    naiveAmount: row.naive_amount ?? null,
+    adjustmentBasis: row.adjustment_basis ?? null,
+    adjustmentSource: row.adjustment_source ?? null,
     dueDate: row.due_date,
     status,
     paidAmount: row.paid_amount,

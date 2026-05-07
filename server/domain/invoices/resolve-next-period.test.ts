@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolveNextPeriodStart } from './resolve-next-period.js';
 import { parseContractRow } from '../contracts/csv-io.js';
-import { dcSowRow } from '../contracts/test-helpers.js';
+import { dcSowRowMarchStart } from '../contracts/test-helpers.js';
 import { parseInvoiceRow } from './csv-io.js';
 import {
   dcInvoice001,
@@ -16,7 +16,7 @@ import {
   rowFromHeaders,
 } from './test-helpers.js';
 
-const contract = parseContractRow(dcSowRow); // start_date = 2026-03-02
+const contract = parseContractRow(dcSowRowMarchStart); // start_date = 2026-03-02
 
 describe('resolveNextPeriodStart', () => {
   it('falls back to month-start when the contract has no invoices (step 4)', () => {

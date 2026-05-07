@@ -13,7 +13,8 @@
  */
 
 import { formatDateISO } from '../../shared/date-format.js';
-import type { Company } from '../../shared/api-contracts.js';
+import type { Company, UkCompany } from '../../shared/api-contracts.js';
+import { round2 } from '../utils/math.js';
 
 // =============================================================================
 // VAT
@@ -276,6 +277,76 @@ export function calculateCorporationTax(taxableProfit: number): { tax: number; e
   return {
     tax,
     effectiveRate: tax / taxableProfit,
+  };
+}
+
+export interface CorporationTaxObligationAmountResult {
+  naiveAmount: number;
+  expectedAmount: number;
+  adjustmentBasis: string;
+  adjustmentSource: string;
+}
+
+/**
+ * UK auto CT row amounts. `naiveAmount` is marginal-relief / statutory
+ * computation; `expectedAmount` applies `company.historical_effective_ct_rate`
+ * to taxable profit when that column is set.
+ */
+export function corporationTaxObligationAmounts(
+  taxableProfit: number,
+  company: UkCompany,
+): CorporationTaxObligationAmountResult | null {
+  const naiveAmount = round2(calculateCorporationTax(taxableProfit).tax);
+  if (naiveAmount <= 0) return null;
+
+  const eff = company.historical_effective_ct_rate;
+  if (eff != null && Number.isFinite(eff)) {
+    return {
+      naiveAmount,
+      expectedAmount: round2(Math.max(0, taxableProfit * eff)),
+      adjustmentBasis: `historical_effective_ct_rate: ${eff}`,
+      adjustmentSource: 'company.historical_effective_ct_rate',
+    };
+  }
+
+  return {
+    naiveAmount,
+    expectedAmount: naiveAmount,
+    adjustmentBasis: 'marginal relief / statutory rates (no historical_effective_ct_rate on file)',
+    adjustmentSource: 'computed',
+  };
+}
+
+/**
+ * UK auto VAT row amounts. `naiveAmount` is gross quarter income ×
+ * {@link VAT.FRACTION} (same basis as {@link reconcileVatQuarter});
+ * `expectedAmount` uses `company.historical_effective_vat_rate` as a
+ * fraction of gross income when that column is set.
+ */
+export function vatObligationAmounts(
+  quarterIncomeGross: number,
+  company: UkCompany | null,
+  vatFraction: number = VAT.FRACTION,
+): CorporationTaxObligationAmountResult | null {
+  const naiveAmount = round2(Math.max(0, quarterIncomeGross) * vatFraction);
+  if (naiveAmount <= 0) return null;
+
+  const eff = company?.historical_effective_vat_rate;
+  if (eff != null && Number.isFinite(eff)) {
+    return {
+      naiveAmount,
+      expectedAmount: round2(Math.max(0, quarterIncomeGross * eff)),
+      adjustmentBasis: `historical_effective_vat_rate: ${eff}`,
+      adjustmentSource: 'company.historical_effective_vat_rate',
+    };
+  }
+
+  return {
+    naiveAmount,
+    expectedAmount: naiveAmount,
+    adjustmentBasis:
+      'ledger gross income × VAT fraction (no historical_effective_vat_rate on file)',
+    adjustmentSource: 'computed',
   };
 }
 

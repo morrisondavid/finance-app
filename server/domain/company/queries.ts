@@ -7,7 +7,7 @@
  * `registry.ts` first, then surfaced here.
  */
 
-import type { Company, EntityId, Jurisdiction } from './schema.js';
+import type { Company, EntityId, Jurisdiction, UkCompany } from './schema.js';
 import {
   getCompanyRegistry,
   type CompanyRegistry,
@@ -48,4 +48,17 @@ export function activeCompanies(
   reg: CompanyRegistry = getCompanyRegistry(),
 ): readonly Company[] {
   return reg.indexes.active;
+}
+
+/**
+ * First UK limited company in registry order — used by tax auto-seeders
+ * that read UK-only columns (`historical_effective_ct_rate`, etc.).
+ */
+export function ukLtdCompanyOrNull(
+  reg: CompanyRegistry = getCompanyRegistry(),
+): UkCompany | null {
+  for (const c of reg.all) {
+    if (c.jurisdiction === 'UK' && c.kind === 'ltd') return c;
+  }
+  return null;
 }
