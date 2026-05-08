@@ -1,11 +1,11 @@
 /**
- * GET /api/ai/* — composed slices for agents (§2.0.E). Handlers stay thin;
- * see `server/domain/ai/*` for orchestration.
+ * GET /api/ai/* — composed slices for agents (§2.0.E). POST /api/ai/net-worth/snapshot (§3.1)
+ * delegates to captureNetWorthSnapshots. Handlers stay thin; see `server/domain/ai/*`.
  */
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { EntityIdSchema } from '../../shared/api-contracts.js';
+import { EntityIdSchema, NetWorthSnapshotCaptureBodySchema } from '../../shared/api-contracts.js';
 import { getDb } from '../db/connection.js';
 import { assembleRunway } from '../domain/forecast/index.js';
 import { runwayResponseFromAssembled } from '../domain/forecast/runway-api-response.js';
@@ -20,7 +20,9 @@ import {
   composeAiIncomeComposition,
   composeAiDebtStrategyState,
   composeAiSpendContext,
+  composeAiNetWorthHistory,
 } from '../domain/ai/index.js';
+import { captureNetWorthSnapshots } from '../domain/net-worth/snapshot.js';
 
 const router = Router();
 
@@ -197,6 +199,31 @@ router.get('/financial-safety', (req: Request, res: Response) => {
     console.error('[AI] GET /financial-safety error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     res.status(500).json({ error: `Failed to build AI financial safety: ${message}` });
+  }
+});
+
+router.get('/net-worth-history', (_req: Request, res: Response) => {
+  try {
+    res.json(composeAiNetWorthHistory());
+  } catch (error) {
+    console.error('[AI] GET /net-worth-history error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: `Failed to build AI net-worth history: ${message}` });
+  }
+});
+
+router.post('/net-worth/snapshot', (req: Request, res: Response) => {
+  try {
+    const parsed = NetWorthSnapshotCaptureBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid-body', issues: parsed.error.issues });
+      return;
+    }
+    res.json(captureNetWorthSnapshots(parsed.data));
+  } catch (error) {
+    console.error('[AI] POST /net-worth/snapshot error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: `Failed to capture net-worth snapshot: ${message}` });
   }
 });
 

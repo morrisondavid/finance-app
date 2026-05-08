@@ -97,6 +97,21 @@ describe('computeFinancialSafety', () => {
     expect(r.warningAdjustment.pointsDeducted).toBeLessThanOrEqual(7);
   });
 
+  it('propagates optional fingerprint into linkedWarnings', () => {
+    const r = computeFinancialSafety(
+      baseInput({
+        warnings: [
+          { id: 'w1', code: 'runway-below-threshold', severity: 'critical', fingerprint: 'a'.repeat(32) },
+        ],
+      }),
+    );
+    expect(r.warningAdjustment.linkedWarnings[0]).toMatchObject({
+      id: 'w1',
+      code: 'runway-below-threshold',
+      fingerprint: 'a'.repeat(32),
+    });
+  });
+
   it('exposes formulaVersion 1.0.0', () => {
     expect(computeFinancialSafety(baseInput()).formulaVersion).toBe('1.0.0');
   });

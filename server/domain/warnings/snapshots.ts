@@ -75,6 +75,29 @@ export function fingerprintWarning(w: EntityFoundationWarning): string {
   return crypto.createHash('sha256').update(payload).digest('hex').slice(0, 32);
 }
 
+/** Earliest / latest snapshot timestamps for a logical warning fingerprint (§2.3). */
+export function getFingerprintTimeline(
+  db: Database.Database,
+  fingerprint: string,
+): { firstSeenAt: string | null; lastActiveAt: string | null } {
+  const row = db
+    .prepare(
+      `
+    SELECT MIN(snapshot_at) AS firstSeen, MAX(snapshot_at) AS lastActive
+    FROM warning_snapshots
+    WHERE fingerprint = ?
+  `,
+    )
+    .get(fingerprint) as { firstSeen: string | null; lastActive: string | null } | undefined;
+  if (row === undefined) {
+    return { firstSeenAt: null, lastActiveAt: null };
+  }
+  return {
+    firstSeenAt: row.firstSeen ?? null,
+    lastActiveAt: row.lastActive ?? null,
+  };
+}
+
 /** Persist every warning at `snapshotAt`. No-op for an empty array. */
 export function recordSnapshot(
   db: Database.Database,

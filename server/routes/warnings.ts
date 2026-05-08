@@ -15,16 +15,20 @@
  *     UK Ltd ↔ UAE FZCO candidate-pair classification queue (Phase 8).
  *   POST /api/warnings/inter-company-movements/classify
  *     Persist a classification for one pair (Phase 8).
+ *   PUT /api/warnings/user-state
+ *     §2.3 — upsert snooze / ack / surface for a warning `fingerprint`.
  */
 
 import express, { Request, Response } from 'express';
 import { getDb } from '../db/connection.js';
+import { upsertWarningUserState } from '../db/repositories/warning-user-state.js';
 import { buildInterCompanyMovementsResponse } from '../domain/inter-company/movements-response.js';
 import { classifyInterCompanyPair } from '../domain/transaction-overrides/classify-pair.js';
 import { buildConsolidatedWarningsResponse } from '../domain/warnings/consolidated-feed.js';
 import {
   InterCompanyMovementsResponseSchema,
   InterCompanyClassifyRequestSchema,
+  WarningUserStateUpsertBodySchema,
 } from '../../shared/api-contracts.js';
 
 const router = express.Router();
@@ -47,6 +51,27 @@ async function handleAllWarnings(_req: Request, res: Response): Promise<void> {
 // without change.
 router.get('/entity-foundation', handleAllWarnings);
 router.get('/all', handleAllWarnings);
+
+router.put('/user-state', (req: Request, res: Response) => {
+  const parsed = WarningUserStateUpsertBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    res.status(400).json({
+      error: `Invalid user-state body: ${issue.path.join('.') || '(root)'} — ${issue.message}`,
+    });
+    return;
+  }
+
+  try {
+    const db = getDb();
+    upsertWarningUserState(db, parsed.data);
+    res.status(204).end();
+  } catch (error) {
+    console.error('[Warnings] PUT /user-state error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: `Failed to upsert warning user-state: ${message}` });
+  }
+});
 
 router.get('/inter-company-movements', (_req: Request, res: Response) => {
   try {

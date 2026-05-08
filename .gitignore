@@ -20,3 +20,6 @@ statements/
 
 # Multer temp uploads
 uploads/
+
+# §3.1 — local net-worth history (CSV source of truth; back up outside git)
+net-worth/net-worth-snapshots.csv

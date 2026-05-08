@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import type { EntityFoundationWarning } from '../../shared/api-contracts.js';
 import { initDatabase, closeDatabase } from '../db/index.js';
 import {
   composeAiLiquidity,
@@ -10,6 +11,7 @@ import {
   composeAiIncomeComposition,
   composeAiDebtStrategyState,
   composeAiSpendContext,
+  composeAiNetWorthHistory,
 } from '../domain/ai/index.js';
 import { assembleRunway } from '../domain/forecast/index.js';
 import { runwayResponseFromAssembled } from '../domain/forecast/runway-api-response.js';
@@ -19,6 +21,13 @@ import {
   BankStatementsAiResourceUris,
   readBankStatementsAiResource,
 } from './bank-mcp-server.js';
+
+function warningsIgnoringTimeline(warnings: readonly EntityFoundationWarning[]) {
+  return warnings.map(w => {
+    const { firstSeenAt: _fs, lastActiveAt: _la, ...rest } = w;
+    return rest;
+  });
+}
 
 describe('MCP resource payloads vs composers', () => {
   beforeAll(async () => {
@@ -98,7 +107,10 @@ describe('MCP resource payloads vs composers', () => {
     getDb().exec('DELETE FROM warning_snapshots;');
     const fromMcp = JSON.parse(readBankStatementsAiResource(BankStatementsAiResourceUris.warnings));
     getDb().exec('DELETE FROM warning_snapshots;');
-    expect(buildConsolidatedWarningsResponse(getDb())).toEqual(fromMcp);
+    const fromComposer = buildConsolidatedWarningsResponse(getDb());
+    expect(warningsIgnoringTimeline(fromComposer.warnings)).toEqual(
+      warningsIgnoringTimeline(fromMcp.warnings),
+    );
   });
 
   it('income-composition resource matches composeAiIncomeComposition', () => {
@@ -120,5 +132,14 @@ describe('MCP resource payloads vs composers', () => {
       readBankStatementsAiResource(BankStatementsAiResourceUris.spendContext),
     );
     expect(fromMcp).toEqual(composeAiSpendContext());
+  });
+
+  it('net-worth-history resource matches composeAiNetWorthHistory (except generatedAt)', () => {
+    const fromMcp = JSON.parse(
+      readBankStatementsAiResource(BankStatementsAiResourceUris.netWorthHistory),
+    );
+    const expected = composeAiNetWorthHistory();
+    expect(fromMcp.schemaVersion).toBe(expected.schemaVersion);
+    expect(fromMcp.snapshots).toEqual(expected.snapshots);
   });
 });

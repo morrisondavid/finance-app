@@ -12,7 +12,7 @@ import {
   resetTestData,
   type TestDbHandles,
 } from '../db/test-harness/in-memory-db.js';
-import { EntityFoundationWarningsResponseSchema } from '../../shared/api-contracts.js';
+import { EntityFoundationWarningsResponseSchema, type EntityFoundationWarning } from '../../shared/api-contracts.js';
 import {
   AiSpendContextResponseSchema,
   IncomeCompositionResponseSchema,
@@ -81,6 +81,14 @@ beforeEach(() => {
   }
 });
 
+/** Two feed reads get different `snapshot_at` rows; timeline fields are unstable across paired calls. */
+function entityFoundationWarningsIgnoringTimeline(warnings: readonly EntityFoundationWarning[]) {
+  return warnings.map(w => {
+    const { firstSeenAt: _fs, lastActiveAt: _la, ...rest } = w;
+    return rest;
+  });
+}
+
 describe('§2.0.H AI parity', () => {
   it('GET /api/ai/warnings matches GET /api/warnings/all when snapshots are cleared between calls', async () => {
     const a = await fetch(`${baseUrl}/api/warnings/all`);
@@ -90,7 +98,9 @@ describe('§2.0.H AI parity', () => {
     const b = await fetch(`${baseUrl}/api/ai/warnings`);
     expect(b.status).toBe(200);
     const bodyB = EntityFoundationWarningsResponseSchema.parse(await b.json());
-    expect(bodyB).toEqual(bodyA);
+    expect(entityFoundationWarningsIgnoringTimeline(bodyB.warnings)).toEqual(
+      entityFoundationWarningsIgnoringTimeline(bodyA.warnings),
+    );
   });
 
   it('GET /api/ai/income-composition matches GET /api/income-composition', async () => {

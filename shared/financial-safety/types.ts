@@ -8,6 +8,8 @@ export interface FinancialSafetyWarningInput {
   readonly id: string;
   readonly code: string;
   readonly severity: FinancialSafetyWarningSeverity;
+  /** §2.3 — matches `EntityFoundationWarning.fingerprint` when enriched. */
+  readonly fingerprint?: string;
 }
 
 export type FinancialSafetyVerdictKind =
@@ -50,7 +52,11 @@ export interface FinancialSafetyPillarRow {
 
 export interface FinancialSafetyWarningAdjustment {
   readonly pointsDeducted: number;
-  readonly linkedWarnings: ReadonlyArray<{ readonly id: string; readonly code: string }>;
+  readonly linkedWarnings: ReadonlyArray<{
+    readonly id: string;
+    readonly code: string;
+    readonly fingerprint?: string;
+  }>;
   /** When the aggregate penalty hits the cap (pointsDeducted equals cap). */
   readonly capApplied: number | null;
 }

@@ -202,5 +202,13 @@ function createAllDomainTables(db: Database.Database): void {
       ON warning_snapshots(snapshot_at);
     CREATE INDEX IF NOT EXISTS idx_warning_snapshots_fingerprint
       ON warning_snapshots(fingerprint);
+
+    CREATE TABLE IF NOT EXISTS warning_user_state (
+      fingerprint TEXT PRIMARY KEY NOT NULL,
+      snoozed_until TEXT,
+      acknowledged_at TEXT,
+      surface TEXT CHECK(surface IS NULL OR surface IN ('dashboard', 'agent', 'both')),
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 }

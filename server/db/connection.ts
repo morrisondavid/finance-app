@@ -36,6 +36,8 @@ export const DEBTS_DIR = path.join(__dirname, '../../debts');
  * keeps the mental model clean.
  */
 export const DEADLINES_DIR = path.join(__dirname, '../../deadlines');
+/** Canonical net-worth snapshots CSV (`net-worth-snapshots.csv`). §3.1 */
+export const NET_WORTH_DIR = path.join(__dirname, '../../net-worth');
 
 let db: Database.Database;
 
@@ -192,6 +194,15 @@ export function initSchema(): void {
       ON warning_snapshots(snapshot_at);
     CREATE INDEX IF NOT EXISTS idx_warning_snapshots_fingerprint
       ON warning_snapshots(fingerprint);
+
+    -- §2.3 — per-fingerprint snooze / ack (single local user; fingerprint matches warning_snapshots.fingerprint)
+    CREATE TABLE IF NOT EXISTS warning_user_state (
+      fingerprint TEXT PRIMARY KEY NOT NULL,
+      snoozed_until TEXT,
+      acknowledged_at TEXT,
+      surface TEXT CHECK(surface IS NULL OR surface IN ('dashboard', 'agent', 'both')),
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
 
     -- debts: external creditors (loans, finance agreements) we don't have
     -- statement feeds for. Canonical source is debts/debts.csv; this table is

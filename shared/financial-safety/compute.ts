@@ -122,7 +122,11 @@ function warningModifier(warnings: readonly FinancialSafetyWarningInput[]): {
   capApplied: number | null;
 } {
   let raw = 0;
-  const linkedWarnings = warnings.map(w => ({ id: w.id, code: w.code }));
+  const linkedWarnings = warnings.map(w => ({
+    id: w.id,
+    code: w.code,
+    ...(w.fingerprint !== undefined ? { fingerprint: w.fingerprint } : {}),
+  }));
   for (const w of warnings) {
     if (w.severity === 'critical') raw += 2;
     else if (w.severity === 'warn') raw += 1;

@@ -50,7 +50,7 @@ function horizonLabel(endYmd: string): string {
   return `Next 12 months (to ${pretty})`;
 }
 
-function obligationRemainingGbp(ob: ObligationRow): number {
+export function obligationRemainingGbpForRow(ob: ObligationRow): number {
   if (ob.dueDate === null) return 0;
   if (ob.expectedAmount === null) return 0;
   const expected = Math.abs(ob.expectedAmount);
@@ -169,7 +169,7 @@ function linesFromObligations(
   const lines: LiquidityCommitmentsOverview['lines'] = [];
   for (const row of dbRows) {
     const ob = toApiObligation(row);
-    const amountGbp = obligationRemainingGbp(ob);
+    const amountGbp = obligationRemainingGbpForRow(ob);
     if (amountGbp <= 0) continue;
     if (ob.dueDate === null) continue;
     lines.push({

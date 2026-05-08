@@ -226,6 +226,52 @@ describe('GET /api/warnings/all', () => {
   });
 });
 
+describe('PUT /api/warnings/user-state (§2.3)', () => {
+  beforeEach(() => {
+    if (harness.current) resetTestData(harness.current.db);
+    hashSeq = 0;
+  });
+
+  it('returns 400 when fingerprint is too short', async () => {
+    const resp = await fetch(`${baseUrl}/api/warnings/user-state`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fingerprint: 'short' }),
+    });
+    expect(resp.status).toBe(400);
+  });
+
+  it('snooze hides a warning from the listing until clearSnooze', async () => {
+    const r1 = await fetch(`${baseUrl}/api/warnings/entity-foundation`);
+    const b1 = EntityFoundationWarningsResponseSchema.parse(await r1.json());
+    const target = b1.warnings.find(w => w.fingerprint !== undefined);
+    expect(target, 'expected at least one warning with fingerprint').toBeDefined();
+    const fp = target!.fingerprint!;
+
+    const putResp = await fetch(`${baseUrl}/api/warnings/user-state`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fingerprint: fp, snoozedUntil: '2099-12-31' }),
+    });
+    expect(putResp.status).toBe(204);
+
+    const r2 = await fetch(`${baseUrl}/api/warnings/entity-foundation`);
+    const b2 = EntityFoundationWarningsResponseSchema.parse(await r2.json());
+    expect(b2.warnings.some(w => w.fingerprint === fp)).toBe(false);
+
+    const clearResp = await fetch(`${baseUrl}/api/warnings/user-state`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fingerprint: fp, clearSnooze: true }),
+    });
+    expect(clearResp.status).toBe(204);
+
+    const r3 = await fetch(`${baseUrl}/api/warnings/entity-foundation`);
+    const b3 = EntityFoundationWarningsResponseSchema.parse(await r3.json());
+    expect(b3.warnings.some(w => w.fingerprint === fp)).toBe(true);
+  });
+});
+
 describe('§1.9 Debt Strategy emitters wired into /api/warnings', () => {
   it('surfaces account-credit-card-config-missing for the seed credit-card accounts (none have creditCard configured)', async () => {
     const resp = await fetch(`${baseUrl}/api/warnings/all`);

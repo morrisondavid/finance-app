@@ -31,7 +31,7 @@ function minDebtAvailableHeadroomRatio(bundle: AssembledDebtStrategy): number | 
 export function composeAiFinancialSafety(opts: ComposeAiFinancialSafetyOpts = {}): AiFinancialSafetyResponse {
   const snapshot = composeAiFinancialSnapshot(opts);
   const income = composeAiIncomeComposition();
-  const warnings = buildConsolidatedWarningsResponse(getDb());
+  const warnings = buildConsolidatedWarningsResponse(getDb(), { applySnoozeListingFilter: false });
   const debtBundle = assembleDebtStrategy({});
 
   const lc = snapshot.liquidity.liquidityCommitments;
@@ -47,6 +47,7 @@ export function composeAiFinancialSafety(opts: ComposeAiFinancialSafetyOpts = {}
     id: w.id,
     code: w.code,
     severity: w.severity,
+    ...(w.fingerprint !== undefined ? { fingerprint: w.fingerprint } : {}),
   }));
 
   const input: FinancialSafetyInput = {

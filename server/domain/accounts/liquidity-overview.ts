@@ -41,9 +41,10 @@ function currencySortKey(c: CurrencyCode): number {
 
 /**
  * Build liquidity from raw balances (same source as dashboard `balances`).
+ * Missing account keys are treated as absent (same loop semantics as before).
  */
 export function buildLiquidityOverview(
-  rows: Readonly<Record<AccountName, AccountBalance>>,
+  rows: Readonly<Partial<Record<AccountName, AccountBalance>>>,
 ): LiquidityOverview {
   const lines: LiquidityOverviewLine[] = [];
   let totalCashGbp = 0;

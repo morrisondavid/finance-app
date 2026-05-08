@@ -348,6 +348,7 @@ export const AiFinancialSafetyWarningAdjustmentSchema = z.object({
     z.object({
       id: z.string(),
       code: z.string(),
+      fingerprint: z.string().min(16).max(64).optional(),
     }),
   ),
   capApplied: z.number().nullable(),
@@ -1244,6 +1245,49 @@ export const DeadlineFeedResponseSchema = z.object({
  */
 export const EntityIdSchema = z.enum(['autonize-it-ltd', 'autonize-it-fzco']);
 export type EntityId = z.infer<typeof EntityIdSchema>;
+
+/** §3.1 — one persisted net-worth snapshot row (CSV + AI history). */
+export const NetWorthSnapshotEntityIdSchema = z.union([z.literal('global'), EntityIdSchema]);
+export const NetWorthSnapshotRowSchema = z.object({
+  periodKey: z.string().min(1),
+  snapshotDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  entityId: NetWorthSnapshotEntityIdSchema,
+  reportingCurrency: z.literal('GBP'),
+  cadence: z.enum(['weekly', 'daily']),
+  totalCashGbp: z.number(),
+  totalCreditGbp: z.number(),
+  totalObligations12mGbp: z.number(),
+  totalDebtGbp: z.number(),
+  netGbp: z.number(),
+  formulaVersion: z.string().min(1),
+  capturedAt: z.string().min(1),
+});
+export type NetWorthSnapshotRow = z.infer<typeof NetWorthSnapshotRowSchema>;
+
+/** GET /api/ai/net-worth-history */
+export const AiNetWorthHistoryResponseSchema = z.object({
+  generatedAt: z.string(),
+  schemaVersion: z.string(),
+  snapshots: z.array(NetWorthSnapshotRowSchema),
+});
+export type AiNetWorthHistoryResponse = z.infer<typeof AiNetWorthHistoryResponseSchema>;
+
+/** POST /api/ai/net-worth/snapshot */
+export const NetWorthSnapshotCaptureBodySchema = z.object({
+  force: z.boolean().optional(),
+  snapshotDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+export type NetWorthSnapshotCaptureBody = z.infer<typeof NetWorthSnapshotCaptureBodySchema>;
+
+export const NetWorthSnapshotCaptureResponseSchema = z.object({
+  skipped: z.boolean(),
+  reason: z.string().optional(),
+  periodKey: z.string(),
+  snapshotDate: z.string(),
+  cadence: z.enum(['weekly', 'daily']),
+  rowsWritten: z.number().int().nonnegative(),
+});
+export type NetWorthSnapshotCaptureResponse = z.infer<typeof NetWorthSnapshotCaptureResponseSchema>;
 
 export const JurisdictionSchema = z.enum(['UK', 'UAE']);
 export type Jurisdiction = z.infer<typeof JurisdictionSchema>;
@@ -2548,6 +2592,61 @@ const WarningContextValueSchema = z.union([
   z.null(),
 ]);
 
+/** §2.3 — machine-actionable handles (nullable where unused). */
+export const WarningLinksSchema = z.object({
+  obligationId: z.string().nullable().optional(),
+  contractId: z.string().nullable().optional(),
+  invoiceId: z.string().nullable().optional(),
+  debtId: z.string().nullable().optional(),
+  planId: z.string().nullable().optional(),
+  movementId: z.string().nullable().optional(),
+});
+export type WarningLinks = z.infer<typeof WarningLinksSchema>;
+
+/** §2.3 — normalised urgency for agents (no prose parsing). */
+export const WarningUrgencySchema = z.object({
+  band: z.enum(['overdue', 'due_soon', 'stress_soon', 'routine']),
+  dueDate: z.string().nullable().optional(),
+  daysOverdue: z.number().int().nullable().optional(),
+  stressDate: z.string().nullable().optional(),
+});
+export type WarningUrgency = z.infer<typeof WarningUrgencySchema>;
+
+/** §2.3 — small hint enum; maps to product routes / future MCP tools. */
+export const WarningActionHintSchema = z.enum([
+  'open_obligations',
+  'open_deadlines',
+  'review_contracts',
+  'reconcile_invoices',
+  'open_debt_strategy',
+  'review_budgets',
+  'review_tax_reserve',
+  'review_company_settings',
+  'review_clients',
+  'record_bank_payment',
+  'review_runway_forecast',
+  'classify_transactions',
+]);
+export type WarningActionHint = z.infer<typeof WarningActionHintSchema>;
+
+export const WarningUserStateSchema = z.object({
+  snoozedUntil: z.string().nullable().optional(),
+  acknowledgedAt: z.string().nullable().optional(),
+  surface: z.enum(['dashboard', 'agent', 'both']).nullable().optional(),
+});
+export type WarningUserState = z.infer<typeof WarningUserStateSchema>;
+
+/** §2.3 — upsert body for `PUT /api/warnings/user-state`. */
+export const WarningUserStateUpsertBodySchema = z.object({
+  fingerprint: z.string().min(16).max(64),
+  snoozedUntil: z.string().nullable().optional(),
+  acknowledgedAt: z.string().nullable().optional(),
+  surface: z.enum(['dashboard', 'agent', 'both']).nullable().optional(),
+  /** When true, clears `snoozedUntil` (keeps other fields). */
+  clearSnooze: z.boolean().optional(),
+});
+export type WarningUserStateUpsertBody = z.infer<typeof WarningUserStateUpsertBodySchema>;
+
 export const EntityFoundationWarningSchema = z.object({
   id: z.string().min(1),
   code: EntityFoundationWarningCodeSchema,
@@ -2572,6 +2671,14 @@ export const EntityFoundationWarningSchema = z.object({
    * legacy emitters keep populating only the strings.
    */
   context: z.record(z.string(), WarningContextValueSchema).optional(),
+  /** §2.3 — stable identity; same algorithm as `warning_snapshots` fingerprint. */
+  fingerprint: z.string().min(16).max(64).optional(),
+  links: WarningLinksSchema.optional(),
+  urgency: WarningUrgencySchema.optional(),
+  actionHints: z.array(WarningActionHintSchema).optional(),
+  firstSeenAt: z.string().optional(),
+  lastActiveAt: z.string().optional(),
+  userState: WarningUserStateSchema.optional(),
 });
 export type EntityFoundationWarning = z.infer<typeof EntityFoundationWarningSchema>;
 

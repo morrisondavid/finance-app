@@ -12,6 +12,7 @@ import {
   type WarningSeverity,
 } from '../../../shared/api-contracts.js';
 import { todayIsoLocal } from '../../../shared/iso-date.js';
+import { listWarningUserStateMap } from '../../db/repositories/warning-user-state.js';
 import { allCompanies } from '../company/index.js';
 import { allClients } from '../clients/index.js';
 import { allContracts } from '../contracts/queries.js';
@@ -56,6 +57,7 @@ import {
   recordSnapshot,
   trimSnapshotsBefore,
 } from './snapshots.js';
+import { enrichWarningsForAgents, warningPassesListingFilter } from './enrich-for-agents.js';
 import { runExpensesOverviewPipeline, transactionRowToRaw } from '../../utils/expenses-overview-pipeline.js';
 import { getUpcomingObligations, toApiObligation } from '../../db/repositories/obligations.js';
 import { getAllAccountBalances } from '../../db/repositories/balance.js';
@@ -107,9 +109,16 @@ function buildMonthlyContributionByAccount(today: string): Map<AccountName, numb
   return map;
 }
 
-export function buildConsolidatedWarningsResponse(db: Database.Database): ReturnType<
-  typeof EntityFoundationWarningsResponseSchema.parse
-> {
+export interface BuildConsolidatedWarningsOptions {
+  /** When true (default), hide warnings whose user state has snoozedUntil > today. */
+  readonly applySnoozeListingFilter?: boolean;
+}
+
+export function buildConsolidatedWarningsResponse(
+  db: Database.Database,
+  options: BuildConsolidatedWarningsOptions = {},
+): ReturnType<typeof EntityFoundationWarningsResponseSchema.parse> {
+  const applySnoozeListingFilter = options.applySnoozeListingFilter ?? true;
   const today = new Date();
   const todayIso = todayIsoLocal();
   const nowIso = today.toISOString();
@@ -282,5 +291,11 @@ export function buildConsolidatedWarningsResponse(db: Database.Database): Return
   recordSnapshot(db, nowIso, baseWarnings);
   trimSnapshotsBefore(db, shiftIsoTimestamp(nowIso, -SNAPSHOT_TTL_DAYS));
 
-  return EntityFoundationWarningsResponseSchema.parse({ warnings });
+  const userMap = listWarningUserStateMap(db);
+  const enriched = enrichWarningsForAgents(db, warnings, userMap);
+  const listed = applySnoozeListingFilter
+    ? enriched.filter(w => warningPassesListingFilter(w, todayIso))
+    : enriched;
+
+  return EntityFoundationWarningsResponseSchema.parse({ warnings: listed });
 }

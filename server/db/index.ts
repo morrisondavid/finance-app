@@ -40,6 +40,7 @@ import { deriveAndInsertAutoTtpObligations } from './repositories/hmrc-ttp-auto-
 import { deriveAndWriteAutoObligationStates } from './repositories/obligation-state-matcher.js';
 import { loadDeadlinesFromCsv } from './repositories/deadlines.js';
 import { syncContractRenewalDeadlines } from '../domain/contracts/deadline-seeder.js';
+import { maybeCaptureNetWorthSnapshots } from '../domain/net-worth/snapshot.js';
 
 // Re-export from connection
 export { 
@@ -51,6 +52,7 @@ export {
   BUDGETS_DIR,
   OBLIGATIONS_DIR,
   DEADLINES_DIR,
+  NET_WORTH_DIR,
 } from './connection.js';
 
 export { formatDateISO } from '../../shared/date-format.js';
@@ -212,6 +214,17 @@ export async function initDatabase(): Promise<void> {
   }
 
   console.log(`[Database] Ready: ${result.files} files, ${result.transactions} transactions (${result.duplicates} duplicates removed, ${transferPairs} transfer pairs detected)`);
+
+  try {
+    const nw = maybeCaptureNetWorthSnapshots();
+    if (nw.skipped) {
+      console.log(`[Database] Net-worth snapshot skipped (${nw.reason ?? 'unknown'}), period ${nw.periodKey}`);
+    } else {
+      console.log(`[Database] Net-worth snapshot captured: ${nw.rowsWritten} row(s), period ${nw.periodKey}`);
+    }
+  } catch (err) {
+    console.error('[Database] Net-worth snapshot (§3.1) failed:', err);
+  }
 }
 
 /**
