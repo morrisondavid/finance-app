@@ -1289,6 +1289,49 @@ export const NetWorthSnapshotCaptureResponseSchema = z.object({
 });
 export type NetWorthSnapshotCaptureResponse = z.infer<typeof NetWorthSnapshotCaptureResponseSchema>;
 
+/** §3.2 GET /api/ai/spend-by-currency — period + optional entity/account filters. */
+export const AiSpendByCurrencyPeriodSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('calendarMonth'),
+    yearMonth: z.string().regex(/^\d{4}-\d{2}$/),
+  }),
+  z.object({
+    kind: z.literal('financialYear'),
+    financialYear: z.string().min(1),
+  }),
+]);
+export type AiSpendByCurrencyPeriod = z.infer<typeof AiSpendByCurrencyPeriodSchema>;
+
+export const AiSpendByCurrencyResponseSchema = z.object({
+  generatedAt: z.string(),
+  schemaVersion: z.string(),
+  period: AiSpendByCurrencyPeriodSchema,
+  filters: z.object({
+    entityId: EntityIdSchema.optional(),
+    account: AccountNameSchema.optional(),
+  }),
+  totalsByCurrency: z.array(
+    z.object({
+      currency: CurrencyCodeSchema,
+      expenseNative: z.number(),
+      expenseGbp: z.number(),
+      transactionCount: z.number().int().nonnegative(),
+    }),
+  ),
+  fxNote: z.string(),
+});
+export type AiSpendByCurrencyResponse = z.infer<typeof AiSpendByCurrencyResponseSchema>;
+
+/** §3.2 GET /api/ai/entity-liquidity-fx — household + per-entity liquidity overview lines. */
+export const AiEntityLiquidityFxResponseSchema = z.object({
+  generatedAt: z.string(),
+  schemaVersion: z.string(),
+  asOf: IsoDateSchema,
+  global: LiquidityOverviewSchema,
+  byEntity: z.record(EntityIdSchema, LiquidityOverviewSchema),
+});
+export type AiEntityLiquidityFxResponse = z.infer<typeof AiEntityLiquidityFxResponseSchema>;
+
 export const JurisdictionSchema = z.enum(['UK', 'UAE']);
 export type Jurisdiction = z.infer<typeof JurisdictionSchema>;
 

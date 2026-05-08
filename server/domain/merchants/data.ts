@@ -18,15 +18,21 @@
  */
 
 import type { MerchantEntry } from './schema.js';
+import {
+  REGEX_DRAW_DOWN,
+  REGEX_MERCHANT_BARCLAYS_PREMIUM_LINE,
+  REGEX_MERCHANT_TRANSFERWISE,
+  REGEX_OPTIONAL_FT,
+} from './transfer-pairing-seeds.js';
 
 export const STATIC_MERCHANT_DATA: readonly MerchantEntry[] = [
   { pattern: /MONZO JOINT/i, category: 'Transfers', displayName: 'Monzo Joint' },
   // Payroll from own company — Income, not inter-account Transfers (must stay above generic transfer patterns)
   { pattern: /AUTONIZE|AUTONIZEITLIMITED/i, category: 'Transfers', displayName: 'Autonize IT' },
-  { pattern: /BARCLAYS .*STO|BUSINESS PREMIUM STO/i, category: 'Transfers', displayName: null },
-  { pattern: /TRANSFERWISE/i, category: 'Transfers', displayName: 'Wise (TransferWise)' },
-  { pattern: /OPTIONAL FT/i, category: 'Transfers', displayName: 'Internal Transfer' },
-  { pattern: /\bDRAW\s*DOWN\b/i, category: 'Transfers', displayName: 'Credit line drawdown' },
+  { pattern: REGEX_MERCHANT_BARCLAYS_PREMIUM_LINE, category: 'Transfers', displayName: null },
+  { pattern: REGEX_MERCHANT_TRANSFERWISE, category: 'Transfers', displayName: 'Wise (TransferWise)' },
+  { pattern: REGEX_OPTIONAL_FT, category: 'Transfers', displayName: 'Internal Transfer' },
+  { pattern: REGEX_DRAW_DOWN, category: 'Transfers', displayName: 'Credit line drawdown' },
   // EE (mobile / phone airtime): outgoing bills only — category Utilities; recurring pipeline counts them
   // as expenses (negative outflows), never on the income/recurring-rent path. Placed before generic
   // "VIA MOBILE" so DD copy like "EE LIMITED … VIA MOBILE" is not misclassified as Transfers.

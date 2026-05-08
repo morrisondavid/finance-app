@@ -12,6 +12,8 @@ import {
   composeAiDebtStrategyState,
   composeAiSpendContext,
   composeAiNetWorthHistory,
+  composeAiSpendByCurrencyForCurrentMonth,
+  composeAiEntityLiquidityFx,
 } from '../domain/ai/index.js';
 import { assembleRunway } from '../domain/forecast/index.js';
 import { runwayResponseFromAssembled } from '../domain/forecast/runway-api-response.js';
@@ -141,5 +143,28 @@ describe('MCP resource payloads vs composers', () => {
     const expected = composeAiNetWorthHistory();
     expect(fromMcp.schemaVersion).toBe(expected.schemaVersion);
     expect(fromMcp.snapshots).toEqual(expected.snapshots);
+  });
+
+  it('spend-by-currency resource matches composeAiSpendByCurrencyForCurrentMonth (except generatedAt)', () => {
+    const fromMcp = JSON.parse(
+      readBankStatementsAiResource(BankStatementsAiResourceUris.spendByCurrency),
+    );
+    const expected = composeAiSpendByCurrencyForCurrentMonth();
+    expect(fromMcp.period).toEqual(expected.period);
+    expect(fromMcp.schemaVersion).toBe(expected.schemaVersion);
+    expect(fromMcp.totalsByCurrency).toEqual(expected.totalsByCurrency);
+    expect(fromMcp.filters).toEqual(expected.filters);
+    expect(fromMcp.fxNote).toBe(expected.fxNote);
+  });
+
+  it('entity-liquidity-fx resource matches composeAiEntityLiquidityFx (except generatedAt)', () => {
+    const fromMcp = JSON.parse(
+      readBankStatementsAiResource(BankStatementsAiResourceUris.entityLiquidityFx),
+    );
+    const expected = composeAiEntityLiquidityFx();
+    expect(fromMcp.schemaVersion).toBe(expected.schemaVersion);
+    expect(fromMcp.asOf).toBe(expected.asOf);
+    expect(fromMcp.global).toEqual(expected.global);
+    expect(fromMcp.byEntity).toEqual(expected.byEntity);
   });
 });

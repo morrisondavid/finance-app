@@ -8,9 +8,9 @@
 >
 > **What's shipped (Tier 1):** **Multi-Entity Foundation (1.1)**, **Clients, Contracts & Renewals (1.2)** phases A–E, **Invoicing (1.3)** Phases 1–4 (incl. payment reconciler with FX), **Working-Days Ledger (1.4)** with public holidays + leave calendar, **Cash Flow Forecast (1.5)** at `GET /api/forecast`, **Worst Case / Runway (1.6)** at `GET /api/runway` (household-first, GBP + AED dual headline, entity drill-down, credit headroom; **Strategy** tab hero uses `holisticGbp` from this API — **accrual off**, “contracts stop paying”; the **sandbox** `assembleRunwayScenario` uses **accrual on** plus optional income exclusions, so “cash runs out” can legitimately differ), and **Income Composition & Diversification (1.7)** at `GET /api/income-composition` (metrics + typed `riskSignals[]`, `properties/` registry).
 >
-> **Tier 2 started:** ~~**§2.1 Financial Snapshot**~~ ✅ **SHIPPED** — **`GET /api/ai/financial-snapshot`**, MCP **`bankstatements://ai/financial-snapshot`**, **`AiFinancialSnapshotResponseSchema`** (landed at manifest **2.1.3** for the snapshot slice; **`AI_MANIFEST_SCHEMA_VERSION` on the wire is now 2.4.0** — see §2.1–§2.3, §3.1). Composed: liquidity + `liquidityCommitments`, near-term obligation window, runway `holisticGbp`, outstanding invoices + aggregate accrual, discretionary, budget nudges, verdict. See **§2.1** for deferred nuance (near-term sum = pipeline obligations only).
+> **Tier 2 started:** ~~**§2.1 Financial Snapshot**~~ ✅ **SHIPPED** — **`GET /api/ai/financial-snapshot`**, MCP **`bankstatements://ai/financial-snapshot`**, **`AiFinancialSnapshotResponseSchema`** (landed at manifest **2.1.3** for the snapshot slice; **`AI_MANIFEST_SCHEMA_VERSION` on the wire is now 2.5.0** — see §2.1–§2.3, §3.1–§3.2). Composed: liquidity + `liquidityCommitments`, near-term obligation window, runway `holisticGbp`, outstanding invoices + aggregate accrual, discretionary, budget nudges, verdict. See **§2.1** for deferred nuance (near-term sum = pipeline obligations only).
 >
-> **Tier 2 continued:** ~~**§2.2 Financial Safety Score**~~ ✅ **SHIPPED** — **`GET /api/ai/financial-safety`**, MCP **`bankstatements://ai/financial-safety`**, **`AiFinancialSafetyResponseSchema`**, pure **`computeFinancialSafety`** + **`formulaVersion` `1.0.0`** (0–10 score), optional **`financialSafety`** on **`GET /api/dashboard/summary`** + Dashboard hero (**`scoreToSafetyTheme`**). Manifest / schema version follows **`AI_MANIFEST_SCHEMA_VERSION`** (**2.4.0** as of §3.1). See **§2.2**.
+> **Tier 2 continued:** ~~**§2.2 Financial Safety Score**~~ ✅ **SHIPPED** — **`GET /api/ai/financial-safety`**, MCP **`bankstatements://ai/financial-safety`**, **`AiFinancialSafetyResponseSchema`**, pure **`computeFinancialSafety`** + **`formulaVersion` `1.0.0`** (0–10 score), optional **`financialSafety`** on **`GET /api/dashboard/summary`** + Dashboard hero (**`scoreToSafetyTheme`**). Manifest / schema version follows **`AI_MANIFEST_SCHEMA_VERSION`** (**2.5.0** as of §3.2). See **§2.2**.
 >
 > **Tier 2 — §2.3:** ~~**Warnings metadata & user state**~~ ✅ **SHIPPED (Phase A + B)** — consolidated **`GET /api/warnings/*`**, **`GET /api/ai/warnings`**, and MCP **`bankstatements://ai/warnings`** carry optional **`fingerprint`** (same algorithm as **`warning_snapshots`**), **`links`**, **`urgency`**, **`actionHints`**, snapshot-derived **`firstSeenAt` / `lastActiveAt`**, and merged **`userState`**; **`PUT /api/warnings/user-state`** persists snooze / ack / surface keyed by fingerprint. Listing feeds hide active snoozes; **financial safety** still ingests the full warning set (snooze does not change the score). See **§2.3**.
 >
@@ -503,7 +503,7 @@ question.
 
 - [x] **`GET /api/ai/financial-snapshot`** (`commitmentDays` query param; defaults aligned with other AI routes).
 - [x] MCP **`bankstatements://ai/financial-snapshot`** + contract test vs `composeAiFinancialSnapshot`.
-- [x] **`AiFinancialSnapshotResponseSchema`** on manifest **`contractSchemaExports`**; snapshot slice shipped at manifest **2.1.3** (**`AI_MANIFEST_SCHEMA_VERSION`** on responses is now **2.4.0** — includes financial safety + enriched warnings + net-worth history; see §2.2, §2.3, §3.1).
+- [x] **`AiFinancialSnapshotResponseSchema`** on manifest **`contractSchemaExports`**; snapshot slice shipped at manifest **2.1.3** (**`AI_MANIFEST_SCHEMA_VERSION`** on responses is now **2.5.0** — includes financial safety + enriched warnings + net-worth + §3.2 cross-currency AI; see §2.2, §2.3, §3.1, §3.2).
 - [x] Composed **liquidity** (including **`liquidityCommitments`**) via `composeAiLiquidity`; **runway** via same forecast path as snapshot; **income** (outstanding invoices GBP + **`buildAggregateAccrualResponse`**); **discretionary**; **spendVsBudget** (dashboard-style nudges); **verdict** (`deriveFinancialVerdict` + unit tests).
 - [x] **`GET /api/contracts/income-accrual`** thins to **`buildAggregateAccrualResponse`** in **`server/domain/contracts/aggregate-accrual.ts`**.
 
@@ -530,7 +530,7 @@ affordability questions).
 
 - [x] Pure **`computeFinancialSafety`** + **`scoreToSafetyTheme`** in **`shared/financial-safety/`** with Vitest.
 - [x] **`GET /api/ai/financial-safety`** + MCP **`bankstatements://ai/financial-safety`**; query params aligned with financial snapshot (`commitmentDays`, *etc.*).
-- [x] **`AiFinancialSafetyResponseSchema`** on manifest **`contractSchemaExports`**; manifest / payload **`schemaVersion`** follows **`AI_MANIFEST_SCHEMA_VERSION`** (**2.4.0**).
+- [x] **`AiFinancialSafetyResponseSchema`** on manifest **`contractSchemaExports`**; manifest / payload **`schemaVersion`** follows **`AI_MANIFEST_SCHEMA_VERSION`** (**2.5.0**).
 - [x] **`GET /api/dashboard/summary`** optional **`financialSafety`** (same object as AI route); Dashboard hero (0–10 + green–amber–red).
 - [x] MCP + **`shared/api-contracts.test.ts`** contract coverage; MCP resource parity test.
 
@@ -595,7 +595,7 @@ Weights and curves (e.g. logistic on **cash ÷ committed**, piecewise on **runwa
 - [x] **Phase A — read-only enrichment:** `fingerprint` via `fingerprintWarning` / `server/domain/warnings/enrich-for-agents.ts`, structured **`links`**, **`urgency`**, **`actionHints`**, optional **`firstSeenAt` / `lastActiveAt`** from **`warning_snapshots`**; single integration in **`buildConsolidatedWarningsResponse`** (HTTP, AI route, MCP share one path).
 - [x] **Phase B — `warning_user_state`:** SQLite table + repository; **`PUT /api/warnings/user-state`**; merged **`userState`** on warnings; **listing** hides active snoozes; **financial safety** uses **`applySnoozeListingFilter: false`** so snooze does not change the score.
 - [x] **`warningAdjustment.linkedWarnings`** may include optional **`fingerprint`** (§2.2 parity with §2.3).
-- [x] Vitest: enrichment unit tests, **`shared/financial-safety/compute`**, route tests for user-state + listing policy; manifest drift snapshot updated when **`AI_MANIFEST_SCHEMA_VERSION`** bumps (**2.4.0**).
+- [x] Vitest: enrichment unit tests, **`shared/financial-safety/compute`**, route tests for user-state + listing policy; manifest drift snapshot updated when **`AI_MANIFEST_SCHEMA_VERSION`** bumps (**2.5.0**).
 
 **Phase C — `orchestratorState` (deferred).** **`lastNotifiedAt`**, **`notifyCount`**, **`lastChannel`** are **orchestrator-owned** in this design: the external stack tracks delivery audit unless product later adds an optional DB keyed by `fingerprint`. This repo does **not** require it for Tier 2 acceptance.
 
@@ -669,71 +669,40 @@ Point-in-time balances exist in the app; **durable history** is a **CSV-first** 
 
 **Acceptance.** Portable history on disk; scheduled capture possible via MCP HTTP **without** opening the dashboard; trend answers use **persisted** rows, not guessed recomputation. **Out of scope v1:** backfilling arbitrary historical “as-of” recomputes; capturing with **no** local process running.
 
-### 3.2 Multi-Currency / FX — extensions
+### 3.2 Agent cross-currency queries (orchestrators) ✅ SHIPPED
 
-Most of what this section used to cover (parsers, FX conversion,
-per-invoice snapshot rates, entity-scoped currency handling) moves
-into 1.1 (foundation) and 1.3 (invoicing). What remains in Tier 3:
+**Context.** Multi-entity handling, static FX on liquidity, and invoicing / reconcile FX (§1.1, §1.3, Tier 0 dashboard) already cover day-to-day GBP‑normalised views. This milestone adds **first-class AI/MCP slices** so orchestrators do not re-derive FX and categorisation rules.
 
-- **Historical FX rate capture per transaction** — a full reconcilable
-  FX audit trail (invoice snapshot + payment snapshot + transfer
-  snapshot) for any cross-currency movement, not only invoice-related
-  ones. Turns ad-hoc AED/GBP normalisation into an audit-grade
-  historical ledger.
-- **Multi-currency breakdown on all dashboard widgets** — once the
-  entity toggle from 1.1 is shipped, most widgets show single-
-  currency; this extension generalises native-currency display to
-  every widget that currently implicitly renders in GBP.
-- **Agent-facing cross-currency queries** — "how much have I spent in
-  AED this month?", "what's the GBP-equivalent of FZCO's balance
-  right now?".
-- **UAE Economic Substance Regulations notification** — if FZCO's
-  Relevant Activity classification turns out to trigger ESR, annual
-  notification tracking becomes a tier-3 deadline type. Not in scope
-  until the accountant confirms ESR applicability.
-- **Historical La Fosse contract back-seeding** — the prior renewals
-  that paid into Barclays in 2024 / early 2025 / 2025 should be
-  back-seeded into `contracts.csv` so prior-year payment↔contract
-  matching works retrospectively. Data-quality cleanup, not a
-  functional change.
+**Per-account native vs GBP (no extra route).** **`GET /api/ai/liquidity`** (and MCP `bankstatements://ai/liquidity`) already exposes **`liquidityOverview.lines[]`** with `currency`, `amountNative`, and `amountGbp` per account — use that for *“account Y in native + GBP.”*
 
-### 3.3 Historical Invoice Parser Fallbacks
+**Shipped surfaces (§3.2)**
 
-- **OCR for scanned / image-only PDFs** — the FZCO Certificate of
-  Formation PDF was image-only during roadmap authoring and could
-  not be parsed via text extraction. Tesseract-via-`node-tesseract-
-  ocr` or similar fallback kicks in when the primary text-
-  extraction path yields empty output.
-- **Automated inbound fetch from La Fosse's portal / email** — saves
-  the weekly manual upload. Requires either an IMAP adaptor or a
-  portal API integration.
+- **`GET /api/ai/spend-by-currency`** — query **`calendarMonth=YYYY-MM`** *xor* **`financialYear=`**; optional **`entityId`**, **`account`**. Response **`AiSpendByCurrencyResponseSchema`**: expense totals by account **native** currency, GBP column via **`convertAmountSync`**, transfer-type exclusions aligned with category / payroll rules (`transactionCategoryWithPayroll`, skip **`Transfers`**). **`fxNote`** documents static rates (not a historical FX ledger).
+- **`GET /api/ai/entity-liquidity-fx`** — **`AiEntityLiquidityFxResponseSchema`**: **`global`** household `LiquidityOverview` + **`byEntity`** map (each entity’s accounts only), same `buildLiquidityOverview` semantics as dashboard.
+- **MCP resources** — `bankstatements://ai/spend-by-currency` defaults to **current calendar month** (no query params); `bankstatements://ai/entity-liquidity-fx` matches HTTP. Orchestrators should use **HTTP** for FY / entity / account filters on spend-by-currency.
+- **Manifest** — **`AI_MANIFEST_SCHEMA_VERSION` 2.5.0**; slices + `AiSpendByCurrencyPeriodSchema` on **`contractSchemaExports`**.
 
-### 3.4 Consolidate `transfer-patterns.ts` and `merchant-registry.ts` "Transfers" category
+**Explicitly out of scope (unchanged)**
 
-Two overlapping sources of truth for "this transaction is a
-transfer, not real income/expense":
+- Historical per-transaction FX audit; native currency on every dashboard widget; compliance-only trackers; bulk contract back-seeds (manual hygiene).
 
-- `server/config/transfer-patterns.ts` — regex list
-  (`TRANSFER_PATTERNS`, `isTransferLikeDescription`) used by
-  `detectTransfers()` to gate whether same-account pairs can be
-  matched, and by various repository queries as SQL `LIKE` patterns.
-- `server/utils/merchant-registry.ts` + `server/utils/categorizer.ts`
-  — the `Transfers` `CategoryName` with its own rule list used at
-  render time to label transactions.
+**Acceptance.** Orchestration clients use manifest + Zod for spend-by-currency rollups and per-entity liquidity without duplicating FX math; optional **`GET /api/ai/liquidity`** lines for single-account native/GBP breakdown.
 
-They share about 5-6 patterns (WISE, OPTIONAL FT, BUSINESS PREMIUM,
-DRAW DOWN, named-person transfers). The semantics differ — one
-suppresses classification, the other is a render label — so the
-merge has to be deliberate rather than a mechanical dedup. Likely
-shape: `merchant-registry` owns all pattern data, and
-`transfer-patterns.ts` becomes a derived view over registry entries
-where `category === 'Transfers'`. Deferred because the first attempt
-showed genuine semantic differences around bounce detection
-(`BOUNCE_PATTERNS` lives only in `transfer-patterns.ts` for now).
+### 3.3 Consolidate transfer pairing with `domain/merchants` ✅ SHIPPED
+
+**Context.** “Transfer-shaped” movement is used in two roles: **`detectTransfers` / `isTransferLikeDescription`** (pairing — broader, includes card/institutional copy that often categorizes as **Debt Repayment**) and **first-match merchants** ([`server/domain/merchants/data.ts`](server/domain/merchants/data.ts) + [`server/utils/categorizer.ts`](server/utils/categorizer.ts)) for dashboard labels and expense rollups. They must not be naively merged on `category === 'Transfers'` alone.
+
+**Canonical module:** [`server/domain/merchants/transfer-pairing-seeds.ts`](server/domain/merchants/transfer-pairing-seeds.ts) — `PAIRING_TRANSFER_PATTERNS`, `BOUNCE_PATTERNS`, `isPairingTransferDescription`, `isBounceDescription`, `bounceDescriptionSqlPrefilter()`. [`server/config/transfer-patterns.ts`](server/config/transfer-patterns.ts) re-exports these for existing imports and keeps **inter-company exclusions** + tolerances. Overlapping **Transfers** rows in `STATIC_MERCHANT_DATA` reuse the same `RegExp` instances where categorization must stay aligned (optional FT, draw down, Barclays premium line, TransferWise label).
+
+**Behaviour tightened:** `detectTransfers` step 1b (standalone bounces) uses a broad SQL prefilter from `bounceDescriptionSqlPrefilter()` then **`isBounceDescription`** so returned-payment / `REV … insufficient` strings are not missed. Removed unused `TRANSFER_SQL_PATTERNS` object.
+
+**Regression tests:** [`server/domain/merchants/transfer-pattern-role.contract.test.ts`](server/domain/merchants/transfer-pattern-role.contract.test.ts) (pairing vs category matrix + bounce prefilter smoke); existing [`server/config/transfer-patterns.test.ts`](server/config/transfer-patterns.test.ts), [`server/db/repositories/detect-transfers.test.ts`](server/db/repositories/detect-transfers.test.ts), [`server/utils/categorizer.test.ts`](server/utils/categorizer.test.ts).
+
+**Note:** Pairing can still classify as **`Other`** where merchants only match `TRANSFERWISE` but pairing includes `/wise/i` — the contract test documents that asymmetry unless product adds a merchants row.
 
 ---
 
-### 3.5 Automated Statement Ingestion (keep the parsers, kill the manual export)
+### 3.4 Automated Statement Ingestion (keep the parsers, kill the manual export)
 
 **Problem.** Every bank statement in the system today is manually
 exported from an online banking portal, saved to disk, and fed through
@@ -889,13 +858,13 @@ turns into an overdue warning within 24 hours.
 
 **Unblocked by 1.1.** The multi-entity foundation (§1.1, now shipped)
 owns the authoritative `accounts → entityId` mapping this feature
-depends on to route per-entity credentials. 3.5 can ship whenever
+depends on to route per-entity credentials. 3.4 can ship whenever
 scheduled; it has no upstream dependency on the forecasting stack
 (1.2 – 1.9).
 
 ---
 
-### 3.6 Canonical Config Registry Pattern (architecture) ✅ SHIPPED
+### 3.5 Canonical Config Registry Pattern (architecture) ✅ SHIPPED
 
 Every set-wise configuration lives at `server/domain/<name>/` with a standard layout (`schema.ts`, `data.ts`, `registry.ts`, `queries.ts`, `fixtures.ts`, `index.ts`, tests). Shared primitives in `server/domain/_shared/` plus a manifest-drift detector enforce that every registry index has a documented live consumer. Seven canonical registries migrated; `obligations` is the last exemption. Full pattern docs in [docs/config-registries.md](docs/config-registries.md). Every new registry (e.g. `leave`, `forecast`-adjacent helpers, future `income_sources`) plugs straight in.
 
@@ -929,7 +898,7 @@ free.
 
 **Clients + Contracts → Invoicing → Working-Days Ledger → Forecast →
 Runway → Income Composition → Warnings → Debt Strategy** — **§1.1–§1.9** are
-shipped. **§2.0.A–G** (AI primitives, slices, manifest, MCP) forms the base agent layer. **§2.0.H** is shipped (manifest + `/api/ai/*` + MCP for warnings, spend/expenses, income composition, debt strategy). **Tier 0 extension:** dashboard **`liquidityCommitments`** (12-month rolling projection) + AI/MCP parity — **§0.2**, **`AiLiquidityResponseSchema`**. **§2.1** Financial Snapshot — **`GET /api/ai/financial-snapshot`** / MCP (see §2.1; snapshot landed at manifest **2.1.3**). **§2.2** Financial Safety — **`GET /api/ai/financial-safety`**, MCP, dashboard embed (see §2.2). **§2.3** Warnings metadata + **`userState`** — **`GET /api/ai/warnings`**, **`PUT /api/warnings/user-state`**, manifest **2.4.0** (see §2.3). **§3.1** Net worth snapshots — CSV + **`GET /api/ai/net-worth-history`** + MCP + **`capture_net_worth_snapshot`** (see §3.1). **Follow-on:** optional MCP write tools for warnings; **channels** stay outside this repo.
+shipped. **§2.0.A–G** (AI primitives, slices, manifest, MCP) forms the base agent layer. **§2.0.H** is shipped (manifest + `/api/ai/*` + MCP for warnings, spend/expenses, income composition, debt strategy). **Tier 0 extension:** dashboard **`liquidityCommitments`** (12-month rolling projection) + AI/MCP parity — **§0.2**, **`AiLiquidityResponseSchema`**. **§2.1** Financial Snapshot — **`GET /api/ai/financial-snapshot`** / MCP (see §2.1; snapshot landed at manifest **2.1.3**). **§2.2** Financial Safety — **`GET /api/ai/financial-safety`**, MCP, dashboard embed (see §2.2). **§2.3** Warnings metadata + **`userState`** — **`GET /api/ai/warnings`**, **`PUT /api/warnings/user-state`**, manifest **2.5.0** (see §2.3). **§3.1** Net worth snapshots — CSV + **`GET /api/ai/net-worth-history`** + MCP + **`capture_net_worth_snapshot`** (see §3.1). **§3.2** Agent cross-currency AI — **`GET /api/ai/spend-by-currency`**, **`GET /api/ai/entity-liquidity-fx`**, MCP resources (see §3.2). **Follow-on:** optional MCP write tools for warnings; **channels** stay outside this repo.
 
 **The Warnings Engine (1.8)** remains the single severity-ranked spine for **explicit risk flags**. §2.2 **combines** that spine (as a **modifier**) with **liquidity, runway, and income** so “safe” is not defined by warning count alone. §2.3 adds **agent-facing metadata** on warnings (not a second engine).
 
@@ -971,15 +940,12 @@ more “step 6 = §1.8” skew between list index and section number).
     MCP resource parity; manifest rows for `/api/expenses/overview|recurring|ad-hoc`;
     `consolidated-feed` + shared expense read-builders; `vitest` + MCP contract + HTTP parity tests.
     **Follow-on (also shipped):** dashboard **`liquidityCommitments`** — rolling **12-month** committed outflows + cash-after model, mirrored on **`GET /api/ai/liquidity`** / MCP; **`LiquidityCommitmentsOverviewSchema`** on manifest; schema version **2.1.2** — see **§0.2**.
-12. ~~**Financial Snapshot (2.1)**~~ ✅ SHIPPED (initial) — `GET /api/ai/financial-snapshot`, MCP `bankstatements://ai/financial-snapshot`, **`AiFinancialSnapshotResponseSchema`** (landed **2.1.3**); current manifest **`AI_MANIFEST_SCHEMA_VERSION`** **2.4.0** (incl. §3.1 net-worth) — see **§2.1**–**§2.3**, **§3.1**.
+12. ~~**Financial Snapshot (2.1)**~~ ✅ SHIPPED (initial) — `GET /api/ai/financial-snapshot`, MCP `bankstatements://ai/financial-snapshot`, **`AiFinancialSnapshotResponseSchema`** (landed **2.1.3**); current manifest **`AI_MANIFEST_SCHEMA_VERSION`** **2.5.0** (incl. §3.1–§3.2) — see **§2.1**–**§2.3**, **§3.1**, **§3.2**.
 13. ~~**Financial Safety Score (2.2)**~~ ✅ SHIPPED — **`GET /api/ai/financial-safety`**, MCP `bankstatements://ai/financial-safety`, **`AiFinancialSafetyResponseSchema`**, **`formulaVersion` `1.0.0`**, dashboard **`financialSafety`**; see **§2.2**.
 14. ~~**Warnings metadata & agent ergonomics (2.3)**~~ ✅ SHIPPED (Phase A + B) — enriched `GET /api/ai/warnings` / MCP / `GET /api/warnings/*`, **`PUT /api/warnings/user-state`**; **`orchestratorState`** orchestrator-owned; see **§2.3**.
-15. ~~**Net Worth Snapshots (3.1)**~~ ✅ SHIPPED — CSV `net-worth/net-worth-snapshots.csv` (weekly default; `NET_WORTH_SNAPSHOT_CADENCE=daily` optional), `GET /api/ai/net-worth-history`, `POST /api/ai/net-worth/snapshot`, MCP **`bankstatements://ai/net-worth-history`** + tool **`capture_net_worth_snapshot`**; auto-capture after `initDatabase()`; manifest **`AI_MANIFEST_SCHEMA_VERSION` 2.4.0** — see **§3.1**.
-16. **Multi-Currency extensions (3.2)** — whatever did not land in
-    1.1 / 1.3.
-17. **Historical Invoice Parser Fallbacks (3.3)** — OCR + inbound
-    automation.
-18. **(External)** Agent orchestration & notification channels — conversational stack (e.g. WhatsApp) consumes **`bankstatements://ai/*`** + REST; delivery not an in-repo milestone.
+15. ~~**Net Worth Snapshots (3.1)**~~ ✅ SHIPPED — CSV `net-worth/net-worth-snapshots.csv` (weekly default; `NET_WORTH_SNAPSHOT_CADENCE=daily` optional), `GET /api/ai/net-worth-history`, `POST /api/ai/net-worth/snapshot`, MCP **`bankstatements://ai/net-worth-history`** + tool **`capture_net_worth_snapshot`**; auto-capture after `initDatabase()`; manifest **`AI_MANIFEST_SCHEMA_VERSION`** now **2.5.0** — see **§3.1**, **§3.2**.
+16. ~~**Agent cross-currency queries (3.2)**~~ ✅ SHIPPED — `GET /api/ai/spend-by-currency`, `GET /api/ai/entity-liquidity-fx`, MCP **`bankstatements://ai/spend-by-currency`** (defaults: current month) + **`entity-liquidity-fx`**; manifest **2.5.0**; **`liquidityOverview.lines`** on **`GET /api/ai/liquidity`** for per-account native/GBP — see **§3.2**.
+17. **(External)** Agent orchestration & notification channels — conversational stack (e.g. WhatsApp) consumes **`bankstatements://ai/*`** + REST; delivery not an in-repo milestone.
 
 ---
 

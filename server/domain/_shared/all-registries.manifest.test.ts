@@ -36,6 +36,7 @@ const NON_REGISTRY_DIRS = new Set<string>([
   'income-composition',
   'inter-company',
   'master-agreements',
+  'cross-currency',
   'net-worth',
   'payees',
   'warnings',

@@ -9,9 +9,10 @@ import type { CurrencyCode } from '../../types.js';
 import { getDb, generateTransactionHash } from '../connection.js';
 import { formatDateISO } from '../../../shared/date-format.js';
 import { getFinancialYearRange, buildDashboardFilters, type DashboardFilters } from '../utils/financial-year.js';
-import { 
+import {
   isTransferDescription,
-  isBounceDescription
+  isBounceDescription,
+  bounceDescriptionSqlPrefilter,
 } from '../../config/transfer-patterns.js';
 import { 
   shouldIncludeTransfersAsIncome,
@@ -254,11 +255,7 @@ export function detectTransfers(): number {
     FROM transactions
     WHERE type = 'income' 
       AND linked_transaction_id IS NULL
-      AND (
-        description LIKE '%REV%8003%'
-        OR description LIKE '%8003%insufficient%'
-        OR description LIKE '%insufficient fund%'
-      )
+      AND ${bounceDescriptionSqlPrefilter()}
   `).all() as Array<{
     id: number;
     date: string;
@@ -268,7 +265,8 @@ export function detectTransfers(): number {
   
   for (const bounce of unmatchedBounces) {
     if (matchedIds.has(bounce.id)) continue;
-    
+    if (!isBouncedPayment(bounce.description)) continue;
+
     updateSingleStmt.run(bounce.id);
     matchedIds.add(bounce.id);
     singleTransfers++;

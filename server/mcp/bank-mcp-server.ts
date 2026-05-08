@@ -18,6 +18,8 @@ import {
   composeAiDebtStrategyState,
   composeAiSpendContext,
   composeAiNetWorthHistory,
+  composeAiSpendByCurrencyForCurrentMonth,
+  composeAiEntityLiquidityFx,
 } from '../domain/ai/index.js';
 import { assembleRunway } from '../domain/forecast/index.js';
 import { runwayResponseFromAssembled } from '../domain/forecast/runway-api-response.js';
@@ -39,6 +41,8 @@ export const BankStatementsAiResourceUris = {
   debtStrategy: `${BANK_STATEMENTS_AI_RESOURCE_BASE}/debt-strategy`,
   spendContext: `${BANK_STATEMENTS_AI_RESOURCE_BASE}/spend-context`,
   netWorthHistory: `${BANK_STATEMENTS_AI_RESOURCE_BASE}/net-worth-history`,
+  spendByCurrency: `${BANK_STATEMENTS_AI_RESOURCE_BASE}/spend-by-currency`,
+  entityLiquidityFx: `${BANK_STATEMENTS_AI_RESOURCE_BASE}/entity-liquidity-fx`,
 } as const;
 
 export type BankStatementsAiResourceUri =
@@ -73,6 +77,10 @@ export function readBankStatementsAiResource(uri: string): string {
       return JSON.stringify(composeAiSpendContext());
     case BankStatementsAiResourceUris.netWorthHistory:
       return JSON.stringify(composeAiNetWorthHistory());
+    case BankStatementsAiResourceUris.spendByCurrency:
+      return JSON.stringify(composeAiSpendByCurrencyForCurrentMonth());
+    case BankStatementsAiResourceUris.entityLiquidityFx:
+      return JSON.stringify(composeAiEntityLiquidityFx());
     default:
       throw new Error(`Unknown MCP resource uri: ${uri}`);
   }
@@ -83,7 +91,7 @@ export function createBankStatementsMcpServer(): McpServer {
     { name: 'bank-statements-ai', version: '2.0.0' },
     {
       instructions:
-        'AI slices over the bank-statements-app domain (§2.0): read resources mirror GET /api/ai/*. Tool capture_net_worth_snapshot (§3.1) appends/updates canonical net-worth CSV — same primitive as POST /api/ai/net-worth/snapshot.',
+        'AI slices over the bank-statements-app domain (§2.0): read resources mirror GET /api/ai/*. Tool capture_net_worth_snapshot (§3.1) updates net-worth CSV — same as POST /api/ai/net-worth/snapshot. §3.2: bankstatements://ai/spend-by-currency uses the current calendar month only; for financial-year, entity, or account filters use GET /api/ai/spend-by-currency. entity-liquidity-fx resource matches GET /api/ai/entity-liquidity-fx.',
     },
   );
 

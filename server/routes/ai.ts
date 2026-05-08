@@ -5,7 +5,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { EntityIdSchema, NetWorthSnapshotCaptureBodySchema } from '../../shared/api-contracts.js';
+import { EntityIdSchema, NetWorthSnapshotCaptureBodySchema, AccountNameSchema } from '../../shared/api-contracts.js';
 import { getDb } from '../db/connection.js';
 import { assembleRunway } from '../domain/forecast/index.js';
 import { runwayResponseFromAssembled } from '../domain/forecast/runway-api-response.js';
@@ -21,8 +21,11 @@ import {
   composeAiDebtStrategyState,
   composeAiSpendContext,
   composeAiNetWorthHistory,
+  composeAiSpendByCurrency,
+  composeAiEntityLiquidityFx,
 } from '../domain/ai/index.js';
 import { captureNetWorthSnapshots } from '../domain/net-worth/snapshot.js';
+import type { SpendByCurrencyPeriod } from '../domain/cross-currency/spend-by-currency.js';
 
 const router = Router();
 
@@ -51,6 +54,66 @@ const SnapshotQuerySchema = RunwayQuerySchema.merge(LiquidityQuerySchema);
 
 const FinancialSnapshotQuerySchema = SnapshotQuerySchema.extend({
   commitmentDays: z.coerce.number().int().positive().default(90),
+});
+
+const SpendByCurrencyQuerySchema = z
+  .object({
+    calendarMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+    financialYear: z.string().min(1).optional(),
+    entityId: EntityIdSchema.optional(),
+    account: AccountNameSchema.optional(),
+  })
+  .superRefine((data, ctx) => {
+    const hasCm = data.calendarMonth !== undefined;
+    const hasFy = data.financialYear !== undefined;
+    if (hasCm === hasFy) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Exactly one of calendarMonth or financialYear is required',
+        path: ['calendarMonth'],
+      });
+    }
+  });
+
+router.get('/spend-by-currency', (req: Request, res: Response) => {
+  try {
+    const parsed = SpendByCurrencyQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid-params', issues: parsed.error.issues });
+      return;
+    }
+    const { calendarMonth, financialYear, entityId, account } = parsed.data;
+    let period: SpendByCurrencyPeriod;
+    if (calendarMonth !== undefined) {
+      period = { kind: 'calendarMonth', yearMonth: calendarMonth };
+    } else if (financialYear !== undefined) {
+      period = { kind: 'financialYear', financialYear };
+    } else {
+      res.status(400).json({ error: 'Specify calendarMonth or financialYear' });
+      return;
+    }
+    res.json(
+      composeAiSpendByCurrency({
+        period,
+        entityId,
+        account,
+      }),
+    );
+  } catch (error) {
+    console.error('[AI] GET /spend-by-currency error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: `Failed to build AI spend-by-currency: ${message}` });
+  }
+});
+
+router.get('/entity-liquidity-fx', (_req: Request, res: Response) => {
+  try {
+    res.json(composeAiEntityLiquidityFx());
+  } catch (error) {
+    console.error('[AI] GET /entity-liquidity-fx error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: `Failed to build AI entity liquidity: ${message}` });
+  }
 });
 
 router.get('/liquidity', (req: Request, res: Response) => {

@@ -4,6 +4,7 @@ import {
   isBounceDescription,
   isInterCompanyExcludedDescription,
   TRANSFER_PATTERNS,
+  PAIRING_TRANSFER_PATTERNS,
   BOUNCE_PATTERNS,
   INTER_COMPANY_EXCLUSION_PATTERNS,
   TRANSFER_DATE_TOLERANCE_DAYS,
@@ -114,9 +115,8 @@ describe('Transfer Pattern Detection', () => {
       expect(TRANSFER_DATE_TOLERANCE_DAYS).toBeLessThan(30);
     });
 
-    it('should have transfer patterns defined', () => {
-      expect(TRANSFER_PATTERNS.length).toBeGreaterThan(0);
-      expect(TRANSFER_PATTERNS.every(p => p instanceof RegExp)).toBe(true);
+    it('TRANSFER_PATTERNS is the same reference as PAIRING_TRANSFER_PATTERNS from seeds', () => {
+      expect(TRANSFER_PATTERNS).toBe(PAIRING_TRANSFER_PATTERNS);
     });
 
     it('should have bounce patterns defined', () => {

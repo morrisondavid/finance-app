@@ -74,6 +74,18 @@ const STATIC: AiManifestResponse = {
     },
     {
       method: 'GET',
+      path: '/api/ai/entity-liquidity-fx',
+      queryParams: [],
+      responseSchemaExport: 'AiEntityLiquidityFxResponseSchema',
+    },
+    {
+      method: 'GET',
+      path: '/api/ai/spend-by-currency',
+      queryParams: ['calendarMonth', 'financialYear', 'entityId', 'account'],
+      responseSchemaExport: 'AiSpendByCurrencyResponseSchema',
+    },
+    {
+      method: 'GET',
       path: '/api/ai/manifest',
       queryParams: [],
       responseSchemaExport: 'AiManifestResponseSchema',
@@ -130,6 +142,7 @@ const STATIC: AiManifestResponse = {
   contractSchemaExports: [
     'AccountBalanceSchema',
     'AdHocExpensesResponseSchema',
+    'AiEntityLiquidityFxResponseSchema',
     'AiFinancialSafetyResponseSchema',
     'AiFinancialSnapshotResponseSchema',
     'AiLiquidityResponseSchema',
@@ -138,6 +151,8 @@ const STATIC: AiManifestResponse = {
     'AiPipelineRowSchema',
     'AiPipelineResponseSchema',
     'AiSnapshotResponseSchema',
+    'AiSpendByCurrencyPeriodSchema',
+    'AiSpendByCurrencyResponseSchema',
     'AiSpendContextResponseSchema',
     'DebtStrategyStateResponseSchema',
     'EntityFoundationWarningsResponseSchema',

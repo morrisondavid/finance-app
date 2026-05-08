@@ -3,7 +3,6 @@
  */
 
 import type { Company, EntityId } from '../../../shared/api-contracts.js';
-import type { AccountName } from '../../types.js';
 import { isoDateAddCalendarMonths, shiftIsoDate, todayIsoLocal } from '../../../shared/iso-date.js';
 import { NET_WORTH_DIR } from '../../db/connection.js';
 import {
@@ -17,12 +16,12 @@ import {
   writeNetWorthSnapshotsToCsvFile,
 } from '../../db/net-worth-csv.js';
 import { getAllAccountBalances } from '../../db/repositories/balance.js';
-import type { AccountBalance } from '../../db/repositories/balance.js';
 import { getAllDebtSummaries, getDebtSummary, listDebts } from '../../db/repositories/debts.js';
 import { getAllObligations, toApiObligation } from '../../db/repositories/obligations.js';
 import { round2 } from '../../utils/math.js';
 import { buildLiquidityCommitments, obligationRemainingGbpForRow } from '../accounts/liquidity-commitments.js';
 import { buildLiquidityOverview } from '../accounts/liquidity-overview.js';
+import { pickBalances } from '../accounts/pick-balances.js';
 import { accountsForEntity } from '../accounts/queries.js';
 import { allEntityIds, companyById } from '../company/index.js';
 import { netWorthPeriodInfo, resolveNetWorthCadenceFromEnv } from './period.js';
@@ -51,20 +50,6 @@ function obligationMatchesCompany(obEntity: string, company: Company): boolean {
   const trade = company.trading_name.trim().toLowerCase();
   const legal = company.legal_name.trim().toLowerCase();
   return n.includes(trade) || trade.includes(n) || n.includes(legal) || legal.includes(n);
-}
-
-function pickBalances(
-  all: Readonly<Record<AccountName, AccountBalance>>,
-  names: readonly AccountName[],
-): Readonly<Partial<Record<AccountName, AccountBalance>>> {
-  const out: Partial<Record<AccountName, AccountBalance>> = {};
-  for (const n of names) {
-    const b = all[n];
-    if (b !== undefined) {
-      out[n] = b;
-    }
-  }
-  return out;
 }
 
 function sumAttributedObligationsGbp(eid: EntityId, todayIso: string): number {

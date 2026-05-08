@@ -813,7 +813,7 @@ describe('AiFinancialSafetyResponseSchema', () => {
   it('accepts a minimal valid §2.2 payload', () => {
     const result = AiFinancialSafetyResponseSchema.safeParse({
       generatedAt: '2026-05-06T12:00:00.000Z',
-      schemaVersion: '2.4.0',
+      schemaVersion: '2.5.0',
       score: 7.2,
       formulaVersion: '1.0.0',
       pillars: [
