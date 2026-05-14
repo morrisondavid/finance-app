@@ -94,6 +94,42 @@ export const CreditCardConfigSchema = z.object({
 });
 export type CreditCardConfig = z.infer<typeof CreditCardConfigSchema>;
 
+/**
+ * Enable Banking-specific connectivity hints / linked-account ids that
+ * live on `AccountConfig` once a bank link has been completed.
+ *
+ * Namespaced under `aispFeed.enableBanking` so future providers
+ * (TrueLayer, Yapily, etc.) can add their own slice without colliding —
+ * `aispFeed.trueLayer.accountId`, etc. The enclosing `aispFeed` object
+ * is optional everywhere because most accounts are still ingested via
+ * manual CSV upload.
+ *
+ * Field semantics:
+ *   - `accountId`: stable Enable Banking UUID for this app account.
+ *     Required for `runFeedSync` to actually call the Enable API; absent
+ *     means "feed not yet linked" and the sync fails fast with a typed
+ *     error. Copied from Enable after the bank-link flow completes.
+ *   - `institutionHint`: optional `{ institutionName, country }` — only
+ *     used to pre-select the bank in Enable's link UI. Not secret, not
+ *     the linked-account id, omittable when you always pick the bank
+ *     manually.
+ */
+export const EnableBankingFeedConfigSchema = z.object({
+  accountId: z.string().min(1).optional(),
+  institutionHint: z
+    .object({
+      institutionName: z.string().min(1),
+      country: z.string().length(2),
+    })
+    .optional(),
+});
+export type EnableBankingFeedConfig = z.infer<typeof EnableBankingFeedConfigSchema>;
+
+export const AispFeedConfigSchema = z.object({
+  enableBanking: EnableBankingFeedConfigSchema.optional(),
+});
+export type AispFeedConfig = z.infer<typeof AispFeedConfigSchema>;
+
 const BaseAccountConfigSchema = z.object({
   name: AccountNameSchema,
   label: z.string(),
@@ -112,6 +148,13 @@ const BaseAccountConfigSchema = z.object({
    * accounts default false; other types default true.
    */
   deployableForStrategy: z.boolean().optional(),
+  /**
+   * Optional per-provider AISP feed connectivity (§3.4 Modular AISP feed).
+   * Absent or with empty slices means "this account is manual upload only".
+   * Currently only `enableBanking` is supported; future providers add their
+   * own slice without breaking existing config.
+   */
+  aispFeed: AispFeedConfigSchema.optional(),
 });
 
 export const BusinessAccountConfigSchema = BaseAccountConfigSchema.extend({

@@ -1289,6 +1289,55 @@ export const NetWorthSnapshotCaptureResponseSchema = z.object({
 });
 export type NetWorthSnapshotCaptureResponse = z.infer<typeof NetWorthSnapshotCaptureResponseSchema>;
 
+// §3.4 — Modular AISP feed: shared body / response schemas.
+// HTTP (`POST /api/feed/sync`) and MCP (`sync_bank_feed` tool) share the
+// exact same Zod surface so a single change here propagates to both.
+
+const FeedSyncIsoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+export const FeedSyncWindowSchema = z.object({
+  dateFrom: FeedSyncIsoDateSchema,
+  dateTo: FeedSyncIsoDateSchema,
+});
+export type FeedSyncWindow = z.infer<typeof FeedSyncWindowSchema>;
+
+/**
+ * Request body / MCP tool input. `dateFrom` is **required** by design:
+ * we never invent a window start (cron passes today minus N, the UI
+ * defaults from "day after last covered date", AI agents must specify).
+ */
+export const FeedSyncBodySchema = z.object({
+  account: AccountNameSchema,
+  dateFrom: FeedSyncIsoDateSchema,
+  dateTo: FeedSyncIsoDateSchema.optional(),
+  force: z.boolean().optional(),
+});
+export type FeedSyncBody = z.infer<typeof FeedSyncBodySchema>;
+
+export const FeedSyncIngestOutcomeSchema = z.enum(['ingested', 'invalid', 'duplicate']);
+export type FeedSyncIngestOutcome = z.infer<typeof FeedSyncIngestOutcomeSchema>;
+
+export const FeedSyncResponseSchema = z.object({
+  account: AccountNameSchema,
+  /** True when the adapter call was skipped (e.g. window already covered). */
+  skipped: z.boolean(),
+  /** Stable reason code for skips ('already_up_to_date' for v1). */
+  reason: z.string().optional(),
+  /** Effective window after `resolveWindow` (may differ from request). */
+  window: FeedSyncWindowSchema,
+  /** How many rows the AISP returned within the effective window. */
+  rowsFetched: z.number().int().nonnegative(),
+  /** True iff a CSV was actually written and handed to `ingestCsvFile`. */
+  csvWritten: z.boolean(),
+  /** Outcome of the shared ingest step. Absent when `csvWritten === false`. */
+  ingestOutcome: FeedSyncIngestOutcomeSchema.optional(),
+  /** Names of any monthly partitions written. */
+  partitionedFiles: z.array(z.string()).default([]),
+  /** True iff `initDatabase()` ran (only when ingest succeeded). */
+  initDatabaseRan: z.boolean(),
+});
+export type FeedSyncResponse = z.infer<typeof FeedSyncResponseSchema>;
+
 /** §3.2 GET /api/ai/spend-by-currency — period + optional entity/account filters. */
 export const AiSpendByCurrencyPeriodSchema = z.discriminatedUnion('kind', [
   z.object({

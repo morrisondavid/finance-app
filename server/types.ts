@@ -17,6 +17,7 @@ import type {
   Jurisdiction,
 } from '../shared/api-contracts.js';
 import { ACCOUNTS } from '../shared/api-contracts.js';
+import type { InternalFeedTransactions } from './ingestion/feeds/model.js';
 
 export type {
   MonthlySummary,
@@ -134,6 +135,22 @@ export interface BankParser {
    * `server/routes/upload.ts` stays account-agnostic.
    */
   transcodeUpload?: (raw: Buffer, originalFilename: string) => TranscodedUpload;
+
+  /**
+   * Convert provider-neutral {@link InternalFeedTransactions} into CSV text
+   * shaped exactly like this bank's native export — same `headers`, same
+   * sign convention as `transform` expects.
+   *
+   * The emitted CSV is the **only** path automated feeds use to add data:
+   * `runFeedSync` writes it to a temp file and calls the same `ingestCsvFile`
+   * the manual upload route uses, so feed and upload share validation,
+   * `_originals/` save, normalisation, partitioning, and DB rebuild.
+   *
+   * Optional because some accounts may never receive automated feeds;
+   * `runFeedSync` fails fast with a typed error if invoked for an account
+   * whose parser has not implemented this method.
+   */
+  emitFeedTransactionsAsCsv?: (tx: InternalFeedTransactions) => string;
 }
 
 export interface ParserMap {

@@ -11,6 +11,8 @@
  */
 
 import type { BankParser, CSVRow, Transaction, ValidationResult } from '../types.js';
+import type { InternalFeedTransactions } from '../ingestion/feeds/model.js';
+import { buildCsv, formatAmount, isoToDDhyphenMMhyphenYYYY } from './lib/feed-emitter-helpers.js';
 
 function parseAmount(raw: string | undefined): number {
   if (!raw || raw.trim() === '' || raw.trim() === '0.00') return 0;
@@ -101,6 +103,32 @@ const emiratesIslamicParser: BankParser = {
       account,
       type: amount >= 0 ? 'income' : 'expense',
     };
+  },
+
+  /**
+   * Emit Emirates Islamic-shaped CSV from provider-neutral feed rows.
+   *
+   * Emirates Islamic splits inflow / outflow into separate `Credit` /
+   * `Debit` columns (both unsigned positive amounts). Map the
+   * inflow-positive internal sign onto the right column, leaving the
+   * other column blank — matches `transform`'s `credit > 0 ? credit :
+   * -debit` round-trip exactly.
+   */
+  emitFeedTransactionsAsCsv(tx: InternalFeedTransactions): string {
+    const rows = tx.rows.map<Record<string, string>>(row => {
+      const credit = row.amount > 0 ? formatAmount(row.amount) : '';
+      const debit = row.amount < 0 ? formatAmount(-row.amount) : '';
+      return {
+        'Transaction Date': isoToDDhyphenMMhyphenYYYY(row.date),
+        'Value Date': isoToDDhyphenMMhyphenYYYY(row.date),
+        Narration: row.description,
+        'Transaction Reference': row.reference ?? row.externalId ?? '',
+        Debit: debit,
+        Credit: credit,
+        'Running Balance': row.balance !== undefined ? formatAmount(row.balance) : '',
+      };
+    });
+    return buildCsv(this.headers, rows);
   },
 };
 

@@ -21,6 +21,8 @@ export {
   BusinessTaxConfigSchema,
   VatConfigSchema,
   CorpTaxConfigSchema,
+  AispFeedConfigSchema,
+  EnableBankingFeedConfigSchema,
   type AccountConfig,
   type AccountConfigMap,
   type CompleteAccountConfigMap,
@@ -30,6 +32,8 @@ export {
   type BusinessTaxConfig,
   type VatConfig,
   type CorpTaxConfig,
+  type AispFeedConfig,
+  type EnableBankingFeedConfig,
   type EntityId,
 } from './schema.js';
 

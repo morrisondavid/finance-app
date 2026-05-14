@@ -23,3 +23,9 @@ uploads/
 
 # §3.1 — local net-worth history (CSV source of truth; back up outside git)
 net-worth/net-worth-snapshots.csv
+
+# §3.4 — Modular AISP feed: operational secrets / rotating session blobs.
+# Keep these out of git; back them up outside the repo (or re-link the bank
+# if lost — they aren't financial source of truth).
+feed-sessions.local.json
+feed-credentials.local.json

@@ -12,6 +12,8 @@
  */
 
 import type { BankParser, CSVRow, Transaction, ValidationResult } from '../types.js';
+import type { InternalFeedTransactions } from '../ingestion/feeds/model.js';
+import { buildCsv, formatAmount, isoToDDMMYYYY } from './lib/feed-emitter-helpers.js';
 
 /**
  * Get column value case-insensitively
@@ -234,7 +236,43 @@ const barclaycardParser: BankParser = {
       account,
       type: amount > 0 ? 'expense' : 'income',
     };
-  }
+  },
+
+  /**
+   * Emit Barclaycard-shaped CSV from provider-neutral feed rows.
+   *
+   * Sign: Barclaycard exports purchases as **positive** and payments as
+   * negative (credit-card convention) — opposite of our inflow-positive
+   * internal sign. We invert here so the round trip through
+   * `transform` + `normaliseCreditCardAmounts` lands on the correct
+   * inflow-positive value internally.
+   */
+  emitFeedTransactionsAsCsv(tx: InternalFeedTransactions): string {
+    const rows = tx.rows.map<Record<string, string>>(row => ({
+      'Cardholder Name': '',
+      'Account Number': '',
+      'Transaction Date': isoToDDMMYYYY(row.date),
+      'Merchant Name': row.counterparty ?? row.description,
+      Amount: formatAmount(-row.amount),
+      Currency: row.currency,
+      'Original Amount': formatAmount(-row.amount),
+      'Original Currency': row.currency,
+      'Conversion Rate': '',
+      'Posted Date': isoToDDMMYYYY(row.date),
+      'Transaction Time': '',
+      'Authorisation Code': '',
+      'Transaction ID': row.externalId ?? '',
+      'Merchant Category': '',
+      'Transaction Type': '',
+      'MCC Description': '',
+      'Merchant Town/City': '',
+      'Merchant County/State': '',
+      'Merchant Post code/Zipcode': '',
+      MCC: '',
+      'Statement Cycle': '',
+    }));
+    return buildCsv(this.headers, rows);
+  },
 };
 
 export default barclaycardParser;

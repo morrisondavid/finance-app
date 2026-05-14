@@ -8,6 +8,8 @@
  */
 
 import type { BankParser, CSVRow, Transaction, ValidationResult } from '../types.js';
+import type { InternalFeedTransactions } from '../ingestion/feeds/model.js';
+import { buildCsv, formatAmount, isoToNatwestDate } from './lib/feed-emitter-helpers.js';
 
 const MONTHS: Record<string, number> = {
   'jan': 0, 'feb': 1, 'mar': 2, 'apr': 3, 'may': 4, 'jun': 5,
@@ -270,7 +272,30 @@ const natwestParser: BankParser = {
     }
     
     return null;
-  }
+  },
+
+  /**
+   * Emit NatWest-shaped CSV (`Date,Type,Description,Value,Balance,
+   * Account Name,Account Number`) from provider-neutral feed rows.
+   *
+   * Sign: NatWest's `Value` column already uses inflow-positive (positive
+   * = credit, negative = debit), matching our internal convention.
+   * `Type`, `Account Name`, `Account Number` are not part of the AISP
+   * feed payload and emit blank rather than fabricated; `Balance` is
+   * passed through when the adapter has it, otherwise blank.
+   */
+  emitFeedTransactionsAsCsv(tx: InternalFeedTransactions): string {
+    const rows = tx.rows.map<Record<string, string>>(row => ({
+      Date: isoToNatwestDate(row.date),
+      Type: '',
+      Description: row.description,
+      Value: formatAmount(row.amount),
+      Balance: row.balance !== undefined ? formatAmount(row.balance) : '',
+      'Account Name': '',
+      'Account Number': '',
+    }));
+    return buildCsv(this.headers, rows);
+  },
 };
 
 export default natwestParser;

@@ -10,6 +10,8 @@
  */
 
 import type { BankParser, CSVRow, Transaction, ValidationResult } from '../types.js';
+import type { InternalFeedTransactions } from '../ingestion/feeds/model.js';
+import { buildCsv, formatAmount, isoToDDMMYYYY } from './lib/feed-emitter-helpers.js';
 
 /**
  * Get column value case-insensitively
@@ -215,7 +217,37 @@ const capitalOnTapParser: BankParser = {
       account,
       type: amount > 0 ? 'expense' : 'income',
     };
-  }
+  },
+
+  /**
+   * Emit Capital on Tap-shaped CSV from provider-neutral feed rows.
+   *
+   * Sign: Capital on Tap exports purchases as **positive** numbers and
+   * payments as negative — the opposite of our internal inflow-positive
+   * convention. We invert the sign here so the round trip
+   * (`emitFeedTransactionsAsCsv` → `parseCSVFile` →
+   * `normaliseCreditCardAmounts`) lands on the same final
+   * inflow-positive amount the rest of the app expects for credit cards.
+   */
+  emitFeedTransactionsAsCsv(tx: InternalFeedTransactions): string {
+    const rows = tx.rows.map<Record<string, string>>(row => ({
+      'Clearance Date': isoToDDMMYYYY(row.date),
+      'Authorisation Date': isoToDDMMYYYY(row.date),
+      Description: row.description,
+      Amount: formatAmount(-row.amount),
+      'Original Amount': formatAmount(-row.amount),
+      'Original Currency': row.currency,
+      'Merchant Name': row.counterparty ?? row.description,
+      'Card Ending': '',
+      'Cardholder Name': '',
+      'Card Name': '',
+      'Transaction Type': '',
+      Category: '',
+      'Has Receipts': '',
+      Note: row.reference ?? '',
+    }));
+    return buildCsv(this.headers, rows);
+  },
 };
 
 export default capitalOnTapParser;

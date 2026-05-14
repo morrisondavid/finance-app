@@ -32,6 +32,8 @@
  */
 
 import type { BankParser, CSVRow, Transaction, ValidationResult } from '../types.js';
+import type { InternalFeedTransactions } from '../ingestion/feeds/model.js';
+import { buildCsv, formatAmount } from './lib/feed-emitter-helpers.js';
 
 function getColumnValue(row: CSVRow, columnName: string): string {
   if (columnName in row) return row[columnName];
@@ -173,6 +175,52 @@ const wiseParser: BankParser = {
     }
 
     return null;
+  },
+
+  /**
+   * Emit Wise-shaped CSV from provider-neutral feed rows.
+   *
+   * Wise's native CSV reports `Source amount (after fees)` as **always
+   * positive**, with `Direction` (`IN` / `OUT`) carrying the sign. We
+   * map our inflow-positive internal amount onto the Direction column
+   * and emit `Source amount` as the absolute value. Fees aren't part of
+   * the AISP feed shape so `Source fee amount` emits as `0` — `transform`
+   * computes `amount = -(sourceAmount + sourceFee)` for OUT, which round-
+   * trips back to the original signed amount when fee is `0`.
+   *
+   * Status is forced to `COMPLETED` because the parser drops anything
+   * else; ingestion intentionally only persists settled rows.
+   */
+  emitFeedTransactionsAsCsv(tx: InternalFeedTransactions): string {
+    const rows = tx.rows.map<Record<string, string>>(row => {
+      const direction = row.amount >= 0 ? 'IN' : 'OUT';
+      const absAmount = Math.abs(row.amount);
+      const finishedOn = `${row.date} 00:00:00`;
+      return {
+        ID: row.externalId ?? '',
+        Status: 'COMPLETED',
+        Direction: direction,
+        'Created on': finishedOn,
+        'Finished on': finishedOn,
+        'Source fee amount': '0',
+        'Source fee currency': row.currency,
+        'Target fee amount': '0',
+        'Target fee currency': row.currency,
+        'Source name': '',
+        'Source amount (after fees)': formatAmount(absAmount),
+        'Source currency': row.currency,
+        'Target name': row.counterparty ?? row.description,
+        'Target amount (after fees)': formatAmount(absAmount),
+        'Target currency': row.currency,
+        'Exchange rate': '',
+        Reference: row.reference ?? '',
+        Batch: '',
+        'Created by': '',
+        Category: '',
+        Note: '',
+      };
+    });
+    return buildCsv(this.headers, rows);
   },
 };
 

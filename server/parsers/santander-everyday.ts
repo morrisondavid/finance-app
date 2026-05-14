@@ -20,7 +20,9 @@ import type {
   TranscodedUpload,
   ValidationResult,
 } from '../types.js';
+import type { InternalFeedTransactions } from '../ingestion/feeds/model.js';
 import { convertSantanderHtmlToCsv, isSantanderHtmlExport } from '../utils/santander-html-converter.js';
+import { buildCsv, formatAmount } from './lib/feed-emitter-helpers.js';
 
 function getColumnValue(row: CSVRow, columnName: string): string {
   if (columnName in row) return row[columnName];
@@ -190,6 +192,26 @@ const santanderEverydayParser: BankParser = {
       account,
       type: amount > 0 ? 'expense' : 'income',
     };
+  },
+
+  /**
+   * Emit Santander-shaped CSV (`Date,Card,Description,Amount`) from
+   * provider-neutral feed rows. Dates emitted as ISO `YYYY-MM-DD`
+   * because the converter / parser already accepts that shape natively.
+   *
+   * Sign: Santander's `Amount` column reports purchases as **positive**
+   * and payments as negative — opposite of our internal inflow-positive
+   * convention. We invert here so `transform` +
+   * `normaliseCreditCardAmounts` round-trips correctly.
+   */
+  emitFeedTransactionsAsCsv(tx: InternalFeedTransactions): string {
+    const rows = tx.rows.map<Record<string, string>>(row => ({
+      Date: row.date,
+      Card: '',
+      Description: row.description,
+      Amount: formatAmount(-row.amount),
+    }));
+    return buildCsv(this.headers, rows);
   },
 };
 

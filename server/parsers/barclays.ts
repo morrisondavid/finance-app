@@ -10,6 +10,8 @@
  */
 
 import type { BankParser, CSVRow, Transaction, ValidationResult } from '../types.js';
+import type { InternalFeedTransactions } from '../ingestion/feeds/model.js';
+import { buildCsv, formatAmount, isoToDDMMYYYY } from './lib/feed-emitter-helpers.js';
 
 /**
  * Month name to number mapping for filename parsing
@@ -265,7 +267,30 @@ const barclaysParser: BankParser = {
     }
     
     return null;
-  }
+  },
+
+  /**
+   * Emit Barclays-shaped CSV (`Number,Date,Account,Amount,Subcategory,Memo`)
+   * from provider-neutral feed rows.
+   *
+   * Sign: Barclays' single `Amount` column matches our internal
+   * inflow-positive convention (positive = credit, negative = debit), so
+   * the value passes through unchanged.
+   *
+   * `Number`, `Account`, `Subcategory` are bank-side annotations not
+   * present on AISP feed rows — emitted blank rather than fabricated.
+   */
+  emitFeedTransactionsAsCsv(tx: InternalFeedTransactions): string {
+    const rows = tx.rows.map<Record<string, string>>(row => ({
+      Number: '',
+      Date: isoToDDMMYYYY(row.date),
+      Account: '',
+      Amount: formatAmount(row.amount),
+      Subcategory: '',
+      Memo: row.description,
+    }));
+    return buildCsv(this.headers, rows);
+  },
 };
 
 export default barclaysParser;

@@ -22,6 +22,7 @@ import runwayRouter from './routes/runway.js';
 import aiRouter from './routes/ai.js';
 import incomeCompositionRouter from './routes/income-composition.js';
 import debtStrategyRouter from './routes/debt-strategy.js';
+import feedRouter from './routes/feed.js';
 import { normalizeAllFiles } from './utils/filename-normalizer.js';
 import { initDatabase, closeDatabase } from './db/index.js';
 
@@ -63,6 +64,7 @@ app.use('/api/runway', runwayRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/income-composition', incomeCompositionRouter);
 app.use('/api/debt-strategy', debtStrategyRouter);
+app.use('/api/feed', feedRouter);
 
 if (isProduction) {
   // SPA fallback — serve index.html for non-API routes

@@ -5,8 +5,14 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { NetWorthSnapshotCaptureResponseSchema } from '../../shared/api-contracts.js';
+import {
+  NetWorthSnapshotCaptureResponseSchema,
+  FeedSyncBodySchema,
+  FeedSyncResponseSchema,
+} from '../../shared/api-contracts.js';
 import { getDb } from '../db/connection.js';
+import { runFeedSync, FeedSyncError } from '../ingestion/feeds/sync.js';
+import { EnableBankingError } from '../ingestion/feeds/enable-banking.js';
 import {
   composeAiLiquidity,
   composeAiPipeline,
@@ -158,5 +164,72 @@ export function createBankStatementsMcpServer(): McpServer {
     },
   );
 
+  // §3.4 — sync_bank_feed mirrors `POST /api/feed/sync`.
+  // Same Zod input/output schemas; same `runFeedSync` engine. The MCP
+  // surface differs only in the error envelope (we set `isError: true`
+  // and embed a structured error body) — the route maps the same errors
+  // to HTTP status codes.
+  server.registerTool(
+    'sync_bank_feed',
+    {
+      description:
+        '§3.4 — fetch new transactions from the configured AISP (Enable Banking) for one account, emit a bank-shaped CSV, and run the same ingest pipeline as a manual upload (validate, save original, normalise filename, partition by month, rebuild DB). dateFrom is required; dateTo defaults to today; force=true overwrites an existing original of the same generated name.',
+      inputSchema: FeedSyncBodySchema.shape,
+      outputSchema: FeedSyncResponseSchema.shape,
+    },
+    args => runSyncBankFeedMcpTool(args),
+  );
+
   return server;
+}
+
+/**
+ * Exported handler for the `sync_bank_feed` MCP tool. Lives outside
+ * `createBankStatementsMcpServer` so tests (and any future direct
+ * caller) can invoke it without spinning up an MCP transport.
+ *
+ * Mirrors the §3.4 plan: same Zod parse + same `runFeedSync` engine
+ * the HTTP route uses; the only difference is the MCP error envelope
+ * (`isError: true` + structured `{ code, message }` body) instead of
+ * an HTTP status code.
+ *
+ * Returned shape is `unknown`-indexed (per the MCP SDK's tool callback
+ * signature); callers that want the typed payload should read the
+ * `structuredContent` field which is parsed against
+ * `FeedSyncResponseSchema`.
+ */
+export async function runSyncBankFeedMcpTool(
+  args: import('../../shared/api-contracts.js').FeedSyncBody,
+): Promise<{
+  [x: string]: unknown;
+  isError?: true;
+  content: { type: 'text'; text: string }[];
+  structuredContent?: import('../../shared/api-contracts.js').FeedSyncResponse;
+}> {
+  try {
+    const result = await runFeedSync(args.account, {
+      dateFrom: args.dateFrom,
+      dateTo: args.dateTo,
+      force: args.force,
+    });
+    const structuredContent = FeedSyncResponseSchema.parse(result);
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (err) {
+    const code = err instanceof FeedSyncError || err instanceof EnableBankingError
+      ? err.code
+      : 'internal-error';
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return {
+      isError: true,
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({ code, message }, null, 2),
+        },
+      ],
+    };
+  }
 }

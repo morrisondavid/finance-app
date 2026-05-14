@@ -12,6 +12,8 @@
  */
 
 import type { BankParser, CSVRow, Transaction, ValidationResult } from '../types.js';
+import type { InternalFeedTransactions } from '../ingestion/feeds/model.js';
+import { buildCsv, formatAmount, isoToDDMMYYYY } from './lib/feed-emitter-helpers.js';
 
 const MONTHS: Record<string, string> = {
   'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04', 'may': '05', 'jun': '06',
@@ -157,7 +159,43 @@ const monzoParser: BankParser = {
       account,
       type: amount >= 0 ? 'income' : 'expense',
     };
-  }
+  },
+
+  /**
+   * Emit Monzo-shaped CSV from provider-neutral feed rows.
+   *
+   * Sign: Monzo's CSV export already uses inflow-positive (positive
+   * = credit, negative = debit), matching the internal convention.
+   * The two `Money In` / `Money Out` columns are populated based on the
+   * sign so they round-trip with the existing parser logic.
+   */
+  emitFeedTransactionsAsCsv(tx: InternalFeedTransactions): string {
+    const rows = tx.rows.map<Record<string, string>>(row => {
+      const moneyIn = row.amount >= 0 ? formatAmount(row.amount) : '';
+      const moneyOut = row.amount < 0 ? formatAmount(-row.amount) : '';
+      return {
+        'Transaction ID': row.externalId ?? '',
+        Date: isoToDDMMYYYY(row.date),
+        Time: '',
+        Type: '',
+        Name: row.counterparty ?? row.description,
+        Emoji: '',
+        Category: '',
+        Amount: formatAmount(row.amount),
+        Currency: row.currency,
+        'Local amount': formatAmount(row.amount),
+        'Local currency': row.currency,
+        'Notes and #tags': '',
+        Address: '',
+        Receipt: '',
+        Description: row.description,
+        'Category split': '',
+        'Money Out': moneyOut,
+        'Money In': moneyIn,
+      };
+    });
+    return buildCsv(this.headers, rows);
+  },
 };
 
 export default monzoParser;

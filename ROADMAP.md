@@ -1,708 +1,77 @@
 # Feature Roadmap
 
-> This app is not a finance tracker. It is a **threat elimination system for financial surprises**.
->
-> Everything below is organized around one principle: closing the gap between "I can see what happened" and "nothing can surprise me."
->
-> **What's shipped (Tier 0):** obligations registry, HMRC auto-seeders (VAT / CT / SA / TTP), **budgets** (monthly + yearly vs actual on the **Accounts** tab, plus **nudges** for high-spend merchants without a budget line), **household liquidity** on the **Dashboard** tab (`GET /api/dashboard/summary`): **`liquidityOverview`** (GBP **cash vs credit** split, static FX, per-account breakdown) plus **`liquidityCommitments`** — **rolling 12 calendar months** from today (obligations in window + projected fixed recurring from `runExpensesOverviewPipeline`; **cash after commitments** = cash-only, signed on the wire, headline floored at £0; **Save ahead** flags for lines ≥ threshold; overlap footnote), same subtree on **`GET /api/ai/liquidity`** / MCP liquidity resource; recurring detection, overdue hero, missed-obligation detector, multi-currency foundations (GBP + AED), and the Deadlines tab + calendar + ICS export.
->
-> **What's shipped (Tier 1):** **Multi-Entity Foundation (1.1)**, **Clients, Contracts & Renewals (1.2)** phases A–E, **Invoicing (1.3)** Phases 1–4 (incl. payment reconciler with FX), **Working-Days Ledger (1.4)** with public holidays + leave calendar, **Cash Flow Forecast (1.5)** at `GET /api/forecast`, **Worst Case / Runway (1.6)** at `GET /api/runway` (household-first, GBP + AED dual headline, entity drill-down, credit headroom; **Strategy** tab hero uses `holisticGbp` from this API — **accrual off**, “contracts stop paying”; the **sandbox** `assembleRunwayScenario` uses **accrual on** plus optional income exclusions, so “cash runs out” can legitimately differ), and **Income Composition & Diversification (1.7)** at `GET /api/income-composition` (metrics + typed `riskSignals[]`, `properties/` registry).
->
-> **Tier 2 started:** ~~**§2.1 Financial Snapshot**~~ ✅ **SHIPPED** — **`GET /api/ai/financial-snapshot`**, MCP **`bankstatements://ai/financial-snapshot`**, **`AiFinancialSnapshotResponseSchema`** (landed at manifest **2.1.3** for the snapshot slice; **`AI_MANIFEST_SCHEMA_VERSION` on the wire is now 2.5.0** — see §2.1–§2.3, §3.1–§3.2). Composed: liquidity + `liquidityCommitments`, near-term obligation window, runway `holisticGbp`, outstanding invoices + aggregate accrual, discretionary, budget nudges, verdict. See **§2.1** for deferred nuance (near-term sum = pipeline obligations only).
->
-> **Tier 2 continued:** ~~**§2.2 Financial Safety Score**~~ ✅ **SHIPPED** — **`GET /api/ai/financial-safety`**, MCP **`bankstatements://ai/financial-safety`**, **`AiFinancialSafetyResponseSchema`**, pure **`computeFinancialSafety`** + **`formulaVersion` `1.0.0`** (0–10 score), optional **`financialSafety`** on **`GET /api/dashboard/summary`** + Dashboard hero (**`scoreToSafetyTheme`**). Manifest / schema version follows **`AI_MANIFEST_SCHEMA_VERSION`** (**2.5.0** as of §3.2). See **§2.2**.
->
-> **Tier 2 — §2.3:** ~~**Warnings metadata & user state**~~ ✅ **SHIPPED (Phase A + B)** — consolidated **`GET /api/warnings/*`**, **`GET /api/ai/warnings`**, and MCP **`bankstatements://ai/warnings`** carry optional **`fingerprint`** (same algorithm as **`warning_snapshots`**), **`links`**, **`urgency`**, **`actionHints`**, snapshot-derived **`firstSeenAt` / `lastActiveAt`**, and merged **`userState`**; **`PUT /api/warnings/user-state`** persists snooze / ack / surface keyed by fingerprint. Listing feeds hide active snoozes; **financial safety** still ingests the full warning set (snooze does not change the score). See **§2.3**.
->
-> **What's next (Tier 2):** Optional **MCP write tools** (`warnings_snooze` / *etc.*) calling the same persistence; **`orchestratorState`** stays **orchestrator-owned** (this repo does not persist notify audit unless product opts in later — see §2.3). **Channels** (WhatsApp, email, Slack, *etc.*) stay **outside** this repo.
->
-> **Below:** Tier 0–1 narrative unchanged; **§2.0** foundation + **§2.0.H** extended AI surface remain as documented.
+> This app is a **threat elimination system for financial surprises** — closing the gap between “I can see what happened” and “nothing can surprise me.”
+
+## At a glance
+
+| Area | Status |
+|------|--------|
+| **Tier 0** — obligations, tax auto-seeds, budgets, deadlines, **Dashboard liquidity** + rolling **12‑month commitments** | Shipped |
+| **Tier 1** — multi-entity, clients/contracts, invoicing + reconcile, working-days ledger, forecast, runway, income composition, warnings spine, debt strategy | Shipped |
+| **Tier 2** — semantic balance/tax discriminators, **`/api/ai/*` slices**, **generated manifest**, **MCP** (`bankstatements://ai/*`), financial snapshot, financial safety score, enriched warnings + **`userState`** | Shipped (`AI_MANIFEST_SCHEMA_VERSION` **2.5.0** on the wire) |
+| **Tier 3** — net-worth CSV history, cross-currency AI slices, transfer-pairing ↔ merchants consolidation, config-registry pattern | Shipped |
+| **§3.4** — automated statement **ingestion** (Open Banking / GoCardless, then Monzo direct + IMAP where needed) | **Next (in-repo)** |
+| **Channels** (WhatsApp, *etc.*) | Out of repo — orchestrator consumes HTTP/MCP |
+
+Deep design notes for the AI layer (balance semantics, expected receipts, MCP rules) live in **code + `shared/api-contracts.ts`**; this file stays a **product map**, not a spec dump.
 
 ---
 
-## Tier 0 — Certainty Layer ("Nothing Can Surprise Me") ✅ COMPLETE
+## Shipped — what the product can do (summary)
 
-### 0.1 Deadlines Tab + Calendar View ✅ SHIPPED
+**Certainty & cash spoken for.** Unified obligations + deadlines + ICS; household liquidity (cash vs credit, static FX, per-account lines) and **committed outflows** over the next 12 calendar months with cash-after model; recurring detection; multi-currency (GBP + AED) and entity-aware tax.
 
-- **Deadlines tab** with List + FullCalendar Calendar views.
-- Non-financial deadlines in `deadlines/deadlines.csv`; CRUD at
-  `/api/deadlines`.
-- Unified `/api/deadlines/feed` merges non-financial deadlines with
-  financial obligations via a pure `buildDeadlineFeed()` reused by
-  the feed endpoint and the ICS exporter.
-- **ICS subscription** at `/api/deadlines.ics` with stable UIDs and
-  a `SEQUENCE` derived from `updatedAt` so edits propagate to
-  subscribers.
+**Projection & contracts.** Client/contract registries, accrual from working-days + leave + holidays, invoicing (draft PDF, self-bill ingest, **payment reconcile** with FX), forecast timeline, **runway** (household stress + entity drill-down; Strategy hero vs sandbox accrual paths), **income composition** + property leverage signals.
+
+**Risk & planning.** Consolidated **Warnings** tab (typed `context`, snapshots, reserves); **Debt Strategy** (plans, movements, sandbox); budgets with nudges.
+
+**AI / agents.** Small composed HTTP endpoints + **MCP resources** for liquidity (incl. commitments), pipeline, runway, snapshot, manifest, warnings, spend, income composition, debt strategy, financial snapshot, financial safety, net-worth history, capture tool, **spend-by-currency**, **entity-liquidity-fx**; **`PUT /api/warnings/user-state`** for snooze/ack. Orchestrators are expected to call this server — not live inside it.
+
+**Historical & hygiene.** Net-worth snapshots CSV + AI/MCP read/capture; cross-currency expense/liquidity helpers for agents; **transfer pairing seeds** shared with merchants where labels must match; registry pattern doc in [docs/config-registries.md](docs/config-registries.md).
 
 ---
 
-### 0.2 Dashboard vs Accounts shell ✅ SHIPPED
+## Next — §3.4 Automated statement ingestion
 
-- **Dashboard** tab (default): household **liquidity** — hero **"Household liquidity"** with **four headline tiles**: Cash & savings, Credit available, **Committed (12 mo)**, **Cash after commitments** (headline uses **max(0, model)**; API returns signed `cashAfterCommitmentsGbp`). Below: **two-column** breakdown (cash accounts | credit cards), then full-width **committed outflows** panel with horizon label (`horizonStartDate` → `horizonEndDate`, **+12 calendar months** from today, **not** tied to the FY selector). Static FX note and footnotes (credit not netted into cash-after; obligations vs recurring may overlap).
-- **Domain:** `server/domain/accounts/liquidity-commitments.ts` — `buildLiquidityCommitments({ todayIso, totalCashGbp })`; obligations via `getAllObligations` (`minDueDate` ≈ today−365 for overdue capture, `maxDueDate` = horizon end); recurring from `runExpensesOverviewPipeline()` (monthly × month-buckets in range; annual when due falls in window). **`significantThresholdGbp`** (default £2,000) drives **Save ahead** in UI.
-- **API:** `GET /api/dashboard/summary` → `liquidityCommitments` (always built when balances load — **independent of selected FY**). **`composeAiLiquidity`** includes the same block; **`AiLiquidityResponseSchema`** + MCP liquidity resource parity (contract tests).
-- **Deferred / vNext (not shipped):** dedupe obligation vs recurring for the same underlying bill; optional accountant-adjusted CT override in commitments total; richer “discretionary vs mandatory” split on the dashboard.
-- **Accounts** tab: FY filter, charts, budgets, VAT, balance editing — unchanged analytics surface; loads the same summary on first visit (lazy).
+**Problem.** Data still enters via **manual** bank exports → `/api/upload` → `server/parsers/*.ts`. That is the main lag vs “live” finances.
 
----
+**Principle.** **Parsers stay.** New work is **acquisition + normalization** to the same row shape the parsers already expect, then existing **hash dedup** ([`server/db/repositories/transactions.ts`](server/db/repositories/transactions.ts)).
 
-## Tier 1 — Projection Layer ("What's Coming")
-
-### 1.1 Multi-Entity Foundation ✅ SHIPPED
-
-- Two-entity company registry (UK Ltd + UAE FZCO); `entityId` on every account, including the `wise-ltd` intermediary.
-- Jurisdiction-scoped tax rules (UK VAT / CT / SA, UAE VAT / CT) drive every VAT / CT query via the `accounts` registry indexes.
-- Inter-company pair-finder for cross-entity transfers, with classification overrides for loan / capital / service-fee flows.
-- `/api/warnings/entity-foundation` surfaces TBC fields, FZCO CT status, UAE VAT thresholds, IFZA renewal, and unclassified inter-company movements.
-- IFZA license renewal flows through the unified deadlines feed + ICS.
-
-### 1.2 Clients, Contracts & Renewals ✅ SHIPPED (Phases A–E)
-
-Structural anchor for every income-side calculation. Both **agency-mediated** (e.g. La Fosse → Edwin) and **direct** (e.g. Delta Capita) shapes are first-class.
-
-- **A — Registries + renewal deadlines.** Canonical `clients`, `master-agreements`, and `contracts` registries with build-time FK joins; renewal deadlines auto-seeded into the unified deadlines feed + ICS.
-- **B — Templates + recipient routing.** Pure `renderTemplate` + `resolveRecipients` over `.hbs` files (`leave`, `sickness`, `invoice-cover`, `renewal`); per-client overrides; structured errors. Consumed today by 1.2.E leave preview; any future template-driven outbound comms would use the same primitives (delivery **outside** this repo unless explicitly added later).
-- **C — Timeline-aware payer matcher.** `matchPayerToContract` resolves transactions to active contracts via the `byClientAndEntity` index. `payment-outside-contract-window` joins the entity-foundation warnings feed.
-- **D — Clients page UI.** End-client-first tiled view; agency rows surface twice (agency block + end-client block); `PUT /api/clients/:id` is the sole write path with kind-flip protection; `client-tbc-fields` warnings render as per-tile badges.
-- **E — Contracts tab.** Per-contract accrual + Retained-after-tax banner; Book Leave flow writes to `working-days/leave.csv` via a canonical leave registry; `GET /api/contracts/:id/income-accrual` derives worked / accrued / projected days from the `works_*` weekday mask minus leave (and public holidays via 1.4); accrual rebases onto the last matched invoice payment.
-
-### 1.3 Invoicing System ✅ SHIPPED (Phases 1–4)
-
-One ledger (`invoices/invoices.csv`) and one **Invoices** tab, with behaviour driven by each contract's `invoice_mechanism`.
-
-- **Supplier-issued:** server draft → persist → PDF (`/api/invoices/draft`, `/generate`, `/:id/pdf`).
-- **Self-bill:** multi-PDF ingest with a parser registry (La Fosse today).
-- **Phase 4 — Payment reconciler.** `invoice_payments.csv` is the canonical bank-line ↔ invoice link. `POST /api/invoices/reconcile` runs a global-greedy match with date / amount / reference scoring, optional FX with gain/loss and residual, and warnings (stale reference, bad due / period, unmatched deposits) on the entity-foundation feed. Contracts accrual rebases on reconciled payments first, heuristics second.
-
-### 1.4 Working-Days Ledger ✅ SHIPPED
-
-Income-side counterpart to obligations: public holidays + leave calendar + invoice day-count reconciliation.
-
-- Public holidays via `date-holidays` (UK + UAE), filtered to `type === 'public'`, with the UK Summer bank holiday patched in. Served at `GET /api/public-holidays`.
-- `calculateWorkload` accepts public-holiday dates and unions them with leave into `excludeDates`; every consumer (accrual, invoice draft, projections) is holiday-aware automatically.
-- 17 implied-leave seed rows reverse-computed from historical DC invoices.
-- FullCalendar leave calendar on the Contracts tab; click a weekday to toggle leave for all active contracts.
-- `invoice-days-mismatch` warning on the entity-foundation feed when billed days disagree with the ledger.
-
-### 1.5 Cash Flow Forecast / Runway Projection ✅ SHIPPED
-
-`GET /api/forecast?days=…&entityId=…` — pure `buildForecast` walks a daily timeline over obligations, projected recurring, unpaid invoice receipts, and un-invoiced contract accrual (1.4-aware workload). Returns per-entity 30/60/90 snapshots in each currency plus per-account daily series. API only; no UI in this phase. This is the projection spine for 1.6+ and Tier 2.
-
-### 1.6 Worst Case / Runway Mode ✅ SHIPPED
-
-`GET /api/runway?days=…&entityId=…&detail=summary|accounts` — household-first stress view answering *"if all active contract income stops today, how long can the household last?"*
-
-- **Holistic headline by currency:** `household.GBP` and `household.AED`, each with full vs mandatory-only runway months, first stress date, total cash, and total available credit. No silent GBP+AED blend.
-- **Two stress lanes:** `stress.fullRecurring` (all detected recurring spend) and `stress.mandatoryRecurring` (bills only, via `isMandatoryCategory` / `NON_QOL_CATEGORIES`).
-- **Drill-down:** entity rollups in each lane; optional per-account daily series via `?detail=accounts`.
-- **Credit model:** `openingBalance` is the credit line; `currentBalance` is remaining headroom. Optional read-only `creditLimit` alias on the balance API (= `openingBalance` for credit cards). Dashboard balance panel labels switch to "Credit limit" via `getAccountConfig`.
-- **DRY engine:** shared `assembleForecastEvents` for `/api/forecast` and `/api/runway`; recurring QoL split lives in `shared/expenses-insight.ts`.
-- **UI:** **Strategy** tab (`GET /api/runway` → `holisticGbp`) shows consolidated GBP “cash runs out” for the **no contract accrual** stress path. **Warnings** tab carries threshold breaches (`runway-low`, etc.). **Sandbox** on Strategy (`POST /api/debt-strategy/sandbox` → `assembleRunwayScenario`) replays **accrual-on** cash path with optional income line exclusions — expect a **later** stress date than the hero unless income is unchecked.
-
-### 1.7 Income Composition & Diversification ✅ SHIPPED
-
-`GET /api/income-composition` — three single-mode-risk metrics + typed risk signals, composed read-only over existing registries.
-
-- **Income at face value.** Joins contracts + rental obligations + recurring-pipeline detected income (deduped) into a uniform `IncomeSource` list. Rental income is gross; mortgage + insurance stay in mandatory outgoings (no netting on either side, symmetric).
-- **Three metrics, primitives travel with each.** `clientConcentration`, `activePassiveRatio`, `timeIndependence` — every metric exposes its numerator and denominator so consumers compose their own caveats. Per currency household + per-`(entityId, currency)` drill-down. No GBP+AED blend.
-- **`riskSignals[]` typed discriminated union** — each variant inlines primitives next to `code` and `severity`, no baked prose. Codes: `client-concentration-{extreme,elevated}`, `time-independence-{low,elevated}` (with `additionalPassiveNeeded` / `mandatoryReductionNeeded` math), `mode-concentration-extreme`, `passive-income-zero`, plus `leveraged-passive-income` per property (`grossMonthly`, `mortgageMonthly`, `netMonthly`, `netToGrossRatio` — surfaces leverage as a signal without fudging income).
-- **New canonical `properties/` registry** owns the rent ↔ mortgage join via `property_id`. Three seed rows; nullable `property_id` column added to `obligations.csv`; rental-income rows must reference one. Cross-registry FK integrity test locks it.
-- **`server/domain/income-composition/`** is a service module (not a registry — same shape as `forecast/`); listed in `NON_REGISTRY_DIRS`.
-- **`riskSignals[]`** are bridged onto the Warnings tab (§1.8).
-
-### 1.8 Solvency Warnings Engine (the Warnings tab) ✅ SHIPPED
-
-The Warnings tab is the **consolidated, severity-sorted spine** for
-every warning the app emits. §1.1's entity-foundation feed plus the
-§1.6 runway, §1.7 income-composition, tax-reserve and ad-hoc-spend
-emitters all populate the same surface, filterable by entity, and
-each warning carries typed primitives in `context` so AI / future
-surfaces don't parse prose.
-
-- Schema additively extended with optional `entityId` and `context`
-  primitives; legacy emitters keep working unchanged.
-- New emitters: runway thresholds (`runway-low`, `runway-mandatory-low`,
-  `trapped-cash`); income-composition risk-signal bridge (concentration,
-  time-independence, mode-concentration, passive-income-zero,
-  leveraged-passive-income); tax-reserve under-funded / trajectory-
-  missing; ad-hoc spend escalation (rolling 30d / 90d / MoM bands).
-- New `reserves/` registry maps `(obligation_type, entity_id)` →
-  reserve account. Replaces today's `showTaxLiabilities` display
-  flag with a real policy.
-- `warning_snapshots` table + snapshot-diff emit `warning-improved` /
-  `warning-cleared` (severity `info`) so risk reduction is visible
-  between days.
-- Single endpoint: `GET /api/warnings/entity-foundation` (legacy name)
-  + `GET /api/warnings/all` (forward-naming alias). The frontend
-  Warnings tab gains an entity filter and an optional source-group
-  toggle; existing CSS classes reused.
-- The warning schema is a **primary spine** for §2.3; it is one **input** (risk modifier) to §2.2 alongside liquidity, runway, and income — see **§2.2**.
-- **Leveraged-passive-income:** property leverage uses `debt.matchAmounts[0]` per property (not pipeline pattern sums that merged distinct mortgages); optional `match_tolerance_pct` on debts; regression tests lock behaviour.
-
-### 1.9 Debt Strategy Advisor ✅ SHIPPED
-
-Goal-driven planner (clear a debt / save for a target): standing-order instructions, three intensities, feasibility (`ok` / `degraded` / `infeasible` with typed `suggestedRemedies`), refinance trade-off (always three plans). Composes §1.5–§1.8 + budgets. **Behavioural contract:** QoL budgets inviolable; malleable adjustable in UI; no silent replan on data drift; suggested plans are route-only until activated.
-
-- **Data:** `debt-strategy/plans.csv`, `movements.csv`; `CategoryConfig.qol` in categorizer; optional `AccountConfig.creditCard` for APR/promo (refinance blocked until seeded — `account-credit-card-config-missing`).
-- **Code:** `server/domain/debt-strategy/` (`assembleDebtStrategy`, headroom, `generate-plan`, `present-intensity-options`, `auto-suggest-plans`, etc.).
-- **Warnings:** 12 codes on `/api/warnings` with typed `context`; movement detection reuses `doAmountsAndDatesMatch` with ±3d / exact amount; `lost-contract.test.ts` locks income-drop → degraded/infeasible.
-- **API:** `GET /api/debt-strategy/state`, `POST` plan lifecycle + movement acknowledge/dismiss, `POST /api/debt-strategy/sandbox` (what-if state + `scenarioHolisticGbpRunway`; **accrual-on** runway vs hero — see §1.6).
-- **UI:** **Strategy** tab — suggested / active / completed + sandbox. **Debt** tab remains raw debt register. **Budgets** tab — read-only QoL/Malleable pills.
-
-**Deferred:** Open Banking–initiated transfers; auto-derived budget defaults; cross-plan optimisation beyond FCFS; FZCO save-for-target without AED savings; UI editing of QoL tags; plan audit log.
-
----
-
-## Tier 2 — AI Agent Layer ("Proactive Guardian")
-
-### 2.0 Structured Data for AI Consumption (agent prerequisite)
-
-Before any external AI assistant
-(ChatGPT / Claude / MCP bridges) can be trusted with real analysis
-of this data, the app needs a small, well-named set of endpoints
-whose field semantics are unambiguous.
-
-**Motivation (real incident, 2026-04-24).** A first-pass AI analysis
-driven by the existing API read `currentBalance` on three credit-card
-accounts as £36k+ of cash when those fields actually held £36k+ of
-*available credit*. The same pass quoted the naive `net × 25%`
-Corporation Tax estimate as a live liability and ignored that the
-accountant has reduced CT by ~80% two years running. Both mistakes
-were possible because the current JSON conflates distinct concepts
-under shared field names. No UI change can protect the agent layer
-from this — the primitives themselves have to carry their own
-semantics.
-
-**Design philosophy.** A single mega `/api/ai/snapshot` is *not* the
-right primary surface: it breaks sub-domain isolation, forces over-
-fetching, and re-introduces the "what does this field mean for *this*
-account?" ambiguity inside a larger blob. The pattern that has
-actually worked for LLM tool-use elsewhere (MCP, OpenAI
-function-calling, Claude tool-use) is:
-
-1. Fix the semantic drift at the primitive level (2.0.A + 2.0.B).
-2. Ship a handful of small, well-scoped composed views the agent
-   actually needs (2.0.C–2.0.E).
-3. *Then* ship a thin `/api/ai/snapshot` that orchestrates the
-   composed views — documented as "prefer slices when you only need
-   a slice" (2.0.F).
-4. Ship an `/api/ai/manifest` (OpenAPI-style) so any AI consumer can
-   auto-discover the tool menu instead of guessing field meanings
-   (2.0.F).
-
-**Gate.** Blocks Tier 2 numbering **§2.1–§2.3** as defined below until 2.0 acceptance criteria pass. **In-repo chat / WhatsApp** and **message delivery** are **out of scope** — use an external orchestrator + this app’s HTTP/MCP.
-
-#### 2.0.A Balance semantics — explicit discriminator
-
-Problem: `/api/dashboard/balance/:account` returns `currentBalance`
-with three different meanings depending on the account:
-
-- **Cash held** (Barclays Current, Barclays Savings, NatWest,
-  NatWest Savings, Monzo Joint, Emirates Islamic, Wise).
-- **Credit remaining** (Capital on Tap, Barclaycard — because
-  `openingBalance` was seeded with the credit limit and purchase
-  transactions are negative).
-- **Debt owed** as a negative number (Santander Everyday — seeded
-  at zero, usage logged as negative).
-
-Add an explicit discriminator to every balance response:
-
-```json
-{
-  "account": "capital-on-tap",
-  "balanceSemantics": "credit-remaining",
-  "cashBalance": null,
-  "creditLimit": 30000,
-  "creditUsed": 1247.30,
-  "creditRemaining": 28752.70,
-  "debtOwed": 1247.30,
-  "openingBalance": 30000,
-  "currentBalance": 28752.70
-}
-```
-
-`balanceSemantics` values: `cash`, `credit-remaining`, `debt-owed`,
-`passthrough`. The legacy `openingBalance` / `currentBalance` fields
-stay for back-compat, but the agent reads from the explicit fields.
-
-Same cleanup on `/api/debts`: add `debtKind: 'amortising-loan' |
-'revolving-credit' | 'mortgage'` and let the response shape switch
-on it. `paidSinceOpening` and `payoffProgress` are meaningless for a
-revolving credit card; emitting them either as `null` or not at all
-removes the class of mistake entirely.
-
-#### 2.0.B Accountant-adjusted tax liability
-
-Problem: the auto-CT obligation is `net × CORPORATION_TAX.MAIN_RATE`.
-Two consecutive years, the lived-experience outcome has been
-naive ~£30k → actual ~£5k (~83% reduction via expense optimisation).
-The naive figure is useful as a ceiling, but surfacing it as
-`expectedAmount` with no context scares both humans and AIs into
-over-reserving £30–40k of phantom liability.
-
-Add to `autonize-it/company.csv`:
-
-- `historical_effective_ct_rate` — rolling average over the last N
-  filed years (nullable until a filed year exists).
-- `historical_effective_vat_rate` — same pattern for VAT if the
-  accountant legitimately optimises input VAT reclaim.
-
-The obligations calculator emits **both** figures on every CT row,
-never one or the other:
-
-```json
-{
-  "type": "corporation-tax",
-  "expectedAmount": 8166.50,
-  "naiveAmount": 48666.50,
-  "adjustmentBasis": "historical_effective_ct_rate: 0.17 (2-year mean)",
-  "adjustmentSource": "company.historical_effective_ct_rate"
-}
-```
-
-Rule: the naive figure is never discarded. The UI and the agent see
-both, so the accountant's value-add is legible at a glance and the
-adjusted figure can never silently drift from the naive one.
-
-#### 2.0.C Expected-receipts calendar
-
-Problem: `/api/contracts/income-accrual` answers "how much have I
-earned this month?", not "when does the money hit which account?".
-For worst-case reasoning, landing dates matter more than accrual
-totals — "£25k arrives May 31st" and "£25k arrives June 15th" are
-the same accrual but very different survival stories.
-
-New endpoint `GET /api/contracts/expected-receipts`:
-
-```json
-{
-  "items": [
-    {
-      "contract_id": "dc-sow-2026",
-      "period": "2026-04",
-      "amount_net": 12100,
-      "amount_incl_vat": 14520,
-      "currency": "GBP",
-      "issuing_entity_id": "autonize-it-ltd",
-      "invoice_status": "accrued-not-yet-issued",
-      "expected_invoice_date": "2026-05-01",
-      "payment_terms_days": 30,
-      "expected_landing_date": "2026-05-31",
-      "expected_landing_account": "barclays-current"
-    }
-  ],
-  "by_month": { "2026-05": { "gbp": 25520 } }
-}
-```
-
-Derived purely from `contracts.csv` × `invoice_cadence` ×
-`payment_terms_days` × the already-computed accrual. No new source
-of truth.
-
-#### 2.0.D Contract renewal monetary exposure
-
-Problem: the `contract-ending-soon` warning says "6 days" but not
-"£12,100 gross / £9,075 retained per month at risk, which is 100%
-of this entity's active revenue". The date alone panics; the monetary
-figure makes it actionable.
-
-Enrich the existing warning payload:
-
-```json
-{
-  "code": "contract-ending-soon",
-  "contract_id": "dc-sow-2026",
-  "end_date": "2026-04-30",
-  "days_until": 6,
-  "monthly_exposure_gross": 12100,
-  "monthly_exposure_retained": 9075,
-  "percent_of_entity_revenue": 100
-}
-```
-
-Reuses `calculateRetainedReserves` from 1.2.E — no new tax logic,
-just exposure arithmetic.
-
-#### 2.0.E Composed AI views (slice-shaped)
-
-Three small composed endpoints, each with a single clear purpose.
-These are the *primary* surface for agent reads:
-
-- `GET /api/ai/liquidity` — composed today: **`liquidityOverview`** + **`taxLiabilities`** + optional **`byEntity`**, and **`liquidityCommitments`** (rolling 12-month committed model + `significantThresholdGbp`, same as dashboard summary). *(Original 2.0.E sketch also listed per-field cash/credit/debt slices; shipped shape is Zod-locked in `AiLiquidityResponseSchema`.)*
-- `GET /api/ai/pipeline` — expected receipts (2.0.C) + upcoming
-  obligations (existing) merged onto a single dated timeline, per
-  account. Answers "what lands when?" in one call.
-- `GET /api/ai/runway` — N-day zero-new-income projection per
-  entity: what is the balance on day N if no new contracts land?
-  Fed by 2.0.C + recurring detector + obligations. Day-resolution,
-  not month-bucketed.
-
-#### 2.0.F Snapshot + manifest
-
-- `GET /api/ai/snapshot` — thin composition of 2.0.E with a header
-  (`today`, `generated_at`, `schema_version`, `warnings_summary`).
-  Documented as "single-shot reasoning only; prefer slice-specific
-  views when you need just one concern". This is *not* the primary
-  agent surface — it is a convenience wrapper.
-- `GET /api/ai/manifest` — generated OpenAPI-shaped catalogue of
-  every `/api/ai/*` endpoint (and the enriched warnings / balances /
-  obligations feeds) with field-level `description`, `semanticUnit`
-  (`GBP-cash`, `GBP-credit-remaining`, `days`, `percent`, etc.) and
-  example values. **Generated, not hand-written** — drifting schema
-  can't silently mislead a future agent. This is what an MCP bridge
-  or ChatGPT plugin would consume first.
-
-#### 2.0.G MCP server (thin adaptor over the slice endpoints)
-
-Once 2.0.A–F are stable, wrap the same slice endpoints as a first-
-class **Model Context Protocol** server so that any MCP-aware client
-(Cursor, Claude Desktop, ChatGPT via bridge, future Open Close, any
-new IDE that adopts the spec) can attach with zero bespoke
-integration. The REST surface stays — it powers the web UI and stays
-the canonical business logic. MCP is a **delivery channel**, not a
-competing implementation.
-
-**Design rules (non-negotiable).**
-
-- MCP is a **thin adaptor**. Target ≤ ~300 lines of glue. If the
-  adaptor starts re-implementing business logic it has drifted from
-  its role — back it out and move logic into the slice endpoints.
-- Tool / resource descriptors are **generated** from
-  `shared/api-contracts.ts` Zod schemas via `zod-to-json-schema`.
-  Hand-written descriptors are banned so the MCP surface cannot
-  drift from the REST contracts it wraps (same rule as
-  `/api/ai/manifest` in 2.0.F).
-- **Resources vs tools split is load-bearing**, not decorative:
-  - **Resources (read-only, safe to expose to any LLM):** `finance://liquidity`,
-    `finance://pipeline`, `finance://runway`, `finance://snapshot`,
-    `finance://warnings`, `finance://contracts`,
-    `finance://contracts/{id}`, `finance://obligations/upcoming`,
-    `finance://debts`. Every resource is a pure projection of a
-    2.0.E slice endpoint.
-  - **Tools (mutations, human-in-loop required):** `book_leave`,
-    `mark_contract_renewed`, `dismiss_warning`,
-    `set_account_opening_balance`, `upload_statement`. Each tool
-    descriptor carries explicit confirmation metadata (tool
-    annotation flagging destructive / irreversible behaviour) so
-    Cursor / Claude Desktop prompt the user before execution. Query-
-    only tools (`compute_runway`, `project_receipts`) are allowed but
-    should prefer resources where the call is parameter-free.
-- **Two transports, same server:**
-  - `stdio` for local use (Cursor attaching to the dev server,
-    Claude Desktop, on-device Open Close). Zero-auth, filesystem-
-    speed, the default.
-  - `HTTP+SSE` (or the current MCP streamable-HTTP transport) for
-    remote use (WhatsApp agent, hosted Open Close, ChatGPT bridge).
-    Gated behind a static bearer token read from env; off by
-    default.
-
-**File layout.**
+**Target layout**
 
 ```text
-server/mcp/
-  server.ts              creates an MCP Server, registers transports
-  resources.ts           finance://* handlers (each = thin wrapper
-                         over a 2.0.E slice endpoint)
-  tools.ts               book_leave / mark_contract_renewed / etc.
-                         (each = thin wrapper over existing
-                         /api/* mutation routes, with MCP
-                         confirmation annotations)
-  descriptors.ts         auto-generates tool + resource schemas
-                         from shared/api-contracts.ts (Zod →
-                         JSON Schema) — *this file is the contract
-                         drift guard*
-  transports/
-    stdio.ts
-    http-sse.ts
-  mcp-server.test.ts     contract tests: every resource URI matches
-                         the underlying REST response 1:1; every
-                         tool descriptor is generated from a Zod
-                         schema (no hand-written schemas allowed —
-                         lint rule).
+server/ingestion/
+  sources/          # gocardless-obi, monzo-direct (later), email-attachment (later)
+  normalizers/      # e.g. OBI JSON → rows the parsers accept
+  pipeline.ts       # source → normalize → parser → insert
+  schedules.ts      # or CLI/cron outside the process
 ```
 
-**What this unlocks immediately.**
+**Per-account plan (from roadmap research)**
 
-- Cursor can answer questions about your live finances inside the
-  IDE (attach `server/mcp/server.ts` via stdio in `.cursor/mcp.json`).
-- Claude Desktop can do the same.
-- Any future agent or orchestrator becomes an MCP
-  *client*, so swapping the underlying model (Claude / GPT-5 /
-  Qwen / local) is a config change, not a rewrite.
-- Remote LLMs (ChatGPT via bridge) consume exactly the same surface
-  a local LLM does, with only the transport differing.
+| Account | Primary automation | Fallback |
+|---------|------------------|----------|
+| `barclays-current`, `barclays-savings`, `barclaycard`, `capital-on-tap`, `natwest`, `santander-everyday` | **GoCardless Bank Account Data** | CSV upload |
+| `monzo-joint` | **Monzo API** (direct — richer than OBI) | CSV upload |
+| `emirates-islamic` | **IMAP** statement attachment (until UAE coverage matures) | PDF/CSV upload |
 
-**Acceptance criteria for 2.0.G.**
+**Product must-haves**
 
-- An unmodified Cursor client, pointed at `server/mcp/server.ts`
-  via stdio, can answer the same seven questions listed in the
-  2.0 acceptance criteria — with **no additional code** beyond MCP
-  configuration.
-- Every resource handler returns byte-identical content to its
-  underlying `/api/ai/*` slice (regression-locked in
-  `mcp-server.test.ts`).
-- No tool descriptor in `server/mcp/tools.ts` is declared by hand;
-  all are derived from Zod schemas in `shared/api-contracts.ts`.
-  A CI lint rejects hand-written descriptors.
-- Mutation tools refuse to execute without an explicit
-  confirmation annotation in their descriptor. Missing annotation
-  = tool does not register at startup.
-- `stdio` transport works with zero configuration; `HTTP+SSE`
-  transport refuses to start unless an `MCP_BEARER_TOKEN` env var
-  is set.
+- **Secrets:** API keys / refresh tokens **not** in git or SQLite payloads — env + OS keychain (or similar); DB holds opaque `credentials_ref` + connection metadata (see earlier roadmap sketch: `account_connections`, `ingestion_runs`, optional `transactions.source` / `source_ref`).
+- **90-day PSD2 re-consent:** surface as warnings/deadlines + connection health (last pull, reconsent due).
+- **Observability:** log each pull (rows fetched / inserted / deduped); silent failure → visible within a day.
+- **Tests:** fixture JSON per source; overlap test (manual CSV + feed) proves dedup.
 
-**Order within 2.0.** 2.0.G lands *after* 2.0.A–F because it has
-nothing of its own to test until the slice endpoints and the
-generated manifest exist. It closes out the **initial** 2.0 tranche.
+**Manual / one-off**
 
-#### 2.0.H Extended AI surface — insights, spend behaviour & MCP parity ✅ SHIPPED
+- GoCardless (or alternative AISP) developer signup, institution mapping, link flow per bank.
+- Full history pre–Open-Banking window: **GDPR SAR**-style exports are a **one-off manual** seed, not the live feed.
 
-Liquidity, pipeline, runway, and snapshot answer **survival and timing** questions well. This milestone widened **discoverability** so agents reading only **`GET /api/ai/manifest`** and **MCP** `bankstatements://ai/*` can fetch the **same** Tier 1 JSON as the app: consolidated **warnings** (`GET /api/ai/warnings` ↔ `GET /api/warnings/all`), **income composition**, **debt strategy** read bundle, **spend-context** (overview + default recurring + ad-hoc in one object), plus manifest entries for **`GET /api/expenses/{overview,recurring,ad-hoc}`**. Implementation follows **2.0.E–G**: thin composers and **`server/domain/warnings/consolidated-feed.ts`** / shared expense read-builders—**no** second categorisation or warning derivation in MCP.
-
-**Shipped in this repo.**
-
-- **`AI_MANIFEST_SCHEMA_VERSION`** — **2.1.0** shipped the expanded `slices[]` and `contractSchemaExports` (warnings, income-composition, debt-strategy, spend-context, expenses routes); **2.1.2+** adds **`LiquidityCommitmentsOverviewSchema`** for nested **`liquidityCommitments`** on the liquidity slice (dashboard parity); **2.1.3** adds **`AiFinancialSnapshotResponseSchema`** for **`GET /api/ai/financial-snapshot`** (§2.1).
-- **HTTP** — `GET /api/ai/warnings`, `/income-composition`, `/debt-strategy`, `/spend-context`, **`/financial-snapshot`** (§2.1; manifest **2.1.3+**) in `server/routes/ai.ts`.
-- **MCP** — matching resources in `server/mcp/bank-mcp-server.ts`; parity in `server/mcp/bank-mcp-server.contract.test.ts` and `server/routes/ai-parity.test.ts`.
-- **Debt-strategy JSON** — `debtStrategyBundleToResponseJson` materialises Maps/Sets (including nested `forecastInputs`) so wire JSON matches `JSON.stringify` semantics for agents; **`GET /api/debt-strategy/state`** uses the same helper (UI unchanged where it only consumes top-level plan/headroom fields).
-
-**Deferred (optional, as in original plan).** Extending **`GET /api/ai/snapshot`** with condensed warnings/spend/income summaries is **not** done; agents fetch slices separately.
-
-**Interpretive / qualitative questions** remain **out of scope** as dedicated endpoints.
-
-**Acceptance for 2.0.H.** Full **`npx vitest run`** green; manifest lists new slices; MCP matches composers; no duplicate business logic in MCP; contracts in `shared/api-contracts.ts` (e.g. `DebtStrategyStateResponseSchema`, `AiSpendContextResponseSchema`).
-
-**Gate.** Delivers agent parity on Tier 1 insight; **§2.1** Financial Snapshot shipped on this foundation (see §2.1).
-
-#### 2.0 acceptance criteria
-
-An AI consumer that only reads `/api/ai/manifest` and the slice
-endpoints must be able to correctly answer every one of:
-
-1. How much real cash do I have, per entity and total?
-2. How much credit headroom can I lean on, and for how long?
-3. What am I owed, and when (by account, to the day) does it land?
-4. What obligations hit in the next 30 / 60 / 90 days?
-5. What is my worst-case runway if no new contracts land?
-6. Which contracts are at risk, and what is the monetary exposure
-   of each in gross and retained terms?
-7. What is my accountant-adjusted tax bill versus the naive
-   estimate, and what is the basis of the adjustment?
-
-No field in any `/api/ai/*` response has ambiguous semantics across
-account types, debt types, or tax types. `balanceSemantics`,
-`debtKind`, `adjustmentBasis` are non-optional discriminators.
-`/api/ai/manifest` is generated from the schema, not hand-written.
-
-### 2.1 Financial Snapshot / Commitment Approval — initial slice ✅ SHIPPED
-
-Single endpoint the agent calls before answering any spending
-question.
-
-**Shipped checklist**
-
-- [x] **`GET /api/ai/financial-snapshot`** (`commitmentDays` query param; defaults aligned with other AI routes).
-- [x] MCP **`bankstatements://ai/financial-snapshot`** + contract test vs `composeAiFinancialSnapshot`.
-- [x] **`AiFinancialSnapshotResponseSchema`** on manifest **`contractSchemaExports`**; snapshot slice shipped at manifest **2.1.3** (**`AI_MANIFEST_SCHEMA_VERSION`** on responses is now **2.5.0** — includes financial safety + enriched warnings + net-worth + §3.2 cross-currency AI; see §2.2, §2.3, §3.1, §3.2).
-- [x] Composed **liquidity** (including **`liquidityCommitments`**) via `composeAiLiquidity`; **runway** via same forecast path as snapshot; **income** (outstanding invoices GBP + **`buildAggregateAccrualResponse`**); **discretionary**; **spendVsBudget** (dashboard-style nudges); **verdict** (`deriveFinancialVerdict` + unit tests).
-- [x] **`GET /api/contracts/income-accrual`** thins to **`buildAggregateAccrualResponse`** in **`server/domain/contracts/aggregate-accrual.ts`**.
-
-**Partially covered elsewhere:** the **Dashboard** + **`GET /api/ai/liquidity`** already expose **`liquidityCommitments`** (rolling **12-month** committed model, cash-after, significant lines) — see **§0.2**. §2.1 adds the **task-shaped** bundle on top (near-term window vs 12‑month block, runway headline, invoices + accrual rollup, nudges, verdict).
-
-- Current liquid balance across accounts, per entity and global.
-- Committed outgoings for next N days (from obligations + recurring
-  detector).
-- Accrued-but-not-yet-invoiced income (from 1.4) + outstanding
-  invoices (from 1.3).
-- Uncommitted / discretionary balance.
-- Recent spending velocity vs budget.
-- Verdict: safe / reduces runway to X / creates deficit in Y days.
-
-Replaces the agent-side shape that `/api/dashboard/summary` can't
-provide (the summary is UI-shaped and not task-shaped for
-affordability questions).
-
-**Deferred / nuance.** Near-term **`commitmentWindow.committedOutflowsGbp`** sums **AI pipeline obligation rows** only (see `discretionary.note` on the wire); full “obligations + recurring detector” parity for the window may be tightened later. **§2.3** (warnings metadata + **`userState`**) is shipped; optional orchestrator-local notify state and MCP mutation tools remain **follow-ons**.
-
-### 2.2 Financial Safety Score (multi-factor; warnings = modifier, not base) ✅ SHIPPED (v1)
-
-**Shipped checklist**
-
-- [x] Pure **`computeFinancialSafety`** + **`scoreToSafetyTheme`** in **`shared/financial-safety/`** with Vitest.
-- [x] **`GET /api/ai/financial-safety`** + MCP **`bankstatements://ai/financial-safety`**; query params aligned with financial snapshot (`commitmentDays`, *etc.*).
-- [x] **`AiFinancialSafetyResponseSchema`** on manifest **`contractSchemaExports`**; manifest / payload **`schemaVersion`** follows **`AI_MANIFEST_SCHEMA_VERSION`** (**2.5.0**).
-- [x] **`GET /api/dashboard/summary`** optional **`financialSafety`** (same object as AI route); Dashboard hero (0–10 + green–amber–red).
-- [x] MCP + **`shared/api-contracts.test.ts`** contract coverage; MCP resource parity test.
-
-**Goal (unchanged).** One headline number (and explainability) for **“how safe am I financially?”** — aligned with how a principal **actually** thinks: *cash vs what I’m on the hook for*, *how long before stress*, *whether income will cover outflows*, not merely **“how few warnings fired today.”**
-
-**Why the old framing was wrong.** Treating the score as **only** a reduction over §1.8 warnings makes **“fewer warnings ⇒ safer”** the main story. Warnings are **high-value tripwires** (missed filing, runway threshold, data gaps) but **secondary** to **structural affordability**: e.g. **£36k cash** with **~£180k committed over 12 months** (see **`liquidityCommitments`** on dashboard / **`GET /api/ai/liquidity`**) should drag the score down **even if** no new warning code exists yet.
-
-**Design principles**
-
-1. **Primary drivers = quantitative spine** already in the app: liquidity, rolling commitments, forecast runway, contract-accrual / expected receipts, income composition, debt-strategy headroom, spend context. The score **aggregates** these; it does not replace them.
-2. **Warnings = modifier.** Active warnings **cap or subtract** from a **base score** derived from pillars (weighted `severity × urgency`), or define a **floor** (“never above 6/10 while critical overdue tax exists”). They must **not** be the only input.
-3. **Reproducible.** Any consumer (UI, **`GET /api/ai/*`**, external LLM via MCP) can **recompute the same number** from the same **versioned formula id** + **published inputs snapshot** (see below). No hand-wavy prose as the source of truth.
-4. **Structural life changes** (e.g. sell a house → more income / lower rent) move the score when **registry + transactions** move — same as today’s domain; the score reflects **updated model inputs**, not a separate magic state.
-
-**Pillars (contributors — implement as weighted sub-scores with documented floors/caps)**
-
-| Pillar | What it captures | Typical inputs (already or soon on MCP / AI routes) |
-|--------|------------------|-----------------------------------------------------|
-| **A — Liquidity vs commitments** | Cash vs rolling **spoken-for** outflows | `liquidityOverview.totalCashGbp` (or available), **`liquidityCommitments.totalCommittedGbp`**, **`cashAfterCommitmentsGbp`**; credit semantics from balance discriminators |
-| **B — Runway / stress** | Time-to-negative under stress scenarios | **`runway.holisticGbp`**, **`financial-snapshot.verdict`**; optional mandatory-only variant |
-| **C — Income durability & contract runway** | Will money keep arriving on pace? | **`financial-snapshot.income`** (accrual totals, outstanding invoices), **`pipeline`** expected-receipt rows, **contracts** end dates / renewal risk (encode as derived metrics), **§1.7 income composition** (concentration, active vs passive) |
-| **D — Expense & debt load** | Fixed + debt drag vs headroom | **`debt-strategy`** state / headroom, **spend-context** (recurring + ad-hoc), budget nudges from snapshot |
-| **E — Warnings modifier** | Explicit regime / data / obligation tripwires | **`GET /api/ai/warnings`** — severity, codes, **`urgency`**, optional **`fingerprint`** (§2.3) |
-
-**Optional pillar F — Input quality / staleness.** When the ledger or key registries are stale or incomplete, **cap** the headline score (often overlaps §1.8 codes today; may later get explicit **“data health”** primitives on MCP so orchestrators need not infer from prose).
-
-Weights and curves (e.g. logistic on **cash ÷ committed**, piecewise on **runway months**) are **product choices** — ship in one domain module + tests; **document in API** via `formulaVersion`.
-
-**Shipped wire shape (`GET /api/ai/financial-safety` / dashboard `financialSafety`)**
-
-- **`score`** — **0–10** (single convention).
-- **`formulaVersion`** — **`1.0.0`** for the headline blend; bump when weights/curves change.
-- **`pillars[]`** — `{ id, label, contribution, rawMetrics, weight }` for UI + agents.
-- **`warningAdjustment`** — points deducted / cap + **`linkedWarnings`** (`id`, `code`); **`fingerprint`** on each warning after §2.3 enriches the feed.
-- **`inputsRef`** — optional alignment with **`financial-snapshot.generatedAt`**.
-- **`generatedAt`** / **`schemaVersion`** — envelope parity with other AI slices.
-
-**MCP & external AI parity**
-
-- **Manifest** lists the new response schema + guarantees the **input slices** used are already MCP resources: at minimum **`financial-snapshot`**, **`liquidity`**, **`runway`**, **`pipeline`**, **`income-composition`**, **`debt-strategy`**, **`spend-context`**, **`warnings`** (same JSON as HTTP).
-- **Recomputation contract:** response includes **`formulaVersion`** + **pillar breakdown** with **numeric primitives** (not just labels) so an external model can **reproduce** the shipped score or **critique** it transparently.
-- If the orchestrator prefers to **score offline**, it may **ignore** `score` and consume **`pillars[].rawMetrics`** only — still one canonical export of the contributing numbers.
-
-**Acceptance.** Example: high cash **with** commitments ≫ cash → low pillar A → low headline score **without** requiring a bespoke “ratio warning.” Selling a house updates income/expense inputs → pillar C/D move when data is updated. Warnings-free but **catastrophic runway** still scores poorly via pillar B.
-
-**Implementation & quality bar**
-
-- **Single derivation implementation:** one **pure** `computeFinancialSafety` in **`shared/financial-safety/`** — **Vitest** exercises it without DB; the server **only** assembles `FinancialSafetyInput` from existing composers and calls it (no duplicate formula in UI or MCP callbacks).
-- **API surfaces:** `GET /api/ai/financial-safety` + MCP resource parity; **`GET /api/dashboard/summary`** also returns optional **`financialSafety`** (same payload) so the Dashboard does not need a second request.
-- **Unit tests:** table-driven cases — pillar isolation (e.g. weak liquidity **without** warnings), warning-only modifier, runway stress, clamps in **0–10**, regression for high cash + commitments ≫ cash ⇒ low score.
-- **Contract tests:** MCP/HTTP parity for the new slice; schema parse in **`shared/api-contracts.test.ts`**.
-- **Dashboard UX:** prominent **Financial Safety** hero on the Dashboard (with liquidity): headline **0–10**, colour band **green → amber → red** via a small **`scoreToSafetyTheme`** helper in **`shared/`** (HSL/CSS custom properties).
-
-**Naming.** “Confidence” may stay as UI copy; roadmap uses **Financial Safety Score** to avoid implying “model self-confidence” rather than **user solvency / runway**.
-
-### 2.3 Warnings metadata & agent ergonomics (for MCP / orchestrators) ✅ SHIPPED (Phase A + B)
-
-**Replaces the old “Alert & Notification Queue” idea.** This repo does **not** own WhatsApp, email workers, or a `pending_alerts` delivery grid. **Channel delivery, cadence, and conversation** live in an **external orchestrator** (or equivalent) that calls **`GET /api/ai/warnings`**, **`GET /api/warnings/all`**, MCP **`bankstatements://ai/warnings`**, **`PUT /api/warnings/user-state`**, and existing mutation routes / optional future MCP tools.
-
-**Shipped checklist (implementation)**
-
-- [x] **Phase A — read-only enrichment:** `fingerprint` via `fingerprintWarning` / `server/domain/warnings/enrich-for-agents.ts`, structured **`links`**, **`urgency`**, **`actionHints`**, optional **`firstSeenAt` / `lastActiveAt`** from **`warning_snapshots`**; single integration in **`buildConsolidatedWarningsResponse`** (HTTP, AI route, MCP share one path).
-- [x] **Phase B — `warning_user_state`:** SQLite table + repository; **`PUT /api/warnings/user-state`**; merged **`userState`** on warnings; **listing** hides active snoozes; **financial safety** uses **`applySnoozeListingFilter: false`** so snooze does not change the score.
-- [x] **`warningAdjustment.linkedWarnings`** may include optional **`fingerprint`** (§2.2 parity with §2.3).
-- [x] Vitest: enrichment unit tests, **`shared/financial-safety/compute`**, route tests for user-state + listing policy; manifest drift snapshot updated when **`AI_MANIFEST_SCHEMA_VERSION`** bumps (**2.5.0**).
-
-**Phase C — `orchestratorState` (deferred).** **`lastNotifiedAt`**, **`notifyCount`**, **`lastChannel`** are **orchestrator-owned** in this design: the external stack tracks delivery audit unless product later adds an optional DB keyed by `fingerprint`. This repo does **not** require it for Tier 2 acceptance.
-
-**Problem solved.** Agents need more than `title` / `detail` / `recommended_action` strings. They need **stable identity** across runs, **machine-actionable links** into domain objects, **urgency / time-to-impact** surfaced consistently, and optional **user or orchestrator state** (snooze, ack, last surfaced) that does **not** pretend an unpaid HMRC liability has gone away just because a notification fired once.
-
-**Design principles**
-
-1. **Truth vs fatigue:** Persisted metadata must distinguish **(A)** “condition still true in domain data” (e.g. SA still overdue) from **(B)** “we already nudged the user” / “hide from UI until Tuesday.” **(A)** remains driven by §1.8 emitters; **(B)** is snooze / notify state.
-2. **Chronic warnings:** Snooze hides or dampens **surfacing**, never **resolution**. Clearing the warning requires **domain resolution** (paid obligation, updated registry, *etc.*), same as today.
-3. **Orchestrator-friendly:** Every warning should be **routeable** — which obligation, contract, invoice, debt, plan movement — without NLP on `detail`.
-
-**Wire / schema shape (shipped on consolidated warnings)**
-
-**`EntityFoundationWarning`** / **`GET /api/ai/warnings`** / MCP warnings resource expose (all optional-first except legacy base fields):
-
-| Area | Purpose |
-|------|---------|
-| **`fingerprint`** | Stable string per “logical” warning — same algorithm as **`warning_snapshots`** / `fingerprintWarning`. |
-| **`firstSeenAt` / `lastActiveAt`** | MIN/MAX `snapshot_at` for this fingerprint in **`warning_snapshots`** when rows exist. |
-| **`urgency`** | Normalised bands: `overdue` / `due_soon` / `stress_soon` / `routine`, with optional `dueDate`, `daysOverdue`, `stressDate`. |
-| **`links`** | Structured handles: `obligationId`, `contractId`, `invoiceId`, `debtId`, `planId`, `movementId` from `context` where present. |
-| **`actionHints`** | Small enum list (`open_obligations`, `reconcile_invoices`, *etc.*) derived from warning `code` / family. |
-| **`userState`** (persisted) | **`snoozedUntil`**, **`acknowledgedAt`**, **`surface`** — merged from **`warning_user_state`**; **listing** hides active snoozes; §2.2 score still sees all warnings. |
-| **`orchestratorState`** | **Not persisted in-repo** — **orchestrator-owned** (Phase C); external stack may track notify audit keyed by `fingerprint` if needed. |
-
-**Persistence**
-
-- Prefer **`warning_user_state`** (or similar) keyed by **`fingerprint`** (+ account/user id if multi-user later).
-- Reuse / complement **`warning_snapshots`** for `firstSeen` / diff lineage where it already helps.
-
-**MCP / tools (later tranche)**
-
-- **Read:** shipped on the same resource as **`GET /api/ai/warnings`** (enriched payload; no duplicate business logic).
-- **Write (optional):** thin tools `warnings_snooze`, `warnings_ack`, `warnings_clear_snooze` calling **`PUT /api/warnings/user-state`** (or equivalent).
-
-**Out of scope (this repo)**
-
-- WhatsApp / Meta / Twilio / email senders; cron workers that push messages; template selection for push notifications.
-
-**Acceptance.** Orchestrator can prioritise and dedupe warnings from JSON alone; chronic tax / obligation warnings remain present until domain data fixes the underlying condition; snooze does not conflate with “paid HMRC.”
-
-## Tier 3 — Historical & Polish
-
-### 3.1 Net Worth Tracking Over Time ✅ SHIPPED (CSV-first)
-
-Point-in-time balances exist in the app; **durable history** is a **CSV-first** time series so the authoritative store round-trips without a hosted database (SQLite is not the archival store).
-
-**Canonical file:** `net-worth/net-worth-snapshots.csv` (header written on first capture; the data file is **gitignored** — back it up like other local finance artefacts).
-
-**Columns (GBP reporting, `cadence` weekly or daily):** `period_key` (ISO week `YYYY-Www` when `NET_WORTH_SNAPSHOT_CADENCE` is unset or `weekly`; equals `snapshot_date` when cadence is `daily`), `snapshot_date`, `entity_id` (`global` | registry entity id), `reporting_currency` (`GBP`), `cadence`, `total_cash_gbp`, `total_credit_gbp`, `total_obligations_12m_gbp`, `total_debt_gbp`, `net_gbp`, `formula_version`, `captured_at`.
-
-**Formula (v1 — `formula_version` `1.0.0` in code):** `net = total_cash_gbp + total_credit_gbp - total_obligations_12m_gbp - total_debt_gbp`.
-
-**Definitions (aligned with liquidity / obligations / debts):**
-- **Global row:** `total_obligations_12m_gbp` = rolling **12-month committed outflows** from **`buildLiquidityCommitments`** (`totalCommittedGbp`).
-- **Entity rows:** `total_obligations_12m_gbp` = sum of **remaining obligation amounts** (pipeline obligations only) attributed by **string match** of obligation `entity` to the company **trading** / **legal** name, for due dates in **[today − 365 days, today + 12 calendar months]** — *not* the full liquidity-commitments recurring slice.
-- **Debt:** global total from **`getAllDebtSummaries`**; per-entity sum of debts whose **every** `sourceAccounts` entry maps to that entity’s accounts.
-- **Cash / credit:** **`buildLiquidityOverview`** on all balances (global) or the entity’s account subset.
-
-**Dedupe:** natural key `(period_key, entity_id, reporting_currency)` for a given `cadence`. A second run in the same period **replaces** rows (upsert), it does not append duplicates.
-
-**Cadence:** `NET_WORTH_SNAPSHOT_CADENCE` = `weekly` (default) or `daily`. Week boundaries follow the **same local-calendar “today” basis** as the rest of the app (`todayIsoLocal`); align with **Europe/London** when running scheduled jobs on a host whose system TZ differs.
-
-**Triggers**
-- **Automatic:** `maybeCaptureNetWorthSnapshots()` once after **`initDatabase()`** completes (skips if the current period already has all expected entities unless you use **`force`**).
-- **Manual / automation:** **`POST /api/ai/net-worth/snapshot`** with body `{ "force"?: boolean, "snapshotDate"?: "yyyy-mm-dd" }`, or MCP tool **`capture_net_worth_snapshot`** with the same arguments — both call **`captureNetWorthSnapshots`**.
-
-**Agent surfaces:** **`GET /api/ai/net-worth-history`**, MCP **`bankstatements://ai/net-worth-history`**, **`AiNetWorthHistoryResponseSchema`** (+ capture response schema on the manifest).
-
-**Optional SQLite projection** for `net_worth_snapshots` is **not required** in v1; CSV remains source of truth.
-
-**Acceptance.** Portable history on disk; scheduled capture possible via MCP HTTP **without** opening the dashboard; trend answers use **persisted** rows, not guessed recomputation. **Out of scope v1:** backfilling arbitrary historical “as-of” recomputes; capturing with **no** local process running.
-
-### 3.2 Agent cross-currency queries (orchestrators) ✅ SHIPPED
-
-**Context.** Multi-entity handling, static FX on liquidity, and invoicing / reconcile FX (§1.1, §1.3, Tier 0 dashboard) already cover day-to-day GBP‑normalised views. This milestone adds **first-class AI/MCP slices** so orchestrators do not re-derive FX and categorisation rules.
-
-**Per-account native vs GBP (no extra route).** **`GET /api/ai/liquidity`** (and MCP `bankstatements://ai/liquidity`) already exposes **`liquidityOverview.lines[]`** with `currency`, `amountNative`, and `amountGbp` per account — use that for *“account Y in native + GBP.”*
-
-**Shipped surfaces (§3.2)**
-
-- **`GET /api/ai/spend-by-currency`** — query **`calendarMonth=YYYY-MM`** *xor* **`financialYear=`**; optional **`entityId`**, **`account`**. Response **`AiSpendByCurrencyResponseSchema`**: expense totals by account **native** currency, GBP column via **`convertAmountSync`**, transfer-type exclusions aligned with category / payroll rules (`transactionCategoryWithPayroll`, skip **`Transfers`**). **`fxNote`** documents static rates (not a historical FX ledger).
-- **`GET /api/ai/entity-liquidity-fx`** — **`AiEntityLiquidityFxResponseSchema`**: **`global`** household `LiquidityOverview` + **`byEntity`** map (each entity’s accounts only), same `buildLiquidityOverview` semantics as dashboard.
-- **MCP resources** — `bankstatements://ai/spend-by-currency` defaults to **current calendar month** (no query params); `bankstatements://ai/entity-liquidity-fx` matches HTTP. Orchestrators should use **HTTP** for FY / entity / account filters on spend-by-currency.
-- **Manifest** — **`AI_MANIFEST_SCHEMA_VERSION` 2.5.0**; slices + `AiSpendByCurrencyPeriodSchema` on **`contractSchemaExports`**.
-
-**Explicitly out of scope (unchanged)**
-
-- Historical per-transaction FX audit; native currency on every dashboard widget; compliance-only trackers; bulk contract back-seeds (manual hygiene).
-
-**Acceptance.** Orchestration clients use manifest + Zod for spend-by-currency rollups and per-entity liquidity without duplicating FX math; optional **`GET /api/ai/liquidity`** lines for single-account native/GBP breakdown.
-
-### 3.3 Consolidate transfer pairing with `domain/merchants` ✅ SHIPPED
-
-**Context.** “Transfer-shaped” movement is used in two roles: **`detectTransfers` / `isTransferLikeDescription`** (pairing — broader, includes card/institutional copy that often categorizes as **Debt Repayment**) and **first-match merchants** ([`server/domain/merchants/data.ts`](server/domain/merchants/data.ts) + [`server/utils/categorizer.ts`](server/utils/categorizer.ts)) for dashboard labels and expense rollups. They must not be naively merged on `category === 'Transfers'` alone.
-
-**Canonical module:** [`server/domain/merchants/transfer-pairing-seeds.ts`](server/domain/merchants/transfer-pairing-seeds.ts) — `PAIRING_TRANSFER_PATTERNS`, `BOUNCE_PATTERNS`, `isPairingTransferDescription`, `isBounceDescription`, `bounceDescriptionSqlPrefilter()`. [`server/config/transfer-patterns.ts`](server/config/transfer-patterns.ts) re-exports these for existing imports and keeps **inter-company exclusions** + tolerances. Overlapping **Transfers** rows in `STATIC_MERCHANT_DATA` reuse the same `RegExp` instances where categorization must stay aligned (optional FT, draw down, Barclays premium line, TransferWise label).
-
-**Behaviour tightened:** `detectTransfers` step 1b (standalone bounces) uses a broad SQL prefilter from `bounceDescriptionSqlPrefilter()` then **`isBounceDescription`** so returned-payment / `REV … insufficient` strings are not missed. Removed unused `TRANSFER_SQL_PATTERNS` object.
-
-**Regression tests:** [`server/domain/merchants/transfer-pattern-role.contract.test.ts`](server/domain/merchants/transfer-pattern-role.contract.test.ts) (pairing vs category matrix + bounce prefilter smoke); existing [`server/config/transfer-patterns.test.ts`](server/config/transfer-patterns.test.ts), [`server/db/repositories/detect-transfers.test.ts`](server/db/repositories/detect-transfers.test.ts), [`server/utils/categorizer.test.ts`](server/utils/categorizer.test.ts).
-
-**Note:** Pairing can still classify as **`Other`** where merchants only match `TRANSFERWISE` but pairing includes `/wise/i` — the contract test documents that asymmetry unless product adds a merchants row.
+**Reference:** product/legal rationale (e.g. FreeAgent not a raw feed) and older narrative: [plan transcript](e17fa411-9f76-418e-b41e-1425b9562fb9).
 
 ---
 
-### 3.4 Automated Statement Ingestion (keep the parsers, kill the manual export)
+## Optional follow-ons (not committed)
 
 **Problem.** Every bank statement in the system today is manually
 exported from an online banking portal, saved to disk, and fed through
@@ -949,7 +318,6 @@ more “step 6 = §1.8” skew between list index and section number).
 
 ---
 
-## One-Line Summary
+## One-line summary
 
-> You don't need more analytics — you need a system that **guarantees** no obligation
-> can exist, be missed, or go unnoticed, past or future — and that surfaces **what cash is spoken for** on a rolling horizon, not just balances.
+> You need a system that **guarantees** no obligation can exist, be missed, or go unnoticed — and that shows **what cash is spoken for** on a rolling horizon, not just balances.
