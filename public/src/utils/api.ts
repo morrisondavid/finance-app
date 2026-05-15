@@ -24,8 +24,13 @@ import {
   BudgetCategoryNamesResponseSchema,
   EntityFoundationWarningsResponseSchema,
   InterCompanyMovementsResponseSchema,
+  FeedSyncBodySchema,
+  FeedSyncResponseSchema,
+  FeedSyncHttpErrorBodySchema,
   type InterCompanyMovementsResponse,
   type InterCompanyClassifyRequest,
+  type FeedSyncBody,
+  type FeedSyncResponse,
   type DashboardSummaryResponse,
   type AccountConfigsResponse,
   type TransactionsResponse,
@@ -46,6 +51,51 @@ import {
   type BudgetCategoryNamesResponse,
   type EntityFoundationWarningsResponse,
 } from '../../../shared/api-contracts.js';
+
+/** Failed `POST /api/feed/sync` — carries HTTP status and server `code` when present. */
+export class FeedSyncRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code?: string,
+    public readonly details?: unknown,
+  ) {
+    super(message);
+    this.name = 'FeedSyncRequestError';
+  }
+}
+
+/**
+ * Run AISP feed sync for one account (same contract as MCP `sync_bank_feed`).
+ */
+export async function syncBankFeed(body: FeedSyncBody): Promise<FeedSyncResponse> {
+  const parsedBody = FeedSyncBodySchema.parse(body);
+  const response = await fetch('/api/feed/sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(parsedBody),
+  });
+
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch {
+    json = null;
+  }
+
+  if (!response.ok) {
+    const parsed = json !== null ? FeedSyncHttpErrorBodySchema.safeParse(json) : null;
+    const message =
+      parsed !== null && parsed.success
+        ? parsed.data.error
+        : `Feed sync failed (${String(response.status)})`;
+    const code = parsed !== null && parsed.success ? parsed.data.code : undefined;
+    const details = parsed !== null && parsed.success ? parsed.data.details : undefined;
+    throw new FeedSyncRequestError(message, response.status, code, details);
+  }
+
+  return FeedSyncResponseSchema.parse(json);
+}
 
 /**
  * Fetch account configuration from backend

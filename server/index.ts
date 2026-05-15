@@ -1,3 +1,7 @@
+import { loadEnvLocal } from './load-env-local.js';
+
+loadEnvLocal();
+
 import express, { Request, Response } from 'express';
 import type { Server as HttpServer } from 'http';
 import path from 'path';

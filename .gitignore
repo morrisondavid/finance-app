@@ -29,3 +29,10 @@ net-worth/net-worth-snapshots.csv
 # if lost — they aren't financial source of truth).
 feed-sessions.local.json
 feed-credentials.local.json
+
+# Local secrets (Enable Banking private key, etc.). Set paths via env, e.g.
+# ENABLE_BANKING_PRIVATE_KEY_PATH=secrets/enable-banking-private.pem
+secrets/
+
+# Enable ASPSP list dumps (regenerate: npx tsx scripts/enable-banking-link.ts aspsps GB > aspsps-gb.json)
+aspsps-*.json

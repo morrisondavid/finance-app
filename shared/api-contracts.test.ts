@@ -158,6 +158,24 @@ describe('AccountConfigsResponseSchema', () => {
     const result = AccountConfigsResponseSchema.safeParse([withBusinessTaxConfig]);
     expect(result.success).toBe(true);
   });
+
+  it('preserves optional aispFeed.enableBanking for feed sync UI', () => {
+    const withEnable = {
+      ...validBusinessConfig,
+      aispFeed: {
+        enableBanking: {
+          accountId: '550e8400-e29b-41d4-a716-446655440000',
+          institutionHint: { institutionName: 'Barclays', country: 'GB' },
+        },
+      },
+    };
+    const result = AccountConfigsResponseSchema.safeParse([withEnable]);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data[0].aispFeed?.enableBanking?.accountId).toBe(
+      '550e8400-e29b-41d4-a716-446655440000',
+    );
+  });
 });
 
 describe('TaxLiabilitiesSchema', () => {

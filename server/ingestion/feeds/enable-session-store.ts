@@ -119,3 +119,27 @@ export function setAccountSession(
   all[accountId] = EnableAccountSessionSchema.parse(session);
   writeSessions(all, filePath);
 }
+
+/**
+ * Record one Enable `session_id` for every consented account `uid` returned
+ * from `POST /sessions` (same session id is stored per uid for this adapter).
+ */
+export function mergeEnableBankingSessionForAccounts(
+  sessionId: string,
+  accountUids: readonly string[],
+  filePath: string = resolveSessionPath(),
+): void {
+  const id = sessionId.trim();
+  if (id === '') throw new Error('sessionId must be non-empty');
+  const all = readSessions(filePath);
+  for (const uid of accountUids) {
+    const u = uid.trim();
+    if (u === '') continue;
+    const prev = all[u] ?? {};
+    all[u] = EnableAccountSessionSchema.parse({
+      ...prev,
+      sessionId: id,
+    });
+  }
+  writeSessions(all, filePath);
+}

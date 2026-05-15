@@ -91,8 +91,19 @@
       <div class="balance-panel">
         <div class="balance-header">
           <h3>Account Balance</h3>
-          <button id="edit-balance-btn" class="btn-small">Set opening balance</button>
+          <div class="balance-header-actions">
+            <div class="feed-sync-toolbar" aria-label="Bank feed sync">
+              <button type="button" id="feed-sync-btn" class="btn-small feed-sync-btn">Sync bank feed</button>
+              <label class="feed-sync-force-label">
+                <input type="checkbox" id="feed-sync-force" />
+                Force overwrite
+              </label>
+            </div>
+            <button id="edit-balance-btn" class="btn-small">Set opening balance</button>
+          </div>
         </div>
+        <p id="feed-sync-hint" class="feed-sync-hint" role="status"></p>
+        <p id="feed-sync-status" class="feed-sync-status" aria-live="polite"></p>
         <div class="balance-grid">
           <div class="balance-item">
             <span class="balance-label" id="balance-open-label">Opening balance</span>

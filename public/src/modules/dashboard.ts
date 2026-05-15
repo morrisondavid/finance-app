@@ -4,12 +4,13 @@
 
 import type { DashboardSummary, AccountSummary } from '../types';
 import { state, setState, getSelectedCurrency, getAccountConfig } from './state';
-import { fetchDashboard, fetchTransactions } from '../utils/api';
+import { fetchDashboard, fetchTransactions, syncBankFeed, FeedSyncRequestError } from '../utils/api';
+import { computeFeedSyncDateFromNewestTransaction } from '../../../shared/feed-sync-window.js';
 import { formatCurrency } from '../utils/formatting';
 import { escapeHtml, escapeAttribute } from '../utils/dom';
 import { loadRecurring } from './recurring.js';
 import { loadAdHocExpenses } from './ad-hoc-expenses.js';
-import { AccountNameSchema } from '../../../shared/api-contracts.js';
+import { AccountNameSchema, type FeedSyncResponse } from '../../../shared/api-contracts.js';
 
 import { renderMonthlyChart, renderCategoryChart, renderMonthlyTable } from './dashboard-charts';
 import {
@@ -52,6 +53,7 @@ export async function loadDashboard(): Promise<void> {
     renderBudgetDashboardPanel(data);
     renderYearlyBudgetDashboardPanel(data);
     renderBudgetNudgesPanel(data);
+    refreshFeedSyncControlState();
   } catch (error) {
     console.error('[Dashboard] Error loading dashboard:', error);
     const container = document.getElementById('monthly-table');
@@ -164,6 +166,123 @@ function initAccountSelector(): void {
       }
     });
   });
+}
+
+const FEED_SYNC_DISABLED_HINT =
+  'Greyed out because this account has no Enable Banking link yet. Add `aispFeed.enableBanking.accountId` in server/domain/accounts/data.ts (UUID from after bank consent) and the matching session in gitignored feed-sessions.local.json, then reload.';
+
+function refreshFeedSyncControlState(): void {
+  const btn = document.getElementById('feed-sync-btn') as HTMLButtonElement | null;
+  const hintEl = document.getElementById('feed-sync-hint');
+  const forceCb = document.getElementById('feed-sync-force');
+  if (!btn) return;
+
+  const cfg = getAccountConfig(state.selectedAccount);
+  const accountId = cfg?.aispFeed?.enableBanking?.accountId;
+  const linked = typeof accountId === 'string' && accountId.trim() !== '';
+
+  if (!linked) {
+    btn.disabled = true;
+    btn.title = FEED_SYNC_DISABLED_HINT;
+    if (hintEl instanceof HTMLElement) {
+      hintEl.textContent = FEED_SYNC_DISABLED_HINT;
+      hintEl.hidden = false;
+    }
+    if (forceCb instanceof HTMLInputElement) {
+      forceCb.disabled = true;
+    }
+  } else {
+    btn.title = '';
+    if (hintEl instanceof HTMLElement) {
+      hintEl.textContent = '';
+      hintEl.hidden = true;
+    }
+    if (forceCb instanceof HTMLInputElement) {
+      forceCb.disabled = false;
+    }
+    if (!btn.classList.contains('feed-sync-btn-loading')) {
+      btn.disabled = false;
+    }
+  }
+}
+
+function formatFeedSyncResult(r: FeedSyncResponse): string {
+  if (r.skipped && r.reason === 'already_up_to_date') {
+    return 'Already up to date — nothing fetched.';
+  }
+  if (r.skipped) {
+    return `Skipped: ${r.reason ?? 'unknown'}.`;
+  }
+  const parts: string[] = [
+    `Fetched ${String(r.rowsFetched)} row(s) for ${r.window.dateFrom} → ${r.window.dateTo}.`,
+  ];
+  parts.push(r.csvWritten ? 'CSV written.' : 'No new CSV written.');
+  if (r.ingestOutcome !== undefined) {
+    parts.push(`Ingest: ${r.ingestOutcome}.`);
+  }
+  if (r.partitionedFiles.length > 0) {
+    parts.push(`Partitions: ${r.partitionedFiles.join(', ')}.`);
+  }
+  if (r.initDatabaseRan) {
+    parts.push('Database rebuilt.');
+  }
+  return parts.join(' ');
+}
+
+async function runFeedSyncFromUi(
+  btn: HTMLButtonElement,
+  forceCb: HTMLInputElement,
+  statusEl: HTMLElement,
+): Promise<void> {
+  const cfg = getAccountConfig(state.selectedAccount);
+  const accountId = cfg?.aispFeed?.enableBanking?.accountId;
+  const linked = typeof accountId === 'string' && accountId.trim() !== '';
+  if (!linked) return;
+
+  statusEl.textContent = '';
+  statusEl.classList.remove('feed-sync-status-error');
+  btn.classList.add('feed-sync-btn-loading');
+  btn.disabled = true;
+
+  const summary = state.summaryData?.byAccount[state.selectedAccount];
+  const dateFrom = computeFeedSyncDateFromNewestTransaction(
+    summary?.newestTransaction ?? null,
+  );
+
+  try {
+    const result = await syncBankFeed({
+      account: state.selectedAccount,
+      dateFrom,
+      force: forceCb.checked ? true : undefined,
+    });
+    statusEl.textContent = formatFeedSyncResult(result);
+    await loadDashboard();
+  } catch (err) {
+    statusEl.classList.add('feed-sync-status-error');
+    if (err instanceof FeedSyncRequestError) {
+      const codePart = err.code !== undefined ? `[${err.code}] ` : '';
+      statusEl.textContent = `${codePart}${err.message}`;
+    } else {
+      statusEl.textContent = err instanceof Error ? err.message : 'Sync failed.';
+    }
+  } finally {
+    btn.classList.remove('feed-sync-btn-loading');
+    refreshFeedSyncControlState();
+  }
+}
+
+function initFeedSyncControl(): void {
+  const btn = document.getElementById('feed-sync-btn');
+  const forceCb = document.getElementById('feed-sync-force');
+  const statusEl = document.getElementById('feed-sync-status');
+  if (!(btn instanceof HTMLButtonElement)) return;
+  if (!(forceCb instanceof HTMLInputElement)) return;
+  if (!(statusEl instanceof HTMLElement)) return;
+
+  btn.addEventListener('click', () => {
+    void runFeedSyncFromUi(btn, forceCb, statusEl);
+  });
+  refreshFeedSyncControlState();
 }
 
 function updateAccountIndicators(accountData: Record<string, AccountSummary>): void {
@@ -312,6 +431,7 @@ async function loadRecentTransactions(): Promise<void> {
 export function initDashboard(): void {
   initFinancialYearFilter();
   initAccountSelector();
+  initFeedSyncControl();
   initBalanceModal();
   initTransactionsModal();
   initBudgetDashboardPanelInteractions();

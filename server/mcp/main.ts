@@ -5,6 +5,10 @@
  *   MCP_HTTP_PORT=3344 MCP_BEARER_TOKEN='…' npm run mcp
  */
 
+import { loadEnvLocal } from '../load-env-local.js';
+
+loadEnvLocal();
+
 import http from 'http';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';

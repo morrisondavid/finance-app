@@ -36,6 +36,24 @@ import { getAccountSession, setAccountSession } from './enable-session-store.js'
 const DEFAULT_API_BASE = 'https://api.enablebanking.com';
 
 /**
+ * Enable API origin — `ENABLE_BANKING_API_BASE` when set, else production URL.
+ */
+export function resolveEnableApiBase(override?: string): string {
+  if (override !== undefined && override.trim() !== '') return override;
+  const env = process.env.ENABLE_BANKING_API_BASE?.trim();
+  if (env !== undefined && env !== '') return env;
+  return DEFAULT_API_BASE;
+}
+
+/**
+ * Mint a short-lived app JWT (`Authorization: Bearer …`) for Enable REST calls.
+ * Used by {@link fetchEnableTransactions} and the §3.4 `enable-banking-link` CLI.
+ */
+export function mintEnableAppJwt(now: Date = new Date()): string {
+  return signAppJwt(readAppCredentials(), now);
+}
+
+/**
  * Strongly typed error so the upper layers (`runFeedSync`, the route
  * handler, the MCP tool) can surface a meaningful 4xx instead of an
  * opaque 500.
@@ -248,7 +266,7 @@ export async function fetchEnableTransactions(
     );
   }
 
-  const apiBase = deps.apiBase ?? DEFAULT_API_BASE;
+  const apiBase = resolveEnableApiBase(deps.apiBase);
   const now = deps.now ?? (() => new Date());
   const readCreds = deps.readCredentials ?? readAppCredentials;
   const getSess = deps.getSession ?? ((id: string) => getAccountSession(id));

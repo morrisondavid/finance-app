@@ -83,6 +83,26 @@ export type Frequency = z.infer<typeof FrequencySchema>;
  */
 export const RecurringFrequencySchema = FrequencySchema.extract(['monthly', 'annual']);
 
+/**
+ * Minimal Enable Banking slice on the dashboard account list — mirrors
+ * `EnableBankingFeedConfigSchema` / `AispFeedConfigSchema` in
+ * `server/domain/accounts/schema.ts` so Zod does not strip `aispFeed`
+ * when parsing `GET /api/dashboard/accounts`.
+ */
+export const DashboardEnableBankingFeedSchema = z.object({
+  accountId: z.string().min(1).optional(),
+  institutionHint: z
+    .object({
+      institutionName: z.string().min(1),
+      country: z.string().length(2),
+    })
+    .optional(),
+});
+
+export const DashboardAispFeedSchema = z.object({
+  enableBanking: DashboardEnableBankingFeedSchema.optional(),
+});
+
 export const AccountConfigSchema = z.object({
   name: AccountNameSchema,
   label: z.string(),
@@ -91,7 +111,8 @@ export const AccountConfigSchema = z.object({
   category: AccountCategorySchema,
   canMakeOutgoingPayments: z.boolean(),
   excludeTransfersFromIncome: z.boolean(),
-  showTaxLiabilities: z.boolean()
+  showTaxLiabilities: z.boolean(),
+  aispFeed: DashboardAispFeedSchema.optional(),
 });
 
 export const ExtractedDateSchema = z.object({
@@ -1337,6 +1358,13 @@ export const FeedSyncResponseSchema = z.object({
   initDatabaseRan: z.boolean(),
 });
 export type FeedSyncResponse = z.infer<typeof FeedSyncResponseSchema>;
+
+/** Error payload from `POST /api/feed/sync` on non-2xx (see `server/routes/feed.ts`). */
+export const FeedSyncHttpErrorBodySchema = z.object({
+  error: z.string(),
+  code: z.string().optional(),
+  details: z.unknown().optional(),
+});
 
 /** §3.2 GET /api/ai/spend-by-currency — period + optional entity/account filters. */
 export const AiSpendByCurrencyPeriodSchema = z.discriminatedUnion('kind', [

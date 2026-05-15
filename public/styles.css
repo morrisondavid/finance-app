@@ -1617,6 +1617,66 @@ body {
   color: var(--color-text);
 }
 
+.balance-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.feed-sync-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.feed-sync-force-label {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.feed-sync-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin: 0 0 8px 0;
+  line-height: 1.45;
+  max-width: 52rem;
+}
+
+.feed-sync-hint:empty,
+.feed-sync-hint[hidden] {
+  display: none;
+}
+
+.feed-sync-status {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  margin: 0 0 12px 0;
+  min-height: 1.25em;
+  line-height: 1.4;
+}
+
+.feed-sync-status-error {
+  color: #b91c1c;
+}
+
+.feed-sync-btn.feed-sync-btn-loading {
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+.btn-small:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .btn-small {
   padding: 6px 12px;
   font-size: 0.85rem;
