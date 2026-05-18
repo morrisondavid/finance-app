@@ -17,6 +17,7 @@ import {
   initConnection,
   closeConnection,
   initSchema,
+  getDb,
   migrateCategoryBudgetsIfNeeded,
   migrateCategoryBudgetsBudgetPeriodIfNeeded,
   migrateDebtsMatchAmountsIfNeeded,
@@ -27,7 +28,14 @@ import {
   migrateObligationDismissalsIfNeeded,
   migrateDeadlinesIfNeeded,
 } from './connection.js';
+import {
+  ensureOpeningBalancesCsvExists,
+  readOpeningBalancesFromCsv,
+  applyOpeningBalancesToDb,
+} from './opening-balances-csv.js';
+import { applyFixedExpenseExclusionsCsvToDb } from './fixed-expense-simulation-exclusions-csv.js';
 import { populateFromCSVs } from './repositories/files.js';
+import { shouldSkipFullDatabaseRebuild, recomputeAndPersistDataManifest } from '../data-manifest.js';
 import { detectTransfers } from './repositories/transactions.js';
 import { loadBudgetsFromFileIntoDb } from './repositories/budgets.js';
 import { loadDebtsFromFileIntoDb, reconcileDebtOpeningDates } from './repositories/debts.js';
@@ -113,6 +121,15 @@ export {
   type AccountBalance
 } from './repositories/balance.js';
 
+function runSchemaMigrations(): void {
+  migrateCategoryBudgetsIfNeeded();
+  migrateCategoryBudgetsBudgetPeriodIfNeeded();
+  migrateDebtsMatchAmountsIfNeeded();
+  migrateDebtsMatchTolerancePctIfNeeded();
+  migrateDebtsMortgageFieldsIfNeeded();
+  migrateFixedExpenseSimulationExclusionsIfNeeded();
+}
+
 /**
  * Initialize the database connection and populate from CSVs
  */
@@ -130,20 +147,42 @@ export async function initDatabase(): Promise<void> {
 
   // Initialize connection
   initConnection();
-  
-  // Initialize schema (drops and recreates tables)
+
+  const allowManifestSkip =
+    process.env.BANK_STATEMENTS_SKIP_INIT_WHEN_MANIFEST_UNCHANGED !== '0' &&
+    process.env.BANK_STATEMENTS_SKIP_INIT_WHEN_MANIFEST_UNCHANGED !== 'false';
+
+  if (allowManifestSkip && shouldSkipFullDatabaseRebuild()) {
+    console.log('[Database] Skipping full rebuild (data manifest digest unchanged).');
+    runSchemaMigrations();
+    migrateObligationsIfNeeded();
+    migrateObligationDismissalsIfNeeded();
+    migrateDeadlinesIfNeeded();
+    try {
+      const nw = maybeCaptureNetWorthSnapshots();
+      if (nw.skipped) {
+        console.log(`[Database] Net-worth snapshot skipped (${nw.reason ?? 'unknown'}), period ${nw.periodKey}`);
+      } else {
+        console.log(`[Database] Net-worth snapshot captured: ${nw.rowsWritten} row(s), period ${nw.periodKey}`);
+      }
+    } catch (err) {
+      console.error('[Database] Net-worth snapshot (§3.1) failed:', err);
+    }
+    return;
+  }
+
+  // Initialize schema (drops and recreates core tables)
   initSchema();
 
-  migrateCategoryBudgetsIfNeeded();
-  migrateCategoryBudgetsBudgetPeriodIfNeeded();
-  migrateDebtsMatchAmountsIfNeeded();
-  migrateDebtsMatchTolerancePctIfNeeded();
-  migrateDebtsMortgageFieldsIfNeeded();
-  migrateFixedExpenseSimulationExclusionsIfNeeded();
+  runSchemaMigrations();
+
+  ensureOpeningBalancesCsvExists();
+  applyOpeningBalancesToDb(getDb(), readOpeningBalancesFromCsv());
+  applyFixedExpenseExclusionsCsvToDb(getDb());
 
   // Populate from CSV files
   const result = await populateFromCSVs();
-  
+
   // Detect and mark transfers
   const transferPairs = detectTransfers();
 
@@ -156,6 +195,7 @@ export async function initDatabase(): Promise<void> {
 
   migrateObligationsIfNeeded();
   migrateObligationDismissalsIfNeeded();
+
   // Load dismissals BEFORE any auto-seeder runs so the first-pass seed
   // already respects hidden slots (otherwise the dismissed rows flash
   // into `financial_obligations` until the next mutation triggers a reseed).
@@ -225,6 +265,8 @@ export async function initDatabase(): Promise<void> {
   } catch (err) {
     console.error('[Database] Net-worth snapshot (§3.1) failed:', err);
   }
+
+  recomputeAndPersistDataManifest();
 }
 
 /**

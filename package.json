@@ -15,7 +15,8 @@
     "test": "vitest",
     "test:run": "vitest run",
     "mcp": "tsx server/mcp/main.ts",
-    "enable-banking": "tsx scripts/enable-banking-link.ts"
+    "enable-banking": "tsx scripts/enable-banking-link.ts",
+    "recompute-manifest": "tsx scripts/recompute-manifest.ts"
   },
   "keywords": [
     "bank-statements",

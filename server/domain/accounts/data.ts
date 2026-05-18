@@ -179,5 +179,20 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
+    /**
+     * Enable Banking (ES Mock ASPSP / other EUR sandboxes): set
+     * `accountId` to the matching `accounts[].uid` after
+     * `npm run enable-banking -- session --code '…' --merge`.
+     * `feedCurrency: 'EUR'` avoids invalid-response when the feed is EUR
+     * but the book account currency stays GBP. For live UK Santander,
+     * omit `feedCurrency` or set it to `GBP`.
+     */
+    aispFeed: {
+      enableBanking: {
+        accountId: 'de8bcc9b-9a3b-4a8c-a65c-b73f5f33301a',
+        institutionHint: { institutionName: 'Mock ASPSP', country: 'ES' },
+        feedCurrency: 'EUR',
+      },
+    },
   },
 };

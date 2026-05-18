@@ -165,7 +165,7 @@ const EMITTER_CASES: readonly EmitterCase[] = [
  * async and writes to disk; this synchronous variant lets the round-trip
  * assertion sit alongside the golden assertion in the same `it`.
  */
-function parseCsvForAccount(parser: BankParser, account: string, csv: string): readonly CSVRow[] {
+function parseCsvForAccount(parser: BankParser, csv: string): readonly CSVRow[] {
   const preprocessed = parser.preprocess(csv);
   const records = parse(preprocessed, {
     columns: parser.columns === 'auto' ? true : parser.columns,
@@ -200,7 +200,7 @@ describe.each(EMITTER_CASES)('emitFeedTransactionsAsCsv — $name', testCase => 
   it('round-trips through transform: amount, date, description', () => {
     const fixture = makeFixture(testCase.account);
     const csv = emitFor(testCase.parser, fixture);
-    const records = parseCsvForAccount(testCase.parser, testCase.account, csv);
+    const records = parseCsvForAccount(testCase.parser, csv);
     expect(records).toHaveLength(fixture.rows.length);
 
     for (let i = 0; i < fixture.rows.length; i++) {

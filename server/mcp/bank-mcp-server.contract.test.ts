@@ -84,10 +84,12 @@ describe('MCP resource payloads vs composers', () => {
   it(
     'financial-safety resource matches composeAiFinancialSafety with defaults (except timestamps)',
     () => {
+      getDb().exec('DELETE FROM warning_snapshots;');
+      const expected = composeAiFinancialSafety();
+      getDb().exec('DELETE FROM warning_snapshots;');
       const fromMcp = JSON.parse(
         readBankStatementsAiResource(BankStatementsAiResourceUris['financial-safety']),
       );
-      const expected = composeAiFinancialSafety();
       expect(fromMcp.score).toBe(expected.score);
       expect(fromMcp.formulaVersion).toBe(expected.formulaVersion);
       expect(fromMcp.pillars).toEqual(expected.pillars);

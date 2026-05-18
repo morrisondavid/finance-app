@@ -26,6 +26,7 @@ import { z } from 'zod';
 import {
   AccountNameSchema,
   AccountTypeSchema,
+  AispFeedCurrencyCodeSchema,
   CurrencyCodeSchema,
   EntityIdSchema,
   JurisdictionSchema,
@@ -113,6 +114,9 @@ export type CreditCardConfig = z.infer<typeof CreditCardConfigSchema>;
  *     used to pre-select the bank in Enable's link UI. Not secret, not
  *     the linked-account id, omittable when you always pick the bank
  *     manually.
+ *   - `feedCurrency`: optional code for validating Enable transaction amounts.
+ *     Defaults to `account.currency`. Use when the sandbox ASPSP returns a
+ *     different code than the book account ({@link AispFeedCurrencyCodeSchema}).
  */
 export const EnableBankingFeedConfigSchema = z.object({
   accountId: z.string().min(1).optional(),
@@ -122,6 +126,7 @@ export const EnableBankingFeedConfigSchema = z.object({
       country: z.string().length(2),
     })
     .optional(),
+  feedCurrency: AispFeedCurrencyCodeSchema.optional(),
 });
 export type EnableBankingFeedConfig = z.infer<typeof EnableBankingFeedConfigSchema>;
 

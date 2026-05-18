@@ -230,43 +230,6 @@ export function initSchema(): void {
 
     CREATE INDEX IF NOT EXISTS idx_debts_archived ON debts(archived);
   `);
-  
-  // Insert default opening balances if they don't exist
-  db.prepare(`
-    INSERT OR IGNORE INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
-    VALUES ('capital-on-tap', 30000, '2023-01-01', CURRENT_TIMESTAMP)
-  `).run();
-  db.prepare(`
-    INSERT OR IGNORE INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
-    VALUES ('barclaycard', 9100, '2023-07-01', CURRENT_TIMESTAMP)
-  `).run();
-  db.prepare(`
-    INSERT OR IGNORE INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
-    VALUES ('barclays-current', 63035.54, '2022-04-19', CURRENT_TIMESTAMP)
-  `).run();
-  db.prepare(`
-    INSERT INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
-    VALUES ('natwest', 3256.79, '2021-01-03', CURRENT_TIMESTAMP)
-    ON CONFLICT(account) DO UPDATE SET
-      opening_balance = excluded.opening_balance,
-      opening_balance_date = excluded.opening_balance_date,
-      updated_at = CURRENT_TIMESTAMP
-  `).run();
-  db.prepare(`
-    INSERT OR IGNORE INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
-    VALUES ('natwest-savings', 0.32, '2025-06-12', CURRENT_TIMESTAMP)
-  `).run();
-  db.prepare(`
-    INSERT OR IGNORE INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
-    VALUES ('emirates-islamic', 0.00, '2026-02-22', CURRENT_TIMESTAMP)
-  `).run();
-  // Santander Everyday opens at 0.00 the day before the first statement's
-  // 2025-03-20 BALANCE TRANSFER MERCH row, so the ingested transactions
-  // drive the running balance up to the current ~£6,873.84 naturally.
-  db.prepare(`
-    INSERT OR IGNORE INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
-    VALUES ('santander-everyday', 0.00, '2025-03-19', CURRENT_TIMESTAMP)
-  `).run();
 
   console.log('[Database] Schema initialized');
 }

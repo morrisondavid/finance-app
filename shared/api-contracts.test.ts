@@ -166,6 +166,7 @@ describe('AccountConfigsResponseSchema', () => {
         enableBanking: {
           accountId: '550e8400-e29b-41d4-a716-446655440000',
           institutionHint: { institutionName: 'Barclays', country: 'GB' },
+          feedCurrency: 'EUR',
         },
       },
     };
@@ -175,6 +176,7 @@ describe('AccountConfigsResponseSchema', () => {
     expect(result.data[0].aispFeed?.enableBanking?.accountId).toBe(
       '550e8400-e29b-41d4-a716-446655440000',
     );
+    expect(result.data[0].aispFeed?.enableBanking?.feedCurrency).toBe('EUR');
   });
 });
 

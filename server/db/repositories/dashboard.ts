@@ -102,6 +102,10 @@ export function getAccountSummary(filters: DashboardFilters = {}): Record<string
     result[account] = { income: 0, expenses: 0, transactionCount: 0, newestTransaction: null };
   }
   
+  const newestOverallStmt = db.prepare(
+    `SELECT MAX(date) as newest FROM transactions WHERE account = ?`,
+  );
+
   // Get raw data for each account and apply account-specific logic
   for (const account of ACCOUNTS) {
     const includeTransfers = shouldIncludeTransfersAsIncome(account);
@@ -115,12 +119,18 @@ export function getAccountSummary(filters: DashboardFilters = {}): Record<string
       FROM transactions
       WHERE account = ?${clause}
     `).get(account, ...params) as { income: number | null; expenses: number | null; count: number; newest: string | null };
-    
+
+    const newestOverall = newestOverallStmt.get(account) as { newest: string | null };
+
     result[account] = {
       income: round2(row.income || 0),
       expenses: round2(row.expenses || 0),
       transactionCount: row.count,
-      newestTransaction: row.newest
+      // "Latest" on account chips + feed-sync `dateFrom` must reflect the true
+      // newest row for the account, not MAX(date) inside the selected FY (a
+      // transaction in e.g. 2026/27 would not move the FY-scoped MAX when
+      // 2025/26 is selected).
+      newestTransaction: newestOverall.newest,
     };
   }
   

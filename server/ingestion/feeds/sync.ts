@@ -90,7 +90,7 @@ export function requireLinkedAccount(account: AccountName): RequiredAccount {
   if (enableAccountId === undefined || enableAccountId.trim() === '') {
     throw new FeedSyncError(
       'not-linked',
-      `Account ${account} is not linked to an Enable Banking account; populate aispFeed.enableBanking.accountId in server/domain/accounts/data.ts after running the link flow`,
+      `Account ${account} is not linked to an Enable Banking account; set enable_account_id in data/enable-account-links.csv (or aispFeed.enableBanking.accountId in data.ts) after completing the bank-link flow`,
     );
   }
 
@@ -257,12 +257,15 @@ export async function runFeedSync(
     };
   }
 
+  const feedCurrency =
+    linked.config.aispFeed?.enableBanking?.feedCurrency ?? linked.config.currency;
+
   const internal: InternalFeedTransactions = await fetchTx({
     account,
     enableAccountId: linked.enableAccountId,
     dateFrom: window.dateFrom,
     dateTo: window.dateTo,
-    currency: linked.config.currency,
+    currency: feedCurrency,
   });
 
   // Adapter returned no rows — no CSV to write, no DB to rebuild. Skip

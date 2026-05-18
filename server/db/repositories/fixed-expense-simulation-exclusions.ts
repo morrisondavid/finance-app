@@ -1,4 +1,5 @@
 import { getDb } from '../connection.js';
+import { replaceFixedExpenseSimulationExclusionsPersisted } from '../fixed-expense-simulation-exclusions-csv.js';
 
 export function getFixedExpenseSimulationExclusions(): string[] {
   const rows = getDb()
@@ -8,14 +9,5 @@ export function getFixedExpenseSimulationExclusions(): string[] {
 }
 
 export function replaceFixedExpenseSimulationExclusions(lineKeys: readonly string[]): void {
-  const db = getDb();
-  const tx = db.transaction(() => {
-    db.prepare(`DELETE FROM fixed_expense_simulation_exclusions`).run();
-    const ins = db.prepare(`INSERT INTO fixed_expense_simulation_exclusions (line_key) VALUES (?)`);
-    for (const raw of lineKeys) {
-      const k = raw.trim();
-      if (k !== '') ins.run(k);
-    }
-  });
-  tx();
+  replaceFixedExpenseSimulationExclusionsPersisted(lineKeys, getDb());
 }

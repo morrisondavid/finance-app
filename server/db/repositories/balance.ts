@@ -1,6 +1,7 @@
 import { getDb } from '../connection.js';
 import { getFinancialYearRange, type DashboardFilters } from '../utils/financial-year.js';
 import { ACCOUNTS, type AccountName } from '../../types.js';
+import { upsertOpeningBalanceRowAndPersist } from '../opening-balances-csv.js';
 
 export interface AccountBalance {
   account: AccountName;
@@ -39,15 +40,7 @@ export function getOpeningBalance(account: AccountName): { balance: number; date
  * (or out of scope for this ledger).
  */
 export function setOpeningBalance(account: AccountName, balance: number, date?: string): void {
-  const db = getDb();
-  db.prepare(`
-    INSERT INTO account_balances (account, opening_balance, opening_balance_date, updated_at)
-    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(account) DO UPDATE SET
-      opening_balance = excluded.opening_balance,
-      opening_balance_date = excluded.opening_balance_date,
-      updated_at = CURRENT_TIMESTAMP
-  `).run(account, balance, date || null);
+  upsertOpeningBalanceRowAndPersist(account, balance, date ?? null, getDb());
 }
 
 /**

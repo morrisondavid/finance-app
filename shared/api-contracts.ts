@@ -63,6 +63,13 @@ export const CurrencyCodeSchema = z.enum(['GBP', 'AED']);
 export type CurrencyCode = z.infer<typeof CurrencyCodeSchema>;
 
 /**
+ * Currencies that may appear on AISP feed payloads when they differ from
+ * book {@link CurrencyCodeSchema} (e.g. EUR from an ES sandbox ASPSP).
+ */
+export const AispFeedCurrencyCodeSchema = z.enum(['GBP', 'AED', 'EUR']);
+export type AispFeedCurrencyCode = z.infer<typeof AispFeedCurrencyCodeSchema>;
+
+/**
  * Canonical recurrence frequency enum.
  *
  * Single source of truth for every "how often does this happen" concept in the
@@ -97,6 +104,7 @@ export const DashboardEnableBankingFeedSchema = z.object({
       country: z.string().length(2),
     })
     .optional(),
+  feedCurrency: AispFeedCurrencyCodeSchema.optional(),
 });
 
 export const DashboardAispFeedSchema = z.object({
@@ -1334,6 +1342,20 @@ export const FeedSyncBodySchema = z.object({
   force: z.boolean().optional(),
 });
 export type FeedSyncBody = z.infer<typeof FeedSyncBodySchema>;
+
+export const EnableFeedStartBodySchema = z.object({
+  account: AccountNameSchema,
+  country: z.string().length(2).optional(),
+  aspspName: z.string().min(1).optional(),
+  psuType: z.enum(['personal', 'business']).optional(),
+});
+export type EnableFeedStartBody = z.infer<typeof EnableFeedStartBodySchema>;
+
+export const EnableFeedStartResponseSchema = z.object({
+  url: z.string().url(),
+  state: z.string().min(1),
+});
+export type EnableFeedStartResponse = z.infer<typeof EnableFeedStartResponseSchema>;
 
 export const FeedSyncIngestOutcomeSchema = z.enum(['ingested', 'invalid', 'duplicate']);
 export type FeedSyncIngestOutcome = z.infer<typeof FeedSyncIngestOutcomeSchema>;

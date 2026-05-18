@@ -34,8 +34,11 @@ import {
 } from '../../shared/api-contracts.js';
 import { runFeedSync, FeedSyncError } from '../ingestion/feeds/sync.js';
 import { EnableBankingError } from '../ingestion/feeds/enable-banking.js';
+import enableOAuthRouter from './enable-oauth.js';
 
 const router = express.Router();
+
+router.use(enableOAuthRouter);
 
 interface ErrorBody {
   error: string;

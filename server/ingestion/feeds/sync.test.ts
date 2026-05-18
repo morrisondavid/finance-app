@@ -18,7 +18,8 @@ import path from 'path';
 import barclaysParser from '../../parsers/barclays.js';
 import type { AccountName } from '../../domain/accounts/index.js';
 import type { InternalFeedTransactions } from './model.js';
-import type { IngestResult } from '../ingest-csv-file.js';
+import type { IngestResult, IngestCsvFileOptions } from '../ingest-csv-file.js';
+import type { FetchEnableTransactionsRequest } from './enable-banking.js';
 
 const { getAccountConfigMock } = vi.hoisted(() => ({
   getAccountConfigMock: vi.fn(),
@@ -199,7 +200,7 @@ describe('runFeedSync', () => {
       window: { dateFrom: '2026-04-15', dateTo: '2026-04-20' },
       rows: [],
     };
-    const fetchMock = vi.fn(async () => empty);
+    const fetchMock = vi.fn(async (_req: FetchEnableTransactionsRequest) => empty);
     const ingestMock = vi.fn();
     const initDbMock = vi.fn(async () => undefined);
 
@@ -235,10 +236,11 @@ describe('runFeedSync', () => {
         { date: '2026-04-16', description: 'SALARY', amount: 1200, currency: 'GBP' },
       ],
     };
-    const fetchMock = vi.fn(async () => internal);
+    const fetchMock = vi.fn(async (_req: FetchEnableTransactionsRequest) => internal);
 
     let observedCsv: string | null = null;
-    const ingestMock = vi.fn((_account: AccountName, filePath: string, originalName: string): IngestResult => {
+    const ingestMock = vi.fn(
+      (_account: AccountName, filePath: string, originalName: string, _options: IngestCsvFileOptions): IngestResult => {
       observedCsv = fs.readFileSync(filePath, 'utf-8');
       return {
         ok: true,
@@ -247,7 +249,15 @@ describe('runFeedSync', () => {
         finalPath: '/dev/null',
         normalizedFilename: originalName,
         renamed: false,
-        partition: { deleted: true, filesCreated: ['2026-04_transactions_barclays-current.csv'] },
+        partition: {
+          deleted: true,
+          filesCreated: ['2026-04_transactions_barclays-current.csv'],
+          originalFile: '',
+          totalRows: 2,
+          rowsByMonth: new Map([
+            ['2026-04', 2],
+          ]),
+        },
       };
     });
     const initDbMock = vi.fn(async () => undefined);
@@ -267,7 +277,8 @@ describe('runFeedSync', () => {
     );
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    const fetchArgs = fetchMock.mock.calls[0][0];
+    const fetchArgs = fetchMock.mock.calls[0]?.[0];
+    expect(fetchArgs).toBeDefined();
     expect(fetchArgs).toMatchObject({
       account: 'barclays-current',
       enableAccountId: 'enable-uuid-test',
@@ -278,9 +289,10 @@ describe('runFeedSync', () => {
 
     expect(ingestMock).toHaveBeenCalledOnce();
     const ingestArgs = ingestMock.mock.calls[0];
-    expect(ingestArgs[0]).toBe('barclays-current');
-    expect(ingestArgs[2]).toBe('feed_2026-04-15_2026-04-20.csv');
-    expect(ingestArgs[3]).toEqual({ overwrite: true });
+    expect(ingestArgs).toBeDefined();
+    expect(ingestArgs?.[0]).toBe('barclays-current');
+    expect(ingestArgs?.[2]).toBe('feed_2026-04-15_2026-04-20.csv');
+    expect(ingestArgs?.[3]).toEqual({ overwrite: true });
 
     expect(observedCsv).not.toBeNull();
     expect(observedCsv).toContain('Number,Date,Account,Amount,Subcategory,Memo');
@@ -294,14 +306,70 @@ describe('runFeedSync', () => {
     expect(result.initDatabaseRan).toBe(true);
   });
 
+  it('passes aispFeed.enableBanking.feedCurrency to fetch when set', async () => {
+    getAccountConfigMock.mockImplementation((name: AccountName) =>
+      name === 'barclays-current'
+        ? {
+            ...realGetAccountConfig('barclays-current'),
+            aispFeed: { enableBanking: { accountId: 'enable-uuid-test', feedCurrency: 'EUR' } },
+          }
+        : passthrough(name),
+    );
+
+    const internal: InternalFeedTransactions = {
+      account: 'barclays-current',
+      window: { dateFrom: '2026-04-15', dateTo: '2026-04-20' },
+      rows: [{ date: '2026-04-15', description: 'X', amount: -1, currency: 'EUR' }],
+    };
+    const fetchMock = vi.fn(async (_req: FetchEnableTransactionsRequest) => internal);
+    const ingestMock = vi.fn(
+      (
+        _account: AccountName,
+        _filePath: string,
+        originalName: string,
+        _options: IngestCsvFileOptions,
+      ): IngestResult => ({
+      ok: false,
+      outcome: 'duplicate',
+      originalName,
+      existingPath: '/dev/null',
+    }));
+    const initDbMock = vi.fn(async () => undefined);
+
+    await runFeedSync(
+      'barclays-current',
+      { dateFrom: '2026-04-15' },
+      {
+        fetchTransactions: fetchMock,
+        ingestCsvFile: ingestMock,
+        initDatabase: initDbMock,
+        statementsDir: tmpRoot,
+        today: () => '2026-04-20',
+        findLatestCsvDate: () => null,
+        tmpDir: () => tmpRoot,
+      },
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const fetchArg = fetchMock.mock.calls[0]?.[0];
+    expect(fetchArg).toBeDefined();
+    expect(fetchArg?.currency).toBe('EUR');
+  });
+
   it('does NOT call initDatabase when ingest reports a duplicate', async () => {
     const internal: InternalFeedTransactions = {
       account: 'barclays-current',
       window: { dateFrom: '2026-04-15', dateTo: '2026-04-20' },
       rows: [{ date: '2026-04-15', description: 'X', amount: -1, currency: 'GBP' }],
     };
-    const fetchMock = vi.fn(async () => internal);
-    const ingestMock = vi.fn((_account: AccountName, _filePath: string, originalName: string): IngestResult => ({
+    const fetchMock = vi.fn(async (_req: FetchEnableTransactionsRequest) => internal);
+    const ingestMock = vi.fn(
+      (
+        _account: AccountName,
+        _filePath: string,
+        originalName: string,
+        _options: IngestCsvFileOptions,
+      ): IngestResult => ({
       ok: false,
       outcome: 'duplicate',
       originalName,

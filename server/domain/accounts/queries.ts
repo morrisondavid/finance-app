@@ -16,6 +16,7 @@ import type { EntityId } from '../../../shared/api-contracts.js';
 import { ACCOUNTS } from '../../../shared/api-contracts.js';
 import type { AccountConfig, AccountName, BusinessAccountConfig } from './schema.js';
 import { getAccountsRegistry, type AccountsRegistry } from './registry.js';
+import { getEnableAccountIdFromFile } from '../../ingestion/feeds/enable-account-links-csv.js';
 
 /**
  * Validate that a string is a known account id. Mirrors
@@ -41,7 +42,23 @@ export function getAccountConfig(
   if (found === undefined) {
     throw new Error(`Unknown account: ${account}`);
   }
-  return found;
+  const fromFile = getEnableAccountIdFromFile(account);
+  if (fromFile === undefined || fromFile === '') {
+    return found;
+  }
+  if (found.aispFeed?.enableBanking === undefined) {
+    return found;
+  }
+  return {
+    ...found,
+    aispFeed: {
+      ...found.aispFeed,
+      enableBanking: {
+        ...found.aispFeed.enableBanking,
+        accountId: fromFile,
+      },
+    },
+  };
 }
 
 /**

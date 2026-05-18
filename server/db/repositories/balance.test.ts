@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 const hoisted = vi.hoisted(() => ({
   db: null as Database.Database | null,
@@ -14,6 +17,9 @@ vi.mock('../connection.js', () => ({
 
 import { getAccountBalance, setOpeningBalance } from './balance.js';
 import type { AccountName } from '../../types.js';
+
+const tmpOpeningCsv = path.join(os.tmpdir(), `opening-balances-${process.pid.toString()}.csv`);
+const prevOpeningCsvEnv = process.env.BANK_STATEMENTS_OPENING_BALANCES_CSV;
 
 const account: AccountName = 'barclays-current';
 
@@ -53,12 +59,28 @@ function insertTxn(row: {
 
 describe('getAccountBalance', () => {
   beforeAll(() => {
+    process.env.BANK_STATEMENTS_OPENING_BALANCES_CSV = tmpOpeningCsv;
+    try {
+      fs.unlinkSync(tmpOpeningCsv);
+    } catch {
+      /* absent is fine */
+    }
     hoisted.db = new Database(':memory:');
     createSchema();
   });
 
   afterAll(() => {
     hoisted.db?.close();
+    if (prevOpeningCsvEnv === undefined) {
+      delete process.env.BANK_STATEMENTS_OPENING_BALANCES_CSV;
+    } else {
+      process.env.BANK_STATEMENTS_OPENING_BALANCES_CSV = prevOpeningCsvEnv;
+    }
+    try {
+      fs.unlinkSync(tmpOpeningCsv);
+    } catch {
+      /* ignore */
+    }
   });
 
   beforeEach(() => {

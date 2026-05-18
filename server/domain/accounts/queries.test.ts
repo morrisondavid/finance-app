@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   isValidAccountName,
   validateAccount,
@@ -18,6 +18,7 @@ import {
   businessAndPersonalPaymentAccounts,
   isCrossAccountBusinessToBusinessTransfer,
 } from './queries.js';
+import * as enableLinks from '../../ingestion/feeds/enable-account-links-csv.js';
 import { makeTestAccountsRegistry } from './fixtures.js';
 import { buildAccountsRegistry } from './registry.js';
 import { ACCOUNT_CONFIG_DATA } from './data.js';
@@ -78,6 +79,17 @@ describe('getAccountConfig / isBusinessConfig', () => {
   it('isBusinessConfig returns false for personal configs', () => {
     const cfg = getAccountConfig('natwest', reg);
     expect(isBusinessConfig(cfg)).toBe(false);
+  });
+
+  it('overrides enableBanking.accountId when enable-account-links.csv has a row', () => {
+    const spy = vi.spyOn(enableLinks, 'getEnableAccountIdFromFile');
+    spy.mockImplementation((acct: AccountName) =>
+      acct === 'santander-everyday' ? 'from-csv-uid' : undefined,
+    );
+    const cfg = getAccountConfig('santander-everyday', reg);
+    expect(cfg.aispFeed?.enableBanking?.accountId).toBe('from-csv-uid');
+    expect(cfg.aispFeed?.enableBanking?.institutionHint?.country).toBe('ES');
+    spy.mockRestore();
   });
 });
 
