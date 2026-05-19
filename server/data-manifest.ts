@@ -8,36 +8,16 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { REPO_ROOT } from './repo-root.js';
+import {
+  DATA_DIGEST_SKIP_BASENAMES,
+  DURABLE_DATA_CSV_RELATIVE_PATHS,
+  DURABLE_TOP_LEVEL_DIRS,
+} from './storage/durable-paths.js';
 
 export const DATA_MANIFEST_PATH = path.join(REPO_ROOT, 'data', 'manifest.json');
 
-const DATA_DIR_SKIP_BASENAMES = new Set([
-  'manifest.json',
-  'transactions.db',
-  'enable-sessions.json',
-]);
-
-/** Top-level directories whose entire tree contributes to the digest. */
-const DURABLE_DIRECTORIES = [
-  'statements',
-  'budgets',
-  'obligations',
-  'debts',
-  'deadlines',
-  'net-worth',
-  'autonize-it',
-  'clients',
-  'working-days',
-  'reserves',
-  'invoices',
-] as const;
-
 /** Individual files under `data/` (and elsewhere) included in the digest. */
-const DURABLE_FILES = [
-  'data/opening-balances.csv',
-  'data/enable-account-links.csv',
-  'data/fixed-expense-simulation-exclusions.csv',
-] as const;
+const DURABLE_FILES = DURABLE_DATA_CSV_RELATIVE_PATHS;
 
 function listRelativeFilesUnderDir(dirAbs: string, rootRel: string): string[] {
   const out: string[] = [];
@@ -48,7 +28,7 @@ function listRelativeFilesUnderDir(dirAbs: string, rootRel: string): string[] {
     if (name.startsWith('.')) continue;
     const abs = path.join(dirAbs, name);
     const rel = path.join(rootRel, name);
-    if (rootRel === 'data' && DATA_DIR_SKIP_BASENAMES.has(name)) {
+    if (rootRel === 'data' && DATA_DIGEST_SKIP_BASENAMES.has(name)) {
       continue;
     }
     if (ent.isDirectory()) {
@@ -65,7 +45,7 @@ function listRelativeFilesUnderDir(dirAbs: string, rootRel: string): string[] {
  */
 export function computeDataManifestDigest(): string {
   const durableRelativePaths = new Set<string>();
-  for (const d of DURABLE_DIRECTORIES) {
+  for (const d of DURABLE_TOP_LEVEL_DIRS) {
     for (const r of listRelativeFilesUnderDir(path.join(REPO_ROOT, d), d)) {
       durableRelativePaths.add(r);
     }

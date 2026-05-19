@@ -1,0 +1,5 @@
+# Caddy obtains Let's Encrypt certs on :80/:443. Copy to /etc/caddy/Caddyfile on the server.
+
+finances.traxiproducts.com {
+    reverse_proxy 127.0.0.1:3000
+}

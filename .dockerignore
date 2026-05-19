@@ -1,0 +1,32 @@
+node_modules
+dist
+.git
+.cursor
+Dockerfile
+.dockerignore
+**/*.md
+.env
+.env.local
+.env.*.local
+coverage
+*.log
+npm-debug.log*
+
+# Local DB — use a volume at /app/data
+data/
+data.manifest.json
+
+# Uploaded statements — use a volume at /app/statements
+statements/
+
+uploads/
+secrets/
+feed-sessions.local.json
+feed-credentials.local.json
+aspsps-*.json
+
+net-worth/net-worth-snapshots.csv
+
+# AWS deploy local artefacts
+deploy/aws/env.local.sh
+deploy/aws/.elastic-ip

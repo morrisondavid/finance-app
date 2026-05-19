@@ -29,6 +29,12 @@ import debtStrategyRouter from './routes/debt-strategy.js';
 import feedRouter from './routes/feed.js';
 import { normalizeAllFiles } from './utils/filename-normalizer.js';
 import { initDatabase, closeDatabase } from './db/index.js';
+import {
+  bootstrapPullFromS3IfEnabled,
+  pushDurableStateToS3,
+  resolveBankS3DurableSyncConfig,
+  startPeriodicS3DurablePush,
+} from './storage/s3-durable-sync.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -90,7 +96,7 @@ if (isProduction) {
 let httpServer: HttpServer | undefined;
 let shutdownStarted = false;
 
-function gracefulShutdown(signal: string): void {
+async function gracefulShutdown(signal: string): Promise<void> {
   if (shutdownStarted) {
     closeDatabase();
     process.exit(1);
@@ -99,39 +105,47 @@ function gracefulShutdown(signal: string): void {
   shutdownStarted = true;
   console.log(`\n${signal} received — closing HTTP server and database...`);
 
+  const forceExitMs = resolveBankS3DurableSyncConfig() !== null ? 60000 : 2000;
+
   const forceExit = setTimeout(() => {
     closeDatabase();
     process.exit(0);
-  }, 2000);
+  }, forceExitMs);
 
-  if (!httpServer) {
+  const finalize = async (): Promise<void> => {
     clearTimeout(forceExit);
+    try {
+      await pushDurableStateToS3('shutdown');
+    } catch (err) {
+      console.error('[S3Sync] Shutdown push failed:', err);
+    }
     closeDatabase();
     process.exit(0);
+  };
+
+  if (!httpServer) {
+    await finalize();
     return;
   }
 
-  // Drop idle keep-alive sockets so server.close() can finish (Node 18.2+)
   const srv = httpServer as HttpServer & { closeIdleConnections?: () => void };
   if (typeof srv.closeIdleConnections === 'function') {
     srv.closeIdleConnections();
   }
 
   httpServer.close(() => {
-    clearTimeout(forceExit);
-    closeDatabase();
-    process.exit(0);
+    void finalize();
   });
 }
 
 // Initialize and start server
 async function start(): Promise<void> {
-  // Normalize any existing files on startup
+  await bootstrapPullFromS3IfEnabled();
+
   normalizeAllFiles();
-  
-  // Initialize database and populate from CSV files
+
   await initDatabase();
-  
+
   httpServer = app.listen(PORT, () => {
     if (isProduction) {
       console.log(`Bank Statements Dashboard running at http://localhost:${PORT}`);
@@ -142,8 +156,14 @@ async function start(): Promise<void> {
     }
   });
 
-  process.once('SIGINT', () => gracefulShutdown('SIGINT'));
-  process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  startPeriodicS3DurablePush();
+
+  process.once('SIGINT', () => {
+    void gracefulShutdown('SIGINT');
+  });
+  process.once('SIGTERM', () => {
+    void gracefulShutdown('SIGTERM');
+  });
 }
 
 start().catch(err => {

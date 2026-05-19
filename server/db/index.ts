@@ -49,6 +49,7 @@ import { deriveAndWriteAutoObligationStates } from './repositories/obligation-st
 import { loadDeadlinesFromCsv } from './repositories/deadlines.js';
 import { syncContractRenewalDeadlines } from '../domain/contracts/deadline-seeder.js';
 import { maybeCaptureNetWorthSnapshots } from '../domain/net-worth/snapshot.js';
+import { pushDurableStateToS3 } from '../storage/s3-durable-sync.js';
 
 // Re-export from connection
 export { 
@@ -267,6 +268,12 @@ export async function initDatabase(): Promise<void> {
   }
 
   recomputeAndPersistDataManifest();
+
+  try {
+    await pushDurableStateToS3('post-init-rebuild');
+  } catch (err) {
+    console.error('[S3Sync] post-init-rebuild push failed:', err);
+  }
 }
 
 /**

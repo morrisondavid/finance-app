@@ -34,5 +34,9 @@ feed-credentials.local.json
 # ENABLE_BANKING_PRIVATE_KEY_PATH=secrets/enable-banking-private.pem
 secrets/
 
+# AWS deploy — optional overrides; main config is deploy/aws/config.sh (committed)
+deploy/aws/env.local.sh
+deploy/aws/.elastic-ip
+
 # Enable ASPSP list dumps (regenerate: npx tsx scripts/enable-banking-link.ts aspsps GB > aspsps-gb.json)
 aspsps-*.json
