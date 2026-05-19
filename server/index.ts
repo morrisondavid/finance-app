@@ -27,6 +27,8 @@ import aiRouter from './routes/ai.js';
 import incomeCompositionRouter from './routes/income-composition.js';
 import debtStrategyRouter from './routes/debt-strategy.js';
 import feedRouter from './routes/feed.js';
+import siteAuthRouter from './routes/site-auth.js';
+import { siteAccessGateMiddleware } from './auth/site-access.js';
 import { normalizeAllFiles } from './utils/filename-normalizer.js';
 import { initDatabase, closeDatabase } from './db/index.js';
 import {
@@ -45,6 +47,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 // Middleware
 app.use(express.json());
+app.use(siteAccessGateMiddleware);
 
 // In production, Express serves the built frontend from dist/.
 // In dev, Vite serves the frontend on :5173 and proxies /api to this server,
@@ -54,6 +57,7 @@ if (isProduction) {
 }
 
 // API routes
+app.use('/api/auth', siteAuthRouter);
 app.use('/api/statements', statementsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/upload', uploadRouter);

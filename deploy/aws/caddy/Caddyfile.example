@@ -3,3 +3,22 @@
 finances.traxiproducts.com {
     reverse_proxy 127.0.0.1:3000
 }
+
+# ---------------------------------------------------------------------------
+# Optional: HTTP Basic Auth in front of Express (defense-in-depth).
+# Prefer Express Bearer + /login.html cookie gate first — Basic Auth breaks many
+# browser-automation flows unless credentials are configured on every request.
+#
+# finances.traxiproducts.com {
+#     # Enable Banking OAuth redirect — must reach Express without Basic Auth.
+#     @oauth_callback path /api/feed/enable/callback*
+#     handle @oauth_callback {
+#         reverse_proxy 127.0.0.1:3000
+#     }
+#     handle {
+#         basic_auth {
+#             operator JDJhJDEwJYOUR_BCRYPT_HASH_FROM_caddy_hash-password
+#         }
+#         reverse_proxy 127.0.0.1:3000
+#     }
+# }

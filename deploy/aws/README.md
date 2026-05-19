@@ -56,16 +56,30 @@ Optional legacy cron: **`11-s3-sync-push.sh`** only pushed `data/` + `statements
 
 ## Copy `deploy/aws` onto the EC2 host
 
-From your **laptop**, at the **repo root** (`bank-statements-app/`), replace `EC2_IP` and the key path if yours differ (see [`config.sh`](config.sh) `BANK_APP_KEY_NAME`).
+From your **laptop**, at **repo root** (`bank-statements-app/`).
+
+**Avoid `scp -r deploy/aws … ~/bank-deploy-aws`** when **`~/bank-deploy-aws` already exists** — that often creates **`~/bank-deploy-aws/aws/`**.
+
+Use **`rsync`** with a **trailing slash on the source** so files land **flat** under **`~/bank-deploy-aws/`**. Exclude **`production-env.local.sh`** so server secrets are not overwritten from git:
 
 ```bash
-export EC2_IP="YOUR_ELASTIC_IP"   # e.g. from deploy/aws/.elastic-ip
+export EC2_IP="$(tr -d '[:space:]' < deploy/aws/.elastic-ip)"
 export SSH_KEY="${HOME}/.ssh/traxiproducts-finances-bank-app-eu-west-2.pem"
 
-scp -i "$SSH_KEY" -r deploy/aws ec2-user@${EC2_IP}:~/bank-deploy-aws
+rsync -avz \
+  -e "ssh -i ${SSH_KEY}" \
+  --exclude 'production-env.local.sh' \
+  ./deploy/aws/ \
+  ec2-user@${EC2_IP}:~/bank-deploy-aws/
 ```
 
-**Enable private key** (must end up as `/opt/bank-app/secrets/enable-banking-private.pem` on the instance — path is fixed in [`09-docker-run-production.sh`](09-docker-run-production.sh)):
+(`EC2_IP` / `SSH_KEY`: adjust host IP or key path if yours differ — key name aligns with [`config.sh`](config.sh) **`BANK_APP_KEY_NAME`**.)
+
+### Server secrets (`production-env.local.sh`)
+
+[`09-docker-run-production.sh`](09-docker-run-production.sh) **`source`**s **`./production-env.local.sh`** next to itself on the server when present (same directory as **`config.sh`**). Create once from the shipped template ([`production-env.local.example.sh`](production-env.local.example.sh)); **`chmod 600`**. Put **`export BANK_SITE_ACCESS_SECRET='…'`** there (≥16 UTF‑8 bytes).
+
+**Enable private key** (same **`SSH_KEY`** / **`EC2_IP`** as **`rsync`** above):
 
 ```bash
 scp -i "$SSH_KEY" secrets/enable-banking-private.pem ec2-user@${EC2_IP}:/tmp/enable-banking-private.pem
@@ -106,8 +120,25 @@ Optional backup cron: **`11-s3-sync-push.sh`** (needs instance profile / AWS cre
 
 ## HTTPS + Enable
 
-- Caddyfile hostname: **finances.traxiproducts.com** (see `caddy/Caddyfile.example`).
+- Caddyfile hostname: **finances.traxiproducts.com** (see [`caddy/Caddyfile.example`](caddy/Caddyfile.example)).
 - Whitelist in Enable: **`https://finances.traxiproducts.com/api/feed/enable/callback`** (must match [`config.sh`](config.sh) `ENABLE_BANKING_REDIRECT_URL`).
+
+## Site access (production internet exposure)
+
+When **`BANK_SITE_ACCESS_SECRET`** is set on the container (pass via [`09-docker-run-production.sh`](09-docker-run-production.sh)), Express requires **either**:
+
+- **`Authorization: Bearer <BANK_SITE_ACCESS_SECRET>`** on `/api/*` (for `curl`, automation, AI HTTP clients — configure only in env / secrets managers, **never paste into chat**), **or**
+- An **HttpOnly session cookie** after signing in at **`/login.html`** (password defaults to the same secret unless **`BANK_SITE_LOGIN_PASSWORD`** is set).
+
+Always exempt without prior auth: **`GET /api/feed/enable/callback`** (Enable Banking redirect).
+
+Optional **`BANK_SITE_LOGIN_PASSWORD`**: human-facing login password only; Bearer tokens continue to use **`BANK_SITE_ACCESS_SECRET`** only.
+
+Minimum secret length is enforced (**16 UTF-8 bytes**). Omit **`BANK_SITE_ACCESS_SECRET`** entirely for dev/local containers so `/api/*` stays open.
+
+On EC2, [`09-docker-run-production.sh`](09-docker-run-production.sh) automatically **`source`**s **`./production-env.local.sh`** when it sits **next to that script** on the server (same folder as **`config.sh`** — typically **`~/bank-deploy-aws/production-env.local.sh`**). Create it on the server only, **`chmod 600`**, with `export BANK_SITE_ACCESS_SECRET='…'` and any other overrides such as **`BANK_SITE_LOGIN_PASSWORD`** or **`BANK_S3_DURABLE_SYNC`**. Use [`production-env.local.example.sh`](production-env.local.example.sh) as a starting point (**`rsync --exclude production-env.local.sh`** keeps laptop copies from overwriting it).
+
+Optional edge friction: HTTP Basic Auth in Caddy — commented appendix in [`caddy/Caddyfile.example`](caddy/Caddyfile.example) (often awkward for browser automation unless credentials are wired into the tool).
 
 ## Lightsail
 

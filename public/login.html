@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in — Bank Statements</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 22rem; margin: 4rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.125rem; font-weight: 600; margin-bottom: 1rem; }
+    label { display: block; font-size: 0.875rem; margin-bottom: 0.35rem; color: #334155; }
+    input[type="password"] { width: 100%; padding: 0.5rem 0.65rem; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
+    button { margin-top: 1rem; width: 100%; padding: 0.55rem; border: none; border-radius: 6px; background: #1e293b; color: #fff; font-weight: 600; cursor: pointer; }
+    button:hover { background: #0f172a; }
+    .err { color: #b91c1c; font-size: 0.875rem; margin-top: 0.75rem; display: none; }
+  </style>
+</head>
+<body>
+  <h1>Sign in</h1>
+  <form id="form" autocomplete="current-password">
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" required autofocus />
+    <button type="submit">Continue</button>
+    <p id="err" class="err" role="alert"></p>
+  </form>
+  <script>
+    document.getElementById('form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      var errEl = document.getElementById('err');
+      errEl.style.display = 'none';
+      var password = document.getElementById('password').value;
+      try {
+        var r = await fetch('/api/auth/site-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: password }),
+        });
+        if (r.ok) {
+          window.location.replace('/');
+          return;
+        }
+        var body = await r.json().catch(function () { return {}; });
+        errEl.textContent = body.error === 'Invalid credentials' ? 'Incorrect password.' : (body.message || body.error || 'Sign-in failed.');
+        errEl.style.display = 'block';
+      } catch (err) {
+        errEl.textContent = 'Network error.';
+        errEl.style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>

@@ -6,6 +6,13 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=/dev/null
 source "${ROOT}/config.sh"
 
+# Server-only secrets next to these scripts on the host (`chmod 600`). Not in git.
+SITE_ENV_LOCAL="${ROOT}/production-env.local.sh"
+if [[ -f "${SITE_ENV_LOCAL}" ]]; then
+  # shellcheck source=/dev/null
+  source "${SITE_ENV_LOCAL}"
+fi
+
 if [[ -z "${BANK_APP_IMAGE}" ]]; then
   ACCT=$(aws sts get-caller-identity --query Account --output text)
   BANK_APP_IMAGE="${ACCT}.dkr.ecr.${AWS_REGION}.amazonaws.com/${BANK_APP_ECR_REPO_NAME}:latest"
@@ -41,6 +48,8 @@ docker run -d --name bank --restart unless-stopped \
   -e BANK_S3_DURABLE_PREFIX \
   -e "BANK_S3_DURABLE_SSE_KMS_KEY_ID=${BANK_S3_DURABLE_SSE_KMS_KEY_ID:-}" \
   -e "BANK_S3_DURABLE_PUSH_INTERVAL_MS=${BANK_S3_DURABLE_PUSH_INTERVAL_MS:-1800000}" \
+  -e "BANK_SITE_ACCESS_SECRET=${BANK_SITE_ACCESS_SECRET:-}" \
+  -e "BANK_SITE_LOGIN_PASSWORD=${BANK_SITE_LOGIN_PASSWORD:-}" \
   "$BANK_APP_IMAGE"
 
 echo "App listens on 127.0.0.1:3000 — Caddy serves https://${BANK_APP_PUBLIC_HOSTNAME}"

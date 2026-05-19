@@ -98,10 +98,35 @@ function initializeTabNavigation(): void {
   });
 }
 
+interface SiteSessionPayload {
+  enabled: boolean;
+  authenticated: boolean;
+}
+
+/**
+ * When production site gate is enabled (`BANK_SITE_ACCESS_SECRET`), redirect to login until session cookie exists.
+ */
+async function ensureSiteSession(): Promise<boolean> {
+  try {
+    const r = await fetch('/api/auth/session');
+    const body = (await r.json()) as SiteSessionPayload;
+    if (body.enabled === true && body.authenticated !== true) {
+      window.location.replace('/login.html');
+      return false;
+    }
+  } catch {
+    console.error('[App] Failed to verify site session');
+  }
+  return true;
+}
+
 /**
  * Initialize all modules and start the application
  */
 async function initializeApp(): Promise<void> {
+  const ok = await ensureSiteSession();
+  if (!ok) return;
+
   await loadAccountConfig();
 
   // Initialize tab navigation
