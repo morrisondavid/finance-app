@@ -122,7 +122,7 @@ body {
   width: 100%;
 }
 
-/* §2.2 Financial Safety hero (embedded financialSafety on dashboard summary) */
+/* §2.2 Financial Safety hero — loaded lazily via GET /api/ai/financial-safety on Liquidity tab */
 .financial-safety-hero {
   display: flex;
   flex-wrap: wrap;
@@ -612,6 +612,16 @@ body {
   margin: 0;
   font-size: 0.9rem;
   color: #991b1b;
+}
+
+.liquidity-fs-hero-slot--error .liquidity-dashboard__fs-error {
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
 }
 
 @keyframes liquidity-dashboard-pulse {

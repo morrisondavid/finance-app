@@ -265,6 +265,7 @@ describe('DashboardSummaryResponseSchema', () => {
       expect.fail(`Validation failed:\n${errors.join('\n')}`);
     }
     expect(result.success).toBe(true);
+    expect(result.data.financialSafety).toBeUndefined();
   });
 
   it('validates with balances and currentAccountBalance', () => {

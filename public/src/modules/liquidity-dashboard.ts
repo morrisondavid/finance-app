@@ -1,15 +1,43 @@
 /**
  * Dashboard tab — household liquidity hero from GET /api/dashboard/summary (liquidityOverview).
+ * Financial safety score loads lazily via GET /api/ai/financial-safety.
  */
 
 import type { DashboardSummaryResponse } from '../../../shared/api-contracts.js';
 import { renderFinancialSafetyHero } from './financial-safety-hero.js';
-import { fetchDashboard } from '../utils/api';
+import { fetchDashboard, fetchFinancialSafety } from '../utils/api';
 import { formatCurrency } from '../utils/formatting';
 import { escapeHtml } from '../utils/dom';
 import { state } from './state';
 
 const HERO_KICKER = 'Household liquidity';
+
+let liquidityDashboardLoadGeneration = 0;
+let liquidityDashboardAbort: AbortController | null = null;
+
+function renderFinancialSafetyLazyStripLoading(): string {
+  return `<div id="liquidity-fs-hero-slot" class="liquidity-fs-hero-slot" role="status" aria-busy="true">
+      <div class="financial-safety-hero financial-safety-hero--loading">
+        <div class="financial-safety-hero__skeleton-bar"></div>
+      </div>
+    </div>`;
+}
+
+function renderFinancialSafetyLazyStripDone(
+  fs: DashboardSummaryResponse['financialSafety'],
+): string {
+  const inner = renderFinancialSafetyHero(fs);
+  if (inner === '') {
+    return '<div id="liquidity-fs-hero-slot" class="liquidity-fs-hero-slot"></div>';
+  }
+  return `<div id="liquidity-fs-hero-slot" class="liquidity-fs-hero-slot">${inner}</div>`;
+}
+
+function renderFinancialSafetyLazyStripError(message: string): string {
+  return `<div id="liquidity-fs-hero-slot" class="liquidity-fs-hero-slot liquidity-fs-hero-slot--error" role="alert">
+      <p class="liquidity-dashboard__fs-error">${escapeHtml(message)}</p>
+    </div>`;
+}
 
 function rootEl(): HTMLElement | null {
   return document.getElementById('liquidity-dashboard-root');
@@ -211,15 +239,14 @@ function renderCommitmentsDetail(commitments: NonNullable<DashboardSummaryRespon
 function renderCard(
   overview: DashboardSummaryResponse['liquidityOverview'],
   commitments: DashboardSummaryResponse['liquidityCommitments'],
-  financialSafety: DashboardSummaryResponse['financialSafety'],
+  financialSafetyStripHtml: string,
 ): string {
   const { totalCashGbp, totalCreditGbp, totalAvailableGbp, lines } = overview;
-  const fsHero = renderFinancialSafetyHero(financialSafety);
 
   if (lines.length === 0) {
     return `
       <div class="liquidity-dashboard__inner">
-        ${fsHero}
+        ${financialSafetyStripHtml}
         <div class="liquidity-dashboard__card">
           <p class="liquidity-dashboard__kicker">${escapeHtml(HERO_KICKER)}</p>
           ${renderHeroMetrics(0, 0, 0, commitments)}
@@ -247,7 +274,7 @@ function renderCard(
 
   return `
     <div class="liquidity-dashboard__inner">
-      ${fsHero}
+      ${financialSafetyStripHtml}
       <div class="liquidity-dashboard__card">
         <p class="liquidity-dashboard__kicker">${escapeHtml(HERO_KICKER)}</p>
         ${renderHeroMetrics(totalCashGbp, totalCreditGbp, totalAvailableGbp, commitments)}
@@ -278,15 +305,52 @@ export async function loadLiquidityDashboard(): Promise<void> {
   const el = rootEl();
   if (!el) return;
 
+  liquidityDashboardAbort?.abort();
+  const myGen = ++liquidityDashboardLoadGeneration;
+  const ac = new AbortController();
+  liquidityDashboardAbort = ac;
+
   el.innerHTML = renderSkeleton();
 
   try {
     const data = await fetchDashboard({
       account: state.selectedAccount,
       financialYear: state.selectedFinancialYear || undefined,
+      signal: ac.signal,
     });
-    el.innerHTML = renderCard(data.liquidityOverview, data.liquidityCommitments, data.financialSafety);
+    if (myGen !== liquidityDashboardLoadGeneration) return;
+
+    el.innerHTML = renderCard(
+      data.liquidityOverview,
+      data.liquidityCommitments,
+      renderFinancialSafetyLazyStripLoading(),
+    );
+
+    try {
+      const fs = await fetchFinancialSafety({
+        account: state.selectedAccount,
+        financialYear: state.selectedFinancialYear || undefined,
+        signal: ac.signal,
+      });
+      if (myGen !== liquidityDashboardLoadGeneration) return;
+      const slot = el.querySelector('#liquidity-fs-hero-slot');
+      if (slot) {
+        slot.outerHTML = renderFinancialSafetyLazyStripDone(fs).trim();
+      }
+    } catch (fsErr) {
+      if (myGen !== liquidityDashboardLoadGeneration) return;
+      if (fsErr instanceof DOMException && fsErr.name === 'AbortError') return;
+      console.error('[Liquidity dashboard] financial safety:', fsErr);
+      const slot = el.querySelector('#liquidity-fs-hero-slot');
+      const msg =
+        fsErr instanceof Error ? fsErr.message : 'Could not load financial safety.';
+      if (slot) {
+        slot.outerHTML = renderFinancialSafetyLazyStripError(msg).trim();
+      }
+    }
   } catch (error) {
+    if (myGen !== liquidityDashboardLoadGeneration) return;
+    if (error instanceof DOMException && error.name === 'AbortError') return;
     console.error('[Liquidity dashboard]', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     el.innerHTML = renderError(message);

@@ -41,7 +41,6 @@ import { normalizeFinancialYear } from '../db/utils/financial-year.js';
 import { round2 } from '../utils/math.js';
 import { buildExpensePipelineForAccount, transactionRowToRaw } from '../utils/expenses-overview-pipeline.js';
 import { computeBudgetNudges } from '../utils/budget-nudges.js';
-import { composeAiFinancialSafety } from '../domain/ai/index.js';
 
 const router = express.Router();
 
@@ -126,10 +125,6 @@ router.get('/summary', (req: Request<object, DashboardSummaryResponse, object, S
       budgetComparisons,
       yearlyBudgetComparisons,
       budgetNudges,
-      financialSafety: composeAiFinancialSafety({
-        account: selectedAccount,
-        financialYear: selectedFY,
-      }),
     };
 
     res.json(DashboardSummaryResponseSchema.parse(summary));

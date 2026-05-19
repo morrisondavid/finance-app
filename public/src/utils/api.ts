@@ -4,6 +4,7 @@
 
 import {
   validateResponse,
+  AiFinancialSafetyResponseSchema,
   DashboardSummaryResponseSchema,
   AccountConfigsResponseSchema,
   TransactionsResponseSchema,
@@ -31,6 +32,7 @@ import {
   type InterCompanyClassifyRequest,
   type FeedSyncBody,
   type FeedSyncResponse,
+  type AiFinancialSafetyResponse,
   type DashboardSummaryResponse,
   type AccountConfigsResponse,
   type TransactionsResponse,
@@ -117,14 +119,33 @@ export async function fetchAccountConfig(): Promise<AccountConfigsResponse> {
 export async function fetchDashboard(params?: {
   financialYear?: string;
   account?: string;
+  signal?: AbortSignal;
 }): Promise<DashboardSummaryResponse> {
   const query = new URLSearchParams();
   if (params?.financialYear) query.set('financialYear', params.financialYear);
   if (params?.account) query.set('account', params.account);
 
   const url = `/api/dashboard/summary?${query}`;
-  const response = await fetch(url);
+  const response = await fetch(url, { signal: params?.signal });
   return validateResponse(response, DashboardSummaryResponseSchema);
+}
+
+/**
+ * Financial safety hero slice — matches defaults used historically on `/summary`
+ * (`days` 720, `commitmentDays` 90, `detail` summary) via GET /api/ai/financial-safety.
+ */
+export async function fetchFinancialSafety(params?: {
+  financialYear?: string;
+  account?: string;
+  signal?: AbortSignal;
+}): Promise<AiFinancialSafetyResponse> {
+  const query = new URLSearchParams();
+  if (params?.financialYear) query.set('financialYear', params.financialYear);
+  if (params?.account) query.set('account', params.account);
+
+  const url = `/api/ai/financial-safety?${query}`;
+  const response = await fetch(url, { signal: params?.signal });
+  return validateResponse(response, AiFinancialSafetyResponseSchema);
 }
 
 /**

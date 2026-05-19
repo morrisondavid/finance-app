@@ -84,6 +84,7 @@ export function resetTestData(db: Database.Database): void {
     DELETE FROM obligation_dismissals;
     DELETE FROM deadlines;
     DELETE FROM debts;
+    DELETE FROM processed_files;
   `);
 }
 
@@ -165,6 +166,14 @@ function createAllDomainTables(db: Database.Database): void {
       property_id TEXT,
       archived INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS processed_files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      filename TEXT NOT NULL,
+      account TEXT NOT NULL,
+      transaction_count INTEGER NOT NULL,
+      processed_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS account_balances (
