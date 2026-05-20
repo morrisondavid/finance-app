@@ -17,7 +17,7 @@ if [[ -z "${BANK_APP_HOSTED_ZONE_ID:-}" ]]; then
     --dns-name "${BANK_APP_ROUTE53_PARENT_ZONE}." \
     --query 'HostedZones[0].Id' --output text)
   if [[ -z "$HZ" || "$HZ" == "None" ]]; then
-    echo "Could not find Route53 hosted zone for ${BANK_APP_ROUTE53_PARENT_ZONE}. Set BANK_APP_HOSTED_ZONE_ID in deploy/aws/config.sh." >&2
+    echo "Could not find Route53 hosted zone for ${BANK_APP_ROUTE53_PARENT_ZONE}. Set BANK_APP_HOSTED_ZONE_ID in deploy/aws/config.sh (from config.example.sh)." >&2
     exit 1
   fi
   BANK_APP_HOSTED_ZONE_ID="${HZ#/hostedzone/}"

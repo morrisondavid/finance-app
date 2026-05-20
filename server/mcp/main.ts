@@ -14,7 +14,6 @@ import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { initDatabase, closeDatabase } from '../db/index.js';
-import { bootstrapPullFromS3IfEnabled } from '../storage/s3-durable-sync.js';
 import { createBankStatementsMcpServer } from './bank-mcp-server.js';
 
 function minBearerLength(): number {
@@ -22,7 +21,6 @@ function minBearerLength(): number {
 }
 
 async function runStreamableHttpMcp(port: number, token: string): Promise<void> {
-  await bootstrapPullFromS3IfEnabled();
   await initDatabase();
   const mcp = createBankStatementsMcpServer();
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
@@ -54,7 +52,6 @@ async function runStreamableHttpMcp(port: number, token: string): Promise<void> 
 }
 
 async function runStdioMcp(): Promise<void> {
-  await bootstrapPullFromS3IfEnabled();
   await initDatabase();
   const mcp = createBankStatementsMcpServer();
   const transport = new StdioServerTransport();

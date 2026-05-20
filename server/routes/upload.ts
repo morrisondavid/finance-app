@@ -15,7 +15,14 @@ import { todayIsoLocal } from '../../shared/iso-date.js';
 import { ACCOUNTS, AccountName } from '../types.js';
 import type { UploadResponse as UploadResponseContract } from '../../shared/api-contracts.js';
 import { PARSERS } from '../parsers/index.js';
-import { ingestCsvFile, type IngestResult } from '../ingestion/ingest-csv-file.js';
+import {
+  durableRelPathsAfterCsvIngest,
+  ingestCsvFile,
+  type IngestResult,
+} from '../ingestion/ingest-csv-file.js';
+import { REPO_ROOT } from '../repo-root.js';
+import { uploadDurableRelPathsToS3 } from '../storage/s3-durable-sync.js';
+import { recomputeAndPersistDataManifest } from '../data-manifest.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -241,9 +248,29 @@ router.post('/:account/:type', upload.array('files', 50), async (req: Request, r
 
   const overwrite = req.query.overwrite === 'true';
 
-  // PDF lane — unchanged behaviour.
+  // PDF lane — originals + normalise; push durable paths when configured.
   if (type === 'pdf') {
     const result = processPdfBatch(files, account, overwrite);
+    if (result.status === 200 && 'files' in result.body) {
+      const originalsDir = path.join(STATEMENTS_DIR, account, 'pdf', '_originals');
+      const paths = new Set<string>();
+      for (const f of result.body.files) {
+        const base = f.originalFilename ?? f.filename;
+        const originalRel = path
+          .relative(REPO_ROOT, path.join(originalsDir, base))
+          .split(path.sep)
+          .join('/');
+        const finalRel = path.relative(REPO_ROOT, f.path).split(path.sep).join('/');
+        paths.add(originalRel);
+        paths.add(finalRel);
+      }
+      recomputeAndPersistDataManifest();
+      try {
+        await uploadDurableRelPathsToS3([...paths, 'data/manifest.json'], 'pdf-upload');
+      } catch (err) {
+        console.error('[Upload] S3 durable upload after PDF batch failed:', err);
+      }
+    }
     res.status(result.status).json(result.body);
     return;
   }
@@ -266,6 +293,7 @@ router.post('/:account/:type', upload.array('files', 50), async (req: Request, r
   const partitionedFiles: string[] = [];
   const validationFailures: { filename: string; errors: string[] }[] = [];
   const duplicateNames: string[] = [];
+  const durableRelPathsTouched = new Set<string>();
 
   for (const f of files) {
     const result: IngestResult = ingestCsvFile(
@@ -281,6 +309,9 @@ router.post('/:account/:type', upload.array('files', 50), async (req: Request, r
     if (result.outcome === 'duplicate') {
       duplicateNames.push(result.originalName);
       continue;
+    }
+    for (const rel of durableRelPathsAfterCsvIngest(account as AccountName, result)) {
+      durableRelPathsTouched.add(rel);
     }
     if (result.partition.deleted) {
       partitionedFiles.push(...result.partition.filesCreated);
@@ -303,6 +334,14 @@ router.post('/:account/:type', upload.array('files', 50), async (req: Request, r
       console.log('[Upload] Reinitializing database after CSV upload...');
       await initDatabase();
       console.log('[Upload] Database reinitialized successfully');
+      try {
+        await uploadDurableRelPathsToS3(
+          [...durableRelPathsTouched, 'data/manifest.json'],
+          'csv-upload',
+        );
+      } catch (err) {
+        console.error('[Upload] S3 durable upload after CSV ingest failed:', err);
+      }
     } catch (err) {
       console.error('[Upload] Error reinitializing database:', err);
     }

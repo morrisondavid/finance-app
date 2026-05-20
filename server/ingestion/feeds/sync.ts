@@ -37,9 +37,14 @@ import { initDatabase as defaultInitDatabase } from '../../db/index.js';
 import { STATEMENTS_DIR } from '../../db/connection.js';
 import { shiftIsoDate, todayIsoLocal } from '../../../shared/iso-date.js';
 import type { FeedSyncResponse } from '../../../shared/api-contracts.js';
-import { ingestCsvFile as defaultIngestCsvFile, type IngestResult } from '../ingest-csv-file.js';
+import {
+  ingestCsvFile as defaultIngestCsvFile,
+  durableRelPathsAfterCsvIngest,
+  type IngestResult,
+} from '../ingest-csv-file.js';
 import { fetchEnableTransactions as defaultFetchEnableTransactions } from './enable-banking.js';
 import type { InternalFeedTransactions } from './model.js';
+import { uploadDurableRelPathsToS3 } from '../../storage/s3-durable-sync.js';
 
 /** Strongly typed error so the route + MCP tool emit clear 4xx messages. */
 export class FeedSyncError extends Error {
@@ -315,6 +320,16 @@ export async function runFeedSync(
   let initDatabaseRan = false;
   if (ingestResult.outcome === 'ingested') {
     await dbReinit();
+    const canonicalStatements =
+      path.resolve(statementsDir) === path.resolve(STATEMENTS_DIR);
+    if (canonicalStatements) {
+      const rels = durableRelPathsAfterCsvIngest(account, ingestResult);
+      try {
+        await uploadDurableRelPathsToS3([...rels, 'data/manifest.json'], 'feed-sync');
+      } catch (err) {
+        console.error('[FeedSync] S3 durable upload failed:', err);
+      }
+    }
     initDatabaseRan = true;
   }
 

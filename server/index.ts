@@ -31,12 +31,6 @@ import siteAuthRouter from './routes/site-auth.js';
 import { siteAccessGateMiddleware } from './auth/site-access.js';
 import { normalizeAllFiles } from './utils/filename-normalizer.js';
 import { initDatabase, closeDatabase } from './db/index.js';
-import {
-  bootstrapPullFromS3IfEnabled,
-  pushDurableStateToS3,
-  resolveBankS3DurableSyncConfig,
-  startPeriodicS3DurablePush,
-} from './storage/s3-durable-sync.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -109,20 +103,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   shutdownStarted = true;
   console.log(`\n${signal} received — closing HTTP server and database...`);
 
-  const forceExitMs = resolveBankS3DurableSyncConfig() !== null ? 60000 : 2000;
-
-  const forceExit = setTimeout(() => {
-    closeDatabase();
-    process.exit(0);
-  }, forceExitMs);
-
   const finalize = async (): Promise<void> => {
-    clearTimeout(forceExit);
-    try {
-      await pushDurableStateToS3('shutdown');
-    } catch (err) {
-      console.error('[S3Sync] Shutdown push failed:', err);
-    }
     closeDatabase();
     process.exit(0);
   };
@@ -144,8 +125,6 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
 // Initialize and start server
 async function start(): Promise<void> {
-  await bootstrapPullFromS3IfEnabled();
-
   normalizeAllFiles();
 
   await initDatabase();
@@ -159,8 +138,6 @@ async function start(): Promise<void> {
       );
     }
   });
-
-  startPeriodicS3DurablePush();
 
   process.once('SIGINT', () => {
     void gracefulShutdown('SIGINT');

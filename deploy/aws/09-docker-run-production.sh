@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run on the server (clone repo or copy deploy/aws/ + config.sh).
+# Run on the server (copy deploy/aws/ from the repo and ensure `config.sh` exists — see README).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -20,7 +20,49 @@ fi
 
 export NODE_ENV=production
 
+BUCKET="${BANK_S3_DURABLE_BUCKET:-${BUCKET_DATA}}"
+PREFIX="${BANK_S3_DURABLE_PREFIX:-bank-state/prod}"
+PREFIX="${PREFIX#/}"
+PREFIX="${PREFIX%/}"
+
 docker rm -f bank 2>/dev/null || true
+
+# Bind mounts were written by the container as root; `aws s3 sync` runs as ${USER}
+# and cannot place temp/part files beside root-owned objects without ownership fix.
+DEST_ROOT=/opt/bank-app
+sudo mkdir -p "${DEST_ROOT}"
+sudo chown -R "${USER}:${USER}" "${DEST_ROOT}"
+
+# S3 ↔ local (--delete mirrors remote). Paths must align with ../../server/storage/durable-paths.ts (DURABLE_TOP_LEVEL_DIRS + data/, excluding enable-sessions.json).
+if ! command -v aws >/dev/null 2>&1; then
+  echo "[09] aws CLI not found — install awscli v2 before running this deploy (required for durable sync)." >&2
+  exit 1
+fi
+
+REMOTE_BASE="s3://${BUCKET}/${PREFIX}"
+echo "[09] Syncing durable dirs from ${REMOTE_BASE}/ …"
+
+DIRS=(
+  statements budgets obligations debts deadlines net-worth
+  autonize-it clients working-days reserves invoices
+)
+
+for d in "${DIRS[@]}"; do
+  mkdir -p "${DEST_ROOT}/${d}"
+  aws s3 sync "${REMOTE_BASE}/${d}/" "${DEST_ROOT}/${d}/" --region "${AWS_REGION}" --delete
+done
+
+mkdir -p "${DEST_ROOT}/data"
+aws s3 sync "${REMOTE_BASE}/data/" "${DEST_ROOT}/data/" --region "${AWS_REGION}" --delete \
+  --exclude 'enable-sessions.json' \
+  --exclude 'transactions.db*'
+
+rm -f \
+  "${DEST_ROOT}/data/transactions.db" \
+  "${DEST_ROOT}/data/transactions.db-wal" \
+  "${DEST_ROOT}/data/transactions.db-shm"
+
+echo "[09] Starting container…"
 
 docker run -d --name bank --restart unless-stopped \
   -p 127.0.0.1:3000:3000 \
@@ -43,11 +85,10 @@ docker run -d --name bank --restart unless-stopped \
   -e "ENABLE_BANKING_PRIVATE_KEY_PATH=/opt/bank-app/secrets/enable-banking-private.pem" \
   -e AWS_REGION \
   -e "AWS_DEFAULT_REGION=${AWS_REGION}" \
-  -e "BANK_S3_DURABLE_SYNC=${BANK_S3_DURABLE_SYNC:-0}" \
-  -e BANK_S3_DURABLE_BUCKET \
-  -e BANK_S3_DURABLE_PREFIX \
+  -e "BANK_S3_DURABLE_BUCKET=${BUCKET}" \
+  -e "BANK_S3_DURABLE_PREFIX=${PREFIX}" \
   -e "BANK_S3_DURABLE_SSE_KMS_KEY_ID=${BANK_S3_DURABLE_SSE_KMS_KEY_ID:-}" \
-  -e "BANK_S3_DURABLE_PUSH_INTERVAL_MS=${BANK_S3_DURABLE_PUSH_INTERVAL_MS:-1800000}" \
+  -e BANK_STATEMENTS_SKIP_INIT_WHEN_MANIFEST_UNCHANGED=0 \
   -e "BANK_SITE_ACCESS_SECRET=${BANK_SITE_ACCESS_SECRET:-}" \
   -e "BANK_SITE_LOGIN_PASSWORD=${BANK_SITE_LOGIN_PASSWORD:-}" \
   "$BANK_APP_IMAGE"

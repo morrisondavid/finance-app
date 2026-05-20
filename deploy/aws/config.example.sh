@@ -1,5 +1,6 @@
-# deploy/aws/config.sh — hardcoded deployment values for finances.traxiproducts.com
-# Edit ENABLE_BANKING_APP_ID (one line) and BANK_APP_KEY_NAME if needed, then run scripts.
+# Copy to `config.sh` (gitignored) in this directory:
+#   cp config.example.sh config.sh
+# Then edit bucket names, keys, and Enable Banking IDs for your environment.
 
 export AWS_PAGER=""
 export AWS_REGION="eu-west-2"
@@ -8,7 +9,7 @@ export AWS_REGION="eu-west-2"
 export BUCKET_DATA="traxiproducts-finances-bank-app-data-eu-west-2"
 export BUCKET_STMT="traxiproducts-finances-bank-app-statements-eu-west-2"
 
-# Optional S3 durable sync (see README): defaults align seed script + EC2 container env
+# S3 durable roots (README): CLI pull defaults in 09; container upload uses BANK_S3_DURABLE_* env
 export BANK_S3_DURABLE_BUCKET="${BANK_S3_DURABLE_BUCKET:-$BUCKET_DATA}"
 export BANK_S3_DURABLE_PREFIX="${BANK_S3_DURABLE_PREFIX:-bank-state/prod}"
 
@@ -39,5 +40,5 @@ export BANK_APP_IMAGE=""
 export BANK_APP_PUBLIC_HOSTNAME="finances.traxiproducts.com"
 
 # Enable Banking (same as .env.local ENABLE_BANKING_APP_ID)
-export ENABLE_BANKING_APP_ID="5f5d8128-de16-4729-a5e0-0dd846b8f836"
+export ENABLE_BANKING_APP_ID=""
 export ENABLE_BANKING_REDIRECT_URL="https://finances.traxiproducts.com/api/feed/enable/callback"

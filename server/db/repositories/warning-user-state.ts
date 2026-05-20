@@ -4,6 +4,12 @@
 
 import type Database from 'better-sqlite3';
 import type { WarningUserState, WarningUserStateUpsertBody } from '../../../shared/api-contracts.js';
+import { recomputeAndPersistDataManifest } from '../../data-manifest.js';
+import {
+  exportWarningUserStateFromDbToCsv,
+  WARNING_USER_STATE_CSV_RELATIVE,
+} from '../warning-user-state-csv.js';
+import { uploadDurableRelPathsToS3 } from '../../storage/s3-durable-sync.js';
 
 export interface WarningUserStateRow {
   readonly fingerprint: string;
@@ -65,4 +71,11 @@ export function upsertWarningUserState(db: Database.Database, input: WarningUser
        surface = excluded.surface,
        updated_at = datetime('now')`,
   ).run(input.fingerprint, snoozedUntil, acknowledgedAt, surface);
+
+  exportWarningUserStateFromDbToCsv(db);
+  recomputeAndPersistDataManifest();
+  void uploadDurableRelPathsToS3(
+    [WARNING_USER_STATE_CSV_RELATIVE, 'data/manifest.json'],
+    'warning-user-state',
+  );
 }

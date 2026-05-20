@@ -20,6 +20,7 @@ import fs from 'fs';
 import path from 'path';
 import type { AccountName } from '../../shared/api-contracts.js';
 import { STATEMENTS_DIR } from '../db/connection.js';
+import { REPO_ROOT } from '../repo-root.js';
 import { validateAndCleanup } from '../utils/csv-validator.js';
 import { normalizeFileOnDisk } from '../utils/filename-normalizer.js';
 import { partitionByMonth, type PartitionResult } from '../utils/csv-partitioner.js';
@@ -59,6 +60,8 @@ export type IngestResult =
       readonly originalName: string;
       readonly existingPath: string;
     };
+
+export type IngestedCsvFileResult = Extract<IngestResult, { ok: true; outcome: 'ingested' }>;
 
 /**
  * Run the full CSV ingest pipeline for one file:
@@ -162,4 +165,32 @@ export function ingestCsvFile(
     renamed: normalize.renamed,
     partition,
   };
+}
+
+function toRepoRelativePosix(absPath: string): string {
+  const rel = path.relative(REPO_ROOT, absPath);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error(`[ingestCsvFile] Path outside repo root: ${absPath}`);
+  }
+  return rel.split(path.sep).join('/');
+}
+
+/**
+ * Repo-relative POSIX paths to upload after a successful ingest (original under
+ * `_originals/`, final monthly CSV(s) under `statements/.../csv/`).
+ */
+export function durableRelPathsAfterCsvIngest(
+  account: AccountName,
+  result: IngestedCsvFileResult,
+): string[] {
+  const out = new Set<string>();
+  out.add(toRepoRelativePosix(result.originalSavedAt));
+  if (result.partition.deleted) {
+    for (const name of result.partition.filesCreated) {
+      out.add(`statements/${account}/csv/${name}`);
+    }
+  } else {
+    out.add(toRepoRelativePosix(result.finalPath));
+  }
+  return [...out];
 }

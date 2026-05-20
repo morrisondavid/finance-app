@@ -11,5 +11,6 @@
 # Optional — human-only login for /login.html (Bearer always uses BANK_SITE_ACCESS_SECRET).
 # export BANK_SITE_LOGIN_PASSWORD=''
 
-# Uncomment if this host uses S3 durable sync:
-# export BANK_S3_DURABLE_SYNC=1
+# Optional — override defaults from config.sh (`BANK_S3_DURABLE_BUCKET`/`PREFIX`).
+# `./09-docker-run-production.sh` always runs `aws s3 sync --delete` for durable dirs before `docker run`,
+# using these values plus `AWS_REGION` from config.

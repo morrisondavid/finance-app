@@ -34,7 +34,8 @@ feed-credentials.local.json
 # ENABLE_BANKING_PRIVATE_KEY_PATH=secrets/enable-banking-private.pem
 secrets/
 
-# AWS deploy — optional overrides; main config is deploy/aws/config.sh (committed)
+# AWS deploy — copy deploy/aws/config.example.sh → config.sh (see deploy/aws/README.md)
+deploy/aws/config.sh
 deploy/aws/env.local.sh
 deploy/aws/production-env.local.sh
 deploy/aws/.elastic-ip

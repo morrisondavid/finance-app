@@ -1,1 +1,1 @@
-# Deprecated: all values live in deploy/aws/config.sh — edit that file instead.
+# Deprecated: use deploy/aws/config.example.sh — copy to config.sh and edit.

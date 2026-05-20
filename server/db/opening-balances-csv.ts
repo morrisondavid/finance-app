@@ -10,6 +10,7 @@ import { AccountNameSchema } from '../../shared/api-contracts.js';
 import { escapeCsvField } from '../utils/csv-helpers.js';
 import { createCsvDecoders, readCsvRecords } from '../utils/csv-decoders.js';
 import { recomputeAndPersistDataManifest } from '../data-manifest.js';
+import { uploadDurableRelPathsToS3 } from '../storage/s3-durable-sync.js';
 
 /**
  * Default path: `data/opening-balances.csv`. Tests may set
@@ -176,4 +177,5 @@ export function upsertOpeningBalanceRowAndPersist(
       updated_at = CURRENT_TIMESTAMP
   `).run(account, openingBalance, openingBalanceDate ?? null);
   recomputeAndPersistDataManifest();
+  void uploadDurableRelPathsToS3(['data/opening-balances.csv', 'data/manifest.json'], 'opening-balance');
 }
