@@ -28,6 +28,11 @@ import {
   FeedSyncBodySchema,
   FeedSyncResponseSchema,
   FeedSyncHttpErrorBodySchema,
+  FeedToolbarStateSchema,
+  EnableFeedStartBodySchema,
+  TrueLayerFeedStartBodySchema,
+  TrueLayerFeedStartResponseSchema,
+  EnableFeedStartResponseSchema,
   type InterCompanyMovementsResponse,
   type InterCompanyClassifyRequest,
   type FeedSyncBody,
@@ -52,6 +57,9 @@ import {
   type BudgetRow,
   type BudgetCategoryNamesResponse,
   type EntityFoundationWarningsResponse,
+  type FeedToolbarState,
+  type TrueLayerFeedStartBody,
+  type EnableFeedStartBody,
 } from '../../../shared/api-contracts.js';
 
 /** Failed `POST /api/feed/sync` — carries HTTP status and server `code` when present. */
@@ -97,6 +105,80 @@ export async function syncBankFeed(body: FeedSyncBody): Promise<FeedSyncResponse
   }
 
   return FeedSyncResponseSchema.parse(json);
+}
+
+/** Failed Enable / TrueLayer `POST …/feed/…/start` (OAuth kick-off). */
+export class FeedOAuthStartRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code?: string,
+    public readonly details?: unknown,
+  ) {
+    super(message);
+    this.name = 'FeedOAuthStartRequestError';
+  }
+}
+
+async function postFeedOAuthStart<T>(
+  path: string,
+  bodyJson: unknown,
+  successSchema: { parse(data: unknown): T },
+): Promise<T> {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(bodyJson),
+  });
+
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch {
+    json = null;
+  }
+
+  if (!response.ok) {
+    const parsed = json !== null ? FeedSyncHttpErrorBodySchema.safeParse(json) : null;
+    const message =
+      parsed !== null && parsed.success
+        ? parsed.data.error
+        : `Feed OAuth start failed (${String(response.status)})`;
+    const code = parsed !== null && parsed.success ? parsed.data.code : undefined;
+    const details = parsed !== null && parsed.success ? parsed.data.details : undefined;
+    throw new FeedOAuthStartRequestError(message, response.status, code, details);
+  }
+
+  return successSchema.parse(json);
+}
+
+/** `GET /api/dashboard/feed-toolbar-state` — Connect vs Sync toolbar. */
+export async function fetchFeedToolbarState(params: {
+  readonly account: string;
+}): Promise<FeedToolbarState> {
+  const query = new URLSearchParams({ account: params.account });
+  const response = await fetch(`/api/dashboard/feed-toolbar-state?${query}`);
+  return validateResponse(response, FeedToolbarStateSchema);
+}
+
+export async function startTrueLayerOAuthConnect(
+  body: TrueLayerFeedStartBody,
+): Promise<{ readonly url: string; readonly state: string }> {
+  return postFeedOAuthStart(
+    '/api/feed/truelayer/start',
+    TrueLayerFeedStartBodySchema.parse(body),
+    TrueLayerFeedStartResponseSchema,
+  );
+}
+
+export async function startEnableOAuthConnect(
+  body: EnableFeedStartBody,
+): Promise<{ readonly url: string; readonly state: string }> {
+  return postFeedOAuthStart(
+    '/api/feed/enable/start',
+    EnableFeedStartBodySchema.parse(body),
+    EnableFeedStartResponseSchema,
+  );
 }
 
 /**

@@ -4,14 +4,13 @@
 
 import type { DashboardSummary, AccountSummary } from '../types';
 import { state, setState, getSelectedCurrency, getAccountConfig } from './state';
-import { fetchDashboard, fetchTransactions, syncBankFeed, FeedSyncRequestError } from '../utils/api';
+import { fetchDashboard, fetchTransactions, syncBankFeed, FeedSyncRequestError, fetchFeedToolbarState, startTrueLayerOAuthConnect, startEnableOAuthConnect, FeedOAuthStartRequestError } from '../utils/api';
 import { computeFeedSyncDateFromNewestTransaction } from '../../../shared/feed-sync-window.js';
 import { formatCurrency } from '../utils/formatting';
 import { escapeHtml, escapeAttribute } from '../utils/dom';
 import { loadRecurring } from './recurring.js';
 import { loadAdHocExpenses } from './ad-hoc-expenses.js';
-import { AccountNameSchema, type FeedSyncResponse } from '../../../shared/api-contracts.js';
-
+import { AccountNameSchema, type FeedSyncResponse, type FeedToolbarState } from '../../../shared/api-contracts.js';
 import { renderMonthlyChart, renderCategoryChart, renderMonthlyTable } from './dashboard-charts';
 import {
   initTransactionsModal,
@@ -53,7 +52,7 @@ export async function loadDashboard(): Promise<void> {
     renderBudgetDashboardPanel(data);
     renderYearlyBudgetDashboardPanel(data);
     renderBudgetNudgesPanel(data);
-    refreshFeedSyncControlState();
+    await refreshFeedToolbarState();
   } catch (error) {
     console.error('[Dashboard] Error loading dashboard:', error);
     const container = document.getElementById('monthly-table');
@@ -168,49 +167,104 @@ function initAccountSelector(): void {
   });
 }
 
-const FEED_SYNC_DISABLED_HINT =
-  'Greyed out: no Enable Banking account id (`aispFeed.enableBanking.accountId`) and no TrueLayer linked account (`aispFeed.trueLayer.dataAccountId`). Use Enable OAuth + CSV, or POST /api/feed/truelayer/start + gitignored TL tokens (`data/truelayer-tokens.local.json`), map `data/truelayer-account-links.csv` if multi-account — then reload.';
+/** Prefix for sessionStorage keys (`… + account`) — “show Reconnect” after a failed sync. */
+export const FEED_UI_RECONNECT_SESSION_PREFIX = 'bankFeed.needsReconnect.';
 
-function feedSyncLikelyConfigured(cfg: ReturnType<typeof getAccountConfig>): boolean {
-  const eb =
-    typeof cfg?.aispFeed?.enableBanking?.accountId === 'string' &&
-    cfg.aispFeed.enableBanking.accountId.trim() !== '';
-  const tl =
-    typeof cfg?.aispFeed?.trueLayer?.dataAccountId === 'string' &&
-    cfg.aispFeed.trueLayer.dataAccountId.trim() !== '';
-  return eb || tl;
+function feedUiReconnectStorageKey(account: string): string {
+  return `${FEED_UI_RECONNECT_SESSION_PREFIX}${account}`;
 }
 
-function refreshFeedSyncControlState(): void {
-  const btn = document.getElementById('feed-sync-btn') as HTMLButtonElement | null;
+let latestFeedToolbar: FeedToolbarState | null = null;
+
+function resolveFeedToolbarElements(): {
+  readonly root: HTMLElement;
+  readonly btn: HTMLButtonElement;
+  readonly hintEl: HTMLElement;
+  readonly forceWrap: HTMLElement;
+  readonly forceCb: HTMLInputElement;
+} | null {
+  const root = document.getElementById('feed-sync-toolbar-root');
+  const btn = document.getElementById('feed-sync-btn');
   const hintEl = document.getElementById('feed-sync-hint');
+  const forceWrap = document.getElementById('feed-sync-force-wrap');
   const forceCb = document.getElementById('feed-sync-force');
-  if (!btn) return;
+  if (
+    !(root instanceof HTMLElement) ||
+    !(btn instanceof HTMLButtonElement) ||
+    !(hintEl instanceof HTMLElement) ||
+    !(forceWrap instanceof HTMLElement) ||
+    !(forceCb instanceof HTMLInputElement)
+  ) {
+    return null;
+  }
+  return { root, btn, hintEl, forceWrap, forceCb };
+}
 
-  const cfg = getAccountConfig(state.selectedAccount);
-  const linked = feedSyncLikelyConfigured(cfg);
+function applyFeedToolbarDom(toolbar: FeedToolbarState | null): void {
+  const els = resolveFeedToolbarElements();
+  if (els === null) return;
 
-  if (!linked) {
-    btn.disabled = true;
-    btn.title = FEED_SYNC_DISABLED_HINT;
-    if (hintEl instanceof HTMLElement) {
-      hintEl.textContent = FEED_SYNC_DISABLED_HINT;
-      hintEl.hidden = false;
-    }
-    if (forceCb instanceof HTMLInputElement) {
-      forceCb.disabled = true;
-    }
-  } else {
-    btn.title = '';
-    if (hintEl instanceof HTMLElement) {
-      hintEl.textContent = '';
-      hintEl.hidden = true;
-    }
-    if (forceCb instanceof HTMLInputElement) {
-      forceCb.disabled = false;
-    }
+  const { root, btn, hintEl, forceWrap, forceCb } = els;
+
+  if (toolbar === null || toolbar.kind === 'hidden') {
+    root.hidden = true;
+    return;
+  }
+
+  root.hidden = false;
+
+  hintEl.textContent = '';
+  hintEl.hidden = true;
+
+  if (toolbar.kind === 'sync') {
+    forceWrap.hidden = false;
+    btn.textContent = 'Sync bank feed';
+    btn.title =
+      toolbar.activeProvider === 'truelayer'
+        ? 'Synchronise transactions via TrueLayer.'
+        : 'Synchronise transactions via Enable Banking.';
     if (!btn.classList.contains('feed-sync-btn-loading')) {
       btn.disabled = false;
+    }
+    forceCb.disabled = false;
+    return;
+  }
+
+  forceWrap.hidden = true;
+  forceCb.disabled = true;
+  const account = state.selectedAccount;
+  const showReconnect = sessionStorage.getItem(feedUiReconnectStorageKey(account)) === '1';
+  btn.textContent = showReconnect ? 'Reconnect bank' : 'Connect bank';
+  btn.title = '';
+  if (!btn.classList.contains('feed-sync-btn-loading')) {
+    btn.disabled = false;
+  }
+}
+
+/**
+ * Refresh Connect vs Sync toolbar from `GET /api/dashboard/feed-toolbar-state`.
+ * Exported so `main.ts` can re-run after OAuth return query cleanup.
+ */
+export async function refreshFeedToolbarState(): Promise<void> {
+  const els0 = resolveFeedToolbarElements();
+  if (els0 === null) return;
+
+  const requestedAccount = state.selectedAccount;
+
+  try {
+    const fetched = await fetchFeedToolbarState({ account: requestedAccount });
+    const elsAfter = resolveFeedToolbarElements();
+    if (elsAfter === null || state.selectedAccount !== requestedAccount) {
+      return;
+    }
+    latestFeedToolbar = fetched;
+    applyFeedToolbarDom(latestFeedToolbar);
+  } catch (e) {
+    console.error('[Dashboard] Failed to fetch feed-toolbar-state:', e);
+    latestFeedToolbar = null;
+    if (state.selectedAccount === requestedAccount) {
+      applyFeedToolbarDom(null);
+      els0.root.hidden = true;
     }
   }
 }
@@ -238,13 +292,65 @@ function formatFeedSyncResult(r: FeedSyncResponse): string {
   return parts.join(' ');
 }
 
+async function runFeedOAuthConnectFromUi(btn: HTMLButtonElement, statusEl: HTMLElement): Promise<void> {
+  const toolbar = latestFeedToolbar;
+  if (toolbar?.kind !== 'connect') return;
+
+  statusEl.textContent = '';
+  statusEl.classList.remove('feed-sync-status-error');
+  btn.classList.add('feed-sync-btn-loading');
+  btn.disabled = true;
+
+  const account = state.selectedAccount;
+  const cfg = getAccountConfig(account);
+  const { connectProvider } = toolbar;
+
+  try {
+    if (connectProvider === 'truelayer') {
+      const { url } = await startTrueLayerOAuthConnect({ account });
+      window.location.assign(url);
+      return;
+    }
+    const { url } = await startEnableOAuthConnect({
+      account,
+      country: cfg.aispFeed?.enableBanking?.institutionHint?.country,
+      aspspName: cfg.aispFeed?.enableBanking?.institutionHint?.institutionName,
+    });
+    window.location.assign(url);
+  } catch (err) {
+    statusEl.classList.add('feed-sync-status-error');
+    if (err instanceof FeedOAuthStartRequestError) {
+      const codePart = err.code !== undefined ? `[${err.code}] ` : '';
+      statusEl.textContent = `${codePart}${err.message}`;
+    } else {
+      statusEl.textContent =
+        err instanceof Error ? err.message : 'Could not start bank connection.';
+    }
+    btn.classList.remove('feed-sync-btn-loading');
+    await refreshFeedToolbarState();
+  }
+}
+
+async function handleFeedToolbarPrimaryClick(
+  btn: HTMLButtonElement,
+  forceCb: HTMLInputElement,
+  statusEl: HTMLElement,
+): Promise<void> {
+  if (latestFeedToolbar?.kind === 'sync') {
+    await runFeedSyncFromUi(btn, forceCb, statusEl);
+    return;
+  }
+  if (latestFeedToolbar?.kind === 'connect') {
+    await runFeedOAuthConnectFromUi(btn, statusEl);
+  }
+}
+
 async function runFeedSyncFromUi(
   btn: HTMLButtonElement,
   forceCb: HTMLInputElement,
   statusEl: HTMLElement,
 ): Promise<void> {
-  const cfg = getAccountConfig(state.selectedAccount);
-  if (!feedSyncLikelyConfigured(cfg)) return;
+  if (latestFeedToolbar?.kind !== 'sync') return;
 
   statusEl.textContent = '';
   statusEl.classList.remove('feed-sync-status-error');
@@ -262,11 +368,18 @@ async function runFeedSyncFromUi(
       dateFrom,
       force: forceCb.checked ? true : undefined,
     });
+    sessionStorage.removeItem(feedUiReconnectStorageKey(state.selectedAccount));
     statusEl.textContent = formatFeedSyncResult(result);
     await loadDashboard();
   } catch (err) {
     statusEl.classList.add('feed-sync-status-error');
     if (err instanceof FeedSyncRequestError) {
+      if (
+        err.status === 401 &&
+        (err.code === 'expired-session' || err.code === 'no-session')
+      ) {
+        sessionStorage.setItem(feedUiReconnectStorageKey(state.selectedAccount), '1');
+      }
       const codePart = err.code !== undefined ? `[${err.code}] ` : '';
       statusEl.textContent = `${codePart}${err.message}`;
     } else {
@@ -274,7 +387,7 @@ async function runFeedSyncFromUi(
     }
   } finally {
     btn.classList.remove('feed-sync-btn-loading');
-    refreshFeedSyncControlState();
+    await refreshFeedToolbarState();
   }
 }
 
@@ -287,9 +400,9 @@ function initFeedSyncControl(): void {
   if (!(statusEl instanceof HTMLElement)) return;
 
   btn.addEventListener('click', () => {
-    void runFeedSyncFromUi(btn, forceCb, statusEl);
+    void handleFeedToolbarPrimaryClick(btn, forceCb, statusEl);
   });
-  refreshFeedSyncControlState();
+  void refreshFeedToolbarState();
 }
 
 function updateAccountIndicators(accountData: Record<string, AccountSummary>): void {

@@ -9,7 +9,7 @@
 import 'flag-icons/css/flag-icons.min.css';
 import { setState } from './modules/state';
 import { initTabs } from './modules/tabs';
-import { initDashboard, loadDashboard, populateAccountSelectors } from './modules/dashboard';
+import { initDashboard, loadDashboard, populateAccountSelectors, refreshFeedToolbarState, FEED_UI_RECONNECT_SESSION_PREFIX } from './modules/dashboard';
 import { loadLiquidityDashboard } from './modules/liquidity-dashboard';
 import { initStatements, loadStatements } from './modules/statements';
 import { initUpload } from './modules/upload';
@@ -26,6 +26,39 @@ import { initDebtStrategy, reloadDebtStrategy } from './modules/debt-strategy';
 import { initWarnings, loadWarnings } from './modules/warnings';
 import { initRecurring } from './modules/recurring';
 import { fetchAccountConfig } from './utils/api';
+
+/**
+ * OAuth callbacks redirect to `/?trueLayerLinked=1` / `/?enableLinked=1`.
+ * Strip those params and drop stale “Reconnect” flags so Connect returns once linked.
+ */
+function consumeFeedOAuthLinkedParams(): void {
+  const params = new URLSearchParams(window.location.search);
+  let touched = false;
+  for (const key of ['trueLayerLinked', 'enableLinked']) {
+    if (params.has(key)) {
+      params.delete(key);
+      touched = true;
+    }
+  }
+  if (!touched) return;
+
+  try {
+    const removals: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (key !== null && key.startsWith(FEED_UI_RECONNECT_SESSION_PREFIX)) removals.push(key);
+    }
+    for (const k of removals) {
+      sessionStorage.removeItem(k);
+    }
+  } catch {
+    // ignore quota / disabled storage
+  }
+
+  const qs = params.toString();
+  const next = `${window.location.pathname}${qs !== '' ? `?${qs}` : ''}${window.location.hash}`;
+  window.history.replaceState({}, '', next);
+}
 
 /**
  * Load account configuration from backend
@@ -127,6 +160,8 @@ async function initializeApp(): Promise<void> {
   const ok = await ensureSiteSession();
   if (!ok) return;
 
+  consumeFeedOAuthLinkedParams();
+
   await loadAccountConfig();
 
   // Initialize tab navigation
@@ -157,6 +192,7 @@ async function initializeApp(): Promise<void> {
   });
 
   void loadLiquidityDashboard();
+  void refreshFeedToolbarState();
 }
 
 // Start the app when DOM is ready

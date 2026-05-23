@@ -22,4 +22,4 @@ docker tag "$IMAGE_LOCAL" "$IMAGE_REMOTE"
 docker push "$IMAGE_REMOTE"
 
 echo "Pushed: $IMAGE_REMOTE"
-echo "On server: aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${REGISTRY} && docker pull ${IMAGE_REMOTE}"
+echo "On server: cd ~/bank-deploy-aws && ./09-docker-run-production.sh  (pull + S3 sync + docker run — or run copy-deploy-to-ec2.sh first if scripts changed)"

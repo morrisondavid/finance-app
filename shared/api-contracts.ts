@@ -434,6 +434,29 @@ export const DashboardSummaryResponseSchema = z.object({
 // GET /api/dashboard/accounts
 export const AccountConfigsResponseSchema = z.array(AccountConfigSchema);
 
+/** GET /api/dashboard/feed-toolbar-state — drive Connect vs Sync toolbar (no OAuth side effects). */
+export const FeedToolbarHiddenReasonSchema = z.enum(['no-aisp-feed', 'no-feed-emitter']);
+export type FeedToolbarHiddenReason = z.infer<typeof FeedToolbarHiddenReasonSchema>;
+
+export const FeedToolbarStateSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('hidden'),
+    account: AccountNameSchema,
+    reason: FeedToolbarHiddenReasonSchema,
+  }),
+  z.object({
+    kind: z.literal('sync'),
+    account: AccountNameSchema,
+    activeProvider: z.enum(['truelayer', 'enable']),
+  }),
+  z.object({
+    kind: z.literal('connect'),
+    account: AccountNameSchema,
+    connectProvider: z.enum(['truelayer', 'enable']),
+  }),
+]);
+export type FeedToolbarState = z.infer<typeof FeedToolbarStateSchema>;
+
 // GET /api/dashboard/transactions
 export const TransactionsResponseSchema = z.array(TransactionSchema);
 

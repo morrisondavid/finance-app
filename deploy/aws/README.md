@@ -55,8 +55,9 @@ Requires buckets from `./01-s3-buckets.sh` and AWS CLI credentials (same profile
 1. Run **`12-s3-seed-durable-from-local.sh`** if S3 does not yet reflect your authoritative copy (first deploy or drift recovery).
 2. On EC2: **`./08-host-create-dirs.sh`** once so new mount roots exist with correct ownership.
 3. Laptop: **`./07-ecr-build-and-push.sh`** (image needs `@aws-sdk` for targeted uploads).
-4. EC2: ECR **`docker login`**, **`docker pull …:latest`**, **`./09-docker-run-production.sh`** (pull is built into **`09`**; ensure AWS CLI installed on host).
-5. Confirm logs show **`[09] Syncing durable dirs`** (host), then **`[Database]`** in **`docker logs bank`**.
+4. Laptop (**if `deploy/aws` scripts changed**): **`./deploy/aws/copy-deploy-to-ec2.sh`**
+5. EC2: **`cd ~/bank-deploy-aws`** → **`./09-docker-run-production.sh`** (ECR **`docker pull`** is built in; pulls **`:latest`** then S3 sync + **`docker run`**).
+6. Confirm logs show **`[09] Pulling`** / **`Image is up to date`** or **`Downloaded`**, **`[09] Syncing durable dirs`** (host), then **`[Database]`** in **`docker logs bank`**.
 
 Optional legacy cron: **`11-s3-sync-push.sh`** only synced `data/` + `statements/` to legacy bucket layouts; **`09`** + targeted SDK uploads mirror the **full durable tree** under **`BANK_S3_DURABLE_PREFIX`** for new installs.
 
@@ -72,35 +73,20 @@ Daily **`npm run dev`** does **not** run **`09`**, so **`aws s3 sync` never exec
 
 From your **laptop**, at **repo root** (`bank-statements-app/`).
 
+**Preferred:** [`copy-deploy-to-ec2.sh`](copy-deploy-to-ec2.sh) streams **`tar` over SSH** (no `rsync` on the laptop or server). The archive **omits** `production-env.local.sh`, `config.sh`, and `.elastic-ip` so existing server-only files are not replaced when you extract into `~/bank-deploy-aws/`.
+
+```bash
+./deploy/aws/copy-deploy-to-ec2.sh
+# or: EC2_IP=16.xx.xx.xx SSH_KEY=~/.ssh/your.pem ./deploy/aws/copy-deploy-to-ec2.sh
+```
+
+Uses `deploy/aws/.elastic-ip` when `EC2_IP` is unset.
+
 **Avoid `scp -r deploy/aws … ~/bank-deploy-aws`** when **`~/bank-deploy-aws` already exists** — that often creates **`~/bank-deploy-aws/aws/`**.
 
-### Option A — `rsync` (needs `rsync` on the server too)
+### Manual equivalent (`tar` over SSH)
 
-Remote Amazon Linux often has **no `rsync`** installed. If you see **`rsync: command not found`** over SSH, install it **once** on EC2:
-
-```bash
-sudo dnf install -y rsync
-```
-
-Then from the laptop (trailing **`./deploy/aws/`** keeps files **flat** under **`~/bank-deploy-aws/`**):
-
-```bash
-export EC2_IP="$(tr -d '[:space:]' < deploy/aws/.elastic-ip)"
-export SSH_KEY="${HOME}/.ssh/traxiproducts-finances-bank-app-eu-west-2.pem"
-
-rsync -avz \
-  -e "ssh -i ${SSH_KEY}" \
-  --exclude 'production-env.local.sh' \
-  --exclude 'config.sh' \
-  ./deploy/aws/ \
-  ec2-user@${EC2_IP}:~/bank-deploy-aws/
-```
-
-(`EC2_IP` / `SSH_KEY`: adjust host IP or key path if yours differ.)
-
-### Option B — `tar` over SSH (no `rsync` on either side required)
-
-Works when the server only has **`ssh` + `tar`** (default on AL2023):
+Same transport and excludes as the script:
 
 ```bash
 export EC2_IP="$(tr -d '[:space:]' < deploy/aws/.elastic-ip)"
@@ -109,12 +95,13 @@ export SSH_KEY="${HOME}/.ssh/traxiproducts-finances-bank-app-eu-west-2.pem"
 tar -C ./deploy/aws \
   --exclude='production-env.local.sh' \
   --exclude='config.sh' \
+  --exclude='.elastic-ip' \
   -cf - . | ssh -i "${SSH_KEY}" "ec2-user@${EC2_IP}" 'mkdir -p ~/bank-deploy-aws && tar -C ~/bank-deploy-aws -xf -'
 ```
 
 ### Server secrets (`production-env.local.sh`)
 
-[`09-docker-run-production.sh`](09-docker-run-production.sh) **`source`**s **`./production-env.local.sh`** next to itself on the server when present (same directory as **`config.sh`**). Create once from the shipped template ([`production-env.local.example.sh`](production-env.local.example.sh)); **`chmod 600`**. Put **`export BANK_SITE_ACCESS_SECRET='…'`** there (≥16 UTF‑8 bytes).
+[`09-docker-run-production.sh`](09-docker-run-production.sh) **`source`**s **`./production-env.local.sh`** next to itself on the server when present (same directory as **`config.sh`**). Create once from the shipped template ([`production-env.local.example.sh`](production-env.local.example.sh)); **`chmod 600`**. Put **`export BANK_SITE_ACCESS_SECRET='…'`** there (≥16 UTF‑8 bytes). Use **`export`** for **`TRUELAYER_*`** / **`ENABLE_BANKING_*`** when those vars are passed with bare **`-e NAME`** into Docker — see **`09-docker-run-production.sh`**.
 
 **Enable private key** (same **`SSH_KEY`** / **`EC2_IP`** as copy steps above):
 
@@ -138,11 +125,7 @@ sudo chown ec2-user:ec2-user /opt/bank-app/secrets/enable-banking-private.pem
 chmod 600 /opt/bank-app/secrets/enable-banking-private.pem
 ```
 
-Run host scripts from the copied folder (`cd ~/bank-deploy-aws`). **`09-docker-run-production.sh`** needs **ECR pull**: either install AWS CLI on the box and run `aws ecr get-login-password … | docker login …` (with IAM that can read ECR—your instance profile may need **`AmazonEC2ContainerRegistryReadOnly`** in addition to S3), or pull from your laptop after SSH tunneling is awkward—simplest is to **attach ECR read policy** to the **`bank-app-ec2-profile`** role in IAM, then on the server:
-
-```bash
-aws ecr get-login-password --region eu-west-2 | docker login --username AWS --password-stdin "$(aws sts get-caller-identity --query Account --output text).dkr.ecr.eu-west-2.amazonaws.com"
-```
+Run host scripts from the copied folder (`cd ~/bank-deploy-aws`). **`09-docker-run-production.sh`** logs into ECR when **`BANK_APP_IMAGE`** targets **`.dkr.ecr.`** and runs **`docker pull`** **before** removing the old container or syncing from S3, so each deploy picks up the `:latest` you pushed from **`07-ecr-build-and-push.sh`**. The instance profile needs ECR read (e.g. **`AmazonEC2ContainerRegistryReadOnly`**) alongside S3.
 
 On the **server** (after `cd ~/bank-deploy-aws`):
 
@@ -207,10 +190,14 @@ Automated **`POST /api/feed/sync`** prefers TrueLayer when **`aispFeed.trueLayer
 
 ### Link once (`link-flow`)
 
-1. Authenticate **`/api/*`** (`/login.html` cookie or **`Authorization: Bearer`**).
-2. **`POST /api/feed/enable/start`** JSON e.g. `{ "account":"barclays-current", "country":"GB", "aspspName":"<exact from dump>" }` — **`psuType` defaults to `business`** for business-category accounts ([`enable-oauth.ts`](deploy/aws/../server/routes/enable-oauth.ts)); override explicitly if needed.
-3. Open returned **`url`**, finish bank consent → **`GET /api/feed/enable/callback`**.
-4. If a single PSU account is linked, **`data/enable-account-links.csv`** receives the UID; else map UID manually using the UID list rendered by the **`GET /api/feed/enable/callback`** HTML response ([`enable-oauth.ts`](deploy/aws/../server/routes/enable-oauth.ts)).
+Preferred: **Accounts** tab (`public/index.html` balance panel) — when the toolbar is **`Connect bank`** / **`Reconnect bank`** (driven by **`GET /api/dashboard/feed-toolbar-state`**, aligned with **`requireLinkedFeed`** in [`server/ingestion/feeds/sync.ts`](deploy/aws/../server/ingestion/feeds/sync.ts)), click it to **`POST`** [`/api/feed/truelayer/start`](deploy/aws/../server/routes/truelayer-oauth.ts) or **`/api/feed/enable/start`** and redirect to bank consent (`enable` fills **`country`** / **`aspspName`** from **`aispFeed.enableBanking.institutionHint`** when omitted). **`Sync bank feed`** appears only when a link is active. **`401`** with **`expired-session`** / **`no-session`** from **`POST /api/feed/sync`** prompts **Reconnect**.
+
+Manual / automation (same APIs the UI calls):
+
+1. Authenticate **`/api/*`** when site gate enabled (`/login.html` cookie or **`Authorization: Bearer`**).
+2. **TrueLayer**: **`POST /api/feed/truelayer/start`** `{ "account":"barclays-current" }` → open **`url`** → callback.
+3. **Enable**: **`POST /api/feed/enable/start`** JSON e.g. `{ "account":"barclays-current", "country":"GB", "aspspName":"<exact from dump>" }` — **`psuType` defaults to `business`** for business-category accounts ([`enable-oauth.ts`](deploy/aws/../server/routes/enable-oauth.ts)).
+4. If a single PSU account is linked (Enable) or TL returns one Data account id, CSV / tokens update automatically; else map UID / account ids manually ([`enable-oauth.ts`](deploy/aws/../server/routes/enable-oauth.ts)), ([`truelayer-oauth.ts`](deploy/aws/../server/routes/truelayer-oauth.ts)).
 
 ### First automated sync (`feed-sync-verify`)
 

@@ -18,6 +18,22 @@ if [[ -z "${BANK_APP_IMAGE}" ]]; then
   BANK_APP_IMAGE="${ACCT}.dkr.ecr.${AWS_REGION}.amazonaws.com/${BANK_APP_ECR_REPO_NAME}:latest"
 fi
 
+if ! command -v docker >/dev/null 2>&1; then
+  echo "[09] docker not found on PATH — install Docker before running this script." >&2
+  exit 1
+fi
+
+REGISTRY="${BANK_APP_IMAGE%%/*}"
+echo "[09] Pulling ${BANK_APP_IMAGE} …"
+if [[ "${REGISTRY}" == *".dkr.ecr."* ]]; then
+  if ! command -v aws >/dev/null 2>&1; then
+    echo "[09] aws CLI not found — required for ECR login/pull." >&2
+    exit 1
+  fi
+  aws ecr get-login-password --region "${AWS_REGION}" | docker login --username AWS --password-stdin "${REGISTRY}"
+fi
+docker pull "${BANK_APP_IMAGE}"
+
 export NODE_ENV=production
 
 BUCKET="${BANK_S3_DURABLE_BUCKET:-${BUCKET_DATA}}"

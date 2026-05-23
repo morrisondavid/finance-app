@@ -15,6 +15,8 @@ import {
   DashboardSummaryResponseSchema,
   type DashboardSummaryResponse,
   AccountConfigsResponse,
+  FeedToolbarStateSchema,
+  type FeedToolbarState,
   TransactionsResponse,
   AccountBalanceResponse,
   CategoriesResponse,
@@ -41,6 +43,7 @@ import { normalizeFinancialYear } from '../db/utils/financial-year.js';
 import { round2 } from '../utils/math.js';
 import { buildExpensePipelineForAccount, transactionRowToRaw } from '../utils/expenses-overview-pipeline.js';
 import { computeBudgetNudges } from '../utils/budget-nudges.js';
+import { feedToolbarStateForAccount } from '../ingestion/feeds/feed-toolbar-state.js';
 
 const router = express.Router();
 
@@ -190,6 +193,28 @@ router.get('/accounts', (_req: Request, res: Response<AccountConfigsResponse | {
     res.status(500).json({ error: 'Failed to fetch account configuration' });
   }
 });
+
+interface FeedToolbarStateQuery {
+  account?: string;
+}
+
+// GET /api/dashboard/feed-toolbar-state — Connect vs Sync toolbar (no OAuth writes)
+router.get(
+  '/feed-toolbar-state',
+  (
+    req: Request<object, FeedToolbarState | { error: string }, object, FeedToolbarStateQuery>,
+    res: Response<FeedToolbarState | { error: string }>,
+  ) => {
+    try {
+      const selectedAccount = validateAccount(req.query.account);
+      const payload = feedToolbarStateForAccount(selectedAccount);
+      res.json(FeedToolbarStateSchema.parse(payload));
+    } catch (error) {
+      console.error('Error resolving feed-toolbar-state:', error);
+      res.status(500).json({ error: 'Failed to resolve feed toolbar state' });
+    }
+  },
+);
 
 interface CategoriesQuery {
   account?: string;
