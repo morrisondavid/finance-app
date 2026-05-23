@@ -16,19 +16,35 @@ if ! aws ecr describe-repositories --repository-names "$BANK_APP_ECR_REPO_NAME" 
   aws ecr create-repository --repository-name "$BANK_APP_ECR_REPO_NAME"
 fi
 
-GIT_SHA="$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+docker build -t "$IMAGE_LOCAL" "${REPO_ROOT}"
 
-docker build \
-  --build-arg "BANK_APP_BUILD_GIT_COMMIT=${GIT_SHA}" \
-  --build-arg "BANK_APP_IMAGE_BUILT_AT=${BUILT_AT}" \
-  -t "$IMAGE_LOCAL" \
-  "${REPO_ROOT}"
+SOURCE_SHA_HEX="$(
+  docker run --rm "$IMAGE_LOCAL" node -e '
+    const fs = require("node:fs");
+    const j = JSON.parse(fs.readFileSync("/app/dist/source-hash.json", "utf8"));
+    console.log(j.value);
+  '
+)"
+TAG_SHORT="${SOURCE_SHA_HEX:0:12}"
+IMAGE_REMOTE_SRC="${REGISTRY}/${BANK_APP_ECR_REPO_NAME}:src-${TAG_SHORT}"
 
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
 docker tag "$IMAGE_LOCAL" "$IMAGE_REMOTE"
-docker push "$IMAGE_REMOTE"
+docker tag "$IMAGE_LOCAL" "$IMAGE_REMOTE_SRC"
 
-echo "Pushed: $IMAGE_REMOTE (git=${GIT_SHA} built=${BUILT_AT})"
-echo "Verify on host: curl -fsS https://<your-domain>/api/version"
-echo "On server: cd ~/bank-deploy-aws && ./09-docker-run-production.sh  (pull + S3 sync + docker run — or run copy-deploy-to-ec2.sh first if scripts changed)"
+docker push "$IMAGE_REMOTE"
+docker push "$IMAGE_REMOTE_SRC"
+
+echo "Pushed:"
+echo "  $IMAGE_REMOTE"
+echo "  $IMAGE_REMOTE_SRC  (immutable tag from dist/source-hash.json)"
+echo ""
+echo "  sourceSha256 (full hex): ${SOURCE_SHA_HEX}"
+echo ""
+echo "Verify on host:"
+HOST="${BANK_APP_PUBLIC_HOSTNAME:-<your-domain>}"
+echo "  curl -fsS https://${HOST}/api/version"
+echo ''
+echo 'On EC2 matching this image:'
+echo "[09] BANK_APP_IMAGE=\"${IMAGE_REMOTE_SRC}\" ./09-docker-run-production.sh"
+echo "  or keep :latest and compare JSON sourceSha256 to the hex printed above."

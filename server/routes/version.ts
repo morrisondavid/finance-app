@@ -1,5 +1,5 @@
 /**
- * Deploy verification: immutable build stamps from Docker `--build-arg` + package.json version.
+ * Deploy verification: package + deterministic `sourceSha256` fingerprint.
  */
 
 import express, { Request, Response } from 'express';

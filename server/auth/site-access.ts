@@ -1,7 +1,7 @@
 /**
  * Production site gate: Bearer token (automation / curl) or HttpOnly signed session cookie (browser).
  * Enable Banking OAuth callback stays allowlisted without prior session — same exemption for `/api/feed/truelayer/callback`.
- * `/api/version` is public for deploy/debug (package + git baked at Docker build — no secrets).
+ * `/api/version` is public for deploy/debug (package + `sourceSha256` fingerprint — no secrets).
  */
 
 import crypto from 'crypto';

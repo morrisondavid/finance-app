@@ -14,12 +14,6 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# Set by laptop `07-ecr-build-and-push.sh` — surfaced at runtime via GET /api/version
-ARG BANK_APP_BUILD_GIT_COMMIT=unknown
-ARG BANK_APP_IMAGE_BUILT_AT=unknown
-ENV BANK_APP_BUILD_GIT_COMMIT=${BANK_APP_BUILD_GIT_COMMIT}
-ENV BANK_APP_IMAGE_BUILT_AT=${BANK_APP_IMAGE_BUILT_AT}
-
 ENV NODE_ENV=production
 EXPOSE 3000
 

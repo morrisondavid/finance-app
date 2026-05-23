@@ -458,10 +458,15 @@ export const FeedToolbarStateSchema = z.discriminatedUnion('kind', [
 export type FeedToolbarState = z.infer<typeof FeedToolbarStateSchema>;
 
 /** GET /api/version — deploy/debug (no secrets). */
+export const SourceHashManifestKindSchema = z.enum(['built', 'runtime-computed']);
+export type SourceHashManifestKind = z.infer<
+  typeof SourceHashManifestKindSchema
+>;
+
 export const ApiVersionResponseSchema = z.object({
   packageVersion: z.string(),
-  gitCommit: z.string(),
-  imageBuiltAt: z.string(),
+  sourceSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  sourceHashManifest: SourceHashManifestKindSchema,
   nodeEnv: z.string(),
 });
 export type ApiVersionResponse = z.infer<typeof ApiVersionResponseSchema>;

@@ -17,3 +17,7 @@
 # Optional — override defaults from config.sh (`BANK_S3_DURABLE_BUCKET`/`PREFIX`).
 # `./09-docker-run-production.sh` always runs `aws s3 sync --delete` for durable dirs before `docker run`,
 # using these values plus `AWS_REGION` from config.
+
+# Optional — after `docker pull`, `09` compares the image `dist/source-hash.json` `.value` to this
+# (64-char lowercase hex from laptop `./07` output or from a known-good `GET /api/version`).
+# export BANK_EXPECT_SOURCE_SHA256=''

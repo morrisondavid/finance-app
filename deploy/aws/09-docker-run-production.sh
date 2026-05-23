@@ -33,7 +33,23 @@ if [[ "${REGISTRY}" == *".dkr.ecr."* ]]; then
   aws ecr get-login-password --region "${AWS_REGION}" | docker login --username AWS --password-stdin "${REGISTRY}"
 fi
 docker pull "${BANK_APP_IMAGE}"
+# "Image is up to date" from docker pull means ECR digest matches what this host already pulled — not a skipped deploy.
+DIGEST="$(docker image inspect "${BANK_APP_IMAGE}" --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
+if [[ -n "${DIGEST}" ]]; then
+  echo "[09] Registry digest for ${BANK_APP_IMAGE}: ${DIGEST}"
+else
+  echo "[09] Warning: could not read RepoDigests for ${BANK_APP_IMAGE} (inspect locally)." >&2
+fi
 
+if [[ -n "${BANK_EXPECT_SOURCE_SHA256:-}" ]]; then
+  echo '[09] Verifying BANK_EXPECT_SOURCE_SHA256 against /app/dist/source-hash.json …'
+  ACTUAL_HEX="$(docker run --rm "${BANK_APP_IMAGE}" node -e 'const fs=require("fs"); console.log(JSON.parse(fs.readFileSync("/app/dist/source-hash.json","utf8")).value);')"
+  if [[ "${ACTUAL_HEX}" != "${BANK_EXPECT_SOURCE_SHA256}" ]]; then
+    echo "[09] FATAL: expected sourceSha256 ${BANK_EXPECT_SOURCE_SHA256}; image contains ${ACTUAL_HEX}." >&2
+    exit 1
+  fi
+  echo "[09] sourceSha256 matches BANK_EXPECT_SOURCE_SHA256."
+fi
 export NODE_ENV=production
 
 BUCKET="${BANK_S3_DURABLE_BUCKET:-${BUCKET_DATA}}"

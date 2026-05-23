@@ -57,7 +57,18 @@ Requires buckets from `./01-s3-buckets.sh` and AWS CLI credentials (same profile
 3. Laptop: **`./07-ecr-build-and-push.sh`** (image needs `@aws-sdk` for targeted uploads).
 4. Laptop (**if `deploy/aws` scripts changed**): **`./deploy/aws/copy-deploy-to-ec2.sh`**
 5. EC2: **`cd ~/bank-deploy-aws`** → **`./09-docker-run-production.sh`** (ECR **`docker pull`** is built in; pulls **`:latest`** then S3 sync + **`docker run`**).
-6. Confirm logs show **`[09] Pulling`** / **`Image is up to date`** or **`Downloaded`**, **`[09] Syncing durable dirs`** (host), then **`[Database]`** in **`docker logs bank`**.
+6. Confirm logs show **`[09] Pulling`**, then either **`Downloaded newer image`** **or** **`Image is up to date`** (the latter only means this host’s Docker cache already matched the tag’s manifest digest—not a failed pull), then **`[09] Registry digest`** (copy to compare with laptop / ECR console), **`[09] Syncing durable dirs`** (host), then **`[Database]`** in **`docker logs bank`**.
+7. **Fingerprint parity:** **`GET /api/version`** returns JSON with **`packageVersion`**, **`sourceSha256`** (64-char lowercase hex from the shipped trees in [`Dockerfile`](../../Dockerfile) **`RUN npm run build`**), **`sourceHashManifest`** (**`built`** in production vs **`runtime-computed`** elsewhere), **`nodeEnv`**. See **[Verify deploy parity](#verify-deploy-parity-get-apiversion)**.
+
+**If you expected a new deploy but the registry digest / `sourceSha256` never changes:** confirm **`07`** **`docker push`** finished for **both** **`…:latest`** and **`…:src-<prefix>`** (immutable tag from `dist/source-hash.json`) with the same **`BANK_APP_ECR_REPO_NAME`**, account, and region as **`config.sh`** on the host; confirm you re-ran **`09`** after the push; check **`BANK_APP_IMAGE`** in **`production-env.local.sh`** is not pinning an old tag.
+
+### Verify deploy parity (`GET /api/version`)
+
+- **JSON, not HTML:** `curl -si "https://<hostname>/api/version"` should show **`Content-Type: application/json`**. If the body is **`index.html`**, the live container is almost certainly an **old image** (Express **`app.get('*')` SPA fallback before **`/api/version` existed**) or traffic is not reaching Express on **`:3000`**.
+- **Inside the container:** `docker exec bank wget -qO- http://127.0.0.1:3000/api/version` — same JSON; isolates TLS / Caddy.
+- **Match laptop build:** run **`./07-ecr-build-and-push.sh`** and copy the printed **full `sourceSha256`**; after **`09`**, the site’s **`sourceSha256`** must match (same checkout). **`07`** also pushes **`…:src-<first 12 hex chars>`** — set **`BANK_APP_IMAGE`** to that tag on the server for a pin that cannot float with **`:latest`**.
+- **ECR digest:** **`[09] Registry digest for …`** line — compare to your laptop’s **`docker image inspect <image> --format '{{index .RepoDigests 0}}'`** after push, or the ECR console manifest for the tag you run.
+- **Optional guard:** set **`BANK_EXPECT_SOURCE_SHA256`** (64-char hex) in **`production-env.local.sh`**; **`09`** **`docker pull`** then **`docker run --rm … node -e …`** verifies **`/app/dist/source-hash.json`** before S3 sync and starting the **`bank`** container. See [`production-env.local.example.sh`](production-env.local.example.sh).
 
 Optional legacy cron: **`11-s3-sync-push.sh`** only synced `data/` + `statements/` to legacy bucket layouts; **`09`** + targeted SDK uploads mirror the **full durable tree** under **`BANK_S3_DURABLE_PREFIX`** for new installs.
 
@@ -216,7 +227,7 @@ When **`BANK_SITE_ACCESS_SECRET`** is set on the container (pass via [`09-docker
 - **`Authorization: Bearer <BANK_SITE_ACCESS_SECRET>`** on `/api/*` (for `curl`, automation, AI HTTP clients — configure only in env / secrets managers, **never paste into chat**), **or**
 - An **HttpOnly session cookie** after signing in at **`/login.html`** (password defaults to the same secret unless **`BANK_SITE_LOGIN_PASSWORD`** is set).
 
-Always exempt without prior auth: **`GET /api/feed/enable/callback`** (Enable), **`GET /api/feed/truelayer/callback`** (TrueLayer OAuth redirect), and **`GET /api/version`** — JSON `{ packageVersion, gitCommit, imageBuiltAt, nodeEnv }` so you can confirm the deployed image matches what you built (see Docker `ARG` / `ENV` in the [`Dockerfile`](deploy/aws/../../Dockerfile) and [`07-ecr-build-and-push.sh`](07-ecr-build-and-push.sh)).
+Always exempt without prior auth: **`GET /api/feed/enable/callback`** (Enable), **`GET /api/feed/truelayer/callback`** (TrueLayer OAuth redirect), and **`GET /api/version`** — JSON **`{ packageVersion, sourceSha256, sourceHashManifest, nodeEnv }`** for deploy parity (see **`dist/source-hash.json`** produced by **`npm run build`** in the [`Dockerfile`](../../Dockerfile) and **`07-ecr-build-and-push.sh`**).
 
 Optional **`BANK_SITE_LOGIN_PASSWORD`**: human-facing login password only; Bearer tokens continue to use **`BANK_SITE_ACCESS_SECRET`** only.
 

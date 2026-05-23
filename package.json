@@ -9,7 +9,7 @@
     "dev": "lsof -ti:3000 -ti:5173 | xargs kill -9 2>/dev/null; concurrently \"npm run server\" \"sleep 3 && npm run vite\" --names \"backend,frontend\" --prefix-colors \"blue,green\"",
     "server": "lsof -ti:3000 | xargs kill -9 2>/dev/null; tsx watch server/index.ts",
     "vite": "lsof -ti:5173 | xargs kill -9 2>/dev/null; vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && tsx scripts/write-source-hash.ts",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
