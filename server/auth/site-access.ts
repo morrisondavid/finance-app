@@ -1,6 +1,7 @@
 /**
  * Production site gate: Bearer token (automation / curl) or HttpOnly signed session cookie (browser).
  * Enable Banking OAuth callback stays allowlisted without prior session — same exemption for `/api/feed/truelayer/callback`.
+ * `/api/version` is public for deploy/debug (package + git baked at Docker build — no secrets).
  */
 
 import crypto from 'crypto';
@@ -145,6 +146,9 @@ function isGateExemptApiPath(method: string, pathname: string): boolean {
   if (method === 'GET' && pathname === '/api/auth/session') {
     return true;
   }
+  if (method === 'GET' && pathname === '/api/version') {
+    return true;
+  }
   return false;
 }
 
@@ -201,7 +205,7 @@ export function createSiteAccessGateMiddleware(
 
 /**
  * When BANK_SITE_ACCESS_SECRET is set, require Bearer or valid session cookie for `/api/*`
- * except OAuth callback and auth bootstrap routes.
+ * except OAuth callback / auth bootstrap / `GET /api/version` (deploy stamp only).
  */
 export function siteAccessGateMiddleware(req: Request, res: Response, next: NextFunction): void {
   runSiteAccessGate(resolveSiteAccessConfig, req, res, next);

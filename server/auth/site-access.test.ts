@@ -109,6 +109,14 @@ describe('createSiteAccessGateMiddleware', () => {
     expect(next).toHaveBeenCalledTimes(1);
   });
 
+  it('allows GET /api/version without auth', () => {
+    const mw = createSiteAccessGateMiddleware(() => cfg);
+    const next = vi.fn();
+    const { res } = mockChain();
+    mw(mockReq({ method: 'GET', path: '/api/version', headers: {} }), res, next);
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
   it('allows POST /api/auth/site-login without auth', () => {
     const mw = createSiteAccessGateMiddleware(() => cfg);
     const next = vi.fn();

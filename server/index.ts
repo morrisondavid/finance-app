@@ -27,6 +27,7 @@ import aiRouter from './routes/ai.js';
 import incomeCompositionRouter from './routes/income-composition.js';
 import debtStrategyRouter from './routes/debt-strategy.js';
 import feedRouter from './routes/feed.js';
+import versionRouter from './routes/version.js';
 import siteAuthRouter from './routes/site-auth.js';
 import { siteAccessGateMiddleware } from './auth/site-access.js';
 import { normalizeAllFiles } from './utils/filename-normalizer.js';
@@ -52,6 +53,7 @@ if (isProduction) {
 
 // API routes
 app.use('/api/auth', siteAuthRouter);
+app.use('/api/version', versionRouter);
 app.use('/api/statements', statementsRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/upload', uploadRouter);

@@ -16,10 +16,19 @@ if ! aws ecr describe-repositories --repository-names "$BANK_APP_ECR_REPO_NAME" 
   aws ecr create-repository --repository-name "$BANK_APP_ECR_REPO_NAME"
 fi
 
-docker build -t "$IMAGE_LOCAL" "$REPO_ROOT"
+GIT_SHA="$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+docker build \
+  --build-arg "BANK_APP_BUILD_GIT_COMMIT=${GIT_SHA}" \
+  --build-arg "BANK_APP_IMAGE_BUILT_AT=${BUILT_AT}" \
+  -t "$IMAGE_LOCAL" \
+  "${REPO_ROOT}"
+
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
 docker tag "$IMAGE_LOCAL" "$IMAGE_REMOTE"
 docker push "$IMAGE_REMOTE"
 
-echo "Pushed: $IMAGE_REMOTE"
+echo "Pushed: $IMAGE_REMOTE (git=${GIT_SHA} built=${BUILT_AT})"
+echo "Verify on host: curl -fsS https://<your-domain>/api/version"
 echo "On server: cd ~/bank-deploy-aws && ./09-docker-run-production.sh  (pull + S3 sync + docker run — or run copy-deploy-to-ec2.sh first if scripts changed)"

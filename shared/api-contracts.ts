@@ -457,6 +457,15 @@ export const FeedToolbarStateSchema = z.discriminatedUnion('kind', [
 ]);
 export type FeedToolbarState = z.infer<typeof FeedToolbarStateSchema>;
 
+/** GET /api/version — deploy/debug (no secrets). */
+export const ApiVersionResponseSchema = z.object({
+  packageVersion: z.string(),
+  gitCommit: z.string(),
+  imageBuiltAt: z.string(),
+  nodeEnv: z.string(),
+});
+export type ApiVersionResponse = z.infer<typeof ApiVersionResponseSchema>;
+
 // GET /api/dashboard/transactions
 export const TransactionsResponseSchema = z.array(TransactionSchema);
 

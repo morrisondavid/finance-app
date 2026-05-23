@@ -216,7 +216,7 @@ When **`BANK_SITE_ACCESS_SECRET`** is set on the container (pass via [`09-docker
 - **`Authorization: Bearer <BANK_SITE_ACCESS_SECRET>`** on `/api/*` (for `curl`, automation, AI HTTP clients — configure only in env / secrets managers, **never paste into chat**), **or**
 - An **HttpOnly session cookie** after signing in at **`/login.html`** (password defaults to the same secret unless **`BANK_SITE_LOGIN_PASSWORD`** is set).
 
-Always exempt without prior auth: **`GET /api/feed/enable/callback`** (Enable) and **`GET /api/feed/truelayer/callback`** (TrueLayer OAuth redirect).
+Always exempt without prior auth: **`GET /api/feed/enable/callback`** (Enable), **`GET /api/feed/truelayer/callback`** (TrueLayer OAuth redirect), and **`GET /api/version`** — JSON `{ packageVersion, gitCommit, imageBuiltAt, nodeEnv }` so you can confirm the deployed image matches what you built (see Docker `ARG` / `ENV` in the [`Dockerfile`](deploy/aws/../../Dockerfile) and [`07-ecr-build-and-push.sh`](07-ecr-build-and-push.sh)).
 
 Optional **`BANK_SITE_LOGIN_PASSWORD`**: human-facing login password only; Bearer tokens continue to use **`BANK_SITE_ACCESS_SECRET`** only.
 
