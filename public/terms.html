@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Terms of use — Bank Statements</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 40rem;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      line-height: 1.5;
+      color: #1e293b;
+    }
+    h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+    p { margin: 0.65rem 0; font-size: 0.9375rem; }
+    ul { margin: 0.5rem 0; padding-left: 1.25rem; font-size: 0.9375rem; }
+    footer { margin-top: 2rem; font-size: 0.8125rem; color: #64748b; }
+    a { color: #0f172a; }
+  </style>
+</head>
+<body>
+  <h1>Terms of use</h1>
+  <p>
+    These terms describe use of this <strong>private financial dashboard application</strong> as deployed by its operator,
+    including optional connectivity through <strong>Enable Banking</strong> to authorised account-information services from your banks.
+    If you operate the deployment yourself, adapt this page for your trading name / legal entity before submitting URLs to regulators or aggregators.
+  </p>
+
+  <h2>Permitted use</h2>
+  <ul>
+    <li>The application is intended for <strong>authorised operators only</strong> (owner and delegated users).</li>
+    <li>You must not attempt to circumvent access controls (<code>BANK_SITE_ACCESS_SECRET</code> / session login where enabled).</li>
+    <li>Bank feeds may be used solely to ingest and analyse your own (or duly authorised undertaking) accounts in line with PSU consent granted at your bank.</li>
+  </ul>
+
+  <h2>Enable Banking connectivity</h2>
+  <p>
+    Linking flows redirect you to regulated consent screens operated by your bank (ASPSP) or intermediaries mandated by PSD2/Open Banking regimes.
+    You are responsible for the accuracy of data you reconcile in this application and for maintaining valid credentials/tokens according to Enable and bank rules.
+    Consent revocation happens at your bank or by removing linked sessions/configuration on your deployment as applicable.
+  </p>
+
+  <h2>No warranty</h2>
+  <p>
+    The application is supplied <strong>as-is</strong> for personal or internal business bookkeeping. Figures, tax classifications, forecasts, and summaries
+    are not professional financial or tax advice. Verify against original bank records before relying on outputs for HMRC, Companies House, filings, or credit decisions.
+  </p>
+
+  <h2>Limitation</h2>
+  <p>
+    To the maximum extent permitted by law, operators and contributors are not liable for indirect losses, feed outages, reconciliation errors,
+    or data loss where adequate backups were not maintained. Operators should insure and govern their deployments accordingly.
+  </p>
+
+  <h2>Changes</h2>
+  <p>
+    Policies and application behaviour may evolve; substantive changes affecting privacy or consent should refresh the dated footer on companion pages and,
+    where required, be reflected in aggregator registration artefacts.
+  </p>
+
+  <footer>Deployed instance — operator should customise entity name and jurisdictional carve-outs where needed.</footer>
+</body>
+</html>

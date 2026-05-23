@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy notice — Bank Statements</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 40rem;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      line-height: 1.5;
+      color: #1e293b;
+    }
+    h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+    p { margin: 0.65rem 0; font-size: 0.9375rem; }
+    ul { margin: 0.5rem 0; padding-left: 1.25rem; font-size: 0.9375rem; }
+    footer { margin-top: 2rem; font-size: 0.8125rem; color: #64748b; }
+    a { color: #0f172a; }
+  </style>
+</head>
+<body>
+  <h1>Privacy notice</h1>
+  <p>
+    This site is operated for <strong>private use</strong> (owner and authorised operators only).
+    By using bank account linking or automated feeds powered by Enable Banking,
+    you should understand how data is handled.
+  </p>
+
+  <h2>What we process</h2>
+  <p>
+    Where you consent through your bank&apos;s authorised interface, we retrieve
+    <strong>account information</strong> (including transaction histories) via Enable Banking acting
+    as a technical aggregator under applicable open banking regulations. Processing is limited to what
+    is needed to run this application (aggregation, bookkeeping views, exports you trigger).
+  </p>
+
+  <h2>Who receives data</h2>
+  <ul>
+    <li><strong>This application</strong> — data is stored on infrastructure you control (e.g. your server or device)
+      as configured by the deployment.</li>
+    <li><strong>Enable Banking</strong> — facilitates the regulated connection between you and your bank.</li>
+    <li><strong>Your ASPSP (bank)</strong> — holds your account data origin; access is gated by their consent flows.</li>
+  </ul>
+  <p>
+    There is no sale of personal data and no behavioural advertising powered by linked account data within this application.
+    Any subprocessors beyond Enable and your bank should be documented by your deployment operator if they apply
+    (e.g. cloud hosting regions).
+  </p>
+
+  <h2>Retention</h2>
+  <p>
+    Exported statements and ledger data retained on disk are governed by operator practice and backup policies.
+    You may delete synced files and linked sessions on your deployment when you choose; consult your deployment guide.
+  </p>
+
+  <h2>Legal basis (UK/EU framing)</h2>
+  <p>
+    For regulated account information services, lawful grounds typically include consent given at your bank&apos;s PSU
+    interface and legitimate interests where applicable to operate the application you run for yourself or your undertaking.
+    This notice is illustrative; tailor it if you widen access beyond private use or change jurisdiction.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    For queries about how <em>your</em> deployment handles data, contact the site operator hosting this instance.
+    For Enable Banking-specific processing practices, consult Enable Banking&apos;s own documentation appropriate to your jurisdiction.
+  </p>
+
+  <footer>Last reviewed: deployment operator should bump this paragraph when materially changing flows.</footer>
+</body>
+</html>

@@ -40,5 +40,5 @@ deploy/aws/env.local.sh
 deploy/aws/production-env.local.sh
 deploy/aws/.elastic-ip
 
-# Enable ASPSP list dumps (regenerate: npx tsx scripts/enable-banking-link.ts aspsps GB > aspsps-gb.json)
+# Enable ASPSP list dumps (regenerate: npm run enable-banking -- aspsps GB --out aspsps-gb.json)
 aspsps-*.json

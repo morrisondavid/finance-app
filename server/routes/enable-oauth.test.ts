@@ -113,7 +113,34 @@ describe('POST /api/feed/enable/start', () => {
       expect.objectContaining({
         country: 'ES',
         aspspName: 'Mock ASPSP',
+        psuType: 'personal',
         state: 'csrf-nonce',
+        redirectUrl: 'http://127.0.0.1:3000/api/feed/enable/callback',
+      }),
+    );
+  });
+
+  it('defaults psuType to business when account category is business', async () => {
+    hoisted.createEnableOAuthState.mockReturnValue('csrf-barclays');
+    hoisted.fetchEnableAuthRedirectUrl.mockResolvedValue('https://enable.example.com/psu');
+
+    const res = await fetch(`${baseUrl}/api/feed/enable/start`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        account: 'barclays-current',
+        country: 'GB',
+        aspspName: 'Barclays Business',
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(hoisted.fetchEnableAuthRedirectUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        country: 'GB',
+        aspspName: 'Barclays Business',
+        psuType: 'business',
+        state: 'csrf-barclays',
         redirectUrl: 'http://127.0.0.1:3000/api/feed/enable/callback',
       }),
     );

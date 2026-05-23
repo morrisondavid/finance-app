@@ -155,6 +155,56 @@ If **`aws s3 sync`** in **09** reports **`Permission denied`** under **`/opt/ban
 
 Optional backup cron: **`11-s3-sync-push.sh`** (needs instance profile / AWS creds on host).
 
+## Enable Banking (registration, ASPSPs, Barclays live feed)
+
+Use this when onboarding a **live** Enable Banking application and linking **Barclays business** (`barclays-current`) via the bundled Enable integration ([`server/routes/feed.ts`](deploy/aws/../server/routes/feed.ts), [`scripts/enable-banking-link.ts`](deploy/aws/../scripts/enable-banking-link.ts)).
+
+### Policy URLs for Enable Banking application registration
+
+After `npm run build` and Docker deploy, hosted static pages (readable without Bearer or cookie—they are outside `/api/*`):
+
+| Page | Typical production URL |
+|------|--------------------------|
+| Privacy | `https://<your-public-host>/privacy.html` |
+| Terms | `https://<your-public-host>/terms.html` |
+
+Customise [`public/privacy.html`](deploy/aws/../public/privacy.html) and [`public/terms.html`](deploy/aws/../public/terms.html) for your legal entity before submitting to Enable.
+
+### Operators: dump ASPSP directory JSON (`aspsps-*.json`)
+
+From **repo root** with `ENABLE_BANKING_APP_ID`, private key, and **`ENABLE_BANKING_API_BASE`** unset for production API (unless you intentionally use sandbox):
+
+```bash
+npm run enable-banking -- aspsps GB --out aspsps-gb.json
+```
+
+Outputs are **`gitignored`** (pattern `aspsps-*.json`) and are **not** copied into Docker images unless you add an explicit bake step—they are laptop/operator artefacts for discovering the **`name`** Enable expects when calling **`POST /auth`**.
+
+Discover **Barclays Business**: open the dump and locate the Barclays **business** entry; copy its **`name`** string exactly into `POST /api/feed/enable/start` **`aspspName`** (or **`aispFeed.enableBanking.institutionHint.institutionName`** in [`server/domain/accounts/data.ts`](deploy/aws/../server/domain/accounts/data.ts)).
+
+### Operator checklist — Enable control panel (`enable-prod-console`)
+
+1. Production app id aligned with **`ENABLE_BANKING_APP_ID`** on the container.
+2. **Redirect URL whitelist:** `https://<your-domain>/api/feed/enable/callback` (= **`ENABLE_BANKING_REDIRECT_URL`**).
+3. Public key paired with PEM at **`ENABLE_BANKING_PRIVATE_KEY_PATH`** on the host.
+4. **Privacy + terms URLs** pointing at **`/privacy.html`** and **`/terms.html`**.
+5. **Live** access to Barclays UK ASPSPs (not sandbox-only), if gated by Enable.
+
+### Operator checklist — production env (`prod-env-caddy`)
+
+[`09-docker-run-production.sh`](09-docker-run-production.sh): **`ENABLE_BANKING_APP_ID`**, **`ENABLE_BANKING_REDIRECT_URL`**, **`ENABLE_BANKING_PRIVATE_KEY_PATH`**; Caddy terminates HTTPS on the hostname that matches whitelist.
+
+### Link once (`link-flow`)
+
+1. Authenticate **`/api/*`** (`/login.html` cookie or **`Authorization: Bearer`**).
+2. **`POST /api/feed/enable/start`** JSON e.g. `{ "account":"barclays-current", "country":"GB", "aspspName":"<exact from dump>" }` — **`psuType` defaults to `business`** for business-category accounts ([`enable-oauth.ts`](deploy/aws/../server/routes/enable-oauth.ts)); override explicitly if needed.
+3. Open returned **`url`**, finish bank consent → **`GET /api/feed/enable/callback`**.
+4. If a single PSU account is linked, **`data/enable-account-links.csv`** receives the UID; else map UID manually using the UID list rendered by the **`GET /api/feed/enable/callback`** HTML response ([`enable-oauth.ts`](deploy/aws/../server/routes/enable-oauth.ts)).
+
+### First automated sync (`feed-sync-verify`)
+
+`POST /api/feed/sync` with `{ "account":"barclays-current", "dateFrom":"YYYY-MM-DD" [, "force": true ] }`. Confirm new CSV under **`statements/barclays-current/csv/`** after container logs show ingest.
+
 ## HTTPS + Enable
 
 - Caddyfile hostname: **finances.traxiproducts.com** (see [`caddy/Caddyfile.example`](caddy/Caddyfile.example)).

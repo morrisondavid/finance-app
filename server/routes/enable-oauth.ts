@@ -46,7 +46,8 @@ router.post('/enable/start', async (req: Request, res: Response) => {
   const hint = cfg.aispFeed?.enableBanking?.institutionHint;
   const country = bodyCountry ?? hint?.country;
   const aspspName = bodyAspsp ?? hint?.institutionName;
-  const psuType = bodyPsu ?? 'personal';
+  const defaultPsu = cfg.category === 'business' ? 'business' : 'personal';
+  const psuType = bodyPsu ?? defaultPsu;
 
   if (country === undefined || country.length !== 2) {
     res.status(400).json({

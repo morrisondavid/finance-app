@@ -11,6 +11,8 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'public/index.html'),
         login: path.resolve(__dirname, 'public/login.html'),
+        privacy: path.resolve(__dirname, 'public/privacy.html'),
+        terms: path.resolve(__dirname, 'public/terms.html'),
       },
     },
   },

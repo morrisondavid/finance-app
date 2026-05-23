@@ -11,6 +11,8 @@
 
 import { randomUUID } from 'crypto';
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
 import { z } from 'zod';
 import { loadEnvLocal } from '../server/load-env-local.js';
 import {
@@ -50,7 +52,17 @@ function authHeaders(): { Authorization: string; Accept: string } {
   };
 }
 
-async function cmdAspsps(country: string): Promise<void> {
+function writeUtf8Atomic(filePath: string, content: string): void {
+  const dir = path.dirname(filePath);
+  const tmp = `${filePath}.${String(process.pid)}.tmp`;
+  if (dir !== '.' && dir !== '') {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  fs.writeFileSync(tmp, content, 'utf-8');
+  fs.renameSync(tmp, filePath);
+}
+
+async function cmdAspsps(country: string, outPath?: string): Promise<void> {
   const base = resolveEnableApiBase();
   const r = await fetch(`${base}/aspsps?country=${encodeURIComponent(country)}`, {
     headers: authHeaders(),
@@ -60,7 +72,14 @@ async function cmdAspsps(country: string): Promise<void> {
     console.error(`HTTP ${String(r.status)}: ${text}`);
     process.exit(1);
   }
-  console.log(JSON.stringify(JSON.parse(text) as unknown, null, 2));
+  const pretty = `${JSON.stringify(JSON.parse(text) as unknown, null, 2)}\n`;
+  if (outPath !== undefined && outPath.trim() !== '') {
+    const resolved = path.resolve(process.cwd(), outPath.trim());
+    writeUtf8Atomic(resolved, pretty);
+    console.error(`Wrote ${resolved}`);
+    return;
+  }
+  console.log(pretty.trimEnd());
 }
 
 async function cmdAuth(opts: {
@@ -226,7 +245,7 @@ function printHelp(): void {
   console.log(`enable-banking-link — Enable Banking operator CLI (consent + session file)
 
 Commands:
-  npm run enable-banking -- aspsps <CC>           List ASPSPs (ISO country 2-letter, e.g. GB)
+  npm run enable-banking -- aspsps <CC> [--out PATH]   Dump ASPSP directory JSON (omit --out → stdout). Files like aspsps-*.json are gitignored.
   npm run enable-banking -- callback-server       Local redirect listener (see env below)
   npm run enable-banking -- auth --country CC --aspsp-name "Name" [--psu-type personal] [--state uuid]
   npm run enable-banking -- session --code <CODE> [--merge]
@@ -273,6 +292,23 @@ function parseAuthArgs(args: readonly string[]): {
   return { country, aspspName, psuType, state };
 }
 
+function parseAspspsArgs(args: readonly string[]): { country: string; outPath?: string } {
+  let country = 'GB';
+  let outPath: string | undefined;
+  let idx = 0;
+  if (args.length > 0 && args[0] !== undefined && !args[0].startsWith('--')) {
+    country = args[0];
+    idx = 1;
+  }
+  for (let i = idx; i < args.length; i++) {
+    const a = args[i];
+    if ((a === '--out' || a === '-o') && args[i + 1] !== undefined) {
+      outPath = args[++i] ?? '';
+    }
+  }
+  return { country, outPath: outPath?.trim() === '' ? undefined : outPath };
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const cmd = argv[0];
@@ -282,9 +318,11 @@ async function main(): Promise<void> {
   }
 
   switch (cmd) {
-    case 'aspsps':
-      await cmdAspsps(argv[1] ?? 'GB');
+    case 'aspsps': {
+      const { country, outPath } = parseAspspsArgs(argv.slice(1));
+      await cmdAspsps(country, outPath);
       break;
+    }
     case 'callback-server':
       cmdCallbackServer();
       break;
