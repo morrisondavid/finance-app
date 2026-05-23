@@ -107,8 +107,16 @@ export const DashboardEnableBankingFeedSchema = z.object({
   feedCurrency: AispFeedCurrencyCodeSchema.optional(),
 });
 
+/** Mirrors `TrueLayerFeedConfigSchema` on the dashboard surface */
+export const DashboardTrueLayerFeedSchema = z.object({
+  dataAccountId: z.string().min(1).optional(),
+  providerId: z.string().min(1).optional(),
+  feedCurrency: AispFeedCurrencyCodeSchema.optional(),
+});
+
 export const DashboardAispFeedSchema = z.object({
   enableBanking: DashboardEnableBankingFeedSchema.optional(),
+  trueLayer: DashboardTrueLayerFeedSchema.optional(),
 });
 
 export const AccountConfigSchema = z.object({
@@ -1356,6 +1364,18 @@ export const EnableFeedStartResponseSchema = z.object({
   state: z.string().min(1),
 });
 export type EnableFeedStartResponse = z.infer<typeof EnableFeedStartResponseSchema>;
+
+export const TrueLayerFeedStartBodySchema = z.object({
+  account: AccountNameSchema,
+  /** Overrides `aispFeed.trueLayer.providerId` when set */
+  providerId: z.string().min(1).optional(),
+  /** ISO 3166-1 alpha-2; defaults via auth link (`country_id`) when omitted */
+  countryId: z.string().length(2).optional(),
+});
+export type TrueLayerFeedStartBody = z.infer<typeof TrueLayerFeedStartBodySchema>;
+
+export const TrueLayerFeedStartResponseSchema = EnableFeedStartResponseSchema;
+export type TrueLayerFeedStartResponse = z.infer<typeof TrueLayerFeedStartResponseSchema>;
 
 export const FeedSyncIngestOutcomeSchema = z.enum(['ingested', 'invalid', 'duplicate']);
 export type FeedSyncIngestOutcome = z.infer<typeof FeedSyncIngestOutcomeSchema>;

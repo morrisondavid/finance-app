@@ -3,13 +3,14 @@
  * the MCP tool, and any future CLI all funnel through.
  *
  * Pipeline:
- *   1. {@link requireLinkedAccount} — read `AccountConfig.aispFeed.enableBanking.accountId`
- *      and `PARSERS[account].emitFeedTransactionsAsCsv`. Throw a typed
- *      error if either is missing so callers surface a 4xx, not a 500.
+ *   1. {@link requireLinkedFeed} — assert `emitFeedTransactionsAsCsv`,
+ *      then pick Enable vs TrueLayer: **TrueLayer** when `dataAccountId` plus
+ *      a stored refresh token exist; otherwise **Enable** when
+ *      `enableBanking.accountId` is set; else `'not-linked'`.
  *   2. {@link resolveWindow} — pure: intersect the requested window with
  *      what's already on disk. Skip the AISP call entirely when there is
  *      nothing new to fetch.
- *   3. `fetchEnableTransactions` (the only AISP today) — yields
+ *   3. `fetchEnableTransactions` or `fetchTrueLayerTransactions` — yields
  *      `InternalFeedTransactions`.
  *   4. `parser.emitFeedTransactionsAsCsv` — back to bank-shaped CSV.
  *   5. `fs.writeFileSync(os.tmpdir()/feed_<from>_<to>.csv, csv)`.
@@ -43,6 +44,8 @@ import {
   type IngestResult,
 } from '../ingest-csv-file.js';
 import { fetchEnableTransactions as defaultFetchEnableTransactions } from './enable-banking.js';
+import { fetchTrueLayerTransactions as defaultFetchTrueLayerTransactions } from './truelayer/truelayer-transactions.js';
+import { getTrueLayerRefreshToken } from './truelayer/truelayer-tokens.js';
 import type { InternalFeedTransactions } from './model.js';
 import { uploadDurableRelPathsToS3 } from '../../storage/s3-durable-sync.js';
 
@@ -60,25 +63,23 @@ export class FeedSyncError extends Error {
   }
 }
 
-export interface RequiredAccount {
+export interface LinkedFeed {
   readonly config: AccountConfig;
   readonly parser: BankParser;
-  /** UUID copied from Enable Banking after the link flow. */
-  readonly enableAccountId: string;
+  readonly feedCurrency: string;
+  readonly provider: 'truelayer' | 'enable';
+  readonly enable?: { readonly enableAccountId: string };
+  readonly trueLayer?: { readonly dataAccountId: string };
 }
 
 /**
- * Throw early when the account isn't ready for an automated sync.
+ * Throw early when the account isn't ready for an automated sync — or resolve
+ * the active AISP adapter + book / feed currency.
  *
- * Two failure modes — both reported as typed errors:
- *   - `'not-linked'`: `AccountConfig.aispFeed.enableBanking.accountId`
- *     has not been populated. Operator must complete the bank-link flow
- *     and copy the resulting Enable UUID into `data.ts`.
- *   - `'no-emitter'`: the parser for this account has not implemented
- *     `emitFeedTransactionsAsCsv`. Implement it (or remove the
- *     `aispFeed` slice) before retrying.
+ * **`not-linked`** when neither TrueLayer (`dataAccountId` + refresh token)
+ * nor Enable (`accountId`) is sufficiently configured.
  */
-export function requireLinkedAccount(account: AccountName): RequiredAccount {
+export function requireLinkedFeed(account: AccountName): LinkedFeed {
   let config: AccountConfig;
   try {
     config = getAccountConfig(account);
@@ -91,14 +92,6 @@ export function requireLinkedAccount(account: AccountName): RequiredAccount {
     throw new FeedSyncError('unknown-account', `No parser configured for account: ${account}`);
   }
 
-  const enableAccountId = config.aispFeed?.enableBanking?.accountId;
-  if (enableAccountId === undefined || enableAccountId.trim() === '') {
-    throw new FeedSyncError(
-      'not-linked',
-      `Account ${account} is not linked to an Enable Banking account; set enable_account_id in data/enable-account-links.csv (or aispFeed.enableBanking.accountId in data.ts) after completing the bank-link flow`,
-    );
-  }
-
   if (parser.emitFeedTransactionsAsCsv === undefined) {
     throw new FeedSyncError(
       'no-emitter',
@@ -106,8 +99,48 @@ export function requireLinkedAccount(account: AccountName): RequiredAccount {
     );
   }
 
-  return { config, parser, enableAccountId };
+  const enableAccountIdRaw = config.aispFeed?.enableBanking?.accountId;
+  const enableAccountId = enableAccountIdRaw?.trim() ?? '';
+
+  const dataAccountIdRaw = config.aispFeed?.trueLayer?.dataAccountId;
+  const dataAccountId = dataAccountIdRaw?.trim() ?? '';
+
+  const refreshTokenRow = getTrueLayerRefreshToken(account);
+  const hasTlRefresh = refreshTokenRow !== undefined && refreshTokenRow.trim() !== '';
+
+  const ebReady = enableAccountId !== '';
+  const tlReady = dataAccountId !== '' && hasTlRefresh;
+
+  const feedCurrencyFromEb = config.aispFeed?.enableBanking?.feedCurrency;
+  const feedCurrencyFromTl = config.aispFeed?.trueLayer?.feedCurrency;
+
+  if (tlReady) {
+    return {
+      config,
+      parser,
+      provider: 'truelayer',
+      feedCurrency:
+        feedCurrencyFromTl ?? feedCurrencyFromEb ?? config.currency,
+      trueLayer: { dataAccountId },
+    };
+  }
+
+  if (ebReady) {
+    return {
+      config,
+      parser,
+      provider: 'enable',
+      feedCurrency: feedCurrencyFromEb ?? config.currency,
+      enable: { enableAccountId },
+    };
+  }
+
+  throw new FeedSyncError(
+    'not-linked',
+    `Account ${account} is not linked for feed sync — either: (Enable) set enable_account_id in data/enable-account-links.csv (or aispFeed.enableBanking.accountId) after bank consent; or (TrueLayer) POST /api/feed/truelayer/start then set trueLayer_account_id in data/truelayer-account-links.csv (or aispFeed.trueLayer.dataAccountId) so it matches TrueLayer Console`,
+  );
 }
+
 
 export interface ResolveWindowResult {
   readonly dateFrom: string;
@@ -206,8 +239,10 @@ export interface RunFeedSyncOptions {
 }
 
 export interface RunFeedSyncDeps {
-  /** Override the AISP call (tests inject a fake to avoid real HTTP). */
-  readonly fetchTransactions?: typeof defaultFetchEnableTransactions;
+  /** Override the Enable Banking adapter (tests inject a fake). */
+  readonly fetchEnableTransactions?: typeof defaultFetchEnableTransactions;
+  /** Override TrueLayer fetching (parallel to Enable). */
+  readonly fetchTrueLayerTransactions?: typeof defaultFetchTrueLayerTransactions;
   /** Override the shared ingest saga (tests can isolate from the real `statements/`). */
   readonly ingestCsvFile?: typeof defaultIngestCsvFile;
   /** Override the DB rebuild (tests skip the heavy reload). */
@@ -231,7 +266,9 @@ export async function runFeedSync(
   opts: RunFeedSyncOptions,
   deps: RunFeedSyncDeps = {},
 ): Promise<FeedSyncResponse> {
-  const fetchTx = deps.fetchTransactions ?? defaultFetchEnableTransactions;
+  const fetchEnable = deps.fetchEnableTransactions ?? defaultFetchEnableTransactions;
+  const fetchTrueLayer =
+    deps.fetchTrueLayerTransactions ?? defaultFetchTrueLayerTransactions;
   const ingest = deps.ingestCsvFile ?? defaultIngestCsvFile;
   const dbReinit = deps.initDatabase ?? defaultInitDatabase;
   const statementsDir = deps.statementsDir ?? STATEMENTS_DIR;
@@ -240,7 +277,7 @@ export async function runFeedSync(
   const findLatest = deps.findLatestCsvDate
     ?? ((acc: AccountName, p: BankParser) => findLatestCsvDate(acc, p, statementsDir));
 
-  const linked = requireLinkedAccount(account);
+  const linked = requireLinkedFeed(account);
 
   const latestCsvDate = findLatest(account, linked.parser);
   const window = resolveWindow(
@@ -262,16 +299,31 @@ export async function runFeedSync(
     };
   }
 
-  const feedCurrency =
-    linked.config.aispFeed?.enableBanking?.feedCurrency ?? linked.config.currency;
+  const feedCurrency = linked.feedCurrency;
 
-  const internal: InternalFeedTransactions = await fetchTx({
-    account,
-    enableAccountId: linked.enableAccountId,
-    dateFrom: window.dateFrom,
-    dateTo: window.dateTo,
-    currency: feedCurrency,
-  });
+  let internal: InternalFeedTransactions;
+  if (linked.provider === 'truelayer' && linked.trueLayer !== undefined) {
+    internal = await fetchTrueLayer({
+      account,
+      trueLayerAccountId: linked.trueLayer.dataAccountId,
+      dateFrom: window.dateFrom,
+      dateTo: window.dateTo,
+      currency: feedCurrency,
+    });
+  } else if (linked.provider === 'enable' && linked.enable !== undefined) {
+    internal = await fetchEnable({
+      account,
+      enableAccountId: linked.enable.enableAccountId,
+      dateFrom: window.dateFrom,
+      dateTo: window.dateTo,
+      currency: feedCurrency,
+    });
+  } else {
+    throw new FeedSyncError(
+      'not-linked',
+      `Account ${account}: internal routing error — no AISP adapter selected`,
+    );
+  }
 
   // Adapter returned no rows — no CSV to write, no DB to rebuild. Skip
   // the rest of the pipeline rather than emit an empty file that would
@@ -288,7 +340,7 @@ export async function runFeedSync(
     };
   }
 
-  // Bang-safe: requireLinkedAccount above already verified the emitter
+  // Bang-safe: requireLinkedFeed above already verified the emitter
   // exists, but TypeScript can't carry that proof through the `linked`
   // alias without a local guard. Call the method directly (rather than
   // detaching it into a local) so its `this` binding is preserved —
@@ -296,7 +348,7 @@ export async function runFeedSync(
   if (linked.parser.emitFeedTransactionsAsCsv === undefined) {
     throw new FeedSyncError(
       'no-emitter',
-      `Parser for ${account} does not implement emitFeedTransactionsAsCsv (lost between requireLinkedAccount and emit)`,
+      `Parser for ${account} does not implement emitFeedTransactionsAsCsv (lost between requireLinkedFeed and emit)`,
     );
   }
   const csv = linked.parser.emitFeedTransactionsAsCsv(internal);

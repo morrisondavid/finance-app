@@ -55,6 +55,7 @@ done
 mkdir -p "${DEST_ROOT}/data"
 aws s3 sync "${REMOTE_BASE}/data/" "${DEST_ROOT}/data/" --region "${AWS_REGION}" --delete \
   --exclude 'enable-sessions.json' \
+  --exclude 'truelayer-tokens.local.json' \
   --exclude 'transactions.db*'
 
 rm -f \
@@ -83,6 +84,12 @@ docker run -d --name bank --restart unless-stopped \
   -e ENABLE_BANKING_APP_ID \
   -e ENABLE_BANKING_REDIRECT_URL \
   -e "ENABLE_BANKING_PRIVATE_KEY_PATH=/opt/bank-app/secrets/enable-banking-private.pem" \
+  -e TRUELAYER_CLIENT_ID \
+  -e TRUELAYER_CLIENT_SECRET \
+  -e TRUELAYER_REDIRECT_URL \
+  -e TRUELAYER_AUTH_BASE \
+  -e TRUELAYER_API_BASE \
+  -e TRUELAYER_END_USER_EMAIL \
   -e AWS_REGION \
   -e "AWS_DEFAULT_REGION=${AWS_REGION}" \
   -e "BANK_S3_DURABLE_BUCKET=${BUCKET}" \

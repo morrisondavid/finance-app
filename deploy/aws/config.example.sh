@@ -42,3 +42,8 @@ export BANK_APP_PUBLIC_HOSTNAME="finances.traxiproducts.com"
 # Enable Banking (same as .env.local ENABLE_BANKING_APP_ID)
 export ENABLE_BANKING_APP_ID=""
 export ENABLE_BANKING_REDIRECT_URL="https://finances.traxiproducts.com/api/feed/enable/callback"
+
+# TrueLayer — uncomment when using TL alongside Enable (client_secret often exported only from production-env.local.sh)
+# export TRUELAYER_CLIENT_ID=""
+# export TRUELAYER_CLIENT_SECRET=""
+# export TRUELAYER_REDIRECT_URL="https://finances.traxiproducts.com/api/feed/truelayer/callback"

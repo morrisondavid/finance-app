@@ -69,6 +69,22 @@ describe('createSiteAccessGateMiddleware', () => {
     expect(next).toHaveBeenCalledTimes(1);
   });
 
+  it('allows TrueLayer OAuth callback without auth', () => {
+    const mw = createSiteAccessGateMiddleware(() => cfg);
+    const next = vi.fn();
+    const { res } = mockChain();
+    mw(
+      mockReq({
+        method: 'GET',
+        path: '/api/feed/truelayer/callback',
+        headers: {},
+      }),
+      res,
+      next,
+    );
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
   it('allows Enable Banking OAuth callback without auth', () => {
     const mw = createSiteAccessGateMiddleware(() => cfg);
     const next = vi.fn();

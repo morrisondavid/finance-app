@@ -19,6 +19,7 @@ import {
   isCrossAccountBusinessToBusinessTransfer,
 } from './queries.js';
 import * as enableLinks from '../../ingestion/feeds/enable-account-links-csv.js';
+import * as tlLinks from '../../ingestion/feeds/truelayer-account-links-csv.js';
 import { makeTestAccountsRegistry } from './fixtures.js';
 import { buildAccountsRegistry } from './registry.js';
 import { ACCOUNT_CONFIG_DATA } from './data.js';
@@ -91,9 +92,26 @@ describe('getAccountConfig / isBusinessConfig', () => {
     expect(cfg.aispFeed?.enableBanking?.institutionHint?.country).toBe('ES');
     spy.mockRestore();
   });
-});
 
-describe('isBusinessAccount', () => {
+  it('overrides trueLayer.dataAccountId when truelayer-account-links.csv has a row', () => {
+    const subReg = makeTestAccountsRegistry({
+      'barclays-current': {
+        ...ACCOUNT_CONFIG_DATA['barclays-current'],
+        aispFeed: {
+          ...ACCOUNT_CONFIG_DATA['barclays-current'].aispFeed,
+          trueLayer: { providerId: 'ob-barclays', dataAccountId: 'from-ts' },
+        },
+      },
+    });
+    const spy = vi.spyOn(tlLinks, 'getTrueLayerAccountIdFromFile');
+    spy.mockImplementation((acct: AccountName) =>
+      acct === 'barclays-current' ? 'from-csv-tl' : undefined,
+    );
+    const cfg = getAccountConfig('barclays-current', subReg);
+    expect(cfg.aispFeed?.trueLayer?.dataAccountId).toBe('from-csv-tl');
+    expect(cfg.aispFeed?.trueLayer?.providerId).toBe('ob-barclays');
+    spy.mockRestore();
+  });
   it('returns true for business accounts', () => {
     expect(isBusinessAccount('barclays-current', reg)).toBe(true);
     expect(isBusinessAccount('emirates-islamic', reg)).toBe(true);

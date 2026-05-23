@@ -22,7 +22,9 @@ cp config.example.sh config.sh   # first time only
 - **`data/transactions.db`** (and `-wal`/`-shm`) are **not** sources of truth and **must not** be treated as backup objects in S3. The host **`09`** script **`--exclude`s** `transactions.db*` on **`data/`** sync and **`rm -f`s** any local SQLite files under the bind mount before starting Docker so the container always rebuilds the DB from CSVs. **`12-s3-seed-durable-from-local.sh`** also excludes `transactions.db*` from upload.
 - **One-time bucket hygiene:** if older syncs left **`…/data/transactions.db*`** in the bucket, remove them so nobody restores SQLite by mistake (ops task; not automated).
 - **Pull:** [`09-docker-run-production.sh`](09-docker-run-production.sh) stops the **`bank`** container first (so SQLite releases files on the mounts), runs **`aws s3 sync … --delete`** from S3 **per durable top-level folder** under **`/opt/bank-app`** (same list as **`DURABLE_TOP_LEVEL_DIRS`** in TypeScript plus **`data/`**), then **`docker run`**. The instance **needs [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)** on PATH; IAM uses the instance profile. **`--delete`** removes files under those subtrees only if they were removed remotely (nothing under **`/opt/bank-app/secrets/`** — not in sync list — is touched by sync).
-- **`data/enable-sessions.json`** is excluded from **`data/`** sync (Enable OAuth blobs stay server-local for a single EC2 writer). **Portable financial CSVs are not portable live OAuth session state:** if you run multiple app instances (Lambda/Fargate, `desiredCount > 1`), you need a **single shared, strongly consistent store** for refresh tokens (S3 conditional writes, DynamoDB, etc.) — see **Multi-instance Enable Banking** below.
+- **`data/enable-sessions.json`** is excluded from **`data/`** sync (Enable OAuth blobs stay server-local for a single EC2 writer).
+- **`data/truelayer-tokens.local.json`** is excluded from **`data/`** sync (TrueLayer refresh tokens — same “server-local OAuth material” semantics as Enable).
+- **Portable financial CSVs are not portable live OAuth session state:** if you run multiple app instances (Lambda/Fargate, `desiredCount > 1`), you need a **single shared, strongly consistent store** for refresh tokens (S3 conditional writes, DynamoDB, etc.) — see **Multi-instance Enable Banking** below.
 - **Push:** when **`BANK_S3_DURABLE_BUCKET`** is set, the Node process **uploads only the repo paths touched** by a mutation (CSV ingest, feed sync, opening-balance updates, warning user-state CSV, etc.), plus **`data/manifest.json`** after a full rebuild, via `@aws-sdk` PutObject. There is **no** periodic or shutdown bulk push. Omit the bucket env on your laptop → no pushes during dev.
 
 **Container init:** **`09`** sets **`BANK_STATEMENTS_SKIP_INIT_WHEN_MANIFEST_UNCHANGED=0`** so production always runs a **full SQLite rebuild** after sync (deterministic from files), regardless of manifest digest shortcuts that are useful on dev machines.
@@ -182,6 +184,15 @@ Outputs are **`gitignored`** (pattern `aspsps-*.json`) and are **not** copied in
 
 Discover **Barclays Business**: open the dump and locate the Barclays **business** entry; copy its **`name`** string exactly into `POST /api/feed/enable/start` **`aspspName`** (or **`aispFeed.enableBanking.institutionHint.institutionName`** in [`server/domain/accounts/data.ts`](deploy/aws/../server/domain/accounts/data.ts)).
 
+### Operator checklist — TrueLayer Console
+
+1. **`TRUELAYER_CLIENT_ID`** + **`TRUELAYER_CLIENT_SECRET`** on the container (see repo **`.env.example`**); **`TRUELAYER_AUTH_BASE`** / **`TRUELAYER_API_BASE`** default to TrueLayer production hosts when unset.
+2. Redirect allowlist: **`https://<your-domain>/api/feed/truelayer/callback`** must match **`TRUELAYER_REDIRECT_URL`** exactly (**`09-docker-run-production.sh`** passes this through from **`config.sh`** / **`production-env.local.sh`**).
+3. Console scopes (**`info`**, **`accounts`**, **`balance`**, **`transactions`**, **`offline_access`**).
+4. **`POST /api/feed/truelayer/start`** → open **`url`** → callback persists **`data/truelayer-tokens.local.json`** (gitignored — excluded from **`aws s3 sync`** on **`09`**/`12`, same idea as **`enable-sessions.json`**). Multi-account: **`data/truelayer-account-links.csv`**.
+
+Automated **`POST /api/feed/sync`** prefers TrueLayer when **`aispFeed.trueLayer.dataAccountId`** is set **and** a TL refresh token exists; otherwise Enable.
+
 ### Operator checklist — Enable control panel (`enable-prod-console`)
 
 1. Production app id aligned with **`ENABLE_BANKING_APP_ID`** on the container.
@@ -192,7 +203,7 @@ Discover **Barclays Business**: open the dump and locate the Barclays **business
 
 ### Operator checklist — production env (`prod-env-caddy`)
 
-[`09-docker-run-production.sh`](09-docker-run-production.sh): **`ENABLE_BANKING_APP_ID`**, **`ENABLE_BANKING_REDIRECT_URL`**, **`ENABLE_BANKING_PRIVATE_KEY_PATH`**; Caddy terminates HTTPS on the hostname that matches whitelist.
+[`09-docker-run-production.sh`](09-docker-run-production.sh): **`ENABLE_BANKING_APP_ID`**, **`ENABLE_BANKING_REDIRECT_URL`**, **`ENABLE_BANKING_PRIVATE_KEY_PATH`** (Enable); **`TRUELAYER_*`** forwarded when exporting them in **`config.sh`** / **`production-env.local.sh`**; Caddy terminates HTTPS on the hostname that matches each provider whitelist.
 
 ### Link once (`link-flow`)
 
@@ -205,10 +216,11 @@ Discover **Barclays Business**: open the dump and locate the Barclays **business
 
 `POST /api/feed/sync` with `{ "account":"barclays-current", "dateFrom":"YYYY-MM-DD" [, "force": true ] }`. Confirm new CSV under **`statements/barclays-current/csv/`** after container logs show ingest.
 
-## HTTPS + Enable
+## HTTPS + OAuth callbacks (Enable / TrueLayer)
 
 - Caddyfile hostname: **finances.traxiproducts.com** (see [`caddy/Caddyfile.example`](caddy/Caddyfile.example)).
 - Whitelist in Enable: **`https://finances.traxiproducts.com/api/feed/enable/callback`** (must match **`config.sh`** `ENABLE_BANKING_REDIRECT_URL`).
+- Whitelist in TrueLayer: **`https://finances.traxiproducts.com/api/feed/truelayer/callback`** (must match **`TRUELAYER_REDIRECT_URL`**).
 
 ## Site access (production internet exposure)
 
@@ -217,7 +229,7 @@ When **`BANK_SITE_ACCESS_SECRET`** is set on the container (pass via [`09-docker
 - **`Authorization: Bearer <BANK_SITE_ACCESS_SECRET>`** on `/api/*` (for `curl`, automation, AI HTTP clients — configure only in env / secrets managers, **never paste into chat**), **or**
 - An **HttpOnly session cookie** after signing in at **`/login.html`** (password defaults to the same secret unless **`BANK_SITE_LOGIN_PASSWORD`** is set).
 
-Always exempt without prior auth: **`GET /api/feed/enable/callback`** (Enable Banking redirect).
+Always exempt without prior auth: **`GET /api/feed/enable/callback`** (Enable) and **`GET /api/feed/truelayer/callback`** (TrueLayer OAuth redirect).
 
 Optional **`BANK_SITE_LOGIN_PASSWORD`**: human-facing login password only; Bearer tokens continue to use **`BANK_SITE_ACCESS_SECRET`** only.
 

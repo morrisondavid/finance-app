@@ -7,8 +7,9 @@
  *      replaced with controllable doubles).
  *
  * `getAccountConfig` is mocked at module scope so we can pretend any
- * account already has its `aispFeed.enableBanking.accountId` populated
- * without editing production data.
+ * account already has `aispFeed` slices populated without editing production
+ * data. TrueLayer tokens default to absent unless a test stubs
+ * `getTrueLayerRefreshToken`.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -20,10 +21,16 @@ import type { AccountName } from '../../domain/accounts/index.js';
 import type { InternalFeedTransactions } from './model.js';
 import type { IngestResult, IngestCsvFileOptions } from '../ingest-csv-file.js';
 import type { FetchEnableTransactionsRequest } from './enable-banking.js';
+import type { FetchTrueLayerTransactionsRequest } from './truelayer/truelayer-transactions.js';
 
-const { getAccountConfigMock } = vi.hoisted(() => ({
+const mockDeps = vi.hoisted(() => ({
   getAccountConfigMock: vi.fn(),
+  /** Default: no TL token — selects Enable when EB account id is set. */
+  getTrueLayerRefreshTokenMock: vi.fn(() => undefined as string | undefined),
 }));
+
+const getAccountConfigMock = mockDeps.getAccountConfigMock;
+const getTrueLayerRefreshTokenMock = mockDeps.getTrueLayerRefreshTokenMock;
 
 vi.mock('../../domain/accounts/index.js', async () => {
   const actual = await vi.importActual<typeof import('../../domain/accounts/index.js')>(
@@ -35,11 +42,22 @@ vi.mock('../../domain/accounts/index.js', async () => {
   };
 });
 
+vi.mock('./truelayer/truelayer-tokens.js', async () => {
+  const actual = await vi.importActual<typeof import('./truelayer/truelayer-tokens.js')>(
+    './truelayer/truelayer-tokens.js',
+  );
+  return {
+    ...actual,
+    getTrueLayerRefreshToken: (_name: AccountName): string | undefined =>
+      getTrueLayerRefreshTokenMock(),
+  };
+});
+
 const {
   resolveWindow,
   findLatestCsvDate,
   runFeedSync,
-  requireLinkedAccount,
+  requireLinkedFeed,
   FeedSyncError,
 } = await import('./sync.js');
 
@@ -58,6 +76,8 @@ function linked(name: AccountName, accountId: string) {
 beforeEach(() => {
   getAccountConfigMock.mockReset();
   getAccountConfigMock.mockImplementation(passthrough);
+  getTrueLayerRefreshTokenMock.mockReset();
+  getTrueLayerRefreshTokenMock.mockImplementation(() => undefined);
 });
 
 describe('resolveWindow', () => {
@@ -134,18 +154,19 @@ describe('findLatestCsvDate', () => {
   });
 });
 
-describe('requireLinkedAccount', () => {
-  it('throws not-linked when aispFeed.enableBanking.accountId is missing', () => {
+describe('requireLinkedFeed', () => {
+  it('throws not-linked when no Enable id and no TrueLayer link', () => {
     getAccountConfigMock.mockImplementation(passthrough);
-    expect(() => requireLinkedAccount('barclays-current')).toThrowError(FeedSyncError);
+    expect(() => requireLinkedFeed('barclays-current')).toThrowError(FeedSyncError);
   });
 
-  it('returns the parser + enableAccountId when linked', () => {
+  it('returns enable branch when Enable account id is set', () => {
     getAccountConfigMock.mockImplementation((name: AccountName) =>
       name === 'barclays-current' ? linked('barclays-current', 'enable-uuid-1') : passthrough(name),
     );
-    const result = requireLinkedAccount('barclays-current');
-    expect(result.enableAccountId).toBe('enable-uuid-1');
+    const result = requireLinkedFeed('barclays-current');
+    expect(result.provider).toBe('enable');
+    expect(result.enable?.enableAccountId).toBe('enable-uuid-1');
     expect(result.parser).toBe(barclaysParser);
   });
 });
@@ -175,7 +196,7 @@ describe('runFeedSync', () => {
       'barclays-current',
       { dateFrom: '2026-04-15' },
       {
-        fetchTransactions: fetchMock,
+        fetchEnableTransactions: fetchMock,
         ingestCsvFile: ingestMock,
         initDatabase: initDbMock,
         statementsDir: tmpRoot,
@@ -208,7 +229,7 @@ describe('runFeedSync', () => {
       'barclays-current',
       { dateFrom: '2026-04-15' },
       {
-        fetchTransactions: fetchMock,
+        fetchEnableTransactions: fetchMock,
         ingestCsvFile: ingestMock,
         initDatabase: initDbMock,
         statementsDir: tmpRoot,
@@ -266,7 +287,7 @@ describe('runFeedSync', () => {
       'barclays-current',
       { dateFrom: '2026-04-15', force: true },
       {
-        fetchTransactions: fetchMock,
+        fetchEnableTransactions: fetchMock,
         ingestCsvFile: ingestMock,
         initDatabase: initDbMock,
         statementsDir: tmpRoot,
@@ -340,7 +361,7 @@ describe('runFeedSync', () => {
       'barclays-current',
       { dateFrom: '2026-04-15' },
       {
-        fetchTransactions: fetchMock,
+        fetchEnableTransactions: fetchMock,
         ingestCsvFile: ingestMock,
         initDatabase: initDbMock,
         statementsDir: tmpRoot,
@@ -381,7 +402,7 @@ describe('runFeedSync', () => {
       'barclays-current',
       { dateFrom: '2026-04-15' },
       {
-        fetchTransactions: fetchMock,
+        fetchEnableTransactions: fetchMock,
         ingestCsvFile: ingestMock,
         initDatabase: initDbMock,
         statementsDir: tmpRoot,
@@ -395,5 +416,146 @@ describe('runFeedSync', () => {
     expect(result.csvWritten).toBe(false);
     expect(result.ingestOutcome).toBe('duplicate');
     expect(result.initDatabaseRan).toBe(false);
+  });
+
+  it('prefers TrueLayer when dataAccountId + refresh token exist alongside Enable', async () => {
+    getAccountConfigMock.mockImplementation((name: AccountName) =>
+      name === 'barclays-current'
+        ? {
+            ...realGetAccountConfig('barclays-current'),
+            aispFeed: {
+              enableBanking: { accountId: 'eb-shadow' },
+              trueLayer: { dataAccountId: 'tl-acc-xyz' },
+            },
+          }
+        : passthrough(name),
+    );
+    getTrueLayerRefreshTokenMock.mockReturnValue('stored-refresh');
+
+    const ebFetch = vi.fn();
+    const tlFetch = vi.fn(async (_req: FetchTrueLayerTransactionsRequest): Promise<InternalFeedTransactions> => {
+      const payload: InternalFeedTransactions = {
+        account: 'barclays-current',
+        window: { dateFrom: '2026-04-15', dateTo: '2026-04-20' },
+        rows: [],
+      };
+      return payload;
+    });
+
+    await runFeedSync(
+      'barclays-current',
+      { dateFrom: '2026-04-15' },
+      {
+        fetchEnableTransactions: ebFetch,
+        fetchTrueLayerTransactions: tlFetch,
+        ingestCsvFile: vi.fn(),
+        statementsDir: tmpRoot,
+        today: () => '2026-04-20',
+        findLatestCsvDate: () => null,
+        tmpDir: () => tmpRoot,
+      },
+    );
+
+    expect(ebFetch).not.toHaveBeenCalled();
+    expect(tlFetch).toHaveBeenCalledOnce();
+    expect(tlFetch.mock.calls[0]?.[0]).toMatchObject({
+      account: 'barclays-current',
+      trueLayerAccountId: 'tl-acc-xyz',
+      currency: 'GBP',
+    });
+  });
+
+  it('falls back to Enable when TrueLayer id exists but refresh token does not', async () => {
+    getAccountConfigMock.mockImplementation((name: AccountName) =>
+      name === 'barclays-current'
+        ? {
+            ...realGetAccountConfig('barclays-current'),
+            aispFeed: {
+              enableBanking: { accountId: 'eb-only' },
+              trueLayer: { dataAccountId: 'token-missing-case' },
+            },
+          }
+        : passthrough(name),
+    );
+
+    const ebFetch = vi.fn(async (): Promise<InternalFeedTransactions> => ({
+      account: 'barclays-current',
+      window: { dateFrom: '2026-04-15', dateTo: '2026-04-20' },
+      rows: [],
+    }));
+    const tlFetch = vi.fn();
+
+    await runFeedSync(
+      'barclays-current',
+      { dateFrom: '2026-04-15' },
+      {
+        fetchEnableTransactions: ebFetch,
+        fetchTrueLayerTransactions: tlFetch,
+        ingestCsvFile: vi.fn(),
+        statementsDir: tmpRoot,
+        today: () => '2026-04-20',
+        findLatestCsvDate: () => null,
+        tmpDir: () => tmpRoot,
+      },
+    );
+
+    expect(tlFetch).not.toHaveBeenCalled();
+    expect(ebFetch).toHaveBeenCalledOnce();
+  });
+
+  it('uses aispFeed.trueLayer.feedCurrency when TrueLayer wins', async () => {
+    getAccountConfigMock.mockImplementation((name: AccountName) =>
+      name === 'barclays-current'
+        ? {
+            ...realGetAccountConfig('barclays-current'),
+            aispFeed: {
+              trueLayer: { dataAccountId: 'tl-id', feedCurrency: 'EUR' },
+            },
+          }
+        : passthrough(name),
+    );
+    getTrueLayerRefreshTokenMock.mockReturnValue('rt');
+
+    const tlFetch = vi.fn(async (): Promise<InternalFeedTransactions> => {
+      const payload: InternalFeedTransactions = {
+        account: 'barclays-current',
+        window: { dateFrom: '2026-04-15', dateTo: '2026-04-20' },
+        rows: [{ date: '2026-04-15', description: 'x', amount: -1, currency: 'EUR' }],
+      };
+      return payload;
+    });
+
+    await runFeedSync(
+      'barclays-current',
+      { dateFrom: '2026-04-15' },
+      {
+        fetchTrueLayerTransactions: tlFetch,
+        ingestCsvFile: vi.fn(
+          (
+            _a: AccountName,
+            _fp: string,
+            originalName: string,
+            _o: IngestCsvFileOptions,
+          ): IngestResult => ({
+            ok: false,
+            outcome: 'duplicate',
+            originalName,
+            existingPath: '/dev/null',
+          }),
+        ),
+        statementsDir: tmpRoot,
+        today: () => '2026-04-20',
+        findLatestCsvDate: () => null,
+        tmpDir: () => tmpRoot,
+      },
+    );
+
+    expect(tlFetch).toHaveBeenCalledOnce();
+    expect(tlFetch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currency: 'EUR',
+        trueLayerAccountId: 'tl-id',
+      }),
+    );
   });
 });

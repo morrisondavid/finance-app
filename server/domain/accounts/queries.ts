@@ -17,6 +17,7 @@ import { ACCOUNTS } from '../../../shared/api-contracts.js';
 import type { AccountConfig, AccountName, BusinessAccountConfig } from './schema.js';
 import { getAccountsRegistry, type AccountsRegistry } from './registry.js';
 import { getEnableAccountIdFromFile } from '../../ingestion/feeds/enable-account-links-csv.js';
+import { getTrueLayerAccountIdFromFile } from '../../ingestion/feeds/truelayer-account-links-csv.js';
 
 /**
  * Validate that a string is a known account id. Mirrors
@@ -42,23 +43,46 @@ export function getAccountConfig(
   if (found === undefined) {
     throw new Error(`Unknown account: ${account}`);
   }
-  const fromFile = getEnableAccountIdFromFile(account);
-  if (fromFile === undefined || fromFile === '') {
-    return found;
-  }
-  if (found.aispFeed?.enableBanking === undefined) {
-    return found;
-  }
-  return {
-    ...found,
-    aispFeed: {
-      ...found.aispFeed,
-      enableBanking: {
-        ...found.aispFeed.enableBanking,
-        accountId: fromFile,
+
+  let cfg: AccountConfig = found;
+
+  const enableFromFile = getEnableAccountIdFromFile(account);
+  if (
+    enableFromFile !== undefined &&
+    enableFromFile !== '' &&
+    cfg.aispFeed?.enableBanking !== undefined
+  ) {
+    cfg = {
+      ...cfg,
+      aispFeed: {
+        ...cfg.aispFeed,
+        enableBanking: {
+          ...cfg.aispFeed.enableBanking,
+          accountId: enableFromFile,
+        },
       },
-    },
-  };
+    };
+  }
+
+  const tlFromFile = getTrueLayerAccountIdFromFile(account);
+  if (
+    tlFromFile !== undefined &&
+    tlFromFile !== '' &&
+    cfg.aispFeed?.trueLayer !== undefined
+  ) {
+    cfg = {
+      ...cfg,
+      aispFeed: {
+        ...cfg.aispFeed,
+        trueLayer: {
+          ...cfg.aispFeed.trueLayer,
+          dataAccountId: tlFromFile,
+        },
+      },
+    };
+  }
+
+  return cfg;
 }
 
 /**

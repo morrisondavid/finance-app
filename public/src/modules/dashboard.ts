@@ -169,7 +169,17 @@ function initAccountSelector(): void {
 }
 
 const FEED_SYNC_DISABLED_HINT =
-  'Greyed out because this account has no Enable Banking link yet. Add `aispFeed.enableBanking.accountId` in server/domain/accounts/data.ts (UUID from after bank consent) and the matching session in gitignored feed-sessions.local.json, then reload.';
+  'Greyed out: no Enable Banking account id (`aispFeed.enableBanking.accountId`) and no TrueLayer linked account (`aispFeed.trueLayer.dataAccountId`). Use Enable OAuth + CSV, or POST /api/feed/truelayer/start + gitignored TL tokens (`data/truelayer-tokens.local.json`), map `data/truelayer-account-links.csv` if multi-account — then reload.';
+
+function feedSyncLikelyConfigured(cfg: ReturnType<typeof getAccountConfig>): boolean {
+  const eb =
+    typeof cfg?.aispFeed?.enableBanking?.accountId === 'string' &&
+    cfg.aispFeed.enableBanking.accountId.trim() !== '';
+  const tl =
+    typeof cfg?.aispFeed?.trueLayer?.dataAccountId === 'string' &&
+    cfg.aispFeed.trueLayer.dataAccountId.trim() !== '';
+  return eb || tl;
+}
 
 function refreshFeedSyncControlState(): void {
   const btn = document.getElementById('feed-sync-btn') as HTMLButtonElement | null;
@@ -178,8 +188,7 @@ function refreshFeedSyncControlState(): void {
   if (!btn) return;
 
   const cfg = getAccountConfig(state.selectedAccount);
-  const accountId = cfg?.aispFeed?.enableBanking?.accountId;
-  const linked = typeof accountId === 'string' && accountId.trim() !== '';
+  const linked = feedSyncLikelyConfigured(cfg);
 
   if (!linked) {
     btn.disabled = true;
@@ -235,9 +244,7 @@ async function runFeedSyncFromUi(
   statusEl: HTMLElement,
 ): Promise<void> {
   const cfg = getAccountConfig(state.selectedAccount);
-  const accountId = cfg?.aispFeed?.enableBanking?.accountId;
-  const linked = typeof accountId === 'string' && accountId.trim() !== '';
-  if (!linked) return;
+  if (!feedSyncLikelyConfigured(cfg)) return;
 
   statusEl.textContent = '';
   statusEl.classList.remove('feed-sync-status-error');

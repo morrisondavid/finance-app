@@ -36,6 +36,9 @@ const { FeedSyncError } = await vi.importActual<typeof import('../ingestion/feed
 const { EnableBankingError } = await vi.importActual<typeof import('../ingestion/feeds/enable-banking.js')>(
   '../ingestion/feeds/enable-banking.js',
 );
+const { TrueLayerError } = await vi.importActual<
+  typeof import('../ingestion/feeds/truelayer/truelayer-error.js')
+>('../ingestion/feeds/truelayer/truelayer-error.js');
 
 const SUCCESS_BODY: FeedSyncResponse = {
   account: 'barclays-current',
@@ -96,6 +99,16 @@ describe('runSyncBankFeedMcpTool — error envelope', () => {
 
   it('wraps EnableBankingError with its specific code', async () => {
     runFeedSyncMock.mockRejectedValue(new EnableBankingError('expired-session', 'session expired'));
+
+    const result = await runSyncBankFeedMcpTool(VALID_INPUT);
+
+    expect(result.isError).toBe(true);
+    const body = JSON.parse(result.content[0].text) as { code: string };
+    expect(body.code).toBe('expired-session');
+  });
+
+  it('wraps TrueLayerError with its specific code', async () => {
+    runFeedSyncMock.mockRejectedValue(new TrueLayerError('expired-session', 're-link'));
 
     const result = await runSyncBankFeedMcpTool(VALID_INPUT);
 

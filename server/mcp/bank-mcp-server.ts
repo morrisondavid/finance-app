@@ -13,6 +13,7 @@ import {
 import { getDb } from '../db/connection.js';
 import { runFeedSync, FeedSyncError } from '../ingestion/feeds/sync.js';
 import { EnableBankingError } from '../ingestion/feeds/enable-banking.js';
+import { TrueLayerError } from '../ingestion/feeds/truelayer/truelayer-error.js';
 import {
   composeAiLiquidity,
   composeAiPipeline,
@@ -173,7 +174,7 @@ export function createBankStatementsMcpServer(): McpServer {
     'sync_bank_feed',
     {
       description:
-        '§3.4 — fetch new transactions from the configured AISP (Enable Banking) for one account, emit a bank-shaped CSV, and run the same ingest pipeline as a manual upload (validate, save original, normalise filename, partition by month, rebuild DB). dateFrom is required; dateTo defaults to today; force=true overwrites an existing original of the same generated name.',
+        '§3.4 — fetch new transactions from the configured AISP (TrueLayer preferred when linked, else Enable Banking) for one account, emit bank-shaped CSV, and run the same ingest pipeline as a manual upload. dateFrom is required; dateTo defaults to today; force=true overwrites an existing original of the same generated name.',
       inputSchema: FeedSyncBodySchema.shape,
       outputSchema: FeedSyncResponseSchema.shape,
     },
@@ -218,9 +219,10 @@ export async function runSyncBankFeedMcpTool(
       structuredContent,
     };
   } catch (err) {
-    const code = err instanceof FeedSyncError || err instanceof EnableBankingError
-      ? err.code
-      : 'internal-error';
+    const code =
+      err instanceof FeedSyncError || err instanceof EnableBankingError || err instanceof TrueLayerError
+        ? err.code
+        : 'internal-error';
     const message = err instanceof Error ? err.message : 'Unknown error';
     return {
       isError: true,

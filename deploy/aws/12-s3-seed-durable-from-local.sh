@@ -34,6 +34,7 @@ for d in "${DIRS[@]}"; do
   if [[ "${d}" == 'data' ]]; then
     aws s3 sync "${src}/" "${DEST_ROOT}/${d}/" \
       --exclude 'enable-sessions.json' \
+      --exclude 'truelayer-tokens.local.json' \
       --exclude 'transactions.db*'
   else
     aws s3 sync "${src}/" "${DEST_ROOT}/${d}/"

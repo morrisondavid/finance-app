@@ -130,8 +130,20 @@ export const EnableBankingFeedConfigSchema = z.object({
 });
 export type EnableBankingFeedConfig = z.infer<typeof EnableBankingFeedConfigSchema>;
 
+/**
+ * TrueLayer Data API linkage (§3.4). OAuth stores refresh tokens separately;
+ * `dataAccountId` is the `/data/v1/accounts/:id` resource id after linking.
+ */
+export const TrueLayerFeedConfigSchema = z.object({
+  dataAccountId: z.string().min(1).optional(),
+  providerId: z.string().min(1).optional(),
+  feedCurrency: AispFeedCurrencyCodeSchema.optional(),
+});
+export type TrueLayerFeedConfig = z.infer<typeof TrueLayerFeedConfigSchema>;
+
 export const AispFeedConfigSchema = z.object({
   enableBanking: EnableBankingFeedConfigSchema.optional(),
+  trueLayer: TrueLayerFeedConfigSchema.optional(),
 });
 export type AispFeedConfig = z.infer<typeof AispFeedConfigSchema>;
 
@@ -156,8 +168,8 @@ const BaseAccountConfigSchema = z.object({
   /**
    * Optional per-provider AISP feed connectivity (§3.4 Modular AISP feed).
    * Absent or with empty slices means "this account is manual upload only".
-   * Currently only `enableBanking` is supported; future providers add their
-   * own slice without breaking existing config.
+   * Providers: `enableBanking`, `trueLayer` (`runFeedSync` picks one —
+   * TrueLayer preferred when linked with token + account id).
    */
   aispFeed: AispFeedConfigSchema.optional(),
 });

@@ -1,6 +1,6 @@
 /**
  * Production site gate: Bearer token (automation / curl) or HttpOnly signed session cookie (browser).
- * Enable Banking OAuth callback stays allowlisted without prior session.
+ * Enable Banking OAuth callback stays allowlisted without prior session — same exemption for `/api/feed/truelayer/callback`.
  */
 
 import crypto from 'crypto';
@@ -134,6 +134,9 @@ export function verifySiteSessionCookie(req: Request, accessSecret: string): boo
 
 function isGateExemptApiPath(method: string, pathname: string): boolean {
   if (method === 'GET' && pathname.startsWith('/api/feed/enable/callback')) {
+    return true;
+  }
+  if (method === 'GET' && pathname.startsWith('/api/feed/truelayer/callback')) {
     return true;
   }
   if (method === 'POST' && pathname === '/api/auth/site-login') {

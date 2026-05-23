@@ -30,6 +30,19 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: true,
     showTaxLiabilities: true,
+    /**
+     * AISP feeds (§3.4): Enable hints seed `/api/feed/enable/start` when body
+     * fields are omitted. TrueLayer `providerId` — confirm in TL Console /
+     * providers list for Barclays UK OB.
+     */
+    aispFeed: {
+      enableBanking: {
+        institutionHint: { institutionName: 'Barclays', country: 'GB' },
+      },
+      trueLayer: {
+        providerId: 'ob-barclays',
+      },
+    },
   },
   'barclays-savings': {
     name: 'barclays-savings',

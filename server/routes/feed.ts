@@ -16,13 +16,13 @@
  *
  * Error mapping (so callers see meaningful 4xx codes, not 500s):
  *   - Body fails Zod parse           → 400
- *   - `FeedSyncError` (not-linked /  → 422 (config not ready)
- *      no-emitter / unknown-account)
- *   - `EnableBankingError` (no-      → 401 (operator must re-link)
- *      session / expired-session)
- *   - `EnableBankingError` (missing- → 503 (server config gap)
- *      credentials / http-error /
- *      invalid-response)
+ *   - `FeedSyncError` (`not-linked` / `no-emitter` / `unknown-account`) → 422
+ *   - `EnableBankingError` (`no-session`, `expired-session`) → 401 (operator must re-link)
+ *   - `EnableBankingError` (`missing-credentials`) → 503 (server config gap)
+ *   - `EnableBankingError` (otherwise) → 502
+ *   - `TrueLayerError` (`expired-session`) → 401 (re-link OAuth)
+ *   - `TrueLayerError` (`missing-credentials`, `not-linked`) → 503 (config / credential gap)
+ *   - `TrueLayerError` (otherwise) → 502
  *   - Anything else                  → 500
  */
 
@@ -34,11 +34,14 @@ import {
 } from '../../shared/api-contracts.js';
 import { runFeedSync, FeedSyncError } from '../ingestion/feeds/sync.js';
 import { EnableBankingError } from '../ingestion/feeds/enable-banking.js';
+import { TrueLayerError } from '../ingestion/feeds/truelayer/truelayer-error.js';
 import enableOAuthRouter from './enable-oauth.js';
+import truelayerOAuthRouter from './truelayer-oauth.js';
 
 const router = express.Router();
 
 router.use(enableOAuthRouter);
+router.use(truelayerOAuthRouter);
 
 interface ErrorBody {
   error: string;
@@ -58,6 +61,15 @@ function mapError(err: unknown): { status: number; body: ErrorBody } {
       return { status: 401, body: { error: err.message, code: err.code } };
     }
     if (err.code === 'missing-credentials') {
+      return { status: 503, body: { error: err.message, code: err.code } };
+    }
+    return { status: 502, body: { error: err.message, code: err.code } };
+  }
+  if (err instanceof TrueLayerError) {
+    if (err.code === 'expired-session') {
+      return { status: 401, body: { error: err.message, code: err.code } };
+    }
+    if (err.code === 'missing-credentials' || err.code === 'not-linked') {
       return { status: 503, body: { error: err.message, code: err.code } };
     }
     return { status: 502, body: { error: err.message, code: err.code } };
