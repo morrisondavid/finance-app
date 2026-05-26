@@ -5,25 +5,28 @@ import { AI_MANIFEST_SCHEMA_VERSION } from './constants.js';
 const STATIC: AiManifestResponse = {
   schemaVersion: AI_MANIFEST_SCHEMA_VERSION,
   description:
-    '§2.0 AI slice manifest — HTTP paths and Zod export names from shared/api-contracts.ts. Transaction drill (GET /api/ai/transactions-drill / MCP query_transactions): `account` is optional (all accounts); cross-account queries omit transfers by default unless `type`/`includeTransfers` apply — see tool description and AiTransactionDrillQuerySchema.',
+    '§2.0 AI slice manifest — HTTP paths and Zod export names from shared/api-contracts.ts. **Parameterized GETs**: use MCP tools in the optional **mcpTool** field (`get_ai_*`) — same payloads as GET /api/ai/* including query parity; legacy bankstatements://ai/* resources retain default-arg snapshots (see MCP server resource descriptions). Transaction drill (`GET /api/ai/transactions-drill` / MCP `query_transactions`): `account` is optional (all accounts); cross-account queries omit transfers by default unless `type`/`includeTransfers` apply.',
   slices: [
     {
       method: 'GET',
       path: '/api/ai/liquidity',
       queryParams: ['account', 'financialYear', 'groupByEntity'],
       responseSchemaExport: 'AiLiquidityResponseSchema',
+      mcpTool: 'get_ai_liquidity',
     },
     {
       method: 'GET',
       path: '/api/ai/pipeline',
       queryParams: ['days', 'entityId'],
       responseSchemaExport: 'AiPipelineResponseSchema',
+      mcpTool: 'get_ai_pipeline',
     },
     {
       method: 'GET',
       path: '/api/ai/runway',
       queryParams: ['days', 'entityId', 'detail'],
       responseSchemaExport: 'RunwayResponseSchema',
+      mcpTool: 'get_ai_runway',
     },
     {
       method: 'GET',
@@ -37,6 +40,7 @@ const STATIC: AiManifestResponse = {
         'groupByEntity',
       ],
       responseSchemaExport: 'AiSnapshotResponseSchema',
+      mcpTool: 'get_ai_snapshot',
     },
     {
       method: 'GET',
@@ -51,6 +55,7 @@ const STATIC: AiManifestResponse = {
         'commitmentDays',
       ],
       responseSchemaExport: 'AiFinancialSnapshotResponseSchema',
+      mcpTool: 'get_ai_financial_snapshot',
     },
     {
       method: 'GET',
@@ -65,6 +70,7 @@ const STATIC: AiManifestResponse = {
         'commitmentDays',
       ],
       responseSchemaExport: 'AiFinancialSafetyResponseSchema',
+      mcpTool: 'get_ai_financial_safety',
     },
     {
       method: 'GET',
@@ -83,6 +89,7 @@ const STATIC: AiManifestResponse = {
       path: '/api/ai/spend-by-currency',
       queryParams: ['calendarMonth', 'financialYear', 'entityId', 'account'],
       responseSchemaExport: 'AiSpendByCurrencyResponseSchema',
+      mcpTool: 'get_ai_spend_by_currency',
     },
     {
       method: 'GET',

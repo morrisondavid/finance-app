@@ -42,3 +42,5 @@ deploy/aws/.elastic-ip
 
 # Enable ASPSP list dumps (regenerate: npm run enable-banking -- aspsps GB --out aspsps-gb.json)
 aspsps-*.json
+
+./cursor/

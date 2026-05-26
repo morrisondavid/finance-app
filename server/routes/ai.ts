@@ -4,11 +4,8 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { z } from 'zod';
 import {
-  EntityIdSchema,
   NetWorthSnapshotCaptureBodySchema,
-  AccountNameSchema,
   AiTransactionDrillQuerySchema,
 } from '../../shared/api-contracts.js';
 import { getDb } from '../db/connection.js';
@@ -33,54 +30,16 @@ import {
 import { captureNetWorthSnapshots } from '../domain/net-worth/snapshot.js';
 import type { SpendByCurrencyPeriod } from '../domain/cross-currency/spend-by-currency.js';
 import { flattenExpressQuery } from '../utils/flatten-express-query.js';
+import {
+  FinancialSnapshotQuerySchema,
+  HorizonEntityQuerySchema,
+  LiquidityQuerySchema,
+  RunwayQuerySchema,
+  SnapshotQuerySchema,
+  SpendByCurrencyQuerySchema,
+} from '../domain/ai/ai-get-query-schemas.js';
 
 const router = Router();
-
-const EntityQuerySchema = z.object({
-  entityId: EntityIdSchema.optional(),
-});
-
-const LiquidityQuerySchema = z.object({
-  account: z.string().optional(),
-  financialYear: z.string().optional(),
-  groupByEntity: z
-    .union([z.literal('true'), z.literal('false')])
-    .optional()
-    .transform(v => v === 'true'),
-});
-
-const HorizonEntityQuerySchema = EntityQuerySchema.extend({
-  days: z.coerce.number().int().positive().default(720),
-});
-
-const RunwayQuerySchema = HorizonEntityQuerySchema.extend({
-  detail: z.enum(['accounts', 'summary']).default('summary'),
-});
-
-const SnapshotQuerySchema = RunwayQuerySchema.merge(LiquidityQuerySchema);
-
-const FinancialSnapshotQuerySchema = SnapshotQuerySchema.extend({
-  commitmentDays: z.coerce.number().int().positive().default(90),
-});
-
-const SpendByCurrencyQuerySchema = z
-  .object({
-    calendarMonth: z.string().regex(/^\d{4}-\d{2}$/).optional(),
-    financialYear: z.string().min(1).optional(),
-    entityId: EntityIdSchema.optional(),
-    account: AccountNameSchema.optional(),
-  })
-  .superRefine((data, ctx) => {
-    const hasCm = data.calendarMonth !== undefined;
-    const hasFy = data.financialYear !== undefined;
-    if (hasCm === hasFy) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'Exactly one of calendarMonth or financialYear is required',
-        path: ['calendarMonth'],
-      });
-    }
-  });
 
 /** Drill-specific coercions on `flattenExpressQuery(req.query)`. */
 function transactionDrillQueryFromExpress(q: Request['query']): unknown {

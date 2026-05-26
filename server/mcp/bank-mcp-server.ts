@@ -11,6 +11,13 @@ import {
   FeedSyncResponseSchema,
   AiTransactionDrillQuerySchema,
   AiTransactionDrillResponseSchema,
+  AiLiquidityResponseSchema,
+  AiPipelineResponseSchema,
+  RunwayResponseSchema,
+  AiSnapshotResponseSchema,
+  AiFinancialSnapshotResponseSchema,
+  AiFinancialSafetyResponseSchema,
+  AiSpendByCurrencyResponseSchema,
 } from '../../shared/api-contracts.js';
 import { getDb } from '../db/connection.js';
 import { runFeedSync, FeedSyncError } from '../ingestion/feeds/sync.js';
@@ -28,9 +35,19 @@ import {
   composeAiSpendContext,
   composeAiNetWorthHistory,
   composeAiSpendByCurrencyForCurrentMonth,
+  composeAiSpendByCurrency,
   composeAiEntityLiquidityFx,
   buildAiTransactionDrillResponse,
 } from '../domain/ai/index.js';
+import type { SpendByCurrencyPeriod } from '../domain/cross-currency/spend-by-currency.js';
+import {
+  FinancialSnapshotQuerySchema,
+  HorizonEntityQuerySchema,
+  LiquidityQuerySchema,
+  RunwayQuerySchema,
+  SnapshotQuerySchema,
+  SpendByCurrencyQuerySchema,
+} from '../domain/ai/ai-get-query-schemas.js';
 import { assembleRunway } from '../domain/forecast/index.js';
 import { runwayResponseFromAssembled } from '../domain/forecast/runway-api-response.js';
 import { buildConsolidatedWarningsResponse } from '../domain/warnings/consolidated-feed.js';
@@ -57,6 +74,223 @@ export const BankStatementsAiResourceUris = {
 
 export type BankStatementsAiResourceUri =
   (typeof BankStatementsAiResourceUris)[keyof typeof BankStatementsAiResourceUris];
+
+const MCPParameterizedToolForResourceKey: Partial<
+  Record<keyof typeof BankStatementsAiResourceUris, string>
+> = {
+  liquidity: 'get_ai_liquidity',
+  pipeline: 'get_ai_pipeline',
+  runway: 'get_ai_runway',
+  snapshot: 'get_ai_snapshot',
+  'financial-snapshot': 'get_ai_financial_snapshot',
+  'financial-safety': 'get_ai_financial_safety',
+  spendByCurrency: 'get_ai_spend_by_currency',
+};
+
+type McpJsonToolReturn = {
+  [x: string]: unknown;
+  isError?: true;
+  content: { type: 'text'; text: string }[];
+  structuredContent?: { [x: string]: unknown };
+};
+
+function mcpAiInvalidParams(issues: z.ZodIssue[]): McpJsonToolReturn {
+  return {
+    isError: true,
+    content: [{ type: 'text' as const, text: JSON.stringify({ error: 'invalid-params', issues }, null, 2) }],
+  };
+}
+
+function mcpAiInternalError(message: string): McpJsonToolReturn {
+  return {
+    isError: true,
+    content: [
+      { type: 'text' as const, text: JSON.stringify({ error: 'internal-error', message }, null, 2) },
+    ],
+  };
+}
+
+/** @internal Exported for MCP contract tests. */
+export function runGetAiLiquidityMcpTool(args: unknown): McpJsonToolReturn {
+  const parsed = LiquidityQuerySchema.safeParse(args);
+  if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
+  try {
+    const structuredContent = AiLiquidityResponseSchema.parse(composeAiLiquidity(parsed.data));
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (err) {
+    return mcpAiInternalError(err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+/** @internal */
+export function runGetAiPipelineMcpTool(args: unknown): McpJsonToolReturn {
+  const parsed = HorizonEntityQuerySchema.safeParse(args);
+  if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
+  try {
+    const { days: horizonDays, entityId: filterEntityId } = parsed.data;
+    const structuredContent = AiPipelineResponseSchema.parse(
+      composeAiPipeline({ horizonDays, filterEntityId }),
+    );
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (err) {
+    return mcpAiInternalError(err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+/** @internal */
+export function runGetAiRunwayMcpTool(args: unknown): McpJsonToolReturn {
+  const parsed = RunwayQuerySchema.safeParse(args);
+  if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
+  try {
+    const { days: horizonDays, entityId: filterEntityId, detail } = parsed.data;
+    const assembled = assembleRunway({ horizonDays, filterEntityId });
+    const structuredContent = RunwayResponseSchema.parse(
+      runwayResponseFromAssembled(assembled, filterEntityId, { detail }),
+    );
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (err) {
+    return mcpAiInternalError(err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+/** @internal */
+export function runGetAiSnapshotMcpTool(args: unknown): McpJsonToolReturn {
+  const parsed = SnapshotQuerySchema.safeParse(args);
+  if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
+  try {
+    const {
+      days: horizonDays,
+      entityId: filterEntityId,
+      detail: runwayDetail,
+      account,
+      financialYear,
+      groupByEntity,
+    } = parsed.data;
+    const structuredContent = AiSnapshotResponseSchema.parse(
+      composeAiSnapshot({
+        horizonDays,
+        filterEntityId,
+        runwayDetail,
+        account,
+        financialYear,
+        groupByEntity,
+      }),
+    );
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (err) {
+    return mcpAiInternalError(err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+/** @internal */
+export function runGetAiFinancialSnapshotMcpTool(args: unknown): McpJsonToolReturn {
+  const parsed = FinancialSnapshotQuerySchema.safeParse(args);
+  if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
+  try {
+    const {
+      days: horizonDays,
+      entityId: filterEntityId,
+      detail: runwayDetail,
+      account,
+      financialYear,
+      groupByEntity,
+      commitmentDays,
+    } = parsed.data;
+    const structuredContent = AiFinancialSnapshotResponseSchema.parse(
+      composeAiFinancialSnapshot({
+        horizonDays,
+        commitmentDays,
+        filterEntityId,
+        runwayDetail,
+        account,
+        financialYear,
+        groupByEntity,
+      }),
+    );
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (err) {
+    return mcpAiInternalError(err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+/** @internal */
+export function runGetAiFinancialSafetyMcpTool(args: unknown): McpJsonToolReturn {
+  const parsed = FinancialSnapshotQuerySchema.safeParse(args);
+  if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
+  try {
+    const {
+      days: horizonDays,
+      entityId: filterEntityId,
+      detail: runwayDetail,
+      account,
+      financialYear,
+      groupByEntity,
+      commitmentDays,
+    } = parsed.data;
+    const structuredContent = AiFinancialSafetyResponseSchema.parse(
+      composeAiFinancialSafety({
+        horizonDays,
+        commitmentDays,
+        filterEntityId,
+        runwayDetail,
+        account,
+        financialYear,
+        groupByEntity,
+      }),
+    );
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (err) {
+    return mcpAiInternalError(err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+function spendPeriodFromValidated(data: z.infer<typeof SpendByCurrencyQuerySchema>): SpendByCurrencyPeriod {
+  if (data.calendarMonth !== undefined) {
+    return { kind: 'calendarMonth', yearMonth: data.calendarMonth };
+  }
+  return { kind: 'financialYear', financialYear: data.financialYear! };
+}
+
+/** @internal */
+export function runGetAiSpendByCurrencyMcpTool(args: unknown): McpJsonToolReturn {
+  const parsed = SpendByCurrencyQuerySchema.safeParse(args);
+  if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
+  try {
+    const { entityId, account } = parsed.data;
+    const period = spendPeriodFromValidated(parsed.data);
+    const structuredContent = AiSpendByCurrencyResponseSchema.parse(
+      composeAiSpendByCurrency({
+        period,
+        entityId,
+        account,
+      }),
+    );
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (err) {
+    return mcpAiInternalError(err instanceof Error ? err.message : 'Unknown error');
+  }
+}
 
 /** In-process resource reader — MCP callbacks and tests share this. */
 export function readBankStatementsAiResource(uri: string): string {
@@ -101,7 +335,7 @@ export function createBankStatementsMcpServer(): McpServer {
     { name: 'bank-statements-ai', version: '2.0.0' },
     {
       instructions:
-        'AI slices over the bank-statements-app domain (§2.0): read resources mirror GET /api/ai/*. Tools: capture_net_worth_snapshot (§3.1); sync_bank_feed (§3.4 feed sync); query_transactions (transaction drill, same as GET /api/ai/transactions-drill). For query_transactions: `account` is optional — omit to search all ledger accounts; then transfer rows are excluded by default unless you set `type` or use `includeTransfers` with a specific `account`. Per-account currency is in response aggregates; do not sum across different currencies as one number without FX. Prefer `account` when the user names one bank/card. §3.2: bankstatements://ai/spend-by-currency uses the current calendar month only; for financial-year, entity, or account filters use GET /api/ai/spend-by-currency. entity-liquidity-fx matches GET /api/ai/entity-liquidity-fx.',
+        '§2.0 AI over bank-statements-app. **Parameterized GET parity (Hermes MCP tools):** get_ai_liquidity, get_ai_pipeline, get_ai_runway, get_ai_snapshot, get_ai_financial_snapshot, get_ai_financial_safety, get_ai_spend_by_currency — same Zod/query semantics as GET /api/ai/* (see server/domain/ai/ai-get-query-schemas.ts and AI manifest slice `mcpTool`). **Legacy resources:** bankstatements://ai/{liquidity,pipeline,runway,snapshot,financial-snapshot,financial-safety,spend-by-currency} remain fixed-default snapshots for backward compat; prefer the matching `get_ai_*` tool for filters (e.g. spend-by-currency resource = current calendar month only). Other tools: capture_net_worth_snapshot (§3.1); sync_bank_feed (§3.4); query_transactions (GET /api/ai/transactions-drill parity). Transaction drill: `account` optional; transfer rows omitted by default cross-account unless `type`/`includeTransfers` apply; multi-currency requires per-currency aggregates. Prefer `account` when the user names one bank/card. entity-liquidity-fx resource matches GET /api/ai/entity-liquidity-fx.',
     },
   );
 
@@ -113,12 +347,17 @@ export function createBankStatementsMcpServer(): McpServer {
     keyof typeof BankStatementsAiResourceUris,
     string,
   ][]) {
+    const mcpParameterized = MCPParameterizedToolForResourceKey[key];
+    const description =
+      mcpParameterized !== undefined
+        ? `Legacy fixed-default snapshot matching the same composer family as GET /api/ai/${String(key)}. Prefer MCP tool "${mcpParameterized}" for full HTTP query parity (see AI manifest slice mcpTool).`
+        : `Same payload as the matching GET /api/ai/${String(key)} composer.`;
     server.registerResource(
-      `ai-${key}`,
+      `ai-${String(key)}`,
       resourceUri,
       {
         ...jsonMeta,
-        description: `Same payload as the matching GET /api/ai/${key} composer.`,
+        description,
       },
       async () => ({
         contents: [
@@ -166,6 +405,82 @@ export function createBankStatementsMcpServer(): McpServer {
         structuredContent,
       };
     },
+  );
+
+  server.registerTool(
+    'get_ai_liquidity',
+    {
+      description:
+        '§2.0 — GET /api/ai/liquidity parity. Optional account, financialYear, groupByEntity (boolean or "true"/"false").',
+      inputSchema: LiquidityQuerySchema.shape,
+      outputSchema: AiLiquidityResponseSchema.shape,
+    },
+    args => runGetAiLiquidityMcpTool(args),
+  );
+
+  server.registerTool(
+    'get_ai_pipeline',
+    {
+      description: '§2.0 — GET /api/ai/pipeline parity. days (default 720), optional entityId.',
+      inputSchema: HorizonEntityQuerySchema.shape,
+      outputSchema: AiPipelineResponseSchema.shape,
+    },
+    args => runGetAiPipelineMcpTool(args),
+  );
+
+  server.registerTool(
+    'get_ai_runway',
+    {
+      description:
+        '§2.0 — GET /api/ai/runway parity. days (default 720), optional entityId, detail accounts|summary (default summary).',
+      inputSchema: RunwayQuerySchema.shape,
+      outputSchema: RunwayResponseSchema.shape,
+    },
+    args => runGetAiRunwayMcpTool(args),
+  );
+
+  server.registerTool(
+    'get_ai_snapshot',
+    {
+      description:
+        '§2.0 — GET /api/ai/snapshot parity. Merges runway + liquidity query params (days, entityId, detail, account, financialYear, groupByEntity).',
+      inputSchema: SnapshotQuerySchema.shape,
+      outputSchema: AiSnapshotResponseSchema.shape,
+    },
+    args => runGetAiSnapshotMcpTool(args),
+  );
+
+  server.registerTool(
+    'get_ai_financial_snapshot',
+    {
+      description:
+        '§2.0 — GET /api/ai/financial-snapshot parity. Same as snapshot inputs plus commitmentDays (default 90).',
+      inputSchema: FinancialSnapshotQuerySchema.shape,
+      outputSchema: AiFinancialSnapshotResponseSchema.shape,
+    },
+    args => runGetAiFinancialSnapshotMcpTool(args),
+  );
+
+  server.registerTool(
+    'get_ai_financial_safety',
+    {
+      description:
+        '§2.0 — GET /api/ai/financial-safety parity. Same inputs as get_ai_financial_snapshot (FinancialSnapshot query).',
+      inputSchema: FinancialSnapshotQuerySchema.shape,
+      outputSchema: AiFinancialSafetyResponseSchema.shape,
+    },
+    args => runGetAiFinancialSafetyMcpTool(args),
+  );
+
+  server.registerTool(
+    'get_ai_spend_by_currency',
+    {
+      description:
+        '§2.0 — GET /api/ai/spend-by-currency parity. Exactly one of calendarMonth (YYYY-MM) or financialYear; optional entityId, account.',
+      inputSchema: SpendByCurrencyQuerySchema.shape,
+      outputSchema: AiSpendByCurrencyResponseSchema.shape,
+    },
+    args => runGetAiSpendByCurrencyMcpTool(args),
   );
 
   // §3.4 — sync_bank_feed mirrors `POST /api/feed/sync`.

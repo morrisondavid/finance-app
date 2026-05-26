@@ -2780,6 +2780,8 @@ export const AiManifestSliceSchema = z.object({
   path: z.string(),
   queryParams: z.array(z.string()),
   responseSchemaExport: z.string(),
+  /** MCP tool name that mirrors this slice with the same validation (Hermes clients). */
+  mcpTool: z.string().optional(),
 });
 
 export const AiManifestResponseSchema = z.object({
