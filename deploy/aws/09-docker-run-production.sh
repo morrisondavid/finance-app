@@ -24,7 +24,6 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 REGISTRY="${BANK_APP_IMAGE%%/*}"
-echo "[09] Pulling ${BANK_APP_IMAGE} …"
 if [[ "${REGISTRY}" == *".dkr.ecr."* ]]; then
   if ! command -v aws >/dev/null 2>&1; then
     echo "[09] aws CLI not found — required for ECR login/pull." >&2
@@ -32,24 +31,21 @@ if [[ "${REGISTRY}" == *".dkr.ecr."* ]]; then
   fi
   aws ecr get-login-password --region "${AWS_REGION}" | docker login --username AWS --password-stdin "${REGISTRY}"
 fi
-docker pull "${BANK_APP_IMAGE}"
-# "Image is up to date" from docker pull means ECR digest matches what this host already pulled — not a skipped deploy.
-DIGEST="$(docker image inspect "${BANK_APP_IMAGE}" --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
-if [[ -n "${DIGEST}" ]]; then
-  echo "[09] Registry digest for ${BANK_APP_IMAGE}: ${DIGEST}"
-else
-  echo "[09] Warning: could not read RepoDigests for ${BANK_APP_IMAGE} (inspect locally)." >&2
-fi
 
-if [[ -n "${BANK_EXPECT_SOURCE_SHA256:-}" ]]; then
-  echo '[09] Verifying BANK_EXPECT_SOURCE_SHA256 against /app/dist/source-hash.json …'
-  ACTUAL_HEX="$(docker run --rm "${BANK_APP_IMAGE}" node -e 'const fs=require("fs"); console.log(JSON.parse(fs.readFileSync("/app/dist/source-hash.json","utf8")).value);')"
-  if [[ "${ACTUAL_HEX}" != "${BANK_EXPECT_SOURCE_SHA256}" ]]; then
-    echo "[09] FATAL: expected sourceSha256 ${BANK_EXPECT_SOURCE_SHA256}; image contains ${ACTUAL_HEX}." >&2
-    exit 1
+print_image_digest() {
+  local d
+  d="$(docker image inspect "${BANK_APP_IMAGE}" --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
+  if [[ -n "${d}" ]]; then
+    echo "[09] Registry digest for ${BANK_APP_IMAGE}: ${d}"
+  else
+    echo "[09] Warning: could not read RepoDigests for ${BANK_APP_IMAGE} (inspect locally)." >&2
   fi
-  echo "[09] sourceSha256 matches BANK_EXPECT_SOURCE_SHA256."
-fi
+}
+
+echo "[09] Prefetch ${BANK_APP_IMAGE} (layers while old container may still be running) …"
+docker pull "${BANK_APP_IMAGE}"
+print_image_digest
+
 export NODE_ENV=production
 
 BUCKET="${BANK_S3_DURABLE_BUCKET:-${BUCKET_DATA}}"
@@ -95,9 +91,29 @@ rm -f \
   "${DEST_ROOT}/data/transactions.db-wal" \
   "${DEST_ROOT}/data/transactions.db-shm"
 
+# :latest can move on ECR while the S3 sync above runs. Re-resolve the tag so we never
+# start `bank` from a manifest that was correct at the start of this script but stale now.
+# Drop the local tag so Docker cannot reuse a stale local resolution without hitting the registry again.
+echo "[09] Untagging local ${BANK_APP_IMAGE} (safe after bank was removed above) …"
+docker image rm -f "${BANK_APP_IMAGE}" 2>/dev/null || true
+
+echo "[09] Final pull ${BANK_APP_IMAGE} (after S3 sync) …"
+docker pull "${BANK_APP_IMAGE}"
+print_image_digest
+
+if [[ -n "${BANK_EXPECT_SOURCE_SHA256:-}" ]]; then
+  echo '[09] Verifying BANK_EXPECT_SOURCE_SHA256 against /app/dist/source-hash.json …'
+  ACTUAL_HEX="$(docker run --rm "${BANK_APP_IMAGE}" node -e 'const fs=require("fs"); console.log(JSON.parse(fs.readFileSync("/app/dist/source-hash.json","utf8")).value);')"
+  if [[ "${ACTUAL_HEX}" != "${BANK_EXPECT_SOURCE_SHA256}" ]]; then
+    echo "[09] FATAL: expected sourceSha256 ${BANK_EXPECT_SOURCE_SHA256}; image contains ${ACTUAL_HEX}." >&2
+    exit 1
+  fi
+  echo "[09] sourceSha256 matches BANK_EXPECT_SOURCE_SHA256."
+fi
+
 echo "[09] Starting container…"
 
-docker run -d --name bank --restart unless-stopped \
+docker run -d --name bank --restart unless-stopped --pull=always \
   -p 127.0.0.1:3000:3000 \
   -v /opt/bank-app/data:/app/data \
   -v /opt/bank-app/statements:/app/statements \
@@ -113,16 +129,16 @@ docker run -d --name bank --restart unless-stopped \
   -v /opt/bank-app/reserves:/app/reserves \
   -v /opt/bank-app/secrets:/opt/bank-app/secrets:ro \
   -e NODE_ENV \
-  -e ENABLE_BANKING_APP_ID \
-  -e ENABLE_BANKING_REDIRECT_URL \
+  -e "ENABLE_BANKING_APP_ID=${ENABLE_BANKING_APP_ID:-}" \
+  -e "ENABLE_BANKING_REDIRECT_URL=${ENABLE_BANKING_REDIRECT_URL:-}" \
   -e "ENABLE_BANKING_PRIVATE_KEY_PATH=/opt/bank-app/secrets/enable-banking-private.pem" \
-  -e TRUELAYER_CLIENT_ID \
-  -e TRUELAYER_CLIENT_SECRET \
-  -e TRUELAYER_REDIRECT_URL \
-  -e TRUELAYER_AUTH_BASE \
-  -e TRUELAYER_API_BASE \
-  -e TRUELAYER_END_USER_EMAIL \
-  -e AWS_REGION \
+  -e "TRUELAYER_CLIENT_ID=${TRUELAYER_CLIENT_ID:-}" \
+  -e "TRUELAYER_CLIENT_SECRET=${TRUELAYER_CLIENT_SECRET:-}" \
+  -e "TRUELAYER_REDIRECT_URL=${TRUELAYER_REDIRECT_URL:-}" \
+  -e "TRUELAYER_AUTH_BASE=${TRUELAYER_AUTH_BASE:-}" \
+  -e "TRUELAYER_API_BASE=${TRUELAYER_API_BASE:-}" \
+  -e "TRUELAYER_END_USER_EMAIL=${TRUELAYER_END_USER_EMAIL:-}" \
+  -e "AWS_REGION=${AWS_REGION}" \
   -e "AWS_DEFAULT_REGION=${AWS_REGION}" \
   -e "BANK_S3_DURABLE_BUCKET=${BUCKET}" \
   -e "BANK_S3_DURABLE_PREFIX=${PREFIX}" \

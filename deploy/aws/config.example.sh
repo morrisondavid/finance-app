@@ -35,6 +35,10 @@ export BANK_APP_LS_AZ="eu-west-2a"
 # ECR (07)
 export BANK_APP_ECR_REPO_NAME="traxiproducts-finances-bank-app"
 
+# Optional: force image OS/CPU when your laptop differs from EC2 (e.g. Intel Mac → t4g Graviton: linux/arm64;
+# Intel Mac → t3 x86: linux/amd64). Leave unset if native build matches the instance architecture.
+export BANK_APP_DOCKER_PLATFORM="${BANK_APP_DOCKER_PLATFORM:-}"
+
 # Docker on server (09) — leave empty to build image URI from `aws sts` + repo name on the machine
 export BANK_APP_IMAGE=""
 export BANK_APP_PUBLIC_HOSTNAME="finances.traxiproducts.com"

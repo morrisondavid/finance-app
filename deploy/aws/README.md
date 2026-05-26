@@ -21,7 +21,7 @@ cp config.example.sh config.sh   # first time only
 
 - **`data/transactions.db`** (and `-wal`/`-shm`) are **not** sources of truth and **must not** be treated as backup objects in S3. The host **`09`** script **`--exclude`s** `transactions.db*` on **`data/`** sync and **`rm -f`s** any local SQLite files under the bind mount before starting Docker so the container always rebuilds the DB from CSVs. **`12-s3-seed-durable-from-local.sh`** also excludes `transactions.db*` from upload.
 - **One-time bucket hygiene:** if older syncs left **`…/data/transactions.db*`** in the bucket, remove them so nobody restores SQLite by mistake (ops task; not automated).
-- **Pull:** [`09-docker-run-production.sh`](09-docker-run-production.sh) stops the **`bank`** container first (so SQLite releases files on the mounts), runs **`aws s3 sync … --delete`** from S3 **per durable top-level folder** under **`/opt/bank-app`** (same list as **`DURABLE_TOP_LEVEL_DIRS`** in TypeScript plus **`data/`**), then **`docker run`**. The instance **needs [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)** on PATH; IAM uses the instance profile. **`--delete`** removes files under those subtrees only if they were removed remotely (nothing under **`/opt/bank-app/secrets/`** — not in sync list — is touched by sync).
+- **Pull / run:** [`09-docker-run-production.sh`](09-docker-run-production.sh) prefetch **`docker pull`**s, stops **`bank`** (**`docker rm -f bank`** so SQLite releases files on mounts), runs **`aws s3 sync … --delete`** from S3 **per durable top-level folder** under **`/opt/bank-app`** (same trees as **`DURABLE_TOP_LEVEL_DIRS`** in [`server/storage/durable-paths.ts`](../server/storage/durable-paths.ts) plus **`data/`**), then **`docker pull`** again and **`docker run --pull=always`**. The instance **needs [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)** on PATH; IAM uses the instance profile. **`--delete`** removes files under those subtrees only if they were removed remotely (nothing under **`/opt/bank-app/secrets/`** — not in sync list — is touched by sync).
 - **`data/enable-sessions.json`** is excluded from **`data/`** sync (Enable OAuth blobs stay server-local for a single EC2 writer).
 - **`data/truelayer-tokens.local.json`** is excluded from **`data/`** sync (TrueLayer refresh tokens — same “server-local OAuth material” semantics as Enable).
 - **Portable financial CSVs are not portable live OAuth session state:** if you run multiple app instances (Lambda/Fargate, `desiredCount > 1`), you need a **single shared, strongly consistent store** for refresh tokens (S3 conditional writes, DynamoDB, etc.) — see **Multi-instance Enable Banking** below.
@@ -56,7 +56,7 @@ Requires buckets from `./01-s3-buckets.sh` and AWS CLI credentials (same profile
 2. On EC2: **`./08-host-create-dirs.sh`** once so new mount roots exist with correct ownership.
 3. Laptop: **`./07-ecr-build-and-push.sh`** (image needs `@aws-sdk` for targeted uploads).
 4. Laptop (**if `deploy/aws` scripts changed**): **`./deploy/aws/copy-deploy-to-ec2.sh`**
-5. EC2: **`cd ~/bank-deploy-aws`** → **`./09-docker-run-production.sh`** (ECR **`docker pull`** is built in; pulls **`:latest`** then S3 sync + **`docker run`**).
+5. EC2: **`cd ~/bank-deploy-aws`** → **`./09-docker-run-production.sh`** (**`docker pull`** prefetch, S3 sync, then **final `docker pull`** + **`docker run --pull=always`** so **`:latest`** cannot go stale while sync runs).
 6. Confirm logs show **`[09] Pulling`**, then either **`Downloaded newer image`** **or** **`Image is up to date`** (the latter only means this host’s Docker cache already matched the tag’s manifest digest—not a failed pull), then **`[09] Registry digest`** (copy to compare with laptop / ECR console), **`[09] Syncing durable dirs`** (host), then **`[Database]`** in **`docker logs bank`**.
 7. **Fingerprint parity:** **`GET /api/version`** returns JSON with **`packageVersion`**, **`sourceSha256`** (64-char lowercase hex from the shipped trees in [`Dockerfile`](../../Dockerfile) **`RUN npm run build`**), **`sourceHashManifest`** (**`built`** in production vs **`runtime-computed`** elsewhere), **`nodeEnv`**. See **[Verify deploy parity](#verify-deploy-parity-get-apiversion)**.
 
@@ -64,7 +64,7 @@ Requires buckets from `./01-s3-buckets.sh` and AWS CLI credentials (same profile
 
 ### Verify deploy parity (`GET /api/version`)
 
-- **JSON, not HTML:** `curl -si "https://<hostname>/api/version"` should show **`Content-Type: application/json`**. If the body is **`index.html`**, the live container is almost certainly an **old image** (Express **`app.get('*')` SPA fallback before **`/api/version` existed**) or traffic is not reaching Express on **`:3000`**.
+- **JSON, not HTML:** `curl -si "https://<hostname>/api/version"` should show **`Content-Type: application/json`**. If the body is **`index.html`**, the live container is almost certainly an **old image** without `versionRouter` (**`app.get('*')` SPA fallback** [`server/index.ts`](../../server/index.ts)) — not a Dockerfile typo. Typical causes: **`:latest` in ECR never moved** after **`07`** (wrong account/region/repo, push failed); **architecture mismatch** (laptop emitted **amd64** while EC2 is **Graviton arm64**, or the reverse — set **`BANK_APP_DOCKER_PLATFORM`** in **`config.sh`**, rebuild **`07`**); **`BANK_APP_IMAGE`** pinning an old **`:src-…`** tag. Prefer the immutable tag **`07` prints**, or **`BANK_EXPECT_SOURCE_SHA256`**, until stable.
 - **Inside the container:** `docker exec bank wget -qO- http://127.0.0.1:3000/api/version` — same JSON; isolates TLS / Caddy.
 - **Match laptop build:** run **`./07-ecr-build-and-push.sh`** and copy the printed **full `sourceSha256`**; after **`09`**, the site’s **`sourceSha256`** must match (same checkout). **`07`** also pushes **`…:src-<first 12 hex chars>`** — set **`BANK_APP_IMAGE`** to that tag on the server for a pin that cannot float with **`:latest`**.
 - **ECR digest:** **`[09] Registry digest for …`** line — compare to your laptop’s **`docker image inspect <image> --format '{{index .RepoDigests 0}}'`** after push, or the ECR console manifest for the tag you run.
@@ -112,7 +112,7 @@ tar -C ./deploy/aws \
 
 ### Server secrets (`production-env.local.sh`)
 
-[`09-docker-run-production.sh`](09-docker-run-production.sh) **`source`**s **`./production-env.local.sh`** next to itself on the server when present (same directory as **`config.sh`**). Create once from the shipped template ([`production-env.local.example.sh`](production-env.local.example.sh)); **`chmod 600`**. Put **`export BANK_SITE_ACCESS_SECRET='…'`** there (≥16 UTF‑8 bytes). Use **`export`** for **`TRUELAYER_*`** / **`ENABLE_BANKING_*`** when those vars are passed with bare **`-e NAME`** into Docker — see **`09-docker-run-production.sh`**.
+[`09-docker-run-production.sh`](09-docker-run-production.sh) **`source`**s **`./production-env.local.sh`** next to itself on the server when present (same directory as **`config.sh`**). Create once from the shipped template ([`production-env.local.example.sh`](production-env.local.example.sh)); **`chmod 600`**. Put **`BANK_SITE_ACCESS_SECRET`** there (≥16 UTF‑8 bytes), plus **`TRUELAYER_*`** / **`ENABLE_BANKING_*`** as needed. **`09`** expands these into **`docker run -e "VAR=…"`**, so they reach the container even if you **omit `export`** (plain `VAR=value` lines are enough).
 
 **Enable private key** (same **`SSH_KEY`** / **`EC2_IP`** as copy steps above):
 
@@ -136,7 +136,7 @@ sudo chown ec2-user:ec2-user /opt/bank-app/secrets/enable-banking-private.pem
 chmod 600 /opt/bank-app/secrets/enable-banking-private.pem
 ```
 
-Run host scripts from the copied folder (`cd ~/bank-deploy-aws`). **`09-docker-run-production.sh`** logs into ECR when **`BANK_APP_IMAGE`** targets **`.dkr.ecr.`** and runs **`docker pull`** **before** removing the old container or syncing from S3, so each deploy picks up the `:latest` you pushed from **`07-ecr-build-and-push.sh`**. The instance profile needs ECR read (e.g. **`AmazonEC2ContainerRegistryReadOnly`**) alongside S3.
+[`09-docker-run-production.sh`](09-docker-run-production.sh) logs into ECR when **`BANK_APP_IMAGE`** targets **`.dkr.ecr.`** — it **prefetch-pulls** before stopping the old container, **`docker rm`**, S3 sync, then **pulls again** and runs with **`docker run --pull=always`** so a long sync cannot leave **`:latest`** pointing at an image that was correct only at script start. The instance profile needs ECR read (e.g. **`AmazonEC2ContainerRegistryReadOnly`**) alongside S3.
 
 On the **server** (after `cd ~/bank-deploy-aws`):
 
@@ -197,7 +197,7 @@ Automated **`POST /api/feed/sync`** prefers TrueLayer when **`aispFeed.trueLayer
 
 ### Operator checklist — production env (`prod-env-caddy`)
 
-[`09-docker-run-production.sh`](09-docker-run-production.sh): **`ENABLE_BANKING_APP_ID`**, **`ENABLE_BANKING_REDIRECT_URL`**, **`ENABLE_BANKING_PRIVATE_KEY_PATH`** (Enable); **`TRUELAYER_*`** forwarded when exporting them in **`config.sh`** / **`production-env.local.sh`**; Caddy terminates HTTPS on the hostname that matches each provider whitelist.
+[`09-docker-run-production.sh`](09-docker-run-production.sh): **`ENABLE_BANKING_APP_ID`**, **`ENABLE_BANKING_REDIRECT_URL`**, **`ENABLE_BANKING_PRIVATE_KEY_PATH`** (Enable); **`TRUELAYER_*`** when set in **`config.sh`** / **`production-env.local.sh`** (**`09`** expands them into the container env); Caddy terminates HTTPS on the hostname that matches each provider whitelist.
 
 ### Link once (`link-flow`)
 

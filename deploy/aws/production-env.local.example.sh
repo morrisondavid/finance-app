@@ -11,8 +11,11 @@
 # Optional — human-only login for /login.html (Bearer always uses BANK_SITE_ACCESS_SECRET).
 # export BANK_SITE_LOGIN_PASSWORD=''
 
-# Optional — TrueLayer OAuth client secret (preferred here over config.sh — never commit secrets).
+# Optional — TrueLayer OAuth (redirect URI must match exactly what you allowlist in TrueLayer Console).
+# Lines are `source`d by `09`; you do not need `export` — `09` passes these with shell expansion into `docker run`.
+# export TRUELAYER_CLIENT_ID=''
 # export TRUELAYER_CLIENT_SECRET=''
+# export TRUELAYER_REDIRECT_URL='https://your-host.example/api/feed/truelayer/callback'
 
 # Optional — override defaults from config.sh (`BANK_S3_DURABLE_BUCKET`/`PREFIX`).
 # `./09-docker-run-production.sh` always runs `aws s3 sync --delete` for durable dirs before `docker run`,

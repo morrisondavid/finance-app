@@ -16,7 +16,14 @@ if ! aws ecr describe-repositories --repository-names "$BANK_APP_ECR_REPO_NAME" 
   aws ecr create-repository --repository-name "$BANK_APP_ECR_REPO_NAME"
 fi
 
-docker build -t "$IMAGE_LOCAL" "${REPO_ROOT}"
+# Optional BANK_APP_DOCKER_PLATFORM in deploy/aws/config.sh — set when EC2 cpu arch differs from Docker's
+# native build (see README): e.g. linux/arm64 from Intel laptop → Graviton, or linux/amd64 → x86 EC2.
+if [[ -n "${BANK_APP_DOCKER_PLATFORM:-}" ]]; then
+  echo "[07] docker build --platform ${BANK_APP_DOCKER_PLATFORM}"
+  DOCKER_BUILDKIT=1 docker build --platform "${BANK_APP_DOCKER_PLATFORM}" -t "$IMAGE_LOCAL" "${REPO_ROOT}"
+else
+  DOCKER_BUILDKIT=1 docker build -t "$IMAGE_LOCAL" "${REPO_ROOT}"
+fi
 
 SOURCE_SHA_HEX="$(
   docker run --rm "$IMAGE_LOCAL" node -e '
