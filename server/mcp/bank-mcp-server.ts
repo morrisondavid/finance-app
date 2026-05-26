@@ -9,6 +9,8 @@ import {
   NetWorthSnapshotCaptureResponseSchema,
   FeedSyncBodySchema,
   FeedSyncResponseSchema,
+  AiTransactionDrillQuerySchema,
+  AiTransactionDrillResponseSchema,
 } from '../../shared/api-contracts.js';
 import { getDb } from '../db/connection.js';
 import { runFeedSync, FeedSyncError } from '../ingestion/feeds/sync.js';
@@ -27,6 +29,7 @@ import {
   composeAiNetWorthHistory,
   composeAiSpendByCurrencyForCurrentMonth,
   composeAiEntityLiquidityFx,
+  buildAiTransactionDrillResponse,
 } from '../domain/ai/index.js';
 import { assembleRunway } from '../domain/forecast/index.js';
 import { runwayResponseFromAssembled } from '../domain/forecast/runway-api-response.js';
@@ -98,7 +101,7 @@ export function createBankStatementsMcpServer(): McpServer {
     { name: 'bank-statements-ai', version: '2.0.0' },
     {
       instructions:
-        'AI slices over the bank-statements-app domain (§2.0): read resources mirror GET /api/ai/*. Tool capture_net_worth_snapshot (§3.1) updates net-worth CSV — same as POST /api/ai/net-worth/snapshot. §3.2: bankstatements://ai/spend-by-currency uses the current calendar month only; for financial-year, entity, or account filters use GET /api/ai/spend-by-currency. entity-liquidity-fx resource matches GET /api/ai/entity-liquidity-fx.',
+        'AI slices over the bank-statements-app domain (§2.0): read resources mirror GET /api/ai/*. Tools: capture_net_worth_snapshot (§3.1); sync_bank_feed (§3.4 feed sync); query_transactions (transaction drill, same as GET /api/ai/transactions-drill). For query_transactions: `account` is optional — omit to search all ledger accounts; then transfer rows are excluded by default unless you set `type` or use `includeTransfers` with a specific `account`. Per-account currency is in response aggregates; do not sum across different currencies as one number without FX. Prefer `account` when the user names one bank/card. §3.2: bankstatements://ai/spend-by-currency uses the current calendar month only; for financial-year, entity, or account filters use GET /api/ai/spend-by-currency. entity-liquidity-fx matches GET /api/ai/entity-liquidity-fx.',
     },
   );
 
@@ -181,7 +184,51 @@ export function createBankStatementsMcpServer(): McpServer {
     args => runSyncBankFeedMcpTool(args),
   );
 
+  server.registerTool(
+    'query_transactions',
+    {
+      description:
+        'Wave 03 — same composer as GET /api/ai/transactions-drill. **`account` optional**: omit to match all ledger accounts (no `AND account` in SQL). **Transfers**: with no `account`, default behaviour excludes `transfer` rows unless you set `type` (`income`/`expense`/`transfer`); `includeTransfers` only expands income/expense with transfers when **`account`** is a valid account id. **Prefer `account`** when the user names a specific bank/card. **Totals**: use `totalsByCurrency` / `aggregatesByAccount` — each has `currency`; do not add across mixed currencies without FX. **Merchant modal**: `merchantModalLabel` implies expense-type drill; cross-account drills do not get per-account transfer-as-expense expansion. Exactly one date window. Never both `search` and `merchantModalLabel`. `includeRows:false` returns aggregates only.',
+      inputSchema: AiTransactionDrillQuerySchema.shape,
+      outputSchema: AiTransactionDrillResponseSchema.shape,
+    },
+    async args => runQueryTransactionsMcpTool(args),
+  );
+
   return server;
+}
+
+/**
+ * Exported handler for the `query_transactions` MCP tool. Validates with the
+ * same Zod schema as GET /api/ai/transactions-drill; malformed input returns
+ * `isError: true` (unlike §3.4 feed errors, which distinguish adapter failures).
+ *
+ * **Optional `account`:** see **`AiTransactionDrillQuerySchema`** (shared/api-contracts) and the
+ * registered tool `description` / server `instructions` for cross-account transfer defaults and
+ * multi-currency aggregates.
+ */
+export function runQueryTransactionsMcpTool(args: unknown): {
+  [x: string]: unknown;
+  isError?: true;
+  content: { type: 'text'; text: string }[];
+  structuredContent?: import('../../shared/api-contracts.js').AiTransactionDrillResponse;
+} {
+  const parsed = AiTransactionDrillQuerySchema.safeParse(args);
+  if (!parsed.success) {
+    const body = { error: 'invalid-params', issues: parsed.error.issues };
+    return {
+      isError: true,
+      content: [{ type: 'text' as const, text: JSON.stringify(body, null, 2) }],
+    };
+  }
+
+  const structuredContent = AiTransactionDrillResponseSchema.parse(
+    buildAiTransactionDrillResponse(parsed.data),
+  );
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+    structuredContent,
+  };
 }
 
 /**

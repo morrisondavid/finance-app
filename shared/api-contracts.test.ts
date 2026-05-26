@@ -20,6 +20,9 @@ import {
   UkCompanySchema,
   UaeCompanySchema,
   AiFinancialSafetyResponseSchema,
+  TransactionListingDateModesSchema,
+  AiTransactionDrillQuerySchema,
+  DashboardTransactionsQuerySchema,
 } from './api-contracts.js';
 
 describe('HmrcPaymentMatchSchema', () => {
@@ -944,5 +947,146 @@ describe('CompanySchema discriminated union', () => {
       qfzp_elected: 'TBC',
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe('TransactionListingDateModesSchema', () => {
+  it('accepts an ISO-only window', () => {
+    const r = TransactionListingDateModesSchema.safeParse({
+      dateFrom: '2026-01-01',
+      dateTo: '2026-01-31',
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('accepts year with optional month alone', () => {
+    expect(
+      TransactionListingDateModesSchema.safeParse({ year: '2026' }).success,
+    ).toBe(true);
+    expect(
+      TransactionListingDateModesSchema.safeParse({
+        year: '2026',
+        month: '03',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects mixing ISO range with financial year', () => {
+    const r = TransactionListingDateModesSchema.safeParse({
+      dateFrom: '2026-01-01',
+      financialYear: '2025/26',
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects mixing ISO range with calendar year', () => {
+    expect(
+      TransactionListingDateModesSchema.safeParse({
+        dateTo: '2026-12-31',
+        year: '2026',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects month without year', () => {
+    const r = TransactionListingDateModesSchema.safeParse({ month: '3' });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects inverted ISO bounds', () => {
+    const r = TransactionListingDateModesSchema.safeParse({
+      dateFrom: '2026-12-31',
+      dateTo: '2026-01-01',
+    });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe('AiTransactionDrillQuerySchema', () => {
+  it('rejects search combined with merchantModalLabel', () => {
+    const r = AiTransactionDrillQuerySchema.safeParse({
+      year: '2026',
+      search: 'foo',
+      merchantModalLabel: 'Bar',
+      limit: 10,
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('requires a date window branch', () => {
+    expect(AiTransactionDrillQuerySchema.safeParse({ limit: 5 }).success).toBe(false);
+  });
+
+  it('accepts merchantModalLabel without type (composer defaults type to expense)', () => {
+    const r = AiTransactionDrillQuerySchema.safeParse({
+      year: '2026',
+      merchantModalLabel: 'Uber',
+      limit: 50,
+    });
+    expect(r.success).toBe(true);
+  });
+});
+
+describe('DashboardTransactionsQuerySchema', () => {
+  it('trims string fields, coerces type, and normalises includeTransfers', () => {
+    const r = DashboardTransactionsQuerySchema.safeParse({
+      account: ' barclays-current ',
+      category: undefined,
+      year: ' 2026 ',
+      month: undefined,
+      financialYear: undefined,
+      type: 'expense',
+      includeTransfers: 'true',
+      search: '  coffee ',
+      merchantModalLabel: undefined,
+    });
+    expect(r.success).toBe(true);
+    expect(r.data).toEqual({
+      account: 'barclays-current',
+      category: undefined,
+      year: '2026',
+      month: undefined,
+      financialYear: undefined,
+      type: 'expense',
+      includeTransfers: true,
+      search: 'coffee',
+      merchantModalLabel: undefined,
+    });
+  });
+
+  it('treats non-TransactionType strings as omitted type filter', () => {
+    const r = DashboardTransactionsQuerySchema.safeParse({
+      account: 'barclays-current',
+      financialYear: '2025',
+      type: 'not-a-type',
+    });
+    expect(r.success).toBe(true);
+    expect(r.data?.type).toBeUndefined();
+  });
+
+  it('sets includeTransfers only for true boolean or the string true', () => {
+    expect(
+      DashboardTransactionsQuerySchema.safeParse({
+        account: 'natwest',
+        year: '2026',
+        includeTransfers: true,
+      }).data?.includeTransfers,
+    ).toBe(true);
+
+    expect(
+      DashboardTransactionsQuerySchema.safeParse({
+        account: 'natwest',
+        year: '2026',
+        includeTransfers: false,
+      }).data?.includeTransfers,
+    ).toBeUndefined();
+
+    expect(
+      DashboardTransactionsQuerySchema.safeParse({
+        account: 'natwest',
+        year: '2026',
+        includeTransfers: 'false',
+      }).data?.includeTransfers,
+    ).toBeUndefined();
   });
 });

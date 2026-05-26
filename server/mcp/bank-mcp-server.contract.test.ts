@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import type { EntityFoundationWarning } from '../../shared/api-contracts.js';
+import {
+  type EntityFoundationWarning,
+  type AiTransactionDrillResponse,
+  AiTransactionDrillQuerySchema,
+} from '../../shared/api-contracts.js';
 import { initDatabase, closeDatabase } from '../db/index.js';
 import {
   composeAiLiquidity,
@@ -14,6 +18,7 @@ import {
   composeAiNetWorthHistory,
   composeAiSpendByCurrencyForCurrentMonth,
   composeAiEntityLiquidityFx,
+  buildAiTransactionDrillResponse,
 } from '../domain/ai/index.js';
 import { assembleRunway } from '../domain/forecast/index.js';
 import { runwayResponseFromAssembled } from '../domain/forecast/runway-api-response.js';
@@ -22,7 +27,13 @@ import { getDb } from '../db/connection.js';
 import {
   BankStatementsAiResourceUris,
   readBankStatementsAiResource,
+  runQueryTransactionsMcpTool,
 } from './bank-mcp-server.js';
+
+function stripTransactionDrillGeneratedAt(body: AiTransactionDrillResponse) {
+  const { generatedAt: _g, ...rest } = body;
+  return rest;
+}
 
 function warningsIgnoringTimeline(warnings: readonly EntityFoundationWarning[]) {
   return warnings.map(w => {
@@ -168,5 +179,19 @@ describe('MCP resource payloads vs composers', () => {
     expect(fromMcp.asOf).toBe(expected.asOf);
     expect(fromMcp.global).toEqual(expected.global);
     expect(fromMcp.byEntity).toEqual(expected.byEntity);
+  });
+
+  it('query_transactions matches buildAiTransactionDrillResponse (excluding generatedAt)', () => {
+    const q = AiTransactionDrillQuerySchema.parse({
+      year: '2099',
+      includeRows: false,
+      limit: 10,
+    });
+    const composed = buildAiTransactionDrillResponse(q);
+    const fromTool = runQueryTransactionsMcpTool(q);
+    expect(fromTool.isError).toBeUndefined();
+    expect(stripTransactionDrillGeneratedAt(fromTool.structuredContent!)).toEqual(
+      stripTransactionDrillGeneratedAt(composed),
+    );
   });
 });

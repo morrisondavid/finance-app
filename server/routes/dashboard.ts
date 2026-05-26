@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import type { TransactionJSON, TransactionType } from '../types.js';
+import type { TransactionJSON } from '../types.js';
 import { ACCOUNTS } from '../types.js';
 import {
   validateAccount,
@@ -17,9 +17,9 @@ import {
   AccountConfigsResponse,
   FeedToolbarStateSchema,
   type FeedToolbarState,
-  TransactionsResponse,
   AccountBalanceResponse,
   CategoriesResponse,
+  DashboardTransactionsQuerySchema,
 } from '../../shared/api-contracts.js';
 import {
   getDashboardTotals,
@@ -44,6 +44,7 @@ import { round2 } from '../utils/math.js';
 import { buildExpensePipelineForAccount, transactionRowToRaw } from '../utils/expenses-overview-pipeline.js';
 import { computeBudgetNudges } from '../utils/budget-nudges.js';
 import { feedToolbarStateForAccount } from '../ingestion/feeds/feed-toolbar-state.js';
+import { flattenExpressQuery } from '../utils/flatten-express-query.js';
 
 const router = express.Router();
 
@@ -251,55 +252,32 @@ router.get('/categories', (req: Request<object, CategoriesResponse, object, Cate
   }
 });
 
-interface TransactionsQuery {
-  account?: string;
-  year?: string;
-  month?: string;
-  type?: string;
-  category?: string;
-  includeTransfers?: string;
-  financialYear?: string;
-  search?: string;
-  merchantModalLabel?: string;
-}
-
 // GET /api/dashboard/transactions - Get transactions for a specific account
-router.get('/transactions', (req: Request<object, TransactionsResponse, object, TransactionsQuery>, res: Response<TransactionsResponse | { error: string }>) => {
+router.get('/transactions', (req: Request, res: Response) => {
   try {
-    const { account, year, month, type, category, includeTransfers, financialYear, search, merchantModalLabel } =
-      req.query;
-    
-    const selectedAccount = validateAccount(account);
-    
-    const filters: {
-      account: string;
-      year?: string;
-      month?: string;
-      type?: TransactionType;
-      includeTransfers?: boolean;
-      financialYear?: string;
-      search?: string;
-      merchantModalLabel?: string;
-    } = {
-      account: selectedAccount
+    const parsed = DashboardTransactionsQuerySchema.safeParse(
+      flattenExpressQuery(req.query as Record<string, unknown>),
+    );
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid-params', issues: parsed.error.issues });
+      return;
+    }
+    const q = parsed.data;
+    const selectedAccount = validateAccount(q.account);
+
+    const filters = {
+      account: selectedAccount,
+      ...(q.year !== undefined ? { year: q.year } : {}),
+      ...(q.month !== undefined ? { month: q.month } : {}),
+      ...(q.type !== undefined ? { type: q.type } : {}),
+      ...(q.includeTransfers !== undefined ? { includeTransfers: q.includeTransfers } : {}),
+      ...(q.financialYear !== undefined ? { financialYear: q.financialYear } : {}),
+      ...(q.search !== undefined ? { search: q.search } : {}),
+      ...(q.merchantModalLabel !== undefined ? { merchantModalLabel: q.merchantModalLabel } : {}),
     };
-    
-    if (year) filters.year = year;
-    if (month) filters.month = month;
-    if (type === 'income' || type === 'expense' || type === 'transfer') {
-      filters.type = type;
-    }
-    if (includeTransfers === 'true') {
-      filters.includeTransfers = true;
-    }
-    if (financialYear) filters.financialYear = financialYear;
-    if (search) filters.search = search;
-    if (typeof merchantModalLabel === 'string' && merchantModalLabel.trim() !== '') {
-      filters.merchantModalLabel = merchantModalLabel.trim();
-    }
 
     const transactions = getTransactions(filters);
-    
+
     let result: TransactionJSON[] = transactions.map(t => ({
       date: t.date,
       description: t.description,
@@ -310,8 +288,8 @@ router.get('/transactions', (req: Request<object, TransactionsResponse, object, 
       linkedTransactionId: t.linked_transaction_id ?? undefined
     }));
 
-    if (category) {
-      result = result.filter(t => t.category === category);
+    if (q.category) {
+      result = result.filter(t => t.category === q.category);
     }
     
     res.json(result);

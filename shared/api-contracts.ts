@@ -1103,6 +1103,234 @@ export const DebtIdSchema = z
 
 export const IsoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
+/**
+ * Date-window fields for Hermes drill / MCP transaction listings (Roadmap Wave 03).
+ *
+ * **Precedence:** at most **one** of:
+ * - ISO inclusive range `dateFrom` / `dateTo` (either may appear alone),
+ * - `financialYear`,
+ * - `year` with optional `month` (calendar bucket).
+ *
+ * Repository `getTransactions` still ANDs keys if callers send a contradictory mix;
+ * validated HTTP/MCP handlers must rely on this schema instead.
+ */
+export const TransactionListingDateModesSchema = z
+  .object({
+    financialYear: z.string().min(1).optional(),
+    year: z.string().regex(/^\d{4}$/).optional(),
+    /** Calendar month when `year` is set (`1`–`12`, or zero-padded). */
+    month: z.string().regex(/^(0?[1-9]|1[0-2])$/).optional(),
+    dateFrom: IsoDateSchema.optional(),
+    dateTo: IsoDateSchema.optional(),
+  })
+  .superRefine((v, ctx) => {
+    const hasMonth = v.month !== undefined;
+    if (hasMonth && v.year === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: '`month` requires `year`.',
+        path: ['month'],
+      });
+      return;
+    }
+
+    const hasIso = v.dateFrom !== undefined || v.dateTo !== undefined;
+    const fy = v.financialYear?.trim() ?? '';
+    const hasFy = fy.length > 0;
+    const hasYm = v.year !== undefined;
+
+    let modeCount = 0;
+    if (hasIso) modeCount++;
+    if (hasFy) modeCount++;
+    if (hasYm) modeCount++;
+
+    if (modeCount > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'Use exactly one window: ISO `dateFrom`/`dateTo`, `financialYear`, or `year` (+ optional `month`).',
+      });
+    }
+
+    if (
+      v.dateFrom !== undefined &&
+      v.dateTo !== undefined &&
+      v.dateFrom > v.dateTo
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: '`dateFrom` must not be after `dateTo`.',
+        path: ['dateTo'],
+      });
+    }
+  });
+
+export type TransactionListingDateModes = z.infer<typeof TransactionListingDateModesSchema>;
+
+/**
+ * Core transaction list filters (maps to repository `TransactionFilters` keys excluding `account`):
+ * **`year`**, **`month`**, **`financialYear`**, **`type`**, **`includeTransfers`**, **`search`**,
+ * **`merchantModalLabel`**. Composed by {@link AiTransactionDrillQuerySchema} (plus date-window
+ * fields and optional **`account`**) and by {@link DashboardTransactionsQuerySchema} (plus HTTP
+ * `account` / `category` coercion).
+ */
+export const TransactionListFilterFieldsSchema = z.object({
+  year: z.string().optional(),
+  month: z.string().optional(),
+  financialYear: z.string().optional(),
+  type: TransactionTypeSchema.optional(),
+  includeTransfers: z.boolean().optional(),
+  search: z.string().optional(),
+  merchantModalLabel: z.string().optional(),
+});
+export type TransactionListFilterFields = z.infer<typeof TransactionListFilterFieldsSchema>;
+
+function trimTransactionQueryField(s: string | undefined): string | undefined {
+  const t = s?.trim();
+  return t !== undefined && t.length > 0 ? t : undefined;
+}
+
+const DashboardTransactionsRawQuerySchema = z.object({
+  account: z.string().optional(),
+  category: z.string().optional(),
+  year: z.string().optional(),
+  month: z.string().optional(),
+  financialYear: z.string().optional(),
+  type: z.string().optional(),
+  includeTransfers: z.union([z.boolean(), z.string()]).optional(),
+  search: z.string().optional(),
+  merchantModalLabel: z.string().optional(),
+});
+
+/**
+ * Normalised `GET /api/dashboard/transactions` query — pass **`flattenExpressQuery(req.query)`**
+ * from `server/utils/flatten-express-query.ts`.
+ */
+export const DashboardTransactionsQuerySchema = DashboardTransactionsRawQuerySchema.transform(raw => {
+  const rawTypeTrimmed = trimTransactionQueryField(raw.type);
+  let coercedType: z.infer<typeof TransactionTypeSchema> | undefined;
+  if (rawTypeTrimmed !== undefined) {
+    const typeParsed = TransactionTypeSchema.safeParse(rawTypeTrimmed);
+    coercedType = typeParsed.success ? typeParsed.data : undefined;
+  }
+  return {
+    account: trimTransactionQueryField(raw.account),
+    category: trimTransactionQueryField(raw.category),
+    year: trimTransactionQueryField(raw.year),
+    month: trimTransactionQueryField(raw.month),
+    financialYear: trimTransactionQueryField(raw.financialYear),
+    search: trimTransactionQueryField(raw.search),
+    merchantModalLabel: trimTransactionQueryField(raw.merchantModalLabel),
+    type: coercedType,
+    includeTransfers:
+      raw.includeTransfers === true || raw.includeTransfers === 'true' ? true : undefined,
+  };
+});
+export type DashboardTransactionsQueryParsed = z.infer<typeof DashboardTransactionsQuerySchema>;
+
+/** §2.0 / Wave 03 — agent + MCP transaction drill (HTTP + `query_transactions`). */
+export const AiTransactionDrillMatchModeSchema = z.enum(['none', 'search', 'merchant_modal']);
+export type AiTransactionDrillMatchMode = z.infer<typeof AiTransactionDrillMatchModeSchema>;
+
+export const AiTransactionDrillRowSchema = z.object({
+  id: z.number().int(),
+  date: IsoDateSchema,
+  description: z.string(),
+  amount: z.number(),
+  account: z.string(),
+  type: TransactionTypeSchema,
+});
+export type AiTransactionDrillRow = z.infer<typeof AiTransactionDrillRowSchema>;
+
+export const AiTransactionDrillAggregateByAccountSchema = z.object({
+  account: z.string(),
+  currency: CurrencyCodeSchema,
+  rowCount: z.number().int().nonnegative(),
+  sumAmount: z.number(),
+});
+export type AiTransactionDrillAggregateByAccount = z.infer<typeof AiTransactionDrillAggregateByAccountSchema>;
+
+export const AiTransactionDrillTotalsByCurrencySchema = z.object({
+  currency: CurrencyCodeSchema,
+  rowCount: z.number().int().nonnegative(),
+  sumAmount: z.number(),
+});
+export type AiTransactionDrillTotalsByCurrency = z.infer<typeof AiTransactionDrillTotalsByCurrencySchema>;
+
+/**
+ * Query surface for `GET /api/ai/transactions-drill` and MCP `query_transactions`.
+ * Extends {@link TransactionListingDateModesSchema}: **exactly one** date window is required.
+ *
+ * **`account` optional** — When omitted, SQL does not add `AND account = ?` (matches **all** ledger
+ * accounts that satisfy the other filters). **Prefer passing `account`** when the user names a
+ * specific bank/card so results and transfer handling match that account’s registry config.
+ *
+ * **Transfers (cross-account, no `account`)** — With no `type` and no `includeTransfers`, the
+ * repository **excludes `transfer` rows by default**. With `type: 'income'` or `type: 'expense'`
+ * but still no `account`, you get plain type equality (no per-account “treat transfer as
+ * income/expense” expansion). **`includeTransfers` is only meaningful when `account` is set**
+ * to a valid account that supports that expansion in `getTransactions`.
+ *
+ * **Merchant modal (`merchantModalLabel`)** — Without `account`, there is no per-account transfer
+ * expansion for expense drills; SQL modal predicates still apply.
+ *
+ * **Money** — Use `aggregatesByAccount` / `totalsByCurrency` in the response; **do not add amounts
+ * across different `currency` values** as a single total without FX logic.
+ */
+export const AiTransactionDrillQuerySchema = TransactionListingDateModesSchema.merge(
+  TransactionListFilterFieldsSchema.extend({
+    account: AccountNameSchema.optional(),
+    limit: z.number().int().positive().max(500).default(100),
+    /** When false, `rows` is empty and only aggregates / counts are returned (faster for “how much” questions). */
+    includeRows: z.boolean().default(true),
+  }),
+).superRefine((v, ctx) => {
+  const searchT = v.search?.trim() ?? '';
+  const merchT = v.merchantModalLabel?.trim() ?? '';
+  if (searchT.length > 0 && merchT.length > 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Use either `search` or `merchantModalLabel`, not both.',
+    });
+  }
+
+  const hasIso = v.dateFrom !== undefined || v.dateTo !== undefined;
+  const hasFy = v.financialYear !== undefined && v.financialYear.trim().length > 0;
+  const hasYm = v.year !== undefined;
+  if (!hasIso && !hasFy && !hasYm) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Specify exactly one date window: `dateFrom`/`dateTo`, `financialYear`, or `year` (+ optional `month`).',
+      path: ['dateFrom'],
+    });
+  }
+});
+
+export type AiTransactionDrillQuery = z.infer<typeof AiTransactionDrillQuerySchema>;
+
+/**
+ * Drill result: row sample (maybe truncated), counts, and **`aggregatesByAccount`** /
+ * **`totalsByCurrency`** (same match set as **`matchedRowCount`**). Prefer **`totalsByCurrency`** for
+ * headline amounts **within** a currency; do not merge across currencies without FX.
+ */
+export const AiTransactionDrillResponseSchema = z.object({
+  generatedAt: z.string(),
+  schemaVersion: z.string(),
+  matchMode: AiTransactionDrillMatchModeSchema,
+  includeRows: z.boolean(),
+  truncated: z.boolean(),
+  /** Rows matching filters (before applying `limit`). */
+  matchedRowCount: z.number().int().nonnegative(),
+  returnedRowCount: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  /** Echo of effective drill inputs (after trims / defaults). */
+  query: AiTransactionDrillQuerySchema,
+  aggregatesByAccount: z.array(AiTransactionDrillAggregateByAccountSchema),
+  totalsByCurrency: z.array(AiTransactionDrillTotalsByCurrencySchema),
+  rows: z.array(AiTransactionDrillRowSchema),
+});
+export type AiTransactionDrillResponse = z.infer<typeof AiTransactionDrillResponseSchema>;
+
 export const DebtKindSchema = z.enum(['consumer', 'mortgage']);
 /**
  * API-facing debt classification for agents (roadmap §2.0.A). Derived from

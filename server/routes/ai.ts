@@ -5,7 +5,12 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { EntityIdSchema, NetWorthSnapshotCaptureBodySchema, AccountNameSchema } from '../../shared/api-contracts.js';
+import {
+  EntityIdSchema,
+  NetWorthSnapshotCaptureBodySchema,
+  AccountNameSchema,
+  AiTransactionDrillQuerySchema,
+} from '../../shared/api-contracts.js';
 import { getDb } from '../db/connection.js';
 import { assembleRunway } from '../domain/forecast/index.js';
 import { runwayResponseFromAssembled } from '../domain/forecast/runway-api-response.js';
@@ -23,9 +28,11 @@ import {
   composeAiNetWorthHistory,
   composeAiSpendByCurrency,
   composeAiEntityLiquidityFx,
+  buildAiTransactionDrillResponse,
 } from '../domain/ai/index.js';
 import { captureNetWorthSnapshots } from '../domain/net-worth/snapshot.js';
 import type { SpendByCurrencyPeriod } from '../domain/cross-currency/spend-by-currency.js';
+import { flattenExpressQuery } from '../utils/flatten-express-query.js';
 
 const router = Router();
 
@@ -75,6 +82,24 @@ const SpendByCurrencyQuerySchema = z
     }
   });
 
+/** Drill-specific coercions on `flattenExpressQuery(req.query)`. */
+function transactionDrillQueryFromExpress(q: Request['query']): unknown {
+  const flat = flattenExpressQuery(q as Record<string, unknown>);
+  if (flat.limit !== undefined) {
+    flat.limit = Number(flat.limit);
+  }
+  if (flat.includeRows !== undefined) {
+    const v = flat.includeRows;
+    flat.includeRows = !(v === 'false' || v === false);
+  }
+  if (flat.includeTransfers !== undefined) {
+    const v = flat.includeTransfers;
+    if (v === false || v === 'false') flat.includeTransfers = false;
+    else if (v === true || v === 'true') flat.includeTransfers = true;
+  }
+  return flat;
+}
+
 router.get('/spend-by-currency', (req: Request, res: Response) => {
   try {
     const parsed = SpendByCurrencyQuerySchema.safeParse(req.query);
@@ -113,6 +138,22 @@ router.get('/entity-liquidity-fx', (_req: Request, res: Response) => {
     console.error('[AI] GET /entity-liquidity-fx error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     res.status(500).json({ error: `Failed to build AI entity liquidity: ${message}` });
+  }
+});
+
+router.get('/transactions-drill', (req: Request, res: Response) => {
+  // Optional account and transfer/currency caveats: see AiTransactionDrillQuerySchema in shared/api-contracts.ts and MCP query_transactions description.
+  try {
+    const parsed = AiTransactionDrillQuerySchema.safeParse(transactionDrillQueryFromExpress(req.query));
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid-params', issues: parsed.error.issues });
+      return;
+    }
+    res.json(buildAiTransactionDrillResponse(parsed.data));
+  } catch (error) {
+    console.error('[AI] GET /transactions-drill error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: `Failed to build transaction drill: ${message}` });
   }
 });
 

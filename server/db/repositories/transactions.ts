@@ -28,6 +28,7 @@ import {
   expenseTxnMatchesMerchantModal,
   merchantDrillSearchSql,
 } from '../../utils/merchant-drill-search.js';
+import { buildMerchantModalDescriptionPredicate } from '../../utils/merchant-modal-description-sql.js';
 import type { RawTransaction } from '../../utils/recurring-pipeline.js';
 import { doAmountsAndDatesMatchForAccounts } from '../../domain/inter-company/pair-finder.js';
 
@@ -52,11 +53,40 @@ export interface TransactionFilters {
   search?: string;
   /** Budget nudge / merchant modal: same rules as {@link expenseTxnMatchesMerchantModal}. */
   merchantModalLabel?: string;
+  /**
+   * Inclusive lower bound on `date` (`YYYY-MM-DD`). Used by consolidated warnings /
+   * tax-reserve paths to align with rolling pipeline windows instead of hydrating all rows.
+   */
+  minDateInclusive?: string;
+  /**
+   * Inclusive ISO bounds on stored `date` (`YYYY-MM-DD`).
+   *
+   * **Precedence:** API / agent callers should treat this range as **mutually exclusive**
+   * with `financialYear` and with `(year, month)` — enforce at validation (Wave 03 Zod on
+   * routes/MCP tools). If combined here, predicates are ANDed (intersection); unknown
+   * callers should not rely on that.
+   *
+   * Malformed strings are ignored. If both bounds parse and `dateFrom > dateTo`, the result
+   * is an empty array (stable invariant rather than widening the query).
+   */
+  dateFrom?: string;
+  /** @see {@link TransactionFilters.dateFrom} */
+  dateTo?: string;
 }
 
 /** Escape `%`, `_`, and `\` for SQL `LIKE` when using `ESCAPE '\\'`. */
 function escapeLikePatternSegment(fragment: string): string {
   return fragment.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
+const ISO_BOUND_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Returns a trimmed ISO `YYYY-MM-DD` or undefined if absent / malformed. */
+function parseIsoTransactionDateBound(raw?: string): string | undefined {
+  const t = raw?.trim();
+  if (!t) return undefined;
+  if (!ISO_BOUND_RE.test(t)) return undefined;
+  return t;
 }
 
 /**
@@ -383,83 +413,111 @@ export function detectTransfers(): number {
 }
 
 /**
- * Get transactions with optional filters
- * Respects account config for including transfers as income/expense
+ * Shared SQL `WHERE` tail (after `WHERE 1=1`) + params for transaction listing / aggregates.
+ * When {@link TransactionFilterCompileResult.merchantModalNeedsJsFallback} is true, the SQL
+ * intentionally omits merchant-modal description predicates; callers must post-filter with
+ * {@link expenseTxnMatchesMerchantModal} (see {@link getTransactions}).
  */
-export function getTransactions(filters: TransactionFilters = {}): TransactionRow[] {
-  const modalLabel = filters.merchantModalLabel?.trim();
-  if (modalLabel && filters.type === 'expense') {
-    const { merchantModalLabel: _omitModal, search: _omitSearch, ...base } = filters;
-    const rows = getTransactions({ ...base, search: undefined });
-    return rows.filter(row => {
-      const raw: RawTransaction = {
-        id: row.id,
-        date: row.date,
-        description: row.description,
-        amount: row.amount,
-        account: row.account,
-        type: row.type,
-      };
-      return expenseTxnMatchesMerchantModal(raw, modalLabel);
-    });
+export interface TransactionFilterCompileResult {
+  readonly earlyEmpty: boolean;
+  readonly merchantModalNeedsJsFallback: boolean;
+  readonly modalLabelTrimmed?: string;
+  /** Append to `... WHERE 1=1` (leading ` AND ...`). */
+  readonly whereSql: string;
+  readonly params: (string | number)[];
+}
+
+export function compileTransactionFilterSql(filters: TransactionFilters): TransactionFilterCompileResult {
+  const isoFrom = parseIsoTransactionDateBound(filters.dateFrom);
+  const isoTo = parseIsoTransactionDateBound(filters.dateTo);
+  if (isoFrom !== undefined && isoTo !== undefined && isoFrom > isoTo) {
+    return {
+      earlyEmpty: true,
+      merchantModalNeedsJsFallback: false,
+      whereSql: '',
+      params: [],
+    };
   }
 
-  const db = getDb();
-  let sql = 'SELECT * FROM transactions WHERE 1=1';
+  const modalLabelTrimmed = filters.merchantModalLabel?.trim();
+  const modalPred =
+    modalLabelTrimmed !== undefined &&
+    modalLabelTrimmed.length > 0 &&
+    filters.type === 'expense'
+      ? buildMerchantModalDescriptionPredicate(modalLabelTrimmed)
+      : null;
+  const merchantModalNeedsJsFallback =
+    Boolean(modalLabelTrimmed && filters.type === 'expense') && modalPred === null;
+
+  const { merchantModalLabel: _omitMerchantModal, ...restFilters } = filters;
+  const sqlFilters: TransactionFilters = { ...restFilters };
+  if (modalLabelTrimmed !== undefined && modalLabelTrimmed.length > 0 && filters.type === 'expense') {
+    sqlFilters.search = undefined;
+  }
+
+  let sql = '';
   const params: (string | number)[] = [];
-  
-  // Check if this account should include transfers as income/expense
-  const includeTransfers = shouldIncludeTransfersAsIncome(filters.account);
-  
-  // By default, exclude transfers unless explicitly requested or account config says to include
-  if (!filters.includeTransfers && !filters.type && !includeTransfers) {
+
+  if (sqlFilters.minDateInclusive !== undefined && sqlFilters.minDateInclusive.length > 0) {
+    sql += ' AND date >= ?';
+    params.push(sqlFilters.minDateInclusive);
+  }
+
+  const includeTransfers = shouldIncludeTransfersAsIncome(sqlFilters.account);
+
+  if (!sqlFilters.includeTransfers && !sqlFilters.type && !includeTransfers) {
     sql += ' AND type != \'transfer\'';
   }
-  
-  if (filters.account) {
+
+  if (sqlFilters.account) {
     sql += ' AND account = ?';
-    params.push(filters.account);
+    params.push(sqlFilters.account);
   }
-  
-  if (filters.year) {
+
+  if (sqlFilters.year) {
     sql += ' AND strftime(\'%Y\', date) = ?';
-    params.push(filters.year);
+    params.push(sqlFilters.year);
   }
-  
-  if (filters.month) {
+
+  if (sqlFilters.month) {
     sql += ' AND strftime(\'%m\', date) = ?';
-    params.push(filters.month.padStart(2, '0'));
+    params.push(sqlFilters.month.padStart(2, '0'));
   }
-  
-  // Type filter - for accounts that include transfers, expand the type filter
-  if (filters.type) {
+
+  if (sqlFilters.type) {
     if (includeTransfers) {
-      // Include transfers with the appropriate type
-      if (filters.type === 'income') {
+      if (sqlFilters.type === 'income') {
         sql += ` AND ${getIncomeCondition(true)}`;
-      } else if (filters.type === 'expense') {
+      } else if (sqlFilters.type === 'expense') {
         sql += ` AND ${getExpenseCondition(true)}`;
       } else {
-        // For 'transfer' type, just match transfer
         sql += ' AND type = ?';
-        params.push(filters.type);
+        params.push(sqlFilters.type);
       }
     } else {
-      // Standard type filter
       sql += ' AND type = ?';
-      params.push(filters.type);
+      params.push(sqlFilters.type);
     }
   }
-  
-  // Financial year filter
-  if (filters.financialYear) {
-    const range = getFinancialYearRange(filters.financialYear);
+
+  if (sqlFilters.financialYear) {
+    const range = getFinancialYearRange(sqlFilters.financialYear);
     sql += ' AND date >= ? AND date <= ?';
     params.push(range.startDate, range.endDate);
   }
 
-  if (filters.search) {
-    const needle = filters.search.trim();
+  if (isoFrom !== undefined) {
+    sql += ' AND date >= ?';
+    params.push(isoFrom);
+  }
+
+  if (isoTo !== undefined) {
+    sql += ' AND date <= ?';
+    params.push(isoTo);
+  }
+
+  if (sqlFilters.search) {
+    const needle = sqlFilters.search.trim();
     const drill = merchantDrillSearchSql(needle);
     if (drill === null) {
       sql += " AND description LIKE ? ESCAPE '\\'";
@@ -474,9 +532,97 @@ export function getTransactions(filters: TransactionFilters = {}): TransactionRo
     }
   }
 
-  sql += ' ORDER BY date DESC';
-  
-  return db.prepare(sql).all(...params) as TransactionRow[];
+  if (modalPred !== null) {
+    sql += ` AND (${modalPred.clause})`;
+    params.push(...modalPred.params);
+  }
+
+  return {
+    earlyEmpty: false,
+    merchantModalNeedsJsFallback,
+    modalLabelTrimmed,
+    whereSql: sql,
+    params,
+  };
+}
+
+export interface TransactionAccountAggregateRow {
+  readonly account: string;
+  readonly rowCount: number;
+  readonly sumAmount: number;
+}
+
+/**
+ * `COUNT` / `SUM(amount)` grouped by account for the same filter surface as {@link getTransactions}.
+ * When merchant modal needs JS fallback, delegates to {@link getTransactions} and aggregates in-process.
+ */
+export function summarizeTransactionsByAccount(filters: TransactionFilters = {}): TransactionAccountAggregateRow[] {
+  const compiled = compileTransactionFilterSql(filters);
+  if (compiled.earlyEmpty) {
+    return [];
+  }
+  const db = getDb();
+
+  if (!compiled.merchantModalNeedsJsFallback) {
+    const sql =
+      'SELECT account, COUNT(*) AS row_count, SUM(amount) AS sum_amount FROM transactions WHERE 1=1' +
+      compiled.whereSql +
+      ' GROUP BY account ORDER BY account ASC';
+    const raw = db.prepare(sql).all(...compiled.params) as Array<{
+      account: string;
+      row_count: number;
+      sum_amount: number;
+    }>;
+    return raw.map(r => ({
+      account: r.account,
+      rowCount: r.row_count,
+      sumAmount: r.sum_amount,
+    }));
+  }
+
+  const rows = getTransactions(filters);
+  const byAccount = new Map<string, { rowCount: number; sumAmount: number }>();
+  for (const r of rows) {
+    const cur = byAccount.get(r.account) ?? { rowCount: 0, sumAmount: 0 };
+    cur.rowCount += 1;
+    cur.sumAmount += r.amount;
+    byAccount.set(r.account, cur);
+  }
+  return [...byAccount.entries()]
+    .map(([account, v]) => ({ account, rowCount: v.rowCount, sumAmount: v.sumAmount }))
+    .sort((a, b) => a.account.localeCompare(b.account));
+}
+
+/**
+ * Get transactions with optional filters
+ * Respects account config for including transfers as income/expense
+ */
+export function getTransactions(filters: TransactionFilters = {}): TransactionRow[] {
+  const compiled = compileTransactionFilterSql(filters);
+  if (compiled.earlyEmpty) {
+    return [];
+  }
+
+  const db = getDb();
+  const sql = 'SELECT * FROM transactions WHERE 1=1' + compiled.whereSql + ' ORDER BY date DESC';
+  const rows = db.prepare(sql).all(...compiled.params) as TransactionRow[];
+
+  if (!compiled.merchantModalNeedsJsFallback || !compiled.modalLabelTrimmed) {
+    return rows;
+  }
+
+  const modalLabel = compiled.modalLabelTrimmed;
+  return rows.filter(row => {
+    const raw: RawTransaction = {
+      id: row.id,
+      date: row.date,
+      description: row.description,
+      amount: row.amount,
+      account: row.account,
+      type: row.type,
+    };
+    return expenseTxnMatchesMerchantModal(raw, modalLabel);
+  });
 }
 
 /** Expense rows for one account on or after `sinceDate` (YYYY-MM-DD), oldest first. */

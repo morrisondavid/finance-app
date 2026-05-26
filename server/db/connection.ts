@@ -144,6 +144,7 @@ export function initSchema(): void {
     CREATE INDEX idx_transactions_type ON transactions(type);
     CREATE INDEX idx_transactions_hash ON transactions(hash);
     CREATE INDEX idx_transactions_amount ON transactions(amount);
+    CREATE INDEX idx_transactions_type_date ON transactions(type, date);
     
     CREATE TABLE processed_files (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -405,6 +406,17 @@ export function migrateObligationsIfNeeded(): void {
   if (!cols.some(c => c.name === 'adjustment_source')) {
     db.exec('ALTER TABLE financial_obligations ADD COLUMN adjustment_source TEXT');
   }
+}
+
+/** Composite index for `type` + `date` filters (rolling expense windows, consolidated warnings). */
+export function migrateTransactionsTypeDateIndexIfNeeded(): void {
+  const db = getDb();
+  const row = db
+    .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_transactions_type_date'`)
+    .get();
+  if (row !== undefined) return;
+  db.exec('CREATE INDEX IF NOT EXISTS idx_transactions_type_date ON transactions(type, date)');
+  console.log('[Database] Added idx_transactions_type_date');
 }
 
 /**

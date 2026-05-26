@@ -59,6 +59,7 @@ import {
 } from './snapshots.js';
 import { enrichWarningsForAgents, warningPassesListingFilter } from './enrich-for-agents.js';
 import { runExpensesOverviewPipeline, transactionRowToRaw } from '../../utils/expenses-overview-pipeline.js';
+import { ROLLING_MONTHS, rollingCutoffIsoDate } from '../../utils/math.js';
 import { getUpcomingObligations, toApiObligation } from '../../db/repositories/obligations.js';
 import { getAllAccountBalances } from '../../db/repositories/balance.js';
 import { getTransactions } from '../../db/repositories/transactions.js';
@@ -73,6 +74,17 @@ const SEVERITY_RANK: Record<WarningSeverity, number> = {
 
 /** Default snapshot TTL: trim rows older than this many days. */
 const SNAPSHOT_TTL_DAYS = 90;
+
+/**
+ * Expenses for ad-hoc + debt-unregistered warning paths only.
+ * Matches the rolling scope used by {@link runExpensesOverviewPipeline}
+ * (`ROLLING_MONTHS`) so nudges / recurring-key alignment see the same horizon
+ * as the overview tab without scanning all-time rows.
+ */
+function expenseTransactionsForConsolidatedWarnings(): ReturnType<typeof transactionRowToRaw>[] {
+  const minDate = rollingCutoffIsoDate(ROLLING_MONTHS);
+  return getTransactions({ type: 'expense', minDateInclusive: minDate }).map(transactionRowToRaw);
+}
 
 function shiftIsoTimestamp(now: string, days: number): string {
   const d = new Date(now);
@@ -98,10 +110,9 @@ function buildMonthlyContributionByAccount(today: string): Map<AccountName, numb
   const cutoff = shiftIsoTimestamp(today, -90).slice(0, 10);
   const map = new Map<AccountName, number>();
   for (const name of ACCOUNTS) {
-    const txns = getTransactions({ account: name });
+    const txns = getTransactions({ account: name, minDateInclusive: cutoff });
     let net = 0;
     for (const t of txns) {
-      if (t.date < cutoff) continue;
       net += t.amount;
     }
     map.set(name, net / 3);
@@ -169,7 +180,7 @@ export function buildConsolidatedWarningsResponse(
   });
 
   const pipeline = runExpensesOverviewPipeline();
-  const expenseTxns = getTransactions({ type: 'expense' }).map(transactionRowToRaw);
+  const expenseTxns = expenseTransactionsForConsolidatedWarnings();
   const budgetedCategories = new Set(listBudgets({}).map(b => b.category));
   const adHocSpendWarnings = deriveAdHocSpendWarnings({
     today: todayIso,

@@ -24,6 +24,7 @@ import {
   migrateDebtsMatchTolerancePctIfNeeded,
   migrateDebtsMortgageFieldsIfNeeded,
   migrateFixedExpenseSimulationExclusionsIfNeeded,
+  migrateTransactionsTypeDateIndexIfNeeded,
   migrateObligationsIfNeeded,
   migrateObligationDismissalsIfNeeded,
   migrateDeadlinesIfNeeded,
@@ -129,6 +130,7 @@ function runSchemaMigrations(): void {
   migrateDebtsMatchTolerancePctIfNeeded();
   migrateDebtsMortgageFieldsIfNeeded();
   migrateFixedExpenseSimulationExclusionsIfNeeded();
+  migrateTransactionsTypeDateIndexIfNeeded();
 }
 
 /**

@@ -5,7 +5,7 @@ import { AI_MANIFEST_SCHEMA_VERSION } from './constants.js';
 const STATIC: AiManifestResponse = {
   schemaVersion: AI_MANIFEST_SCHEMA_VERSION,
   description:
-    '§2.0 AI slice manifest — HTTP paths and Zod export names from shared/api-contracts.ts',
+    '§2.0 AI slice manifest — HTTP paths and Zod export names from shared/api-contracts.ts. Transaction drill (GET /api/ai/transactions-drill / MCP query_transactions): `account` is optional (all accounts); cross-account queries omit transfers by default unless `type`/`includeTransfers` apply — see tool description and AiTransactionDrillQuerySchema.',
   slices: [
     {
       method: 'GET',
@@ -116,6 +116,25 @@ const STATIC: AiManifestResponse = {
     },
     {
       method: 'GET',
+      path: '/api/ai/transactions-drill',
+      queryParams: [
+        'financialYear',
+        'year',
+        'month',
+        'dateFrom',
+        'dateTo',
+        'account',
+        'type',
+        'includeTransfers',
+        'search',
+        'merchantModalLabel',
+        'limit',
+        'includeRows',
+      ],
+      responseSchemaExport: 'AiTransactionDrillResponseSchema',
+    },
+    {
+      method: 'GET',
       path: '/api/expenses/overview',
       queryParams: [],
       responseSchemaExport: 'ExpensesSheetResponseSchema',
@@ -154,6 +173,8 @@ const STATIC: AiManifestResponse = {
     'AiSpendByCurrencyPeriodSchema',
     'AiSpendByCurrencyResponseSchema',
     'AiSpendContextResponseSchema',
+    'AiTransactionDrillQuerySchema',
+    'AiTransactionDrillResponseSchema',
     'DebtStrategyStateResponseSchema',
     'EntityFoundationWarningsResponseSchema',
     'ExpectedReceiptRowSchema',
