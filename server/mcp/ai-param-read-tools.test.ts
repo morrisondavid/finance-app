@@ -4,6 +4,7 @@ import { getDb } from '../db/connection.js';
 import {
   FinancialSnapshotQuerySchema,
   HorizonEntityQuerySchema,
+  LiquidityQuerySchema,
   RunwayQuerySchema,
   SnapshotQuerySchema,
 } from '../domain/ai/ai-get-query-schemas.js';
@@ -32,7 +33,7 @@ function withoutTopLevelGeneratedAt(body: object): Record<string, unknown> {
   return Object.fromEntries(Object.entries(body).filter(([k]) => k !== 'generatedAt'));
 }
 
-describe('MCP get_ai_* tools match /api/ai composers (parameterized reads)', () => {
+describe('MCP analytics_get_* §2.0 tools match /api/ai composers (`get_ai_*` are deprecated aliases)', () => {
   beforeAll(async () => {
     await initDatabase();
   }, 120_000);
@@ -41,20 +42,21 @@ describe('MCP get_ai_* tools match /api/ai composers (parameterized reads)', () 
     closeDatabase();
   });
 
-  it('get_ai_liquidity with empty object matches composeAiLiquidity defaults', () => {
-    const expected = composeAiLiquidity({});
+  it('analytics_get_liquidity: {} matches composeAiLiquidity(LiquidityQuerySchema defaults)', () => {
+    const query = LiquidityQuerySchema.parse({});
+    const expected = composeAiLiquidity(query);
     const r = runGetAiLiquidityMcpTool({});
     expect(r.isError).toBeUndefined();
     expect(r.structuredContent).toEqual(expected);
   });
 
-  it('get_ai_liquidity rejects invalid groupByEntity string', () => {
+  it('analytics_get_liquidity rejects invalid groupByEntity string', () => {
     const r = runGetAiLiquidityMcpTool({ groupByEntity: 'maybe' });
     expect(r.isError).toBe(true);
     expect(JSON.parse(r.content[0].text)).toMatchObject({ error: 'invalid-params' });
   });
 
-  it('get_ai_pipeline {} matches composeAiPipeline with schema defaults', () => {
+  it('analytics_get_pipeline: {} matches composeAiPipeline with HorizonEntityQuerySchema defaults', () => {
     const q = HorizonEntityQuerySchema.parse({});
     const expected = composeAiPipeline({ horizonDays: q.days, filterEntityId: q.entityId });
     const r = runGetAiPipelineMcpTool({});
@@ -62,7 +64,7 @@ describe('MCP get_ai_* tools match /api/ai composers (parameterized reads)', () 
     expect(r.structuredContent).toEqual(expected);
   });
 
-  it('get_ai_runway {} matches assembleRunway + runwayResponseFromAssembled with schema defaults', () => {
+  it('analytics_get_runway: {} matches assembleRunway + runwayResponseFromAssembled (RunwayQuerySchema defaults)', () => {
     const q = RunwayQuerySchema.parse({});
     const assembled = assembleRunway({ horizonDays: q.days, filterEntityId: q.entityId });
     const expected = runwayResponseFromAssembled(assembled, q.entityId, { detail: q.detail });
@@ -71,7 +73,7 @@ describe('MCP get_ai_* tools match /api/ai composers (parameterized reads)', () 
     expect(r.structuredContent).toEqual(expected);
   });
 
-  it('get_ai_snapshot {} matches composeAiSnapshot with schema defaults', () => {
+  it('analytics_get_snapshot: {} matches composeAiSnapshot with SnapshotQuerySchema defaults', () => {
     const q = SnapshotQuerySchema.parse({});
     const expected = composeAiSnapshot({
       horizonDays: q.days,
@@ -90,7 +92,7 @@ describe('MCP get_ai_* tools match /api/ai composers (parameterized reads)', () 
     expect(withoutTopLevelGeneratedAt(expected)).toEqual(withoutTopLevelGeneratedAt(sc));
   });
 
-  it('get_ai_financial_snapshot {} matches composeAiFinancialSnapshot with schema defaults', () => {
+  it('analytics_get_financial_snapshot: {} matches composeAiFinancialSnapshot (FinancialSnapshotQuerySchema defaults)', () => {
     const q = FinancialSnapshotQuerySchema.parse({});
     const expected = composeAiFinancialSnapshot({
       horizonDays: q.days,
@@ -111,7 +113,7 @@ describe('MCP get_ai_* tools match /api/ai composers (parameterized reads)', () 
   });
 
   it(
-    'get_ai_financial_safety {} matches composeAiFinancialSafety defaults (except timestamps)',
+    'analytics_get_financial_safety: {} matches composeAiFinancialSafety defaults (except timestamps)',
     () => {
       getDb().exec('DELETE FROM warning_snapshots;');
       const expected = composeAiFinancialSafety();
@@ -146,7 +148,7 @@ describe('MCP get_ai_* tools match /api/ai composers (parameterized reads)', () 
     25_000,
   );
 
-  it('get_ai_spend_by_currency rejects when both calendarMonth and financialYear set', () => {
+  it('analytics_get_spend_by_currency rejects when both calendarMonth and financialYear set', () => {
     const r = runGetAiSpendByCurrencyMcpTool({
       calendarMonth: '2026-01',
       financialYear: '2025',
@@ -156,7 +158,7 @@ describe('MCP get_ai_* tools match /api/ai composers (parameterized reads)', () 
     expect(body.error).toBe('invalid-params');
   });
 
-  it('get_ai_spend_by_currency matches composeAiSpendByCurrency for calendar month (excluding generatedAt)', () => {
+  it('analytics_get_spend_by_currency matches composeAiSpendByCurrency for calendar month (excluding generatedAt)', () => {
     const args = { calendarMonth: '2026-03' as const };
     const expected = composeAiSpendByCurrency({
       period: { kind: 'calendarMonth', yearMonth: '2026-03' },

@@ -3,6 +3,7 @@
  */
 
 import type { InvoicePdfDownloadMutationResult } from '../http/mutation/invoice-pdf-download.js';
+import type { ContractSignedPdfDownloadResult } from '../http/mutation/contract-signed-pdf-download.js';
 import type { JsonMutationResult } from '../http/mutation/types.js';
 import type { JsonReadResult } from '../http/read/types.js';
 
@@ -38,6 +39,27 @@ export function invoicePdfDownloadToMcpToolResult(r: InvoicePdfDownloadMutationR
     mimeType: 'application/pdf',
     byteLength: r.buffer.byteLength,
     pdfBase64: r.buffer.toString('base64'),
+  };
+
+  return {
+    content: [{ type: 'text', text: JSON.stringify(structuredContent, null, 2) }],
+    structuredContent,
+  };
+}
+
+/** MCP wrapper for signed contract PDF on disk (`clients/contracts/<id>.pdf`). */
+export function contractSignedPdfToMcpToolResult(r: ContractSignedPdfDownloadResult): HttpMutationMcpToolResult {
+  if (r.kind === 'json') {
+    return httpMutationToMcpToolResult({ status: r.status, body: r.body });
+  }
+
+  const structuredContent: Record<string, unknown> = {
+    filename: r.filename,
+    mimeType: 'application/pdf',
+    byteLength: r.buffer.byteLength,
+    pdfBase64: r.buffer.toString('base64'),
+    note:
+      'Decode `pdfBase64` to bytes and write `filename` locally for inspection; MCP stays JSON-first.',
   };
 
   return {

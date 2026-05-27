@@ -27,7 +27,6 @@
 import express, { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
-import { z } from 'zod';
 import type { Contract } from '../../shared/api-contracts.js';
 import { findContractById } from '../domain/contracts/queries.js';
 
@@ -38,6 +37,7 @@ import {
   mutateContractDeleteLeave,
   mutateContractLeavePreview,
 } from '../http/mutation/contracts-leave.js';
+import { mutateContractsRequestRenewal } from '../http/mutation/contracts-renew.js';
 import {
   parseContractId,
   readContractsRoot,
@@ -64,11 +64,6 @@ function contractOr404(id: string, res: Response): Contract | null {
     return null;
   }
   return contract;
-}
-
-/** Narrow Zod-error branch for the mutating handlers. */
-function respondZodError(err: z.ZodError, res: Response): void {
-  res.status(400).json({ error: 'Invalid request', details: err.issues });
 }
 
 router.get('/', (_req: Request, res: Response) => {
@@ -133,41 +128,11 @@ router.get('/:id/document', (req: Request<{ id: string }>, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/contracts/:id/renew — placeholder.
-//
-// Accepts `{ start_date, end_date, day_rate? }` and responds 501 with a
-// clear message. The full flow (file upload, new contracts.csv row,
-// supersedes-link, renewal deadline re-seed) is not implemented here yet.
-// This endpoint exists so the frontend can wire a
-// "Renew" button today without the UI branching on whether the endpoint
-// exists — the server owns the "not yet" explanation.
+// POST /api/contracts/:id/renew — placeholder (see mutateContractsRequestRenewal).
 // ---------------------------------------------------------------------------
 
-const RenewRequestSchema = z.object({
-  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  day_rate: z.number().nonnegative().optional(),
-});
-
 router.post('/:id/renew', (req: Request<{ id: string }>, res: Response) => {
-  const contract = contractOr404(req.params.id, res);
-  if (contract === null) return;
-  const parsed = RenewRequestSchema.safeParse(req.body);
-  if (!parsed.success) {
-    respondZodError(parsed.error, res);
-    return;
-  }
-  res.status(501).json({
-    error: 'RenewFlowNotImplemented',
-    detail:
-      'Renewals aren\'t wired through to contracts.csv yet. Your inputs were accepted and validated — the next shipment will persist them, supersede the old contract row, and re-seed the renewal deadline.',
-    received: {
-      contract_id: contract.id,
-      start_date: parsed.data.start_date,
-      end_date: parsed.data.end_date,
-      day_rate: parsed.data.day_rate ?? null,
-    },
-  });
+  sendJsonMutation(res, mutateContractsRequestRenewal(req.params.id, req.body));
 });
 
 export default router;

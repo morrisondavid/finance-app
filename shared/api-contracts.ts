@@ -431,7 +431,15 @@ export const DashboardSummaryResponseSchema = z.object({
   financialSafety: AiFinancialSafetyResponseSchema.optional(),
 });
 
-// GET /api/dashboard/accounts
+/** MCP composite `household_financial_posture` — orchestration envelope (no HTTP route). */
+export const HouseholdFinancialPostureResponseSchema = z.object({
+  generatedAt: z.string(),
+  financialSafety: AiFinancialSafetyResponseSchema,
+  dashboardSummary: DashboardSummaryResponseSchema,
+  balancesByAccount: z.record(z.string(), AccountBalanceSchema).optional(),
+});
+
+export type HouseholdFinancialPostureResponse = z.infer<typeof HouseholdFinancialPostureResponseSchema>;
 export const AccountConfigsResponseSchema = z.array(AccountConfigSchema);
 
 /** GET /api/dashboard/feed-toolbar-state — drive Connect vs Sync toolbar (no OAuth side effects). */

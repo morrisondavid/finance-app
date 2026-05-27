@@ -26,7 +26,7 @@ import type {
 } from '../../../shared/api-contracts.js';
 import { escapeHtml, openModal, closeModal } from '../utils/dom';
 import { formatCurrency, formatIsoDateUk } from '../utils/formatting';
-import { monthRange, todayIsoLocal } from '../../../shared/iso-date.js';
+import { previousCompleteBillingMonthYYYYMM, todayIsoLocal } from '../../../shared/iso-date.js';
 import { activateTabByName } from './tabs.js';
 
 const GROUPS_ID = 'invoices-groups';
@@ -44,6 +44,8 @@ const GEN_DRAFT_FIELDS_ID = 'invoices-generate-draft-fields';
 const GEN_OVERLAP_WARNING_ID = 'invoices-generate-overlap-warning';
 const GEN_SUBMIT_ID = 'invoices-generate-submit';
 const GEN_ERROR_ID = 'invoices-generate-error';
+const GEN_ALLOW_OUTSIDE_GAP_WRAP_ID = 'invoices-generate-outside-gap-wrap';
+const GEN_ALLOW_OUTSIDE_GAP_ID = 'invoices-generate-allow-outside-gap';
 
 const INGEST_MODAL_ID = 'invoices-ingest-modal';
 const INGEST_MODAL_CLOSE_ID = 'invoices-ingest-modal-close';
@@ -54,9 +56,53 @@ const INGEST_ERROR_ID = 'invoices-ingest-error';
 const INGEST_CONTEXT_HINT_ID = 'invoices-ingest-context-hint';
 const INGEST_SUBMIT_ID = 'invoices-ingest-submit';
 
+interface MonthlyInvoiceWorkload {
+  readonly daysBilled: number;
+  readonly ledgerWorkingDays: number;
+  readonly match: boolean;
+}
+
+interface MonthlyInvoicePreviewOk {
+  readonly contract_id: string;
+  readonly billing_month: string;
+  readonly previewFingerprint: string;
+  readonly invoice: Invoice;
+  readonly occupancy: {
+    readonly blocked: boolean;
+    readonly blockingInvoiceIds: readonly string[];
+  };
+  readonly gapList: { readonly outsideMonthlyGapList: boolean };
+  readonly workload: MonthlyInvoiceWorkload;
+}
+
 let currentDraft: Invoice | null = null;
-/** Last invoice list from `loadInvoices` — used for same-month overlap hint only. */
-let cachedInvoicesForGenerate: readonly Invoice[] = [];
+let monthlyPreviewFingerprint: string | null = null;
+let lastMonthlyPreview: MonthlyInvoicePreviewOk | null = null;
+
+function defaultBillingPickerMonth(contract: Contract | null): string {
+  const today = todayIsoLocal();
+  if (
+    contract !== null
+    && contract.end_date !== null
+    && contract.end_date < today
+  ) {
+    return contract.end_date.slice(0, 7);
+  }
+  return previousCompleteBillingMonthYYYYMM(today);
+}
+
+function extractErrorLine(rawText: string, status: number): string {
+  try {
+    const raw: unknown = JSON.parse(rawText);
+    if (typeof raw !== 'object' || raw === null) return `${status}`;
+    const o = raw as Record<string, unknown>;
+    if (typeof o.message === 'string') return o.message;
+    if (typeof o.error === 'string') return o.error;
+  } catch {
+    if (rawText.length > 0) return rawText.slice(0, 400);
+  }
+  return `Request failed (${status})`;
+}
 
 function getEl(id: string): HTMLElement | null {
   return document.getElementById(id);
@@ -68,119 +114,118 @@ async function getJson<T>(url: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `POST ${url} failed: ${res.status}`);
-  }
-  return (await res.json()) as T;
-}
-
 interface InvoicesListResponse { readonly invoices: readonly Invoice[] }
 interface ContractsListResponse { readonly contracts: readonly Contract[] }
 interface ClientsListResponse { readonly clients: readonly Client[] }
 interface CompaniesListResponse { readonly companies: readonly Company[] }
 
-function periodsOverlap(
-  aStart: string,
-  aEnd: string,
-  bStart: string,
-  bEnd: string,
-): boolean {
-  return !(aEnd < bStart || aStart > bEnd);
-}
+async function fetchMonthlyInvoicePreview(contractId: string, billingYm: string): Promise<MonthlyInvoicePreviewOk> {
+  const res = await fetch('/api/invoices/monthly/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contract_id: contractId, billing_month: billingYm }),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(extractErrorLine(text, res.status));
 
-function currentLocalYYYYMM(): string {
-  return todayIsoLocal().slice(0, 7);
-}
-
-function defaultBillingMonthForContract(contract: Contract | null): string {
-  const today = todayIsoLocal();
-  if (
-    contract !== null
-    && contract.end_date !== null
-    && contract.end_date < today
-  ) {
-    return contract.end_date.slice(0, 7);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text) as unknown;
+  } catch {
+    throw new Error('Malformed JSON from monthly preview.');
   }
-  return today.slice(0, 7);
+
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('Unexpected preview response.');
+  }
+
+  const o = raw as Record<string, unknown>;
+  if (
+    typeof o.previewFingerprint !== 'string'
+    || typeof o.invoice !== 'object'
+    || o.invoice === null
+    || typeof o.occupancy !== 'object'
+    || o.occupancy === null
+    || typeof o.gapList !== 'object'
+    || o.gapList === null
+    || typeof o.workload !== 'object'
+    || o.workload === null
+  ) {
+    throw new Error('Incomplete monthly preview payload.');
+  }
+
+  return raw as MonthlyInvoicePreviewOk;
 }
 
-function clearOverlapWarning(): void {
-  const el = getEl(GEN_OVERLAP_WARNING_ID);
-  if (el === null) return;
-  el.textContent = '';
-  el.style.display = 'none';
+function clearOutsideGapUi(): void {
+  const wrap = getEl(GEN_ALLOW_OUTSIDE_GAP_WRAP_ID);
+  const chk = getEl(GEN_ALLOW_OUTSIDE_GAP_ID);
+  if (chk instanceof HTMLInputElement) chk.checked = false;
+  if (wrap !== null) wrap.style.display = 'none';
 }
 
-function updateOverlapWarning(contractId: string, billingYYYYMM: string): void {
+function renderPreviewGuidanceFromServer(preview: MonthlyInvoicePreviewOk): void {
+  const wrap = getEl(GEN_ALLOW_OUTSIDE_GAP_WRAP_ID);
+  if (wrap !== null) {
+    wrap.style.display = preview.gapList.outsideMonthlyGapList ? '' : 'none';
+  }
+
   const el = getEl(GEN_OVERLAP_WARNING_ID);
-  if (el === null) return;
-  const { start: mStart, end: mEnd } = monthRange(`${billingYYYYMM}-01`);
-  const overlap = cachedInvoicesForGenerate.some(
-    inv =>
-      inv.contract_id === contractId
-      && inv.status !== 'draft'
-      && periodsOverlap(inv.period_start, inv.period_end, mStart, mEnd),
-  );
-  if (!overlap) {
-    el.style.display = 'none';
+  const lines: string[] = [];
+  if (preview.occupancy.blocked) {
+    lines.push(
+      `This billing month already has invoice rows overlapping the calendar month (draft or issued): ${preview.occupancy.blockingInvoiceIds.join(', ')}.`,
+    );
+  }
+  if (!preview.workload.match) {
+    lines.push(
+      `Days billed (${preview.workload.daysBilled}) differs from workload working days (${preview.workload.ledgerWorkingDays}) over the billed period.`,
+    );
+  }
+  if (preview.gapList.outsideMonthlyGapList) {
+    lines.push(
+      'This month is outside the supplier “completed past months” gap list — use override only after confirming intentionally.',
+    );
+  }
+
+  if (el !== null) {
+    if (lines.length === 0) {
+      el.textContent = '';
+      el.style.display = 'none';
+    } else {
+      el.textContent = lines.join('\n');
+      el.style.display = '';
+    }
+  }
+}
+
+function clearPreviewGuidance(): void {
+  clearOutsideGapUi();
+  const el = getEl(GEN_OVERLAP_WARNING_ID);
+  if (el !== null) {
     el.textContent = '';
+    el.style.display = 'none';
+  }
+}
+
+function applyGenerateSubmitStateFromPreview(): void {
+  if (lastMonthlyPreview === null || currentDraft === null) {
+    setGenerateSubmitDisabled(true);
     return;
   }
-  el.textContent =
-    'You already have at least one non-draft invoice whose period overlaps this month — confirm before issuing another.';
-  el.style.display = '';
-}
-
-async function fetchDraftInvoice(
-  contractId: string,
-  billingMonthYYYYMM: string,
-): Promise<Invoice> {
-  const params = new URLSearchParams({
-    contract_id: contractId,
-    billing_month: billingMonthYYYYMM,
-  });
-  const res = await fetch(`/api/invoices/draft?${params}`);
-  const text = await res.text();
-  if (!res.ok) {
-    let msg = `GET /api/invoices/draft failed (${res.status})`;
-    try {
-      const raw: unknown = JSON.parse(text);
-      if (
-        typeof raw === 'object'
-        && raw !== null
-        && 'message' in raw
-        && typeof (raw as { message: unknown }).message === 'string'
-      ) {
-        msg = (raw as { message: string }).message;
-      } else if (
-        typeof raw === 'object'
-        && raw !== null
-        && 'error' in raw
-        && typeof (raw as { error: unknown }).error === 'string'
-      ) {
-        msg = (raw as { error: string }).error;
-      }
-    } catch {
-      if (text.length > 0) msg = text;
-    }
-    throw new Error(msg);
-  }
-  const body = JSON.parse(text) as { invoice: Invoice };
-  return body.invoice;
+  const chk = getEl(GEN_ALLOW_OUTSIDE_GAP_ID);
+  const overrideGap = chk instanceof HTMLInputElement && chk.checked;
+  const blockedByOccupancy = lastMonthlyPreview.occupancy.blocked;
+  const blockedByGap = lastMonthlyPreview.gapList.outsideMonthlyGapList && !overrideGap;
+  setGenerateSubmitDisabled(blockedByOccupancy || blockedByGap);
 }
 
 function getBillingMonthValue(): string {
   const el = getEl(GEN_BILLING_MONTH_ID);
-  if (!(el instanceof HTMLInputElement)) return currentLocalYYYYMM();
+  const fallbackYm = previousCompleteBillingMonthYYYYMM(todayIsoLocal());
+  if (!(el instanceof HTMLInputElement)) return fallbackYm;
   const v = el.value.trim();
-  return v.length >= 7 ? v.slice(0, 7) : currentLocalYYYYMM();
+  return v.length >= 7 ? v.slice(0, 7) : fallbackYm;
 }
 
 function setBillingMonthValue(yyyyMm: string): void {
@@ -188,7 +233,6 @@ function setBillingMonthValue(yyyyMm: string): void {
   if (!(el instanceof HTMLInputElement)) return;
   el.value = yyyyMm.length === 7 ? yyyyMm : yyyyMm.slice(0, 7);
 }
-
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
@@ -212,7 +256,6 @@ export async function loadInvoices(): Promise<void> {
       clientsRes.clients,
       companiesRes.companies,
     );
-    cachedInvoicesForGenerate = invoicesRes.invoices;
     populateContractSelect(contractsRes.contracts, clientsRes.clients);
   } catch (err) {
     groups.innerHTML = `<div class="clients-form-error">Failed to load invoices: ${escapeHtml(
@@ -349,13 +392,15 @@ function populateContractSelect(
 
 function openGenerateModal(): void {
   currentDraft = null;
+  monthlyPreviewFingerprint = null;
+  lastMonthlyPreview = null;
   clearGenerateError();
-  clearOverlapWarning();
+  clearPreviewGuidance();
   hideDraftFields();
   setGenerateSubmitDisabled(true);
   const form = getEl(GEN_FORM_ID);
   if (form instanceof HTMLFormElement) form.reset();
-  setBillingMonthValue(currentLocalYYYYMM());
+  setBillingMonthValue(defaultBillingPickerMonth(null));
   openModal(GEN_MODAL_ID);
 }
 
@@ -378,8 +423,10 @@ export async function openSupplierInvoiceForContract(
   activateTabByName('invoices');
   await loadInvoices();
   currentDraft = null;
+  monthlyPreviewFingerprint = null;
+  lastMonthlyPreview = null;
   clearGenerateError();
-  clearOverlapWarning();
+  clearPreviewGuidance();
   hideDraftFields();
   setGenerateSubmitDisabled(true);
   const form = getEl(GEN_FORM_ID);
@@ -389,7 +436,7 @@ export async function openSupplierInvoiceForContract(
   if (billingMonth === undefined || billingMonth.length !== 7) {
     const contractsRes = await getJson<ContractsListResponse>('/api/contracts');
     const c = contractsRes.contracts.find(x => x.id === contractId) ?? null;
-    billingMonth = defaultBillingMonthForContract(c);
+    billingMonth = defaultBillingPickerMonth(c);
   }
   setBillingMonthValue(billingMonth);
 
@@ -457,8 +504,10 @@ function clearGenerateError(): void {
 }
 
 async function onContractSelected(contractId: string): Promise<void> {
+  monthlyPreviewFingerprint = null;
+  lastMonthlyPreview = null;
   clearGenerateError();
-  clearOverlapWarning();
+  clearPreviewGuidance();
   hideDraftFields();
   setGenerateSubmitDisabled(true);
   currentDraft = null;
@@ -466,15 +515,17 @@ async function onContractSelected(contractId: string): Promise<void> {
 
   try {
     const billingMonth = getBillingMonthValue();
-    const invoice = await fetchDraftInvoice(contractId, billingMonth);
-    currentDraft = invoice;
-    populateDraftFields(invoice);
-    updateOverlapWarning(contractId, billingMonth);
+    const preview = await fetchMonthlyInvoicePreview(contractId, billingMonth);
+    lastMonthlyPreview = preview;
+    monthlyPreviewFingerprint = preview.previewFingerprint;
+    currentDraft = preview.invoice;
+    populateDraftFields(preview.invoice);
+    renderPreviewGuidanceFromServer(preview);
     showDraftFields();
-    setGenerateSubmitDisabled(false);
+    applyGenerateSubmitStateFromPreview();
   } catch (err) {
     setGenerateError(
-      `Failed to build draft: ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to build draft preview: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }
@@ -510,62 +561,89 @@ function setInput(
 
 async function submitGenerate(ev: SubmitEvent): Promise<void> {
   ev.preventDefault();
-  if (currentDraft === null) return;
+  if (currentDraft === null || monthlyPreviewFingerprint === null) {
+    setGenerateError('Draft preview missing — choose a contract and billing month.');
+    return;
+  }
 
   const form = getEl(GEN_FORM_ID);
   if (!(form instanceof HTMLFormElement)) return;
 
+  const contractSelect = getEl(GEN_CONTRACT_SELECT_ID);
+  const contractId =
+    contractSelect instanceof HTMLSelectElement ? contractSelect.value.trim() : '';
+  if (contractId === '') {
+    setGenerateError('Pick a contract.');
+    return;
+  }
+
   const daysInput = form.elements.namedItem('days_billed');
   const descInput = form.elements.namedItem('description');
   const periodEndInput = form.elements.namedItem('period_end');
-  const days =
+  const rawDays =
     daysInput instanceof HTMLInputElement ? Number(daysInput.value) : currentDraft.days_billed;
   const description =
     descInput instanceof HTMLTextAreaElement ? descInput.value : currentDraft.description;
   const periodEnd =
     periodEndInput instanceof HTMLInputElement ? periodEndInput.value : currentDraft.period_end;
 
-  if (!Number.isFinite(days) || days <= 0) {
-    setGenerateError('Days billed must be a positive number.');
+  const daysInt = Number.isFinite(rawDays) ? Math.round(rawDays) : NaN;
+  if (!Number.isInteger(daysInt) || daysInt <= 0) {
+    setGenerateError('Days billed must be a positive whole number.');
     return;
   }
 
-  // Recompute totals from the edited days (rate is fixed by the contract).
-  const rate = currentDraft.subtotal / Math.max(currentDraft.days_billed, 1);
-  const subtotal = round2(rate * days);
-  const vat = round2(subtotal * currentDraft.vat_rate);
-  const total = round2(subtotal + vat);
+  const chk = getEl(GEN_ALLOW_OUTSIDE_GAP_ID);
+  const allowOutsideGapList = chk instanceof HTMLInputElement && chk.checked;
 
-  const payload: Invoice = {
-    ...currentDraft,
-    days_billed: days,
+  const payload = {
+    contract_id: contractId,
+    billing_month: getBillingMonthValue(),
+    previewFingerprint: monthlyPreviewFingerprint,
+    allowOutsideGapList,
+    days_billed: daysInt,
     description,
     period_end: periodEnd,
-    subtotal,
-    vat_amount: vat,
-    total,
   };
 
   setGenerateSubmitDisabled(true);
   try {
-    const res = await postJson<{ invoice: Invoice }>(
-      '/api/invoices/generate',
-      { invoice: payload },
-    );
-    closeModal(GEN_MODAL_ID);
-    window.open(`/api/invoices/${encodeURIComponent(res.invoice.id)}/pdf`, '_blank');
-    await loadInvoices();
-  } catch (err) {
-    setGenerateError(
-      err instanceof Error ? err.message : String(err),
-    );
-  } finally {
-    setGenerateSubmitDisabled(false);
-  }
-}
+    const res = await fetch('/api/invoices/monthly/commit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      setGenerateError(extractErrorLine(text, res.status));
+      return;
+    }
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(text) as unknown;
+    } catch {
+      setGenerateError('Malformed JSON after commit.');
+      return;
+    }
+    if (
+      typeof raw !== 'object'
+      || raw === null
+      || typeof (raw as { invoice?: unknown }).invoice !== 'object'
+      || (raw as { invoice: unknown }).invoice === null
+      || typeof (raw as { invoice: { id?: unknown } }).invoice.id !== 'string'
+    ) {
+      setGenerateError('Commit succeeded but invoice payload was unexpected.');
+      return;
+    }
+
+    const issuedId = (raw as { invoice: { id: string } }).invoice.id;
+    closeModal(GEN_MODAL_ID);
+    window.open(`/api/invoices/${encodeURIComponent(issuedId)}/pdf`, '_blank');
+    await loadInvoices();
+  } finally {
+    applyGenerateSubmitStateFromPreview();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -778,6 +856,10 @@ export function initInvoices(): void {
     if (select instanceof HTMLSelectElement && select.value !== '') {
       void onContractSelected(select.value);
     }
+  });
+
+  getEl(GEN_ALLOW_OUTSIDE_GAP_ID)?.addEventListener('change', () => {
+    applyGenerateSubmitStateFromPreview();
   });
 
   const genForm = getEl(GEN_FORM_ID);

@@ -10,7 +10,6 @@ import express, { Request, Response } from 'express';
 import {
   getDebt,
   getDebtSummary,
-  getAllDebtSummaries,
 } from '../db/repositories/debts.js';
 import { sendJsonMutation } from '../http/mutation/send-json-mutation.js';
 import {
@@ -20,17 +19,13 @@ import {
   mutateDebtsOpeningBalance,
 } from '../http/mutation/debts.js';
 
+import { sendJsonRead } from '../http/read/send-json-read.js';
+import { readDebtsListFromQuery } from '../http/read/debts-read.js';
+
 const router = express.Router();
 
 router.get('/', (req: Request, res: Response) => {
-  try {
-    const includeArchived = req.query.includeArchived === '1' || req.query.includeArchived === 'true';
-    const result = getAllDebtSummaries({ includeArchived });
-    res.json(result);
-  } catch (error) {
-    console.error('[Debts] GET error:', error);
-    res.status(500).json({ error: 'Failed to list debts' });
-  }
+  sendJsonRead(res, readDebtsListFromQuery(req.query as Record<string, unknown>));
 });
 
 router.get('/:id', (req: Request<{ id: string }>, res: Response) => {

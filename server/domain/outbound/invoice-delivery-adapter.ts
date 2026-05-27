@@ -1,5 +1,5 @@
 /**
- * Outbound delivery façade — monthly invoice notice today; slice 2 accountant packs can call the same primitives.
+ * Single adapter surface for outbound invoice notices (Resend + JSONL outbox).
  */
 
 import type { Invoice } from '../invoices/schema.js';
@@ -8,8 +8,8 @@ import {
   type InvoiceIssuedNoticeResult,
 } from './send-invoice-issued-notice.js';
 
-export async function deliverInvoiceIssuedTransactionalNotice(
-  invoice: Invoice,
-): Promise<InvoiceIssuedNoticeResult> {
+export type { InvoiceIssuedNoticeResult };
+
+export async function deliverInvoiceIssuedNotice(invoice: Invoice): Promise<InvoiceIssuedNoticeResult> {
   return sendInvoiceIssuedNoticeIfConfigured(invoice);
 }

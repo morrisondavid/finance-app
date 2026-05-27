@@ -799,14 +799,10 @@
             <fieldset class="contracts-fieldset" id="invoices-generate-draft-fields" style="display:none">
               <legend>Draft (review before saving)</legend>
               <div id="invoices-generate-overlap-warning" class="contracts-invoice-overlap-warning" style="display:none"></div>
-              <label class="contracts-full-width" id="invoices-generate-outside-gap-wrap" style="display:none">
-                <input type="checkbox" id="invoices-generate-allow-outside-gap" />
-                Issue even when this billing month is not on the supplier monthly gap list (explicit override)
-              </label>
-              <div id="invoices-generate-outside-gap-wrap" class="clients-modal-hint" style="display:none">
+              <div id="invoices-generate-outside-gap-wrap" class="contracts-invoice-overlap-warning" style="display:none">
                 <label>
                   <input type="checkbox" id="invoices-generate-allow-outside-gap" />
-                  Issue even when this month is not listed as an open supplier monthly gap (override)
+                  Issue even when this billing month is not on the supplier monthly gap list (override)
                 </label>
               </div>
               <div class="contracts-form-grid">

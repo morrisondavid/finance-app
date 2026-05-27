@@ -23,7 +23,7 @@ import { findContractById, allContracts } from '../../domain/contracts/index.js'
 import { holidayDatesForEntity } from '../../domain/working-days/public-holidays.js';
 import { leaveForContract } from '../../domain/leave/index.js';
 
-import { deliverInvoiceIssuedTransactionalNotice } from '../../domain/outbound/invoice-delivery-adapter.js';
+import { deliverInvoiceIssuedNotice } from '../../domain/outbound/invoice-delivery-adapter.js';
 import { jsonReadFail, jsonReadOk, type JsonReadResult } from '../read/types.js';
 import type { JsonMutationResult } from './types.js';
 
@@ -235,7 +235,7 @@ export async function mutateMonthlyInvoiceCommit(body: unknown): Promise<JsonMut
   const validated = InvoiceSchema.safeParse(rawInv);
   if (!validated.success) return generation;
 
-  const noticeResult = await deliverInvoiceIssuedTransactionalNotice(validated.data);
+  const noticeResult = await deliverInvoiceIssuedNotice(validated.data);
 
   return {
     status: 200,

@@ -18,6 +18,10 @@ import {
   AiFinancialSnapshotResponseSchema,
   AiFinancialSafetyResponseSchema,
   AiSpendByCurrencyResponseSchema,
+  HouseholdFinancialPostureResponseSchema,
+  IncomeCompositionResponseSchema,
+  AccountBalanceSchema,
+  type AccountBalance,
 } from '../../shared/api-contracts.js';
 import { getDb } from '../db/connection.js';
 import { runFeedSync, FeedSyncError } from '../ingestion/feeds/sync.js';
@@ -47,12 +51,15 @@ import {
   RunwayQuerySchema,
   SnapshotQuerySchema,
   SpendByCurrencyQuerySchema,
+  HouseholdFinancialPostureQuerySchema,
 } from '../domain/ai/ai-get-query-schemas.js';
 import { assembleRunway } from '../domain/forecast/index.js';
 import { runwayResponseFromAssembled } from '../domain/forecast/runway-api-response.js';
 import { buildConsolidatedWarningsResponse } from '../domain/warnings/consolidated-feed.js';
 import { captureNetWorthSnapshots } from '../domain/net-worth/snapshot.js';
 
+import { readDashboardSummaryFromQuery, readDashboardBalance } from '../http/read/dashboard.js';
+import { ACCOUNTS } from '../types.js';
 import { registerBankStatementsHttpJsonReadTools } from './http-json-read-mcp-tools.js';
 import { registerBankStatementsHttpMutationTools } from './http-mutation-mcp-tools.js';
 import { registerBankStatementsBinaryOAuthUploadTools } from './binary-oauth-upload-mcp-tools.js';
@@ -84,13 +91,13 @@ export type BankStatementsAiResourceUri =
 const MCPParameterizedToolForResourceKey: Partial<
   Record<keyof typeof BankStatementsAiResourceUris, string>
 > = {
-  liquidity: 'get_ai_liquidity',
-  pipeline: 'get_ai_pipeline',
-  runway: 'get_ai_runway',
-  snapshot: 'get_ai_snapshot',
-  'financial-snapshot': 'get_ai_financial_snapshot',
-  'financial-safety': 'get_ai_financial_safety',
-  spendByCurrency: 'get_ai_spend_by_currency',
+  liquidity: 'analytics_get_liquidity',
+  pipeline: 'analytics_get_pipeline',
+  runway: 'analytics_get_runway',
+  snapshot: 'analytics_get_snapshot',
+  'financial-snapshot': 'analytics_get_financial_snapshot',
+  'financial-safety': 'analytics_get_financial_safety',
+  spendByCurrency: 'analytics_get_spend_by_currency',
 };
 
 type McpJsonToolReturn = {
@@ -121,7 +128,8 @@ export function runGetAiLiquidityMcpTool(args: unknown): McpJsonToolReturn {
   const parsed = LiquidityQuerySchema.safeParse(args);
   if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
   try {
-    const structuredContent = AiLiquidityResponseSchema.parse(composeAiLiquidity(parsed.data));
+    // Matches GET /api/ai/liquidity: `composeAiLiquidity` already ends with AiLiquidityResponseSchema.parse.
+    const structuredContent = composeAiLiquidity(parsed.data);
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
       structuredContent,
@@ -268,6 +276,85 @@ export function runGetAiFinancialSafetyMcpTool(args: unknown): McpJsonToolReturn
   }
 }
 
+/** @internal — same payload as `GET /api/income-composition`. */
+export function runIncomeGetCompositionMcpTool(_args: unknown): McpJsonToolReturn {
+  try {
+    const structuredContent = IncomeCompositionResponseSchema.parse(composeAiIncomeComposition());
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (err) {
+    return mcpAiInternalError(err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+/** @internal — composite decision read (financial safety + dashboard summary + optional balances). */
+export function runHouseholdFinancialPostureMcpTool(args: unknown): McpJsonToolReturn {
+  const parsed = HouseholdFinancialPostureQuerySchema.safeParse(args ?? {});
+  if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
+  try {
+    const { includeBalancesByAccount, ...snapshotQuery } = parsed.data;
+    const {
+      days: horizonDays,
+      entityId: filterEntityId,
+      detail: runwayDetail,
+      account,
+      financialYear,
+      groupByEntity,
+      commitmentDays,
+    } = snapshotQuery;
+    const financialSafety = composeAiFinancialSafety({
+      horizonDays,
+      commitmentDays,
+      filterEntityId,
+      runwayDetail,
+      account,
+      financialYear,
+      groupByEntity,
+    });
+    const summaryResult = readDashboardSummaryFromQuery({
+      account,
+      financialYear,
+    });
+    if (!summaryResult.ok) {
+      return {
+        isError: true,
+        content: [{ type: 'text' as const, text: JSON.stringify(summaryResult.body, null, 2) }],
+      };
+    }
+
+    let balancesByAccount: Record<string, AccountBalance> | undefined;
+    if (includeBalancesByAccount === true) {
+      balancesByAccount = {};
+      for (const accountName of ACCOUNTS) {
+        const bal = readDashboardBalance(accountName, { financialYear });
+        if (!bal.ok) {
+          return {
+            isError: true,
+            content: [{ type: 'text' as const, text: JSON.stringify(bal.body, null, 2) }],
+          };
+        }
+        balancesByAccount[accountName] = AccountBalanceSchema.parse(bal.body);
+      }
+    }
+
+    const structuredContent = HouseholdFinancialPostureResponseSchema.parse({
+      generatedAt: new Date().toISOString(),
+      financialSafety,
+      dashboardSummary: summaryResult.body,
+      ...(balancesByAccount !== undefined ? { balancesByAccount } : {}),
+    });
+
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (err) {
+    return mcpAiInternalError(err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
 function spendPeriodFromValidated(data: z.infer<typeof SpendByCurrencyQuerySchema>): SpendByCurrencyPeriod {
   if (data.calendarMonth !== undefined) {
     return { kind: 'calendarMonth', yearMonth: data.calendarMonth };
@@ -341,7 +428,21 @@ export function createBankStatementsMcpServer(): McpServer {
     { name: 'bank-statements-ai', version: '2.0.0' },
     {
       instructions:
-        '§2.0 AI over bank-statements-app. **Monthly invoices (outcome tools):** `preview_monthly_invoice` / `commit_monthly_invoice` mirror POST `/api/invoices/monthly/preview` and `/commit` (fingerprint-gated issue + optional email notice). Prefer these over hand-building full `Invoice` payloads for `post_http_invoice_generate`. **Accountant bundles (slice 2 stub):** `accountant_pack_vat`, `accountant_pack_corp_tax`, `accountant_pack_sa` return `accountant-pack-not-configured` until manifests exist. **Parameterized GET parity (Hermes MCP tools):** get_ai_liquidity, get_ai_pipeline, get_ai_runway, get_ai_snapshot, get_ai_financial_snapshot, get_ai_financial_safety, get_ai_spend_by_currency — same Zod/query semantics as GET /api/ai/* (see server/domain/ai/ai-get-query-schemas.ts and AI manifest slice `mcpTool`). **`get_http_*` tools:** same JSON payloads as Express GET routes wired through `server/http/read/*`; error bodies align with `sendJsonRead` (4xx/5xx). **`post_http_*` / `put_http_*` / `delete_http_*` tools:** parity for JSON mutators in `server/http/mutation/*` (contracts leave, invoices generate/reconcile, debts, debt-strategy, budgets, expenses simulation exclusions). Invoice reconcile **`dryRun` defaults true** in HTTP and MCP; set `dryRun: false` to persist payments — see tool descriptions for side effects. **Upload / OAuth / binary:** `post_upload_statements_base64` and `post_upload_invoice_pdfs_base64` use **JSON base64** (strict per-file / batch caps — see tool text); multipart browser upload stays on HTTP. **`post_feed_oauth_enable_start`** / **`post_feed_oauth_truelayer_start`** return **`url` + `state`** only; OAuth **callbacks stay human/browser-only** — MCP cannot complete redirects. **`get_http_invoice_pdf_base64`** mirrors `GET /api/invoices/:id/pdf` using **`pdfBase64`**. **`/api/auth/site-login`** (cookie site auth) is **not** an MCP surface; MCP auth remains **Bearer** on this listener only. **Legacy resources:** bankstatements://ai/{liquidity,pipeline,runway,snapshot,financial-snapshot,financial-safety,spend-by-currency} remain fixed-default snapshots for backward compat; prefer the matching `get_ai_*` tool for filters (e.g. spend-by-currency resource = current calendar month only). Other tools: capture_net_worth_snapshot (§3.1); sync_bank_feed (§3.4); query_transactions (GET /api/ai/transactions-drill parity). Transaction drill: `account` optional; transfer rows omitted by default cross-account unless `type`/`includeTransfers` apply; multi-currency requires per-currency aggregates. Prefer `account` when the user names one bank/card. entity-liquidity-fx resource matches GET /api/ai/entity-liquidity-fx.',
+        '## Outcome-first MCP (bank-statements-app)\n\n' +
+        '**Tier-1 reads:** `household_financial_posture` (financial safety score + dashboard summary + optional `includeBalancesByAccount`) and `income_get_composition` (§1.7 income mix / concentration). Prefer these before scattering many raw GET mirrors.\n\n' +
+        '**Canonical registry:** grouped prefixed tool ids live in `server/mcp/canonical-mcp-tool-registry.ts` (`CANONICAL_MCP_TOOL_GROUPS`) — use it as the Appendix A–style checklist for automation and reviews.\n\n' +
+        '**Canonical naming:** tools use `{domain}_{action}` snake_case (`invoices_list`, `deadlines_create`, `financial_obligations_*`, …). The **first path segment** must be an approved domain token (see that registry). **`get_http_*` / `post_http_*` / `get_ai_*` / verb-first names remain as temporary aliases** registered alongside the canonical tool and will be removed after a deprecation window — always prefer the prefixed name in new automation.\n\n' +
+        '**Analytics / §2.0:** `analytics_get_liquidity`, `analytics_get_pipeline`, `analytics_get_runway`, `analytics_get_snapshot`, `analytics_get_financial_snapshot`, `analytics_get_financial_safety`, `analytics_get_spend_by_currency` mirror `GET /api/ai/*` with the same Zod query shapes as legacy `get_ai_*` tools.\n\n' +
+        '**Feeds & motion:** `bank_feed_sync` (alias `sync_bank_feed`); `transactions_drill_query` (alias `query_transactions`); OAuth starts: `feed_oauth_enable_start` / `feed_oauth_truelayer_start` (return `url`+`state` only — human browser completes redirects).\n\n' +
+        '**Net worth:** `net_worth_capture_snapshot` (alias `capture_net_worth_snapshot`).\n\n' +
+        '**Monthly invoices:** `invoices_preview_monthly` / `invoices_commit_monthly` (`previewFingerprint` on commit for drift QA — not a substitute for human approval).\n\n' +
+        '**Accountant bundles (stubs):** `accountant_readiness_snapshot`, `accountant_preview_{vat,corporation_tax,sa}_bundle`, `accountant_send_{vat,corporation_tax,sa}_bundle` — manifests + outbound wiring TODO; legacy `accountant_pack_*` forwards to preview stubs.\n\n' +
+        '**JSON GET parity:** `server/http/read/*` backs `*_list`, `dashboard_get_summary`, etc., with legacy `get_http_*` twins where applicable.\n\n' +
+        '**Mutations:** prefixed `deadlines_*`, `financial_obligations_*`, `clients_update`, `warnings_resolve_inter_company_classifications`, `contracts_request_renewal` (validated **501** placeholder), `budgets_*`, `debts_*`, `debt_strategy_*`, `contracts_*` leave, invoices generate/reconcile — plus legacy `post_http_*` / `put_http_*` / `delete_http_*` aliases. Invoice reconcile **`dryRun` defaults true**; set `dryRun: false` to persist.\n\n' +
+        '**Binary / base64:** `statements_upload_base64`, `invoices_upload_supplier_pdfs_base64`, `invoices_get_pdf_base64`, `contracts_get_signed_pdf_base64` embed PDFs as **`pdfBase64`** — decode to bytes and write `filename` locally for agents.\n\n' +
+        '**Social contract:** confirm intent in chat before invoking `*_commit_*`, `*_send_*`, or destructive mutations — technical preview fingerprints (`previewFingerprint`) guard drift only, not approvals.\n\n' +
+        '**Human approval & host allowlists:** Hermes Agent: `approvals.mode` (mostly **terminal** command gating — not MCP-wide) plus per-server MCP `tools.include` / `exclude` ([Security](https://hermes-agent.nousresearch.com/docs/user-guide/security), [Using MCP](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/guides/use-mcp-with-hermes.md)). **Cursor:** IDE MCP confirmation + per-tool allowlist; caveats ([hooks vs MCP](https://forum.cursor.com/t/hooks-return-allow-but-mcp-tool-still-requires-manual-approval-gets-skipped/155434), [`autoApprove` reliability](https://forum.cursor.com/t/atlassian-mcp-autoapprove-true-is-not-being-respected/139392)). Treat `*_commit_*`, `*_send_*`, and destructive tools as high blast-radius. **Outbound email (Resend)** should stay **owner-inbox-capped** in env until you widen recipients.\n\n' +
+        '**Not exposed:** cookie `site-login` sessions; OAuth callbacks. MCP auth here = **Bearer** on this listener.',
     },
   );
 
@@ -377,27 +478,46 @@ export function createBankStatementsMcpServer(): McpServer {
     );
   }
 
+  const netWorthRegistration = {
+    description:
+      '§3.1 — compute and upsert net-worth rows for the current period (weekly by default, or daily if NET_WORTH_SNAPSHOT_CADENCE=daily). Uses force:true to replace the current period even if already captured.',
+    inputSchema: {
+      force: z.boolean().optional().describe('If true, replace rows for the current period even when already captured'),
+      snapshotDate: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .optional()
+        .describe('Override as-of date (ISO yyyy-mm-dd); default is local today'),
+    },
+    outputSchema: {
+      skipped: z.boolean(),
+      reason: z.string().optional(),
+      periodKey: z.string(),
+      snapshotDate: z.string(),
+      cadence: z.enum(['weekly', 'daily']),
+      rowsWritten: z.number(),
+    },
+  };
+
+  server.registerTool('net_worth_capture_snapshot', netWorthRegistration, async args => {
+    const structuredContent = NetWorthSnapshotCaptureResponseSchema.parse(
+      captureNetWorthSnapshots({
+        force: args.force,
+        snapshotDate: args.snapshotDate,
+      }),
+    );
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  });
+
   server.registerTool(
     'capture_net_worth_snapshot',
     {
+      ...netWorthRegistration,
       description:
-        '§3.1 — compute and upsert net-worth rows for the current period (weekly by default, or daily if NET_WORTH_SNAPSHOT_CADENCE=daily). Uses force:true to replace the current period even if already captured.',
-      inputSchema: {
-        force: z.boolean().optional().describe('If true, replace rows for the current period even when already captured'),
-        snapshotDate: z
-          .string()
-          .regex(/^\d{4}-\d{2}-\d{2}$/)
-          .optional()
-          .describe('Override as-of date (ISO yyyy-mm-dd); default is local today'),
-      },
-      outputSchema: {
-        skipped: z.boolean(),
-        reason: z.string().optional(),
-        periodKey: z.string(),
-        snapshotDate: z.string(),
-        cadence: z.enum(['weekly', 'daily']),
-        rowsWritten: z.number(),
-      },
+        '**Deprecated.** Prefer `net_worth_capture_snapshot`. ' + netWorthRegistration.description,
     },
     async args => {
       const structuredContent = NetWorthSnapshotCaptureResponseSchema.parse(
@@ -417,7 +537,18 @@ export function createBankStatementsMcpServer(): McpServer {
     'get_ai_liquidity',
     {
       description:
-        '§2.0 — GET /api/ai/liquidity parity. Optional account, financialYear, groupByEntity (boolean or "true"/"false").',
+        '§2.0 — GET /api/ai/liquidity parity (**deprecated tool name** — prefer `analytics_get_liquidity`). Optional account, financialYear, groupByEntity (boolean or "true"/"false").',
+      inputSchema: LiquidityQuerySchema.shape,
+      outputSchema: AiLiquidityResponseSchema.shape,
+    },
+    args => runGetAiLiquidityMcpTool(args),
+  );
+
+  server.registerTool(
+    'analytics_get_liquidity',
+    {
+      description:
+        '§2.0 — **Preferred** GET /api/ai/liquidity tool. Same inputs as `get_ai_liquidity` (deprecated alias).',
       inputSchema: LiquidityQuerySchema.shape,
       outputSchema: AiLiquidityResponseSchema.shape,
     },
@@ -427,7 +558,18 @@ export function createBankStatementsMcpServer(): McpServer {
   server.registerTool(
     'get_ai_pipeline',
     {
-      description: '§2.0 — GET /api/ai/pipeline parity. days (default 720), optional entityId.',
+      description:
+        '§2.0 — GET /api/ai/pipeline parity (**deprecated** — prefer `analytics_get_pipeline`). days (default 720), optional entityId.',
+      inputSchema: HorizonEntityQuerySchema.shape,
+      outputSchema: AiPipelineResponseSchema.shape,
+    },
+    args => runGetAiPipelineMcpTool(args),
+  );
+
+  server.registerTool(
+    'analytics_get_pipeline',
+    {
+      description: '§2.0 — **Preferred** GET /api/ai/pipeline. Same as `get_ai_pipeline` (deprecated).',
       inputSchema: HorizonEntityQuerySchema.shape,
       outputSchema: AiPipelineResponseSchema.shape,
     },
@@ -438,7 +580,18 @@ export function createBankStatementsMcpServer(): McpServer {
     'get_ai_runway',
     {
       description:
-        '§2.0 — GET /api/ai/runway parity. days (default 720), optional entityId, detail accounts|summary (default summary).',
+        '§2.0 — GET /api/ai/runway parity (**deprecated** — prefer `analytics_get_runway`). days (default 720), optional entityId, detail accounts|summary (default summary).',
+      inputSchema: RunwayQuerySchema.shape,
+      outputSchema: RunwayResponseSchema.shape,
+    },
+    args => runGetAiRunwayMcpTool(args),
+  );
+
+  server.registerTool(
+    'analytics_get_runway',
+    {
+      description:
+        '§2.0 — **Preferred** GET /api/ai/runway. Same as `get_ai_runway` (deprecated).',
       inputSchema: RunwayQuerySchema.shape,
       outputSchema: RunwayResponseSchema.shape,
     },
@@ -449,7 +602,18 @@ export function createBankStatementsMcpServer(): McpServer {
     'get_ai_snapshot',
     {
       description:
-        '§2.0 — GET /api/ai/snapshot parity. Merges runway + liquidity query params (days, entityId, detail, account, financialYear, groupByEntity).',
+        '§2.0 — GET /api/ai/snapshot parity (**deprecated** — prefer `analytics_get_snapshot`). Merges runway + liquidity query params (days, entityId, detail, account, financialYear, groupByEntity).',
+      inputSchema: SnapshotQuerySchema.shape,
+      outputSchema: AiSnapshotResponseSchema.shape,
+    },
+    args => runGetAiSnapshotMcpTool(args),
+  );
+
+  server.registerTool(
+    'analytics_get_snapshot',
+    {
+      description:
+        '§2.0 — **Preferred** GET /api/ai/snapshot. Same as `get_ai_snapshot` (deprecated).',
       inputSchema: SnapshotQuerySchema.shape,
       outputSchema: AiSnapshotResponseSchema.shape,
     },
@@ -460,7 +624,18 @@ export function createBankStatementsMcpServer(): McpServer {
     'get_ai_financial_snapshot',
     {
       description:
-        '§2.0 — GET /api/ai/financial-snapshot parity. Same as snapshot inputs plus commitmentDays (default 90).',
+        '§2.0 — GET /api/ai/financial-snapshot parity (**deprecated** — prefer `analytics_get_financial_snapshot`). Same as snapshot inputs plus commitmentDays (default 90).',
+      inputSchema: FinancialSnapshotQuerySchema.shape,
+      outputSchema: AiFinancialSnapshotResponseSchema.shape,
+    },
+    args => runGetAiFinancialSnapshotMcpTool(args),
+  );
+
+  server.registerTool(
+    'analytics_get_financial_snapshot',
+    {
+      description:
+        '§2.0 — **Preferred** GET /api/ai/financial-snapshot. Same as `get_ai_financial_snapshot` (deprecated).',
       inputSchema: FinancialSnapshotQuerySchema.shape,
       outputSchema: AiFinancialSnapshotResponseSchema.shape,
     },
@@ -471,7 +646,18 @@ export function createBankStatementsMcpServer(): McpServer {
     'get_ai_financial_safety',
     {
       description:
-        '§2.0 — GET /api/ai/financial-safety parity. Same inputs as get_ai_financial_snapshot (FinancialSnapshot query).',
+        '§2.0 — GET /api/ai/financial-safety parity (**deprecated** — prefer `analytics_get_financial_safety`). Same inputs as get_ai_financial_snapshot (FinancialSnapshot query).',
+      inputSchema: FinancialSnapshotQuerySchema.shape,
+      outputSchema: AiFinancialSafetyResponseSchema.shape,
+    },
+    args => runGetAiFinancialSafetyMcpTool(args),
+  );
+
+  server.registerTool(
+    'analytics_get_financial_safety',
+    {
+      description:
+        '§2.0 — **Preferred** GET /api/ai/financial-safety. Same as `get_ai_financial_safety` (deprecated).',
       inputSchema: FinancialSnapshotQuerySchema.shape,
       outputSchema: AiFinancialSafetyResponseSchema.shape,
     },
@@ -482,11 +668,44 @@ export function createBankStatementsMcpServer(): McpServer {
     'get_ai_spend_by_currency',
     {
       description:
-        '§2.0 — GET /api/ai/spend-by-currency parity. Exactly one of calendarMonth (YYYY-MM) or financialYear; optional entityId, account.',
+        '§2.0 — GET /api/ai/spend-by-currency parity (**deprecated** — prefer `analytics_get_spend_by_currency`). Exactly one of calendarMonth (YYYY-MM) or financialYear; optional entityId, account.',
       inputSchema: SpendByCurrencyQuerySchema.shape,
       outputSchema: AiSpendByCurrencyResponseSchema.shape,
     },
     args => runGetAiSpendByCurrencyMcpTool(args),
+  );
+
+  server.registerTool(
+    'analytics_get_spend_by_currency',
+    {
+      description:
+        '§2.0 — **Preferred** GET /api/ai/spend-by-currency. Same runner as deprecated `get_ai_spend_by_currency`.',
+      inputSchema: SpendByCurrencyQuerySchema.shape,
+      outputSchema: AiSpendByCurrencyResponseSchema.shape,
+    },
+    args => runGetAiSpendByCurrencyMcpTool(args),
+  );
+
+  server.registerTool(
+    'income_get_composition',
+    {
+      description:
+        '§1.7 household income composition (same payload as GET /api/income-composition and MCP resource `bankstatements://ai/income-composition`).',
+      inputSchema: {},
+      outputSchema: IncomeCompositionResponseSchema.shape,
+    },
+    raw => runIncomeGetCompositionMcpTool(raw ?? {}),
+  );
+
+  server.registerTool(
+    'household_financial_posture',
+    {
+      description:
+        'Composite decision snapshot: **`analytics_get_financial_safety`-grade score** plus **dashboard summary** (balances, liquidity, FY context). Same query shape as FinancialSnapshot + optional **`includeBalancesByAccount`** boolean to attach per-account **`dashboard_get_balance`** payloads for every ledger account.',
+      inputSchema: HouseholdFinancialPostureQuerySchema.shape,
+      outputSchema: HouseholdFinancialPostureResponseSchema.shape,
+    },
+    raw => runHouseholdFinancialPostureMcpTool(raw ?? {}),
   );
 
   // §3.4 — sync_bank_feed mirrors `POST /api/feed/sync`.
@@ -495,10 +714,10 @@ export function createBankStatementsMcpServer(): McpServer {
   // and embed a structured error body) — the route maps the same errors
   // to HTTP status codes.
   server.registerTool(
-    'sync_bank_feed',
+    'bank_feed_sync',
     {
       description:
-        '§3.4 — fetch new transactions from the configured AISP (TrueLayer preferred when linked, else Enable Banking) for one account, emit bank-shaped CSV, and run the same ingest pipeline as a manual upload. dateFrom is required; dateTo defaults to today; force=true overwrites an existing original of the same generated name.',
+        '§3.4 — **Preferred** name for AIS feed ingestion (`POST /api/feed/sync`). Same semantics as deprecated `sync_bank_feed`. dateFrom required; dateTo defaults to today; force overwrites originals.',
       inputSchema: FeedSyncBodySchema.shape,
       outputSchema: FeedSyncResponseSchema.shape,
     },
@@ -506,10 +725,32 @@ export function createBankStatementsMcpServer(): McpServer {
   );
 
   server.registerTool(
+    'sync_bank_feed',
+    {
+      description:
+        '**Deprecated.** Prefer `bank_feed_sync`. §3.4 — AIS ingest for one configured account.',
+      inputSchema: FeedSyncBodySchema.shape,
+      outputSchema: FeedSyncResponseSchema.shape,
+    },
+    args => runSyncBankFeedMcpTool(args),
+  );
+
+  server.registerTool(
+    'transactions_drill_query',
+    {
+      description:
+        '**Preferred** — same composer as GET /api/ai/transactions-drill (runner shared with legacy `query_transactions`). **`account` optional**: omit to match all ledger accounts (no `AND account` in SQL). **Transfers**: with no `account`, default behaviour excludes `transfer` rows unless you set `type` (`income`/`expense`/`transfer`); `includeTransfers` only expands income/expense with transfers when **`account`** is a valid account id. **Prefer `account`** when the user names a specific bank/card. **Totals**: use `totalsByCurrency` / `aggregatesByAccount` — each has `currency`; do not add across mixed currencies without FX. **Merchant modal**: `merchantModalLabel` implies expense-type drill; cross-account drills do not get per-account transfer-as-expense expansion. Exactly one date window. Never both `search` and `merchantModalLabel`. `includeRows:false` returns aggregates only.',
+      inputSchema: AiTransactionDrillQuerySchema.shape,
+      outputSchema: AiTransactionDrillResponseSchema.shape,
+    },
+    async args => runQueryTransactionsMcpTool(args),
+  );
+
+  server.registerTool(
     'query_transactions',
     {
       description:
-        'Wave 03 — same composer as GET /api/ai/transactions-drill. **`account` optional**: omit to match all ledger accounts (no `AND account` in SQL). **Transfers**: with no `account`, default behaviour excludes `transfer` rows unless you set `type` (`income`/`expense`/`transfer`); `includeTransfers` only expands income/expense with transfers when **`account`** is a valid account id. **Prefer `account`** when the user names a specific bank/card. **Totals**: use `totalsByCurrency` / `aggregatesByAccount` — each has `currency`; do not add across mixed currencies without FX. **Merchant modal**: `merchantModalLabel` implies expense-type drill; cross-account drills do not get per-account transfer-as-expense expansion. Exactly one date window. Never both `search` and `merchantModalLabel`. `includeRows:false` returns aggregates only.',
+        '**Deprecated.** Prefer `transactions_drill_query`. Wave 03 — same composer as GET /api/ai/transactions-drill.',
       inputSchema: AiTransactionDrillQuerySchema.shape,
       outputSchema: AiTransactionDrillResponseSchema.shape,
     },

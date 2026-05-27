@@ -38,6 +38,11 @@ export const FinancialSnapshotQuerySchema = SnapshotQuerySchema.extend({
   commitmentDays: z.coerce.number().int().positive().default(90),
 });
 
+/** MCP tool `household_financial_posture` — extends financial-snapshot query + optional per-account balances. */
+export const HouseholdFinancialPostureQuerySchema = FinancialSnapshotQuerySchema.extend({
+  includeBalancesByAccount: z.boolean().optional(),
+});
+
 /** GET /api/ai/spend-by-currency */
 export const SpendByCurrencyQuerySchema = z
   .object({

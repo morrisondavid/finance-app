@@ -18,13 +18,10 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import {
-  updateClient,
-  type UpdateClientResult,
-} from '../domain/clients/index.js';
-import { ClientUpdateSchema } from '../../shared/api-contracts.js';
 import { sendJsonRead } from '../http/read/send-json-read.js';
 import { readClientsList } from '../http/read/clients-read.js';
+import { sendJsonMutation } from '../http/mutation/send-json-mutation.js';
+import { mutateClientsUpdate } from '../http/mutation/clients-update.js';
 
 const router = Router();
 
@@ -33,49 +30,7 @@ router.get('/', (_req: Request, res: Response) => {
 });
 
 router.put('/:id', (req: Request<{ id: string }>, res: Response) => {
-  const parsed = ClientUpdateSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res
-      .status(400)
-      .json({ error: 'Invalid request', details: parsed.error.issues });
-    return;
-  }
-
-  const result: UpdateClientResult = updateClient({
-    clientId: req.params.id,
-    patch: parsed.data,
-  });
-
-  if (result.ok) {
-    res.json({ client: result.client });
-    return;
-  }
-
-  switch (result.code) {
-    case 'not-found':
-      res.status(404).json({ error: 'Client not found' });
-      return;
-    case 'kind-mismatch':
-      res.status(400).json({
-        error: 'kind-mismatch',
-        detail: `Cannot change client kind from ${result.existingKind} to ${result.patchKind}; this would invalidate pinned contracts and template overrides.`,
-      });
-      return;
-    case 'invalid':
-      res
-        .status(400)
-        .json({ error: 'Invalid request', details: result.issues });
-      return;
-    default: {
-      // Exhaustiveness check — if a new UpdateClientResult variant is
-      // added without a case here, the type error surfaces at compile
-      // time rather than a silent 200.
-      const exhaustive: never = result;
-      void exhaustive;
-      res.status(500).json({ error: 'Unhandled update result' });
-      return;
-    }
-  }
+  sendJsonMutation(res, mutateClientsUpdate(req.params.id, req.body));
 });
 
 export default router;

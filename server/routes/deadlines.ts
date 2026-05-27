@@ -19,20 +19,14 @@
  */
 
 import express, { Request, Response } from 'express';
-import { z } from 'zod';
+import { sendJsonMutation } from '../http/mutation/send-json-mutation.js';
 import {
-  DeadlineCreateBodySchema,
-  DeadlineUpdateBodySchema,
-  DeadlineCompleteBodySchema,
-} from '../../shared/api-contracts.js';
-import {
-  getDeadline,
-  createDeadline,
-  updateDeadline,
-  deleteDeadline,
-  markDeadlineDone,
-  unmarkDeadlineDone,
-} from '../db/repositories/deadlines.js';
+  mutateDeadlinesClearDone,
+  mutateDeadlinesCreate,
+  mutateDeadlinesMarkDone,
+  mutateDeadlinesRemove,
+  mutateDeadlinesUpdate,
+} from '../http/mutation/deadlines.js';
 import { buildDeadlineFeed } from '../db/repositories/deadline-feed.js';
 import { buildIcsCalendar } from '../utils/ics-builder.js';
 import { sendJsonRead } from '../http/read/send-json-read.js';
@@ -43,18 +37,6 @@ import {
 } from '../http/read/deadlines-read.js';
 
 const router = express.Router();
-
-function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : 'Unknown error';
-}
-
-function isValidationError(msg: string): boolean {
-  return (
-    msg.includes('must be') ||
-    msg.startsWith('Deadline ') ||
-    msg.includes('already exists')
-  );
-}
 
 router.get('/', (_req: Request, res: Response) => {
   sendJsonRead(res, readDeadlinesRoot());
@@ -89,108 +71,23 @@ router.get('/:id', (req: Request<{ id: string }>, res: Response) => {
 });
 
 router.post('/', (req: Request, res: Response) => {
-  try {
-    const body = DeadlineCreateBodySchema.parse(req.body);
-    const deadline = createDeadline({
-      id: body.id,
-      type: body.type,
-      title: body.title,
-      dueDate: body.dueDate,
-      recurrence: body.recurrence,
-      notes: body.notes ?? null,
-      url: body.url ?? null,
-      completedDate: body.completedDate ?? null,
-    });
-    res.status(201).json({ deadline });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({ error: 'Invalid request', details: error.issues });
-      return;
-    }
-    const msg = errorMessage(error);
-    if (isValidationError(msg)) {
-      res.status(400).json({ error: msg });
-      return;
-    }
-    console.error('[Deadlines] POST error:', error);
-    res.status(500).json({ error: 'Failed to create deadline' });
-  }
+  sendJsonMutation(res, mutateDeadlinesCreate(req.body));
 });
 
 router.put('/:id', (req: Request<{ id: string }>, res: Response) => {
-  try {
-    const body = DeadlineUpdateBodySchema.parse(req.body);
-    const existing = getDeadline(req.params.id);
-    if (!existing) {
-      res.status(404).json({ error: 'Deadline not found' });
-      return;
-    }
-    const deadline = updateDeadline(req.params.id, body);
-    res.json({ deadline });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({ error: 'Invalid request', details: error.issues });
-      return;
-    }
-    const msg = errorMessage(error);
-    if (msg.includes('not found')) {
-      res.status(404).json({ error: msg });
-      return;
-    }
-    if (isValidationError(msg)) {
-      res.status(400).json({ error: msg });
-      return;
-    }
-    console.error('[Deadlines] PUT error:', error);
-    res.status(500).json({ error: 'Failed to update deadline' });
-  }
+  sendJsonMutation(res, mutateDeadlinesUpdate(req.params.id, req.body));
 });
 
 router.delete('/:id', (req: Request<{ id: string }>, res: Response) => {
-  try {
-    const deleted = deleteDeadline(req.params.id);
-    if (!deleted) {
-      res.status(404).json({ error: 'Deadline not found' });
-      return;
-    }
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('[Deadlines] DELETE error:', error);
-    res.status(500).json({ error: 'Failed to delete deadline' });
-  }
+  sendJsonMutation(res, mutateDeadlinesRemove(req.params.id));
 });
 
 router.post('/:id/complete', (req: Request<{ id: string }>, res: Response) => {
-  try {
-    const body = DeadlineCompleteBodySchema.parse(req.body ?? {});
-    const deadline = markDeadlineDone(req.params.id, body.completedDate);
-    if (!deadline) {
-      res.status(404).json({ error: 'Deadline not found' });
-      return;
-    }
-    res.json({ deadline });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({ error: 'Invalid request', details: error.issues });
-      return;
-    }
-    console.error('[Deadlines] complete error:', error);
-    res.status(500).json({ error: 'Failed to mark deadline done' });
-  }
+  sendJsonMutation(res, mutateDeadlinesMarkDone(req.params.id, req.body ?? {}));
 });
 
 router.delete('/:id/complete', (req: Request<{ id: string }>, res: Response) => {
-  try {
-    const deadline = unmarkDeadlineDone(req.params.id);
-    if (!deadline) {
-      res.status(404).json({ error: 'Deadline not found' });
-      return;
-    }
-    res.json({ deadline });
-  } catch (error) {
-    console.error('[Deadlines] uncomplete error:', error);
-    res.status(500).json({ error: 'Failed to unmark deadline done' });
-  }
+  sendJsonMutation(res, mutateDeadlinesClearDone(req.params.id));
 });
 
 export default router;

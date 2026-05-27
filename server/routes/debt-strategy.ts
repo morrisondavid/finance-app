@@ -13,8 +13,8 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { assembleDebtStrategy } from '../domain/debt-strategy/assemble.js';
-import { debtStrategyBundleToResponseJson } from '../domain/debt-strategy/bundle-to-response-json.js';
+import { sendJsonRead } from '../http/read/send-json-read.js';
+import { readDebtStrategyStateBundle } from '../http/read/debt-strategy-state-read.js';
 import { sendJsonMutation } from '../http/mutation/send-json-mutation.js';
 import {
   mutateDebtStrategyCreatePlan,
@@ -30,13 +30,7 @@ import {
 const router = Router();
 
 router.get('/state', (_req: Request, res: Response) => {
-  try {
-    const bundle = assembleDebtStrategy({});
-    res.json(debtStrategyBundleToResponseJson(bundle));
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'unknown';
-    res.status(500).json({ error: 'state-failed', message });
-  }
+  sendJsonRead(res, readDebtStrategyStateBundle());
 });
 
 router.post('/plans', (req: Request, res: Response) => {

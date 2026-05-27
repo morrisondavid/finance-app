@@ -1,32 +1,15 @@
 import express, { Request, Response } from 'express';
+import type { ObligationRow, Dismissal } from '../../shared/api-contracts.js';
+import { sendJsonMutation } from '../http/mutation/send-json-mutation.js';
 import {
-  createManualObligation,
-  updateManualObligation,
-  deleteManualObligation,
-  upsertManualObligationState,
-  resetManualObligationState,
-  NonManualStateError,
-  getObligationById,
-  toApiObligation,
-} from '../db/repositories/obligations.js';
-import { deriveAndInsertAutoSaObligations } from '../db/repositories/sa-auto-seed.js';
-import { deriveAndInsertAutoObligations as deriveAndInsertAutoVatObligations } from '../db/repositories/vat-auto-seed.js';
-import { deriveAndInsertAutoCtObligations } from '../db/repositories/ct-auto-seed.js';
-import { deriveAndInsertAutoTtpObligations } from '../db/repositories/hmrc-ttp-auto-seed.js';
-import {
-  addDismissal,
-  removeDismissal,
-  isAutoObligationId,
-  NonAutoDismissalError,
-} from '../db/repositories/obligation-dismissals.js';
-import {
-  CreateObligationBodySchema,
-  UpdateObligationBodySchema,
-  CreateDismissalBodySchema,
-  ObligationStateUpsertBodySchema,
-  type ObligationRow,
-  type Dismissal,
-} from '../../shared/api-contracts.js';
+  mutateFinancialObligationsCreate,
+  mutateFinancialObligationsDelete,
+  mutateFinancialObligationsDismissAuto,
+  mutateFinancialObligationsResetState,
+  mutateFinancialObligationsUndismissAuto,
+  mutateFinancialObligationsUpdate,
+  mutateFinancialObligationsUpsertState,
+} from '../http/mutation/obligations.js';
 import { sendJsonRead } from '../http/read/send-json-read.js';
 import {
   readObligationsRegistry,
@@ -38,56 +21,6 @@ import {
 } from '../http/read/obligations-read.js';
 
 const router = express.Router();
-/**
- * Rerun auto-seeders affected by a mutation so the manual↔auto supersede
- * state is reflected immediately instead of lingering until the next
- * restart. Dispatched by obligation `type`:
- *   - `self-assessment`  → SA seeder
- *   - `corporation-tax`  → CT seeder
- *
- * Failures are logged but never block the HTTP response.
- */
-function resyncAutoSeedersForTypes(types: Array<string | undefined | null>): void {
-  const affected = new Set(types.filter((t): t is string => typeof t === 'string'));
-  if (affected.has('self-assessment')) {
-    try {
-      deriveAndInsertAutoSaObligations();
-    } catch (err) {
-      console.error('[Obligations] SA resync after mutation failed:', err);
-    }
-  }
-  if (affected.has('corporation-tax')) {
-    try {
-      deriveAndInsertAutoCtObligations();
-    } catch (err) {
-      console.error('[Obligations] CT resync after mutation failed:', err);
-    }
-  }
-}
-
-/**
- * Rerun the auto-seeder responsible for the given dismissed obligation id
- * so the seeded set in `financial_obligations` is brought in line with the
- * dismissal state immediately (no stale row waiting for the next restart).
- *
- * Id prefix dispatch keeps this trivially extensible: new auto seeders just
- * need a `auto-<kind>-...` prefix and a case here.
- */
-function resyncSeederForAutoId(obligationId: string): void {
-  try {
-    if (obligationId.startsWith('auto-sa-')) {
-      deriveAndInsertAutoSaObligations();
-    } else if (obligationId.startsWith('auto-vat-')) {
-      deriveAndInsertAutoVatObligations();
-    } else if (obligationId.startsWith('auto-ct-')) {
-      deriveAndInsertAutoCtObligations();
-    } else if (obligationId.startsWith('auto-ttp-')) {
-      deriveAndInsertAutoTtpObligations();
-    }
-  } catch (err) {
-    console.error('[Obligations] Dismissal resync failed:', err);
-  }
-}
 
 router.get('/', (req: Request, res: Response) => {
   sendJsonRead(res, readObligationsRegistry(req.query as Record<string, unknown>));
@@ -119,31 +52,7 @@ router.get('/dismissals', (_req: Request, res: Response) => {
  * not reappear on subsequent starts/reseeds until explicitly undismissed.
  */
 router.post('/dismissals', (req: Request, res: Response<Dismissal | { error: string }>) => {
-  try {
-    const parsed = CreateDismissalBodySchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: `Invalid body: ${parsed.error.issues.map(i => i.message).join(', ')}` });
-      return;
-    }
-
-    try {
-      const saved = addDismissal({
-        obligationId: parsed.data.obligationId,
-        reason: parsed.data.reason ?? null,
-      });
-      resyncSeederForAutoId(saved.obligationId);
-      res.status(201).json(saved);
-    } catch (err) {
-      if (err instanceof NonAutoDismissalError) {
-        res.status(400).json({ error: err.message });
-        return;
-      }
-      throw err;
-    }
-  } catch (error) {
-    console.error('Error creating dismissal:', error);
-    res.status(500).json({ error: 'Failed to create dismissal' });
-  }
+  sendJsonMutation(res, mutateFinancialObligationsDismissAuto(req.body));
 });
 
 /**
@@ -151,60 +60,17 @@ router.post('/dismissals', (req: Request, res: Response<Dismissal | { error: str
  * when the user undoes their hide.
  */
 router.delete('/dismissals/:id', (req: Request, res: Response<{ success: boolean } | { error: string }>) => {
-  try {
-    const obligationId = req.params.id;
-    if (typeof obligationId !== 'string' || !isAutoObligationId(obligationId)) {
-      res.status(400).json({ error: 'Dismissal id must be an auto-* obligation id' });
-      return;
-    }
-    const removed = removeDismissal(obligationId);
-    if (!removed) {
-      res.status(404).json({ error: 'Dismissal not found' });
-      return;
-    }
-    resyncSeederForAutoId(obligationId);
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Error removing dismissal:', error);
-    res.status(500).json({ error: 'Failed to remove dismissal' });
-  }
+  const rawId = req.params.id;
+  const dismissalId = Array.isArray(rawId) ? rawId[0] : rawId;
+  sendJsonMutation(res, mutateFinancialObligationsUndismissAuto(dismissalId));
 });
 
 router.post('/', (req: Request, res: Response<ObligationRow | { error: string }>) => {
-  try {
-    const parsed = CreateObligationBodySchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: `Invalid body: ${parsed.error.issues.map(i => i.message).join(', ')}` });
-      return;
-    }
-    const row = createManualObligation(parsed.data);
-    resyncAutoSeedersForTypes([row.type]);
-    res.status(201).json(toApiObligation(row));
-  } catch (error) {
-    console.error('Error creating obligation:', error);
-    res.status(500).json({ error: 'Failed to create obligation' });
-  }
+  sendJsonMutation(res, mutateFinancialObligationsCreate(req.body));
 });
 
 router.put('/:id', (req: Request<{ id: string }>, res: Response<ObligationRow | { error: string }>) => {
-  try {
-    const existing = getObligationById(req.params.id);
-    if (!existing) { res.status(404).json({ error: 'Obligation not found' }); return; }
-    if (existing.source !== 'manual') { res.status(403).json({ error: 'Cannot edit auto-derived obligations' }); return; }
-
-    const parsed = UpdateObligationBodySchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: `Invalid body: ${parsed.error.issues.map(i => i.message).join(', ')}` });
-      return;
-    }
-    const updated = updateManualObligation(req.params.id, parsed.data);
-    if (!updated) { res.status(404).json({ error: 'Obligation not found' }); return; }
-    resyncAutoSeedersForTypes([existing.type, updated.type]);
-    res.json(toApiObligation(updated));
-  } catch (error) {
-    console.error('Error updating obligation:', error);
-    res.status(500).json({ error: 'Failed to update obligation' });
-  }
+  sendJsonMutation(res, mutateFinancialObligationsUpdate(req.params.id, req.body));
 });
 
 /**
@@ -215,27 +81,7 @@ router.put('/:id', (req: Request<{ id: string }>, res: Response<ObligationRow | 
  * ids — those are owned by the HMRC seeders and would be regenerated.
  */
 router.post('/:id/state', (req: Request<{ id: string }>, res: Response<ObligationRow | { error: string }>) => {
-  try {
-    const parsed = ObligationStateUpsertBodySchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: `Invalid body: ${parsed.error.issues.map(i => i.message).join(', ')}` });
-      return;
-    }
-    try {
-      const row = upsertManualObligationState(req.params.id, parsed.data);
-      if (!row) { res.status(404).json({ error: 'Obligation not found' }); return; }
-      res.json(toApiObligation(row));
-    } catch (err) {
-      if (err instanceof NonManualStateError) {
-        res.status(400).json({ error: err.message });
-        return;
-      }
-      throw err;
-    }
-  } catch (error) {
-    console.error('Error upserting obligation state:', error);
-    res.status(500).json({ error: 'Failed to update obligation state' });
-  }
+  sendJsonMutation(res, mutateFinancialObligationsUpsertState(req.params.id, req.body));
 });
 
 /**
@@ -244,36 +90,11 @@ router.post('/:id/state', (req: Request<{ id: string }>, res: Response<Obligatio
  * Returns 404 if there was nothing to reset.
  */
 router.delete('/:id/state', (req: Request<{ id: string }>, res: Response<{ success: boolean } | { error: string }>) => {
-  try {
-    try {
-      const removed = resetManualObligationState(req.params.id);
-      if (!removed) { res.status(404).json({ error: 'No state override to reset' }); return; }
-      res.json({ success: true });
-    } catch (err) {
-      if (err instanceof NonManualStateError) {
-        res.status(400).json({ error: err.message });
-        return;
-      }
-      throw err;
-    }
-  } catch (error) {
-    console.error('Error resetting obligation state:', error);
-    res.status(500).json({ error: 'Failed to reset obligation state' });
-  }
+  sendJsonMutation(res, mutateFinancialObligationsResetState(req.params.id));
 });
 
 router.delete('/:id', (req: Request<{ id: string }>, res: Response<{ success: boolean } | { error: string }>) => {
-  try {
-    const existing = getObligationById(req.params.id);
-    if (!existing) { res.status(404).json({ error: 'Obligation not found' }); return; }
-    if (existing.source !== 'manual') { res.status(403).json({ error: 'Cannot delete auto-derived obligations' }); return; }
-    deleteManualObligation(req.params.id);
-    resyncAutoSeedersForTypes([existing.type]);
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Error deleting obligation:', error);
-    res.status(500).json({ error: 'Failed to delete obligation' });
-  }
+  sendJsonMutation(res, mutateFinancialObligationsDelete(req.params.id));
 });
 
 export default router;

@@ -22,18 +22,14 @@
 import express, { Request, Response } from 'express';
 import { getDb } from '../db/connection.js';
 import { upsertWarningUserState } from '../db/repositories/warning-user-state.js';
-import { buildInterCompanyMovementsResponse } from '../domain/inter-company/movements-response.js';
-import { classifyInterCompanyPair } from '../domain/transaction-overrides/classify-pair.js';
-import {
-  InterCompanyMovementsResponseSchema,
-  InterCompanyClassifyRequestSchema,
-  WarningUserStateUpsertBodySchema,
-} from '../../shared/api-contracts.js';
+import { WarningUserStateUpsertBodySchema } from '../../shared/api-contracts.js';
 import { sendJsonRead } from '../http/read/send-json-read.js';
 import {
   readWarningsConsolidatedFeed,
   readWarningsInterCompanyMovements,
 } from '../http/read/warnings-read.js';
+import { sendJsonMutation } from '../http/mutation/send-json-mutation.js';
+import { mutateWarningsResolveInterCompanyClassifications } from '../http/mutation/warnings-inter-company-classify.js';
 
 const router = express.Router();
 
@@ -71,37 +67,7 @@ router.get('/inter-company-movements', (_req: Request, res: Response) => {
 });
 
 router.post('/inter-company-movements/classify', (req: Request, res: Response) => {
-  const parsed = InterCompanyClassifyRequestSchema.safeParse(req.body);
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    res.status(400).json({
-      error: `Invalid classify request: ${issue.path.join('.') || '(root)'} — ${issue.message}`,
-    });
-    return;
-  }
-
-  try {
-    const db = getDb();
-    const result = classifyInterCompanyPair(db, {
-      expenseHash: parsed.data.expenseHash,
-      incomeHash: parsed.data.incomeHash,
-      category: parsed.data.category,
-      notes: parsed.data.notes ?? null,
-    });
-
-    if (!result.ok) {
-      res.status(result.status).json({ error: result.error });
-      return;
-    }
-
-    const payload = buildInterCompanyMovementsResponse(db);
-    const body = InterCompanyMovementsResponseSchema.parse(payload);
-    res.json(body);
-  } catch (error) {
-    console.error('[Warnings] POST /inter-company-movements/classify error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    res.status(500).json({ error: `Failed to classify inter-company pair: ${message}` });
-  }
+  sendJsonMutation(res, mutateWarningsResolveInterCompanyClassifications(req.body));
 });
 
 export default router;

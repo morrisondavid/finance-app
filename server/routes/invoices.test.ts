@@ -227,6 +227,36 @@ describe('GET /api/invoices/draft', () => {
   });
 });
 
+describe('POST /api/invoices/monthly/preview', () => {
+  it('returns a 64-char previewFingerprint plus invoice + occupancy + gap flags', async () => {
+    const res = await fetch(`${baseUrl}/api/invoices/monthly/preview`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ contract_id: 'dc-sow-2026', billing_month: '2026-04' }),
+    });
+    expect(res.status).toBe(200);
+    const raw = (await res.json()) as Record<string, unknown>;
+    expect(typeof raw.previewFingerprint).toBe('string');
+    expect((raw.previewFingerprint as string).length).toBe(64);
+    InvoiceSchema.parse(raw.invoice);
+
+    const occ = raw.occupancy as { blocked?: boolean };
+    expect(typeof occ.blocked).toBe('boolean');
+
+    const gap = raw.gapList as { outsideMonthlyGapList?: boolean };
+    expect(typeof gap.outsideMonthlyGapList).toBe('boolean');
+  });
+
+  it('400 when contract_id and client_name are missing', async () => {
+    const res = await fetch(`${baseUrl}/api/invoices/monthly/preview`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ billing_month: '2026-04' }),
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
 // ─── POST /generate ─────────────────────────────────────────────────────────
 
 const CANONICAL_DRAFT: Invoice = {
@@ -280,7 +310,7 @@ describe('POST /api/invoices/generate', () => {
     const res = await fetch(`${baseUrl}/api/invoices/generate`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ invoice: CANONICAL_DRAFT }),
+      body: JSON.stringify({ invoice: CANONICAL_DRAFT, allowOutsideGapList: true }),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { invoice: Invoice };
@@ -302,7 +332,7 @@ describe('POST /api/invoices/generate', () => {
     const res = await fetch(`${baseUrl}/api/invoices/generate`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ invoice: CANONICAL_DRAFT }),
+      body: JSON.stringify({ invoice: CANONICAL_DRAFT, allowOutsideGapList: true }),
     });
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string; invoiceId: string };
@@ -350,12 +380,77 @@ describe('POST /api/invoices/generate', () => {
     const res = await fetch(`${baseUrl}/api/invoices/generate`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ invoice: CANONICAL_DRAFT }),
+      body: JSON.stringify({ invoice: CANONICAL_DRAFT, allowOutsideGapList: true }),
     });
     expect(res.status).toBe(500);
     // Rewind is a no-op if the row is already draft-with-null-pdf_path,
     // so we don't strictly require a call here — the important contract
     // is: no successful status=issued body was returned.
+  });
+});
+
+describe('POST /api/invoices/monthly/commit', () => {
+  it('calls the same mocked create/write/update path after preview fingerprint agrees', async () => {
+    const prv = await fetch(`${baseUrl}/api/invoices/monthly/preview`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ contract_id: 'dc-sow-2026', billing_month: '2026-04' }),
+    });
+    expect(prv.status).toBe(200);
+    const { previewFingerprint } = (await prv.json()) as { previewFingerprint: string };
+
+    createInvoiceMock.mockReturnValue({ ok: true, invoice: CANONICAL_DRAFT });
+    writeInvoicePdfMock.mockResolvedValue({
+      absolutePath: '/tmp/DC-999.pdf',
+      relativePath: 'invoices/generated/DC-999.pdf',
+      sizeBytes: 1234,
+    });
+    updateInvoiceMock.mockImplementation(input => {
+      const typed = input as { readonly invoiceId: string; readonly patch: Partial<Invoice> };
+      return {
+        ok: true,
+        invoice: {
+          ...CANONICAL_DRAFT,
+          ...typed.patch,
+          id: typed.invoiceId,
+          updated_at: '2026-04-24',
+        },
+      };
+    });
+
+    const res = await fetch(`${baseUrl}/api/invoices/monthly/commit`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contract_id: 'dc-sow-2026',
+        billing_month: '2026-04',
+        previewFingerprint,
+        allowOutsideGapList: true,
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { invoice: Invoice };
+    expect(body.invoice.status).toBe('issued');
+    expect(createInvoiceMock).toHaveBeenCalledOnce();
+    expect(writeInvoicePdfMock).toHaveBeenCalledOnce();
+    expect(updateInvoiceMock).toHaveBeenCalledOnce();
+  });
+
+  it('409 stale-monthly-preview when fingerprint does not match fresh compose', async () => {
+    const res = await fetch(`${baseUrl}/api/invoices/monthly/commit`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contract_id: 'dc-sow-2026',
+        billing_month: '2026-04',
+        previewFingerprint:
+          '0000000000000000000000000000000000000000000000000000000000000000',
+      }),
+    });
+    expect(res.status).toBe(409);
+    const raw: unknown = await res.json();
+    expect(raw).toMatchObject({ error: 'stale-monthly-preview' });
+    expect(createInvoiceMock).not.toHaveBeenCalled();
   });
 });
 

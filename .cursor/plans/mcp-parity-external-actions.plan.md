@@ -4,28 +4,28 @@ overview: Single epic doc — transactional email + accountant packages + MCP ou
 todos:
   - id: f5e6f7a8-b9c0-4123-d456-789abcdef012
     content: Epic umbrella — transactional email + packaging + human approval + audit (slice 1 = monthly invoice detailed below)
-    status: pending
+    status: completed
   - id: ea-slice1-overlap
     content: Slice 1 — period overlap helper + refactor supplier-month-gaps + existingInvoicesOccupyingContractBillingMonth
     status: completed
   - id: ea-slice1-generate-guards
     content: Slice 1 — preconditions before createInvoice (monthly supplier-issued, occupancy incl. drafts, gap-list strict + optional escape)
-    status: in_progress
+    status: completed
   - id: ea-slice1-preview-checks
     content: Slice 1 — draft days_billed vs calculateWorkload in preview workflow
-    status: pending
+    status: completed
   - id: ea-slice1-workflow-surfaces
     content: Slice 1 — monthly-invoice-workflow + MCP preview_monthly_invoice / commit_monthly_invoice + HTTP /api/invoices/monthly/* + public invoices UI; client_name resolution
-    status: pending
+    status: completed
   - id: ea-slice1-outbox
     content: Slice 1 — DeliveryAdapter + outbox idempotency + hardcoded To in one module early on
-    status: pending
+    status: completed
   - id: ea-slice1-tests
     content: Slice 1 — unit + MCP + route tests + tsc + test:run
-    status: pending
+    status: completed
   - id: ea-slice2-accountant-mcp
     content: Slice 2 — accountant packages (VAT/CT/SA) outcome MCP tools + manifest validation + shared delivery outbox patterns from slice 1
-    status: pending
+    status: completed
 isProject: false
 ---
 

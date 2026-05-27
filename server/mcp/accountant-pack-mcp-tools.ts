@@ -1,32 +1,73 @@
 /**
- * Accountant document bundle outcome tools (slice 2 scaffolding). Manifests arrive in a follow-up PR.
+ * Accountant document bundle outcome tools (readiness / preview / send).
+ * Manifests + outbound wiring land in a follow-up change — structured stubs today.
  */
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
-const AccountantPackInputSchema = z.object({
-  /** Human label for the statutory / reporting period (e.g. FY2025 VAT Q1). */
+const AccountantReadinessSnapshotSchema = z.object({
+  regime: z.enum(['vat', 'corporation_tax', 'sa', 'all']).optional(),
   period_label: z.string().min(3),
+  deadline_horizon_days: z.coerce.number().int().positive().max(3660).optional(),
 });
 
-type PackId = 'vat' | 'corp_tax' | 'sa';
+const AccountantBundlePeriodSchema = z.object({
+  period_label: z.string().min(3),
+  previewFingerprint: z.string().optional(),
+});
 
-function accountantPackNotConfiguredStructured(pack: PackId, periodLabel: string) {
+type AccountantPackKind = 'vat' | 'corp_tax' | 'sa';
+
+function readinessNotConfiguredStructured(
+  regime: string | undefined,
+  periodLabel: string,
+  horizon: number | undefined,
+) {
   return {
     ok: false as const,
-    code: 'accountant-pack-not-configured' as const,
+    code: 'accountant-readiness-not-configured' as const,
+    regime: regime ?? 'all',
+    period_label: periodLabel,
+    deadline_horizon_days: horizon ?? null,
+    present: [] as const,
+    missing: [{ code: 'manifest-not-implemented' }] as const,
+    recommended_next_steps: [
+      'Wait for accountant bundle manifests in a follow-up release.',
+      'Until then, use existing statements + obligations reads for manual prep.',
+    ],
+    message:
+      'Readiness snapshot is reserved for future manifest-backed gap detection. No outbound, no ZIP, no CSV writes.',
+  };
+}
+
+function previewNotConfiguredStructured(pack: AccountantPackKind, periodLabel: string, fp: string | undefined) {
+  return {
+    ok: false as const,
+    code: 'accountant-preview-not-configured' as const,
     pack,
     period_label: periodLabel,
+    previewFingerprint: fp ?? null,
     missing_documents: [{ code: 'manifest-not-implemented' }] as const,
     message:
-      'Accountant bundles are not wired to storage yet. This tool reserves the outcome shape (period + missing_documents) for slice 2 manifests.',
+      'Preview bundles are not wired to storage yet. Shape mirrors the future preview → send flow (ZIP base64 optional once implemented).',
   };
 }
 
-/** @internal */
-export function runAccountantPackVatMcpTool(args: unknown) {
-  const parsed = AccountantPackInputSchema.safeParse(args ?? {});
+function sendNotConfiguredStructured(pack: AccountantPackKind, periodLabel: string, fp: string | undefined) {
+  return {
+    ok: false as const,
+    code: 'accountant-send-not-configured' as const,
+    pack,
+    period_label: periodLabel,
+    previewFingerprint: fp ?? null,
+    message:
+      'Send tools are stubs — no email/ZIP egress from this MCP call yet. When enabled, outbound must stay owner-inbox-capped via Resend config.',
+  };
+}
+
+function accountantReadinessEnvelope(args: unknown) {
+  const parsed = AccountantReadinessSnapshotSchema.safeParse(args ?? {});
   if (!parsed.success) {
     const body = { error: 'invalid-params', issues: parsed.error.issues };
     return {
@@ -34,17 +75,19 @@ export function runAccountantPackVatMcpTool(args: unknown) {
       content: [{ type: 'text' as const, text: JSON.stringify(body, null, 2) }],
     };
   }
-  const structuredContent = accountantPackNotConfiguredStructured('vat', parsed.data.period_label);
+  const structuredContent = readinessNotConfiguredStructured(
+    parsed.data.regime,
+    parsed.data.period_label,
+    parsed.data.deadline_horizon_days,
+  );
   return {
-    isError: true as const,
     content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
     structuredContent,
   };
 }
 
-/** @internal */
-export function runAccountantPackCorpTaxMcpTool(args: unknown) {
-  const parsed = AccountantPackInputSchema.safeParse(args ?? {});
+function accountantPreviewEnvelope(pack: AccountantPackKind, args: unknown) {
+  const parsed = AccountantBundlePeriodSchema.safeParse(args ?? {});
   if (!parsed.success) {
     const body = { error: 'invalid-params', issues: parsed.error.issues };
     return {
@@ -52,17 +95,21 @@ export function runAccountantPackCorpTaxMcpTool(args: unknown) {
       content: [{ type: 'text' as const, text: JSON.stringify(body, null, 2) }],
     };
   }
-  const structuredContent = accountantPackNotConfiguredStructured('corp_tax', parsed.data.period_label);
-  return {
+  const structuredContent = previewNotConfiguredStructured(
+    pack,
+    parsed.data.period_label,
+    parsed.data.previewFingerprint,
+  );
+  const out = {
     isError: true as const,
     content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
     structuredContent,
   };
+  return out;
 }
 
-/** @internal */
-export function runAccountantPackSaMcpTool(args: unknown) {
-  const parsed = AccountantPackInputSchema.safeParse(args ?? {});
+function accountantSendEnvelope(pack: AccountantPackKind, args: unknown) {
+  const parsed = AccountantBundlePeriodSchema.safeParse(args ?? {});
   if (!parsed.success) {
     const body = { error: 'invalid-params', issues: parsed.error.issues };
     return {
@@ -70,42 +117,120 @@ export function runAccountantPackSaMcpTool(args: unknown) {
       content: [{ type: 'text' as const, text: JSON.stringify(body, null, 2) }],
     };
   }
-  const structuredContent = accountantPackNotConfiguredStructured('sa', parsed.data.period_label);
+  const structuredContent = sendNotConfiguredStructured(
+    pack,
+    parsed.data.period_label,
+    parsed.data.previewFingerprint,
+  );
   return {
     isError: true as const,
     content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
     structuredContent,
   };
+}
+
+/** @internal — exported for MCP contract tests */
+export function runAccountantReadinessSnapshotMcpTool(args: unknown) {
+  return accountantReadinessEnvelope(args);
 }
 
 export function registerAccountantPackMcpTools(server: McpServer): void {
   server.registerTool(
+    'accountant_readiness_snapshot',
+    {
+      description:
+        'Early-warning readiness report for accountant hand-offs (no ZIP, no email). Returns `present` / `missing` / `recommended_next_steps` once manifests exist; today surfaces `accountant-readiness-not-configured`.',
+      inputSchema: AccountantReadinessSnapshotSchema.shape,
+    },
+    raw => accountantReadinessEnvelope(raw ?? {}),
+  );
+
+  server.registerTool(
+    'accountant_preview_vat_bundle',
+    {
+      description:
+        'VAT pack preview + optional QA fingerprint (**no send**). Stub until manifests ship (`accountant-preview-not-configured`).',
+      inputSchema: AccountantBundlePeriodSchema.shape,
+    },
+    raw => accountantPreviewEnvelope('vat', raw ?? {}),
+  );
+
+  server.registerTool(
+    'accountant_preview_corporation_tax_bundle',
+    {
+      description:
+        'Corporation-tax pack preview + optional QA fingerprint (**no send**). Stub (`accountant-preview-not-configured`).',
+      inputSchema: AccountantBundlePeriodSchema.shape,
+    },
+    raw => accountantPreviewEnvelope('corp_tax', raw ?? {}),
+  );
+
+  server.registerTool(
+    'accountant_preview_sa_bundle',
+    {
+      description:
+        'Self-assessment pack preview + optional QA fingerprint (**no send**). Stub (`accountant-preview-not-configured`).',
+      inputSchema: AccountantBundlePeriodSchema.shape,
+    },
+    raw => accountantPreviewEnvelope('sa', raw ?? {}),
+  );
+
+  server.registerTool(
+    'accountant_send_vat_bundle',
+    {
+      description:
+        '**Guarded** VAT send (**stub**) — **`send` implies outbound** once wired; blast radius capped by owner-only Resend routing. Confirm with the human before calling.',
+      inputSchema: AccountantBundlePeriodSchema.shape,
+    },
+    raw => accountantSendEnvelope('vat', raw ?? {}),
+  );
+
+  server.registerTool(
+    'accountant_send_corporation_tax_bundle',
+    {
+      description:
+        '**Guarded** corporation-tax send (**stub**) — outbound owner-capped when enabled. Confirm in chat before invoking.',
+      inputSchema: AccountantBundlePeriodSchema.shape,
+    },
+    raw => accountantSendEnvelope('corp_tax', raw ?? {}),
+  );
+
+  server.registerTool(
+    'accountant_send_sa_bundle',
+    {
+      description:
+        '**Guarded** SA send (**stub**) — outbound owner-capped when enabled. Confirm in chat before invoking.',
+      inputSchema: AccountantBundlePeriodSchema.shape,
+    },
+    raw => accountantSendEnvelope('sa', raw ?? {}),
+  );
+
+  const legacyVat = { period_label: z.string().min(3) };
+  server.registerTool(
     'accountant_pack_vat',
     {
       description:
-        'Slice 2 scaffolding — VAT support pack. Returns structured `missing_documents` once manifests exist; today surfaces `accountant-pack-not-configured`.',
-      inputSchema: AccountantPackInputSchema.shape,
+        '**Deprecated.** Prefer `accountant_preview_vat_bundle` + `accountant_send_vat_bundle`. Stub preview-only envelope.',
+      inputSchema: legacyVat,
     },
-    async raw => runAccountantPackVatMcpTool(raw ?? {}),
+    raw => accountantPreviewEnvelope('vat', raw ?? {}),
   );
 
   server.registerTool(
     'accountant_pack_corp_tax',
     {
-      description:
-        'Slice 2 scaffolding — corporation tax document pack. Same outcome envelope as VAT; manifest wiring is TODO.',
-      inputSchema: AccountantPackInputSchema.shape,
+      description: '**Deprecated.** Prefer `accountant_preview_corporation_tax_bundle`.',
+      inputSchema: legacyVat,
     },
-    async raw => runAccountantPackCorpTaxMcpTool(raw ?? {}),
+    raw => accountantPreviewEnvelope('corp_tax', raw ?? {}),
   );
 
   server.registerTool(
     'accountant_pack_sa',
     {
-      description:
-        'Slice 2 scaffolding — self-assessment pack placeholder. Use when SA bundles are implemented against bank-statement coverage rules.',
-      inputSchema: AccountantPackInputSchema.shape,
+      description: '**Deprecated.** Prefer `accountant_preview_sa_bundle`.',
+      inputSchema: legacyVat,
     },
-    async raw => runAccountantPackSaMcpTool(raw ?? {}),
+    raw => accountantPreviewEnvelope('sa', raw ?? {}),
   );
 }
