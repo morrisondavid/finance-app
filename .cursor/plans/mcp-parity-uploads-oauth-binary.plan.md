@@ -1,18 +1,18 @@
 ---
-name: MCP Phase D — Uploads OAuth binary
+name: MCP — Uploads OAuth binary
 overview: MCP policy + tools for multipart upload routes, Enable Banking / TrueLayer OAuth ergonomics, PDF/binary responses — completes hard HTTP parity cases.
 todos:
   - id: f4d5e6f7-a8b9-4012-c345-6789abcdef01
     content: Document transport policy (base64 vs staged path vs human); implement upload mirror(s); OAuth tools returning auth URLs or human-defer; invoice PDF/binary alignment; tests where feasible.
-    status: pending
+    status: completed
 isProject: false
 ---
 
-# Phase D — Uploads + OAuth + PDF/binary
+# Uploads + OAuth + PDF/binary
 
 ## Depends on
 
-- **Phases A–C** for JSON-first parity.
+- **JSON-first milestones** done first: parameterized AI reads ([mcp-parity-ai-parameterized-reads.plan.md](mcp-parity-ai-parameterized-reads.plan.md)), HTTP JSON reads ([mcp-parity-http-json-reads.plan.md](mcp-parity-http-json-reads.plan.md)), and ideally mutations ([mcp-parity-mutations.plan.md](mcp-parity-mutations.plan.md)).
 
 ## Upload
 
@@ -38,9 +38,9 @@ Align invoice PDF [`server/routes/invoices.ts`](../../server/routes/invoices.ts)
 
 ## Build (Cursor)
 
-1. **Plan** → **Build** for **Phase D only**.
+1. **Plan** → **Build** for **only this milestone**.
 2. Update [mcp-parity-overview.plan.md](mcp-parity-overview.plan.md).
 
 **Agent prompt:**
 
-> Implement MCP Phase D per `.cursor/plans/mcp-parity-phase-d-binary-oauth.plan.md`. Follow engineering standards. Run `npx tsc --noEmit` and `npm run test:run`.
+> Implement MCP uploads / OAuth / binary parity per `.cursor/plans/mcp-parity-uploads-oauth-binary.plan.md`. Follow engineering standards. Run `npx tsc --noEmit` and `npm run test:run`.

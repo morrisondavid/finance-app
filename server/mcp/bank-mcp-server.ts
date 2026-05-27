@@ -53,6 +53,10 @@ import { runwayResponseFromAssembled } from '../domain/forecast/runway-api-respo
 import { buildConsolidatedWarningsResponse } from '../domain/warnings/consolidated-feed.js';
 import { captureNetWorthSnapshots } from '../domain/net-worth/snapshot.js';
 
+import { registerBankStatementsHttpJsonReadTools } from './http-json-read-mcp-tools.js';
+import { registerBankStatementsHttpMutationTools } from './http-mutation-mcp-tools.js';
+import { registerBankStatementsBinaryOAuthUploadTools } from './binary-oauth-upload-mcp-tools.js';
+
 export const BANK_STATEMENTS_AI_RESOURCE_BASE = 'bankstatements://ai';
 
 export const BankStatementsAiResourceUris = {
@@ -335,7 +339,7 @@ export function createBankStatementsMcpServer(): McpServer {
     { name: 'bank-statements-ai', version: '2.0.0' },
     {
       instructions:
-        '§2.0 AI over bank-statements-app. **Parameterized GET parity (Hermes MCP tools):** get_ai_liquidity, get_ai_pipeline, get_ai_runway, get_ai_snapshot, get_ai_financial_snapshot, get_ai_financial_safety, get_ai_spend_by_currency — same Zod/query semantics as GET /api/ai/* (see server/domain/ai/ai-get-query-schemas.ts and AI manifest slice `mcpTool`). **Legacy resources:** bankstatements://ai/{liquidity,pipeline,runway,snapshot,financial-snapshot,financial-safety,spend-by-currency} remain fixed-default snapshots for backward compat; prefer the matching `get_ai_*` tool for filters (e.g. spend-by-currency resource = current calendar month only). Other tools: capture_net_worth_snapshot (§3.1); sync_bank_feed (§3.4); query_transactions (GET /api/ai/transactions-drill parity). Transaction drill: `account` optional; transfer rows omitted by default cross-account unless `type`/`includeTransfers` apply; multi-currency requires per-currency aggregates. Prefer `account` when the user names one bank/card. entity-liquidity-fx resource matches GET /api/ai/entity-liquidity-fx.',
+        '§2.0 AI over bank-statements-app. **Parameterized GET parity (Hermes MCP tools):** get_ai_liquidity, get_ai_pipeline, get_ai_runway, get_ai_snapshot, get_ai_financial_snapshot, get_ai_financial_safety, get_ai_spend_by_currency — same Zod/query semantics as GET /api/ai/* (see server/domain/ai/ai-get-query-schemas.ts and AI manifest slice `mcpTool`). **`get_http_*` tools:** same JSON payloads as Express GET routes wired through `server/http/read/*`; error bodies align with `sendJsonRead` (4xx/5xx). **`post_http_*` / `put_http_*` / `delete_http_*` tools:** parity for JSON mutators in `server/http/mutation/*` (contracts leave, invoices generate/reconcile, debts, debt-strategy, budgets, expenses simulation exclusions). Invoice reconcile **`dryRun` defaults true** in HTTP and MCP; set `dryRun: false` to persist payments — see tool descriptions for side effects. **Upload / OAuth / binary:** `post_upload_statements_base64` and `post_upload_invoice_pdfs_base64` use **JSON base64** (strict per-file / batch caps — see tool text); multipart browser upload stays on HTTP. **`post_feed_oauth_enable_start`** / **`post_feed_oauth_truelayer_start`** return **`url` + `state`** only; OAuth **callbacks stay human/browser-only** — MCP cannot complete redirects. **`get_http_invoice_pdf_base64`** mirrors `GET /api/invoices/:id/pdf` using **`pdfBase64`**. **`/api/auth/site-login`** (cookie site auth) is **not** an MCP surface; MCP auth remains **Bearer** on this listener only. **Legacy resources:** bankstatements://ai/{liquidity,pipeline,runway,snapshot,financial-snapshot,financial-safety,spend-by-currency} remain fixed-default snapshots for backward compat; prefer the matching `get_ai_*` tool for filters (e.g. spend-by-currency resource = current calendar month only). Other tools: capture_net_worth_snapshot (§3.1); sync_bank_feed (§3.4); query_transactions (GET /api/ai/transactions-drill parity). Transaction drill: `account` optional; transfer rows omitted by default cross-account unless `type`/`includeTransfers` apply; multi-currency requires per-currency aggregates. Prefer `account` when the user names one bank/card. entity-liquidity-fx resource matches GET /api/ai/entity-liquidity-fx.',
     },
   );
 
@@ -509,6 +513,10 @@ export function createBankStatementsMcpServer(): McpServer {
     },
     async args => runQueryTransactionsMcpTool(args),
   );
+
+  registerBankStatementsHttpJsonReadTools(server);
+  registerBankStatementsHttpMutationTools(server);
+  registerBankStatementsBinaryOAuthUploadTools(server);
 
   return server;
 }

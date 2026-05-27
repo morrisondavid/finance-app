@@ -43,6 +43,7 @@ const NON_REGISTRY_DIRS = new Set<string>([
   'working-days',
   'templates',
   'expenses',
+  'statements',
 ]);
 
 /**

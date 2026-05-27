@@ -24,33 +24,26 @@ import { getDb } from '../db/connection.js';
 import { upsertWarningUserState } from '../db/repositories/warning-user-state.js';
 import { buildInterCompanyMovementsResponse } from '../domain/inter-company/movements-response.js';
 import { classifyInterCompanyPair } from '../domain/transaction-overrides/classify-pair.js';
-import { buildConsolidatedWarningsResponse } from '../domain/warnings/consolidated-feed.js';
 import {
   InterCompanyMovementsResponseSchema,
   InterCompanyClassifyRequestSchema,
   WarningUserStateUpsertBodySchema,
 } from '../../shared/api-contracts.js';
+import { sendJsonRead } from '../http/read/send-json-read.js';
+import {
+  readWarningsConsolidatedFeed,
+  readWarningsInterCompanyMovements,
+} from '../http/read/warnings-read.js';
 
 const router = express.Router();
 
-async function handleAllWarnings(_req: Request, res: Response): Promise<void> {
-  try {
-    const db = getDb();
-    const body = buildConsolidatedWarningsResponse(db);
-    res.json(body);
-  } catch (error) {
-    console.error('[Warnings] GET /entity-foundation error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    res.status(500).json({ error: `Failed to derive entity-foundation warnings: ${message}` });
-  }
-}
+router.get('/entity-foundation', (_req: Request, res: Response) => {
+  sendJsonRead(res, readWarningsConsolidatedFeed());
+});
 
-// `/entity-foundation` is the legacy name (§1.1 Phase 7). `/all` is
-// the forward-naming alias for §1.8's consolidated spine — same handler,
-// same payload. The legacy path stays so existing UI continues to work
-// without change.
-router.get('/entity-foundation', handleAllWarnings);
-router.get('/all', handleAllWarnings);
+router.get('/all', (_req: Request, res: Response) => {
+  sendJsonRead(res, readWarningsConsolidatedFeed());
+});
 
 router.put('/user-state', (req: Request, res: Response) => {
   const parsed = WarningUserStateUpsertBodySchema.safeParse(req.body);
@@ -74,16 +67,7 @@ router.put('/user-state', (req: Request, res: Response) => {
 });
 
 router.get('/inter-company-movements', (_req: Request, res: Response) => {
-  try {
-    const db = getDb();
-    const payload = buildInterCompanyMovementsResponse(db);
-    const body = InterCompanyMovementsResponseSchema.parse(payload);
-    res.json(body);
-  } catch (error) {
-    console.error('[Warnings] GET /inter-company-movements error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    res.status(500).json({ error: `Failed to list inter-company movements: ${message}` });
-  }
+  sendJsonRead(res, readWarningsInterCompanyMovements());
 });
 
 router.post('/inter-company-movements/classify', (req: Request, res: Response) => {

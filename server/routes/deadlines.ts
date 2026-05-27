@@ -26,7 +26,6 @@ import {
   DeadlineCompleteBodySchema,
 } from '../../shared/api-contracts.js';
 import {
-  getAllDeadlines,
   getDeadline,
   createDeadline,
   updateDeadline,
@@ -36,6 +35,12 @@ import {
 } from '../db/repositories/deadlines.js';
 import { buildDeadlineFeed } from '../db/repositories/deadline-feed.js';
 import { buildIcsCalendar } from '../utils/ics-builder.js';
+import { sendJsonRead } from '../http/read/send-json-read.js';
+import {
+  readDeadlinesRoot,
+  readDeadlinesFeedQuery,
+  readDeadlineById,
+} from '../http/read/deadlines-read.js';
 
 const router = express.Router();
 
@@ -52,12 +57,7 @@ function isValidationError(msg: string): boolean {
 }
 
 router.get('/', (_req: Request, res: Response) => {
-  try {
-    res.json({ deadlines: getAllDeadlines() });
-  } catch (error) {
-    console.error('[Deadlines] GET error:', error);
-    res.status(500).json({ error: 'Failed to list deadlines' });
-  }
+  sendJsonRead(res, readDeadlinesRoot());
 });
 
 /**
@@ -81,30 +81,11 @@ router.get('/.ics', (req: Request, res: Response) => {
 });
 
 router.get('/feed', (req: Request, res: Response) => {
-  try {
-    const from = typeof req.query.from === 'string' ? req.query.from : null;
-    const to = typeof req.query.to === 'string' ? req.query.to : null;
-    const excludeCompleted = req.query.excludeCompleted === '1' || req.query.excludeCompleted === 'true';
-    const items = buildDeadlineFeed({ from, to, excludeCompleted });
-    res.json({ items });
-  } catch (error) {
-    console.error('[Deadlines] feed error:', error);
-    res.status(500).json({ error: 'Failed to build deadline feed' });
-  }
+  sendJsonRead(res, readDeadlinesFeedQuery(req.query));
 });
 
 router.get('/:id', (req: Request<{ id: string }>, res: Response) => {
-  try {
-    const deadline = getDeadline(req.params.id);
-    if (!deadline) {
-      res.status(404).json({ error: 'Deadline not found' });
-      return;
-    }
-    res.json({ deadline });
-  } catch (error) {
-    console.error('[Deadlines] GET :id error:', error);
-    res.status(500).json({ error: 'Failed to fetch deadline' });
-  }
+  sendJsonRead(res, readDeadlineById(req.params.id));
 });
 
 router.post('/', (req: Request, res: Response) => {

@@ -11,20 +11,13 @@
  */
 
 import express, { Request, Response } from 'express';
-import { CompaniesListResponseSchema } from '../../shared/api-contracts.js';
-import { allCompanies } from '../domain/company/index.js';
+import { sendJsonRead } from '../http/read/send-json-read.js';
+import { readCompanyList } from '../http/read/company-read.js';
 
 const router = express.Router();
 
 router.get('/', (_req: Request, res: Response) => {
-  try {
-    const body = CompaniesListResponseSchema.parse({ companies: allCompanies() });
-    res.json(body);
-  } catch (error) {
-    console.error('[Company] GET error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    res.status(500).json({ error: `Failed to list companies: ${message}` });
-  }
+  sendJsonRead(res, readCompanyList());
 });
 
 export default router;

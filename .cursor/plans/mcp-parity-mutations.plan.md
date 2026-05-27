@@ -1,18 +1,18 @@
 ---
-name: MCP Phase C — Mutations
+name: MCP — Mutation parity
 overview: MCP tools for POST/PUT/PATCH/DELETE — contracts (leave book/delete, leave-preview), invoices (generate, reconcile w/ dryRun policy), debts, debt-strategy, budgets, expenses.
 todos:
   - id: f3c4d5e6-f7a8-4901-b234-56789abcdef0
     content: Mirror mutating routes with same bodies; invoice reconcile default dryRun=true for MCP unless explicit confirm; document side effects in tool descriptions; tests.
-    status: pending
+    status: completed
 isProject: false
 ---
 
-# Phase C — Mutation parity
+# Mutation parity
 
 ## Depends on
 
-- **Phase B** recommended so reads exist first.
+- **Recommended first:** HTTP JSON read mirrors ([mcp-parity-http-json-reads.plan.md](mcp-parity-http-json-reads.plan.md)) so read tools exist before writes.
 
 ## Scope
 
@@ -34,9 +34,9 @@ Enumerate **`router.post` / `put` / `patch` / `delete`** per file; extend list i
 
 ## Build (Cursor)
 
-1. **Plan** view → **Build** for **Phase C only**.
+1. **Plan** view → **Build** for **only this milestone**.
 2. Mark todos here and in [mcp-parity-overview.plan.md](mcp-parity-overview.plan.md).
 
 **Agent prompt:**
 
-> Implement MCP Phase C per `.cursor/plans/mcp-parity-phase-c-mutations.plan.md`. Follow engineering standards. Run `npx tsc --noEmit` and `npm run test:run`.
+> Implement MCP mutation parity per `.cursor/plans/mcp-parity-mutations.plan.md`. Follow engineering standards. Run `npx tsc --noEmit` and `npm run test:run`.

@@ -19,16 +19,17 @@
 
 import { Router, type Request, type Response } from 'express';
 import {
-  allClients,
   updateClient,
   type UpdateClientResult,
 } from '../domain/clients/index.js';
 import { ClientUpdateSchema } from '../../shared/api-contracts.js';
+import { sendJsonRead } from '../http/read/send-json-read.js';
+import { readClientsList } from '../http/read/clients-read.js';
 
 const router = Router();
 
 router.get('/', (_req: Request, res: Response) => {
-  res.json({ clients: allClients() });
+  sendJsonRead(res, readClientsList());
 });
 
 router.put('/:id', (req: Request<{ id: string }>, res: Response) => {

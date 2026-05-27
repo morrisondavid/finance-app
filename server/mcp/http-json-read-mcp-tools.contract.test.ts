@@ -1,0 +1,52 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { LeaveListResponseSchema } from '../../shared/api-contracts.js';
+import { initDatabase, closeDatabase } from '../db/index.js';
+import { leaveForContract } from '../domain/leave/index.js';
+import { readContractLeave } from '../http/read/contracts.js';
+import { readWarningsConsolidatedFeed } from '../http/read/warnings-read.js';
+import { httpJsonReadToMcpToolResult } from './http-json-read-mcp-tools.js';
+
+describe('HTTP JSON read → MCP envelope (parity)', () => {
+  beforeAll(async () => {
+    await initDatabase();
+  }, 120_000);
+
+  afterAll(() => {
+    closeDatabase();
+  });
+
+  it('readContractLeave body matches canonical LeaveListResponse (+ MCP envelope)', () => {
+    const id = 'dc-sow-2026';
+    const fromRead = readContractLeave(id);
+    expect(fromRead.ok).toBe(true);
+    const expected = LeaveListResponseSchema.parse({ leave: leaveForContract(id) });
+    expect(fromRead.body).toEqual(expected);
+
+    const mcp = httpJsonReadToMcpToolResult(fromRead);
+    expect(mcp.isError).toBeUndefined();
+    expect(mcp.structuredContent).toEqual(expected);
+  });
+
+  it('readWarningsConsolidatedFeed MCP structuredContent echoes JSON body (GET /warnings/all parity path)', () => {
+    const fromRead = readWarningsConsolidatedFeed();
+    expect(fromRead.ok).toBe(true);
+    if (!fromRead.ok) {
+      expect.fail('expected consolidated warnings read ok');
+    }
+    const mcp = httpJsonReadToMcpToolResult(fromRead);
+    expect(mcp.isError).toBeUndefined();
+    expect(mcp.structuredContent).toEqual(fromRead.body);
+  });
+
+  it('readContractLeave 404 MCP envelope matches jsonReadFail shape', () => {
+    const fromRead = readContractLeave('no-such-contract-xyz');
+    if (fromRead.ok) {
+      expect.fail('expected not ok');
+    }
+    expect(fromRead.status).toBe(404);
+
+    const mcp = httpJsonReadToMcpToolResult(fromRead);
+    expect(mcp.isError).toBe(true);
+    expect(JSON.parse(mcp.content[0].text)).toEqual(fromRead.body);
+  });
+});

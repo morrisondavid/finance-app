@@ -4,7 +4,7 @@
  *
  * Rationale: the master-agreements CSV is tiny (currently a single
  * row), has exactly two consumers (the contracts registry join, and
- * the eventual Phase B template renderer), and needs no derived
+ * the client contract PDF / template tooling), and needs no derived
  * indexes. Writing it as a full `createRegistry` registry would cost
  * a manifest test + 5 index-test suites for zero benefit.
  *

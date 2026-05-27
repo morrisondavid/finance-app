@@ -1190,7 +1190,7 @@ function trimTransactionQueryField(s: string | undefined): string | undefined {
   return t !== undefined && t.length > 0 ? t : undefined;
 }
 
-const DashboardTransactionsRawQuerySchema = z.object({
+export const DashboardTransactionsRawQuerySchema = z.object({
   account: z.string().optional(),
   category: z.string().optional(),
   year: z.string().optional(),

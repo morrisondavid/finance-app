@@ -3,13 +3,13 @@
  */
 
 import express, { Request, Response } from 'express';
-import { ApiVersionResponseSchema } from '../../shared/api-contracts.js';
-import { buildApiVersionPayload } from '../runtime-version.js';
+import { sendJsonRead } from '../http/read/send-json-read.js';
+import { readApiVersion } from '../http/read/version-read.js';
 
 const router = express.Router();
 
 router.get('/', (_req: Request, res: Response) => {
-  res.json(ApiVersionResponseSchema.parse(buildApiVersionPayload()));
+  sendJsonRead(res, readApiVersion());
 });
 
 export default router;

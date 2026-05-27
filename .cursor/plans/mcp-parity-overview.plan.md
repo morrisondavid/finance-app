@@ -1,56 +1,57 @@
 ---
 name: MCP HTTP parity roadmap
-overview: Index for phased MCP↔HTTP parity (Hermes-friendly domain tools). Open each linked phase plan and use Cursor **Build** when ready to implement that phase only.
+overview: Index for MCP↔HTTP parity split by milestone (Hermes-friendly). Each linked plan focuses one slice; names describe work, not internal codenames — avoid leaking “phase X” labels into application code or identifiers.
 todos:
   - id: a1b2c3d4-e5f6-4789-a012-3456789abcde
-    content: "Phase A — AI parameterized reads → open mcp-parity-phase-a-ai-params.plan.md"
-    status: pending
+    content: "AI parameterized `/api/ai/*` reads → open mcp-parity-ai-parameterized-reads.plan.md"
+    status: completed
   - id: b2c3d4e5-f6a7-4890-b123-456789abcdef
-    content: "Phase B — Read domains → open mcp-parity-phase-b-read-domains.plan.md"
-    status: pending
+    content: "HTTP JSON read domains (`get_http_*`) → open mcp-parity-http-json-reads.plan.md"
+    status: completed
   - id: c3d4e5f6-a7b8-4901-c234-56789abcdef0
-    content: "Phase C — Mutations → open mcp-parity-phase-c-mutations.plan.md"
+    content: "Mutation parity → open mcp-parity-mutations.plan.md"
     status: pending
   - id: d4e5f6a7-b8c9-4012-d345-6789abcdef01
-    content: "Phase D — Uploads + OAuth + binary → open mcp-parity-phase-d-binary-oauth.plan.md"
-    status: pending
+    content: "Uploads + OAuth + binary → open mcp-parity-uploads-oauth-binary.plan.md"
+    status: completed
   - id: e5f6a7b8-c9d0-4123-e456-789abcdef012
-    content: "Phase E — External actions (non-REST) → open mcp-parity-phase-e-external-actions.plan.md"
+    content: "External actions (non-REST integrations) → open mcp-parity-external-actions.plan.md"
     status: pending
 isProject: true
 ---
 
 # MCP near–HTTP parity (roadmap)
 
-Work is split so each phase has its **own** `.plan.md` file — in Cursor Plan view, that gives you a **Build** button **per phase** when you are ready to implement it.
+Each milestone has its **own** `.plan.md` — in Cursor Plan view that gives you a **Build** button **per milestone** when you are ready.
 
-## Phase plans (open in editor → Plan → Build)
+## Milestone plans
 
-| Phase | File |
-|-------|------|
-| A — Parameterized `/api/ai/*` reads | [mcp-parity-phase-a-ai-params.plan.md](mcp-parity-phase-a-ai-params.plan.md) |
-| B — Read / list domains | [mcp-parity-phase-b-read-domains.plan.md](mcp-parity-phase-b-read-domains.plan.md) |
-| C — Mutations | [mcp-parity-phase-c-mutations.plan.md](mcp-parity-phase-c-mutations.plan.md) |
-| D — Uploads, OAuth, PDF/binary | [mcp-parity-phase-d-binary-oauth.plan.md](mcp-parity-phase-d-binary-oauth.plan.md) |
-| E — Email / accountant packages (new product) | [mcp-parity-phase-e-external-actions.plan.md](mcp-parity-phase-e-external-actions.plan.md) |
+| Milestone | File |
+|-----------|------|
+| AI parameterized `/api/ai/*` reads | [mcp-parity-ai-parameterized-reads.plan.md](mcp-parity-ai-parameterized-reads.plan.md) |
+| HTTP JSON read domains (`get_http_*`) | [mcp-parity-http-json-reads.plan.md](mcp-parity-http-json-reads.plan.md) |
+| Mutations (POST/PUT/PATCH/DELETE parity) | [mcp-parity-mutations.plan.md](mcp-parity-mutations.plan.md) |
+| Uploads, OAuth, PDF/binary | [mcp-parity-uploads-oauth-binary.plan.md](mcp-parity-uploads-oauth-binary.plan.md) |
+| Email / accountant packages / outbound (new product surface) | [mcp-parity-external-actions.plan.md](mcp-parity-external-actions.plan.md) |
 
-After each Build finishes, mark that phase’s todo above **completed** (and the matching todo inside the phase file).
+After each Build finishes, mark that milestone’s todo above **completed** (and matching todo inside the plan file).
 
-## Cumulative feature parity (order of magnitude)
+## Cumulative parity (order of magnitude)
 
-| Done through | Parity |
-|--------------|--------|
-| **A** | Parameterized §2.0 AI GETs match HTTP; rest of API unchanged |
-| **B** | Large share of **GET** routes for listed domains |
-| **C** | Most **mutations** for those domains + debts / budgets / expenses / debt-strategy (if enumerated) |
-| **D** | Upload + bank OAuth + binary story — **~90–95%+** of mounted business routes (excl. cookie UI auth) |
-| **E** | **Not** REST parity — new outbound capabilities |
+| After this milestone | Parity |
+|----------------------|--------|
+| AI parameterized reads | `/api/ai/*` slices match HTTP query semantics via `get_ai_*`; other API unchanged |
+| HTTP JSON reads | Large share of **GET** JSON routes for listed domains |
+| Mutations | Most **writes** for those domains + enumerated extras (debts / budgets / expenses / debt-strategy, …) |
+| Uploads / OAuth / binary | Upload story + bank OAuth + binary/PDF alignment — **~90–95%+** of mounted business routes (excluding cookie-only UI flows) |
+| External actions | **Not** REST parity — new outbound product capabilities |
 
 ## Shared principles
 
 - **One HTTP route ↔ one MCP tool** (or small named family); reuse **same Zod + domain** as [`server/routes/*.ts`](../../server/routes/).
 - **Envelope:** `structuredContent` on success; `isError` + issues on bad input (see `query_transactions` / `sync_bank_feed`).
-- **Hermes:** registers your [`server/mcp/bank-mcp-server.ts`](../../server/mcp/bank-mcp-server.ts) via MCP config — expanding tools here is what agents see.
+- **Hermes:** registers [`server/mcp/bank-mcp-server.ts`](../../server/mcp/bank-mcp-server.ts) via MCP config — expanding tools there is what agents see.
+- **Naming:** Prefer domain terms in source (`HttpJsonReadMcpToolResult`, `registerBankStatementsHttpJsonReadTools`, …), not roadmap labels.
 
 ## Legacy note
 

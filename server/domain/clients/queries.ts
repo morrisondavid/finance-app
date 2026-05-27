@@ -7,7 +7,7 @@
  * `registry.ts` first, then surfaced here.
  *
  * `resolveTemplatePath` is a pure convention resolver — it does NOT
- * touch the filesystem. The §1.2 Phase B template engine calls this
+ * touch the filesystem. The client-template pipeline calls this
  * and then reads the resolved path.
  */
 

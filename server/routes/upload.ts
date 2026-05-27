@@ -3,26 +3,15 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { normalizeFileOnDisk } from '../utils/filename-normalizer.js';
-import { initDatabase } from '../db/index.js';
-import type {
-  InvoiceUploadIngestResult,
-  UploadedFile,
-  UploadResponse,
-} from '../types.js';
+import {
+  evaluateUploadAcceptance,
+  type UploadAcceptance,
+} from '../ingestion/upload-evaluate-acceptance.js';
+import type { InvoiceUploadIngestResult, UploadedFile, UploadResponse } from '../types.js';
 import { persistIngestedSelfBillFromBuffer } from '../domain/invoices/index.js';
 import { todayIsoLocal } from '../../shared/iso-date.js';
 import { ACCOUNTS, AccountName } from '../types.js';
-import type { UploadResponse as UploadResponseContract } from '../../shared/api-contracts.js';
-import { PARSERS } from '../parsers/index.js';
-import {
-  durableRelPathsAfterCsvIngest,
-  ingestCsvFile,
-  type IngestResult,
-} from '../ingestion/ingest-csv-file.js';
-import { REPO_ROOT } from '../repo-root.js';
-import { uploadDurableRelPathsToS3 } from '../storage/s3-durable-sync.js';
-import { recomputeAndPersistDataManifest } from '../data-manifest.js';
+import { executeStatementDiskUpload } from '../ingestion/statement-disk-upload-batch.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,6 +20,8 @@ const router = express.Router();
 
 const STATEMENTS_DIR = path.join(__dirname, '../../statements');
 const INVOICES_DIR = path.join(__dirname, '../../invoices');
+
+export { evaluateUploadAcceptance, type UploadAcceptance };
 
 /**
  * Safely get a param value as string
@@ -72,47 +63,7 @@ const storage = multer.diskStorage({
   }
 });
 
-/**
- * Result of evaluating whether an uploaded file should be accepted by multer.
- * Exported for unit-testing the pipeline without a full HTTP round-trip.
- */
-export type UploadAcceptance =
-  | { accepted: true }
-  | { accepted: false; reason: string };
-
-/**
- * PURE - Decide whether a given filename is allowed for a given `account` and
- * `type`. The CSV lane optionally widens to a parser's declared
- * `acceptedUploadExtensions` (e.g. `.xls` for banks that ship HTML tables);
- * no account-name string literals live here.
- */
-export function evaluateUploadAcceptance(
-  filename: string,
-  account: string,
-  type: string,
-): UploadAcceptance {
-  const ext = path.extname(filename).toLowerCase();
-
-  if (account === 'invoices') {
-    if (ext === '.pdf') return { accepted: true };
-    return { accepted: false, reason: 'Invoices must be PDF files' };
-  }
-
-  if (type === 'pdf' && ext === '.pdf') return { accepted: true };
-  if (type === 'csv' && ext === '.csv') return { accepted: true };
-
-  if (type === 'csv' && ACCOUNTS.includes(account as AccountName)) {
-    const extras = PARSERS[account]?.acceptedUploadExtensions ?? [];
-    if (extras.includes(ext)) return { accepted: true };
-  }
-
-  return {
-    accepted: false,
-    reason: `Invalid file type. Expected ${type.toUpperCase()} file.`,
-  };
-}
-
-const upload = multer({ 
+const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
     const account = getParam(req.params, 'account');
@@ -123,120 +74,9 @@ const upload = multer({
   }
 });
 
-/**
- * Transcode any non-CSV uploads into CSV files in place, using the parser's
- * declared capability. Preserves the raw bytes in `_originals` so the
- * original download is recoverable, then mutates the `files` array entries
- * so the rest of the upload pipeline (validation, duplicate check,
- * partitioner, normaliser, DB reload) can treat everything as CSV.
- *
- * The parser owns all bank-specific knowledge: byte encoding, how to derive
- * a sensible on-disk filename for the converted file, etc. This route simply
- * dispatches through the capability.
- */
-function transcodeNonCsvUploads(
-  files: Express.Multer.File[],
-  account: string,
-): void {
-  const parser = PARSERS[account];
-  if (!parser?.transcodeUpload) return;
 
-  const originalsDir = path.join(STATEMENTS_DIR, account, 'csv', '_originals');
-  if (!fs.existsSync(originalsDir)) {
-    fs.mkdirSync(originalsDir, { recursive: true });
-  }
-
-  for (const f of files) {
-    const ext = path.extname(f.originalname).toLowerCase();
-    if (ext === '.csv') continue;
-
-    fs.copyFileSync(f.path, path.join(originalsDir, f.originalname));
-
-    const raw = fs.readFileSync(f.path);
-    const { csv, filenameHint } = parser.transcodeUpload(raw, f.originalname);
-
-    const csvPath = path.join(path.dirname(f.path), filenameHint);
-    fs.writeFileSync(csvPath, csv, 'utf-8');
-    if (csvPath !== f.path) fs.unlinkSync(f.path);
-
-    f.path = csvPath;
-    f.filename = path.basename(csvPath);
-    f.originalname = filenameHint;
-  }
-}
-
-interface UploadedFileWithStats extends UploadedFile {
-  transactionsAdded?: number;
-  duplicatesSkipped?: number;
-}
-
-interface UploadResponseWithStats extends UploadResponse {
-  totalTransactionsAdded?: number;
-  totalDuplicatesSkipped?: number;
-}
-
-/**
- * PDF lane: same `_originals/` save + `normalizeFileOnDisk` rename the
- * route always did. Kept inline because the CSV-specific pipeline (validate,
- * partition, DB rebuild) doesn't apply and the CSV ingest function was
- * deliberately scoped to CSV only.
- */
-function processPdfBatch(
-  files: Express.Multer.File[],
-  account: string,
-  overwrite: boolean,
-): { status: 200 | 409; body: UploadResponseWithStats | { message: string; duplicates: string[] } } {
-  const originalsDir = path.join(STATEMENTS_DIR, account, 'pdf', '_originals');
-  if (!fs.existsSync(originalsDir)) {
-    fs.mkdirSync(originalsDir, { recursive: true });
-  }
-
-  const duplicates = files
-    .filter(f => fs.existsSync(path.join(originalsDir, f.originalname)))
-    .map(f => f.originalname);
-
-  if (duplicates.length > 0 && !overwrite) {
-    for (const f of files) {
-      try { fs.unlinkSync(f.path); } catch { /* ignore */ }
-    }
-    return {
-      status: 409,
-      body: {
-        message: `${duplicates.length} file(s) already exist in originals`,
-        duplicates,
-      },
-    };
-  }
-
-  const uploadedFiles: UploadedFileWithStats[] = [];
-  for (const f of files) {
-    fs.copyFileSync(f.path, path.join(originalsDir, f.originalname));
-    const result = normalizeFileOnDisk(f.path, account);
-    uploadedFiles.push({
-      originalFilename: f.originalname,
-      filename: result.normalized,
-      size: f.size,
-      path: result.newPath ?? f.path,
-      renamed: result.renamed,
-    });
-  }
-
-  return {
-    status: 200,
-    body: {
-      message: `Successfully uploaded ${files.length} file(s)`,
-      files: uploadedFiles,
-      account,
-      type: 'pdf',
-    },
-  };
-}
-
-// POST /api/upload/:account/:type — Upload statement file(s).
-// CSV path goes through the **shared** `ingestCsvFile` saga (same code that
-// `runFeedSync` calls). PDF path stays inline (originals + normalise only).
-// Increased limit to 50 files at once.
-router.post('/:account/:type', upload.array('files', 50), async (req: Request, res: Response<UploadResponseContract | { error: string }>) => {
+// POST /api/upload/:account/:type — multipart uploads; MCP uses `post_upload_statements_base64` with the same disk saga.
+router.post('/:account/:type', upload.array('files', 50), async (req: Request, res: Response) => {
   const account = getParam(req.params, 'account');
   const type = getParam(req.params, 'type');
   const files = req.files as Express.Multer.File[] | undefined;
@@ -248,137 +88,20 @@ router.post('/:account/:type', upload.array('files', 50), async (req: Request, r
 
   const overwrite = req.query.overwrite === 'true';
 
-  // PDF lane — originals + normalise; push durable paths when configured.
-  if (type === 'pdf') {
-    const result = processPdfBatch(files, account, overwrite);
-    if (result.status === 200 && 'files' in result.body) {
-      const originalsDir = path.join(STATEMENTS_DIR, account, 'pdf', '_originals');
-      const paths = new Set<string>();
-      for (const f of result.body.files) {
-        const base = f.originalFilename ?? f.filename;
-        const originalRel = path
-          .relative(REPO_ROOT, path.join(originalsDir, base))
-          .split(path.sep)
-          .join('/');
-        const finalRel = path.relative(REPO_ROOT, f.path).split(path.sep).join('/');
-        paths.add(originalRel);
-        paths.add(finalRel);
-      }
-      recomputeAndPersistDataManifest();
-      try {
-        await uploadDurableRelPathsToS3([...paths, 'data/manifest.json'], 'pdf-upload');
-      } catch (err) {
-        console.error('[Upload] S3 durable upload after PDF batch failed:', err);
-      }
-    }
-    res.status(result.status).json(result.body);
-    return;
-  }
-
-  if (type !== 'csv') {
-    res.status(400).json({ error: `Invalid file type: ${type}` });
-    return;
-  }
-
-  // Banks like Santander ship uploads in non-CSV formats; parsers opt in
-  // via `acceptedUploadExtensions` + `transcodeUpload`. After this call,
-  // every entry in `files` is a CSV from the rest of the pipeline's POV.
-  transcodeNonCsvUploads(files, account);
-
-  // Single ingest pass: same function `runFeedSync` calls. Each file's
-  // result is independent — invalid files don't block valid ones, and the
-  // user-facing 400/409 contract is preserved by aggregating the results
-  // into the same response shapes the previous handler returned.
-  const uploadedFiles: UploadedFileWithStats[] = [];
-  const partitionedFiles: string[] = [];
-  const validationFailures: { filename: string; errors: string[] }[] = [];
-  const duplicateNames: string[] = [];
-  const durableRelPathsTouched = new Set<string>();
-
-  for (const f of files) {
-    const result: IngestResult = ingestCsvFile(
-      account as AccountName,
-      f.path,
-      f.originalname,
-      { overwrite },
-    );
-    if (result.outcome === 'invalid') {
-      validationFailures.push({ filename: f.originalname, errors: [...result.errors] });
-      continue;
-    }
-    if (result.outcome === 'duplicate') {
-      duplicateNames.push(result.originalName);
-      continue;
-    }
-    for (const rel of durableRelPathsAfterCsvIngest(account as AccountName, result)) {
-      durableRelPathsTouched.add(rel);
-    }
-    if (result.partition.deleted) {
-      partitionedFiles.push(...result.partition.filesCreated);
-    }
-    uploadedFiles.push({
-      originalFilename: f.originalname,
-      filename: result.partition.deleted
-        ? `Partitioned into ${result.partition.filesCreated.length} monthly files`
-        : result.normalizedFilename,
-      size: f.size,
-      path: result.finalPath,
-      renamed: result.renamed,
-    });
-  }
-
-  // Rebuild DB once if anything actually landed on disk. This matches the
-  // previous "always run initDatabase after a CSV upload, even partial".
-  if (uploadedFiles.length > 0) {
-    try {
-      console.log('[Upload] Reinitializing database after CSV upload...');
-      await initDatabase();
-      console.log('[Upload] Database reinitialized successfully');
-      try {
-        await uploadDurableRelPathsToS3(
-          [...durableRelPathsTouched, 'data/manifest.json'],
-          'csv-upload',
-        );
-      } catch (err) {
-        console.error('[Upload] S3 durable upload after CSV ingest failed:', err);
-      }
-    } catch (err) {
-      console.error('[Upload] Error reinitializing database:', err);
-    }
-  }
-
-  // Response priority preserved: validation > duplicate > ok.
-  if (validationFailures.length > 0) {
-    const message = validationFailures.length === files.length
-      ? 'All uploaded CSV files failed validation'
-      : `${validationFailures.length} of ${files.length} files failed validation`;
-    res.status(400).json({
-      error: 'Invalid CSV format',
-      message,
-      details: validationFailures,
-      validFilesProcessed: uploadedFiles.length,
-    });
-    return;
-  }
-
-  if (duplicateNames.length > 0) {
-    res.status(409).json({
-      message: `${duplicateNames.length} file(s) already exist in originals`,
-      duplicates: duplicateNames,
-    });
-    return;
-  }
-
-  const response: UploadResponseWithStats = {
-    message: partitionedFiles.length > 0
-      ? `Successfully uploaded and partitioned into ${partitionedFiles.length} monthly files. Database reinitialized.`
-      : `Successfully uploaded ${files.length} file(s). Database reinitialized.`,
-    files: uploadedFiles,
+  const outcome = await executeStatementDiskUpload({
     account,
     type,
-  };
-  res.json(response);
+    overwrite,
+    files: files.map(f => ({
+      path: f.path,
+      originalname: f.originalname,
+      size: f.size,
+      filename: f.filename,
+    })),
+  });
+  res.status(outcome.status).json(outcome.body);
 });
+
 
 // POST /api/upload/invoices — saves each PDF, then runs the same self-bill
 // ingestion pipeline as `POST /api/invoices/ingest-self-bill`. Recognised
@@ -387,7 +110,7 @@ router.post('/:account/:type', upload.array('files', 50), async (req: Request, r
 router.post(
   '/invoices',
   upload.array('files', 50),
-  async (req: Request, res: Response<UploadResponseContract | { error: string }>) => {
+  async (req: Request, res: Response) => {
     req.params.account = 'invoices';
     req.params.type = 'pdf';
 

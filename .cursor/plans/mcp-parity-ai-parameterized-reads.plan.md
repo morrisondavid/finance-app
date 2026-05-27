@@ -1,5 +1,5 @@
 ---
-name: MCP Phase A — AI parameterized reads
+name: MCP — AI parameterized reads
 overview: MCP tools for GET /api/ai/* with the same query params as HTTP (liquidity, pipeline, runway, snapshot, financial-snapshot, financial-safety, spend-by-currency). Replaces fixed-arg resource gap.
 todos:
   - id: f1a2b3c4-d5e6-4789-f012-3456789abcde
@@ -8,7 +8,7 @@ todos:
 isProject: false
 ---
 
-# Phase A — Parameterized `/api/ai/*` reads
+# AI parameterized `/api/ai/*` reads
 
 ## Depends on
 
@@ -38,9 +38,9 @@ MCP resources today call [`readBankStatementsAiResource`](../../server/mcp/bank-
 
 ## Build (Cursor)
 
-1. Open this file in **Plan** view and click **Build** to implement **Phase A only**.
-2. When done, set the todo above to **completed** and the matching row in [mcp-parity-overview.plan.md](mcp-parity-overview.plan.md).
+1. Open this file in **Plan** view and click **Build** to implement **only this milestone**.
+2. When done, set the todo above to **completed** and update the matching row in [mcp-parity-overview.plan.md](mcp-parity-overview.plan.md).
 
 **Agent prompt (paste if not using Build):**
 
-> Implement MCP Phase A as specified in `.cursor/plans/mcp-parity-phase-a-ai-params.plan.md`: add parameterized AI read tools matching `server/routes/ai.ts`. Follow `.cursor/rules/engineering-standards.mdc`. Run `npx tsc --noEmit` and `npm run test:run`.
+> Implement MCP AI parameterized reads as specified in `.cursor/plans/mcp-parity-ai-parameterized-reads.plan.md`: add parameterized AI read tools matching `server/routes/ai.ts`. Follow `.cursor/rules/engineering-standards.mdc`. Run `npx tsc --noEmit` and `npm run test:run`.

@@ -1,10 +1,9 @@
 import express, { Request, Response } from 'express';
-import {
-  SimulationExclusionsPutBodySchema,
-  type AdHocExpensesResponse,
-  type AdHocMerchantSeriesResponse,
-  type ExpensesSheetResponse,
-  type RecurringExpensesResponse,
+import type {
+  AdHocExpensesResponse,
+  AdHocMerchantSeriesResponse,
+  ExpensesSheetResponse,
+  RecurringExpensesResponse,
 } from '../../shared/api-contracts.js';
 import type { AccountName } from '../types.js';
 import {
@@ -14,7 +13,6 @@ import {
 } from '../db/index.js';
 import {
   getFixedExpenseSimulationExclusions,
-  replaceFixedExpenseSimulationExclusions,
 } from '../db/repositories/fixed-expense-simulation-exclusions.js';
 import { isValidAccountName } from '../domain/accounts/index.js';
 import {
@@ -33,6 +31,8 @@ import {
   computeAdHocMerchantSeries,
   parseAdHocBucketKey,
 } from '../utils/ad-hoc-merchant-series.js';
+import { sendJsonMutation } from '../http/mutation/send-json-mutation.js';
+import { mutateSimulationExclusionsReplace } from '../http/mutation/expenses-simulation.js';
 
 export { accKey };
 
@@ -68,18 +68,7 @@ router.get('/simulation-exclusions', (_req, res) => {
 });
 
 router.put('/simulation-exclusions', (req, res) => {
-  try {
-    const parsed = SimulationExclusionsPutBodySchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: 'Invalid body: expected { lineKeys: string[] }' });
-      return;
-    }
-    replaceFixedExpenseSimulationExclusions(parsed.data.lineKeys);
-    res.json({ lineKeys: getFixedExpenseSimulationExclusions() });
-  } catch (error) {
-    console.error('Error saving simulation exclusions:', error);
-    res.status(500).json({ error: 'Failed to save simulation exclusions' });
-  }
+  sendJsonMutation(res, mutateSimulationExclusionsReplace(req.body));
 });
 
 // ─── /ad-hoc ───────────────────────────────────────────────────────────────────

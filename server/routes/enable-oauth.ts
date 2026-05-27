@@ -6,13 +6,10 @@
  */
 
 import express, { Request, Response } from 'express';
-import {
-  EnableFeedStartBodySchema,
-  EnableFeedStartResponseSchema,
-} from '../../shared/api-contracts.js';
-import { getAccountConfig, isValidAccountName } from '../domain/accounts/index.js';
-import { fetchEnableAuthRedirectUrl, exchangeEnableAuthorizationCode } from '../ingestion/feeds/enable-auth-http.js';
-import { createEnableOAuthState, consumeEnableOAuthState } from '../ingestion/feeds/enable-oauth-state.js';
+import { sendJsonMutation } from '../http/mutation/send-json-mutation.js';
+import { mutateEnableFeedStart } from '../http/mutation/feed-oauth-start.js';
+import { exchangeEnableAuthorizationCode } from '../ingestion/feeds/enable-auth-http.js';
+import { consumeEnableOAuthState } from '../ingestion/feeds/enable-oauth-state.js';
 import { mergeEnableBankingSessionForAccounts } from '../ingestion/feeds/enable-session-store.js';
 import { upsertEnableAccountLink } from '../ingestion/feeds/enable-account-links-csv.js';
 import { EnableBankingError } from '../ingestion/feeds/enable-banking.js';
@@ -24,85 +21,7 @@ function redirectOr400(res: Response, message: string): void {
 }
 
 router.post('/enable/start', async (req: Request, res: Response) => {
-  const parsed = EnableFeedStartBodySchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Invalid body', details: parsed.error.issues });
-    return;
-  }
-  const { account, country: bodyCountry, aspspName: bodyAspsp, psuType: bodyPsu } = parsed.data;
-  if (!isValidAccountName(account)) {
-    res.status(400).json({ error: 'Unknown account' });
-    return;
-  }
-
-  let cfg;
-  try {
-    cfg = getAccountConfig(account);
-  } catch {
-    res.status(400).json({ error: 'Unknown account' });
-    return;
-  }
-
-  const hint = cfg.aispFeed?.enableBanking?.institutionHint;
-  const country = bodyCountry ?? hint?.country;
-  const aspspName = bodyAspsp ?? hint?.institutionName;
-  const defaultPsu = cfg.category === 'business' ? 'business' : 'personal';
-  const psuType = bodyPsu ?? defaultPsu;
-
-  if (country === undefined || country.length !== 2) {
-    res.status(400).json({
-      error:
-        'Missing country — pass `country` (ISO-3166-1 alpha-2) or set aispFeed.enableBanking.institutionHint.country on the account',
-    });
-    return;
-  }
-  if (aspspName === undefined || aspspName.trim() === '') {
-    res.status(400).json({
-      error:
-        'Missing aspspName — pass `aspspName` or set aispFeed.enableBanking.institutionHint.institutionName on the account',
-    });
-    return;
-  }
-
-  const redirect = process.env.ENABLE_BANKING_REDIRECT_URL?.trim();
-  if (redirect === undefined || redirect === '') {
-    res.status(503).json({
-      error:
-        'ENABLE_BANKING_REDIRECT_URL is not set — must match a URL whitelisted in the Enable Banking Control Panel (e.g. https://yourhost/api/feed/enable/callback)',
-    });
-    return;
-  }
-
-  if (process.env.NODE_ENV === 'production' && !redirect.toLowerCase().startsWith('https://')) {
-    res.status(503).json({
-      error: 'ENABLE_BANKING_REDIRECT_URL must use https in production',
-    });
-    return;
-  }
-
-  const state = createEnableOAuthState(account);
-  try {
-    const url = await fetchEnableAuthRedirectUrl({
-      country,
-      aspspName: aspspName.trim(),
-      psuType,
-      state,
-      redirectUrl: redirect,
-    });
-    res.json(EnableFeedStartResponseSchema.parse({ url, state }));
-  } catch (err) {
-    if (err instanceof EnableBankingError) {
-      const status =
-        err.code === 'missing-credentials'
-          ? 503
-          : err.code === 'invalid-response'
-            ? 502
-            : 502;
-      res.status(status).json({ error: err.message, code: err.code });
-      return;
-    }
-    throw err;
-  }
+  sendJsonMutation(res, await mutateEnableFeedStart(req.body));
 });
 
 router.get('/enable/callback', async (req: Request, res: Response) => {
