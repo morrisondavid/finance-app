@@ -32,6 +32,11 @@ import siteAuthRouter from './routes/site-auth.js';
 import { siteAccessGateMiddleware } from './auth/site-access.js';
 import { normalizeAllFiles } from './utils/filename-normalizer.js';
 import { initDatabase, closeDatabase } from './db/index.js';
+import {
+  MCP_HTTP_MOUNT_PATH,
+  mountStreamableHttpMcp,
+  resolveMcpHttpBearerToken,
+} from './mcp/streamable-http-express.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -76,12 +81,7 @@ app.use('/api/income-composition', incomeCompositionRouter);
 app.use('/api/debt-strategy', debtStrategyRouter);
 app.use('/api/feed', feedRouter);
 
-if (isProduction) {
-  // SPA fallback — serve index.html for non-API routes
-  app.get('*', (_req: Request, res: Response) => {
-    res.sendFile(path.join(__dirname, '../dist/index.html'));
-  });
-} else {
+if (!isProduction) {
   // Dev: make it obvious this server is API-only and point at Vite
   app.get('/', (_req: Request, res: Response) => {
     res
@@ -90,6 +90,13 @@ if (isProduction) {
       .send(
         'This is the API server (dev mode). Open the frontend at http://localhost:5173'
       );
+  });
+}
+
+function registerProductionSpaFallback(): void {
+  // After `/mcp` — see `start()` — so Streamable HTTP is never served as index.html.
+  app.get('*', (_req: Request, res: Response) => {
+    res.sendFile(path.join(__dirname, '../dist/index.html'));
   });
 }
 
@@ -130,6 +137,27 @@ async function start(): Promise<void> {
   normalizeAllFiles();
 
   await initDatabase();
+
+  try {
+    const mcpBearer = resolveMcpHttpBearerToken();
+    if (mcpBearer !== null) {
+      await mountStreamableHttpMcp(app, mcpBearer);
+      console.log(
+        `[MCP] Streamable HTTP mounted at ${MCP_HTTP_MOUNT_PATH} (Authorization: Bearer MCP_BEARER_TOKEN)`,
+      );
+    } else if (isProduction) {
+      console.warn(
+        `[MCP] Remote MCP disabled — set MCP_BEARER_TOKEN on the container to expose ${MCP_HTTP_MOUNT_PATH}`,
+      );
+    }
+  } catch (err) {
+    console.error('[MCP] Failed to mount Streamable HTTP:', err);
+    process.exit(1);
+  }
+
+  if (isProduction) {
+    registerProductionSpaFallback();
+  }
 
   httpServer = app.listen(PORT, () => {
     if (isProduction) {

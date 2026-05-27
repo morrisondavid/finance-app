@@ -24,3 +24,8 @@
 # Optional — after `docker pull`, `09` compares the image `dist/source-hash.json` `.value` to this
 # (64-char lowercase hex from laptop `./07` output or from a known-good `GET /api/version`).
 # export BANK_EXPECT_SOURCE_SHA256=''
+
+# Remote MCP (Hermes / HTTP clients) — Streamable HTTP at https://<host>/mcp on the main app.
+# Separate long random secret (≥16 UTF-8 bytes); not the site login cookie. `09` passes this into
+# `docker run` when set (same pattern as BANK_SITE_ACCESS_SECRET — no Dockerfile change).
+# export MCP_BEARER_TOKEN=''

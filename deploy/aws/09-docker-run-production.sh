@@ -146,6 +146,10 @@ docker run -d --name bank --restart unless-stopped --pull=always \
   -e BANK_STATEMENTS_SKIP_INIT_WHEN_MANIFEST_UNCHANGED=0 \
   -e "BANK_SITE_ACCESS_SECRET=${BANK_SITE_ACCESS_SECRET:-}" \
   -e "BANK_SITE_LOGIN_PASSWORD=${BANK_SITE_LOGIN_PASSWORD:-}" \
+  -e "MCP_BEARER_TOKEN=${MCP_BEARER_TOKEN:-}" \
   "$BANK_APP_IMAGE"
 
 echo "App listens on 127.0.0.1:3000 — Caddy serves https://${BANK_APP_PUBLIC_HOSTNAME}"
+if [[ -n "${MCP_BEARER_TOKEN:-}" ]]; then
+  echo "MCP Streamable HTTP: https://${BANK_APP_PUBLIC_HOSTNAME}/mcp (Authorization: Bearer MCP_BEARER_TOKEN)"
+fi

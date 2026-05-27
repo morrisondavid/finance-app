@@ -1,7 +1,14 @@
 /**
- * MCP entrypoint — stdio (default) or Streamable HTTP when `MCP_HTTP_PORT` is set.
+ * MCP entrypoint for **stdio** (Cursor / local Agent) and optional **standalone HTTP** on a
+ * separate port when `MCP_HTTP_PORT` is set (local debugging only).
  *
- * HTTP mode requires `MCP_BEARER_TOKEN` (use a long random secret). Example:
+ * Production serves MCP at `GET|POST /mcp` on the main Express app when `MCP_BEARER_TOKEN` is set
+ * — see `server/mcp/streamable-http-express.ts` and `server/index.ts`.
+ *
+ * Stdio example (Cursor `.cursor/mcp.json`):
+ *   npm run mcp
+ *
+ * Standalone HTTP example (local):
  *   MCP_HTTP_PORT=3344 MCP_BEARER_TOKEN='…' npm run mcp
  */
 
@@ -10,41 +17,29 @@ import { loadEnvLocal } from '../load-env-local.js';
 loadEnvLocal();
 
 import http from 'http';
-import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
+import express from 'express';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { initDatabase, closeDatabase } from '../db/index.js';
 import { createBankStatementsMcpServer } from './bank-mcp-server.js';
+import {
+  MCP_HTTP_MOUNT_PATH,
+  minMcpBearerUtf8Bytes,
+  mountStreamableHttpMcp,
+  resolveMcpHttpBearerToken,
+} from './streamable-http-express.js';
 
-function minBearerLength(): number {
-  return 16;
-}
-
-async function runStreamableHttpMcp(port: number, token: string): Promise<void> {
+async function runStandaloneHttpMcp(port: number, token: string): Promise<void> {
   await initDatabase();
-  const mcp = createBankStatementsMcpServer();
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  await mcp.connect(transport);
-
-  const app = createMcpExpressApp({ host: '127.0.0.1' });
-  app.use('/mcp', (req, res, next) => {
-    const hdr = req.headers.authorization;
-    if (typeof hdr !== 'string' || hdr !== `Bearer ${token}`) {
-      res.status(401).json({ error: 'unauthorized' });
-      return;
-    }
-    next();
-  });
-  app.all('/mcp', (req, res) => {
-    void transport.handleRequest(req, res, req.body);
-  });
+  const app = express();
+  app.use(express.json());
+  await mountStreamableHttpMcp(app, token);
 
   await new Promise<void>((resolve, reject) => {
     const srv = http.createServer(app);
     srv.on('error', reject);
     srv.listen(port, '127.0.0.1', () => {
       console.log(
-        `[MCP] Streamable HTTP http://127.0.0.1:${String(port)}/mcp (Authorization: Bearer …)`,
+        `[MCP] Standalone Streamable HTTP http://127.0.0.1:${String(port)}${MCP_HTTP_MOUNT_PATH} (Authorization: Bearer …)`,
       );
       resolve();
     });
@@ -66,14 +61,21 @@ if (httpPortRaw !== undefined && httpPortRaw !== '') {
     console.error('[MCP] MCP_HTTP_PORT must be a valid TCP port');
     process.exit(1);
   }
-  const token = process.env.MCP_BEARER_TOKEN;
-  if (token === undefined || token.length < minBearerLength()) {
-    console.error(
-      `[MCP] MCP_HTTP_PORT requires MCP_BEARER_TOKEN (min ${String(minBearerLength())} chars)`,
-    );
+  let token: string;
+  try {
+    const resolved = resolveMcpHttpBearerToken();
+    if (resolved === null) {
+      console.error(
+        `[MCP] MCP_HTTP_PORT requires MCP_BEARER_TOKEN (min ${String(minMcpBearerUtf8Bytes())} chars)`,
+      );
+      process.exit(1);
+    }
+    token = resolved;
+  } catch (err) {
+    console.error('[MCP]', err instanceof Error ? err.message : err);
     process.exit(1);
   }
-  runStreamableHttpMcp(port, token).catch(err => {
+  runStandaloneHttpMcp(port, token).catch(err => {
     console.error('[MCP]', err);
     closeDatabase();
     process.exit(1);

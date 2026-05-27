@@ -233,7 +233,32 @@ Optional **`BANK_SITE_LOGIN_PASSWORD`**: human-facing login password only; Beare
 
 Minimum secret length is enforced (**16 UTF-8 bytes**). Omit **`BANK_SITE_ACCESS_SECRET`** entirely for dev/local containers so `/api/*` stays open.
 
-On EC2, [`09-docker-run-production.sh`](09-docker-run-production.sh) automatically **`source`**s **`./production-env.local.sh`** when it sits **next to that script** on the server (same folder as **`config.sh`** — typically **`~/bank-deploy-aws/production-env.local.sh`**). Create it on the server only, **`chmod 600`**, with `export BANK_SITE_ACCESS_SECRET='…'` and any other overrides (**`BANK_SITE_LOGIN_PASSWORD`**, optional **`BANK_S3_DURABLE_*`** overrides). Use [`production-env.local.example.sh`](production-env.local.example.sh) as a starting point (**exclude `production-env.local.sh` when copying `deploy/aws`** so laptop copies do not overwrite server secrets).
+On EC2, [`09-docker-run-production.sh`](09-docker-run-production.sh) automatically **`source`**s **`./production-env.local.sh`** when it sits **next to that script** on the server (same folder as **`config.sh`** — typically **`~/bank-deploy-aws/production-env.local.sh`**). Create it on the server only, **`chmod 600`**, with `export BANK_SITE_ACCESS_SECRET='…'`, optional **`export MCP_BEARER_TOKEN='…'`**, and any other overrides (**`BANK_SITE_LOGIN_PASSWORD`**, optional **`BANK_S3_DURABLE_*`** overrides). Use [`production-env.local.example.sh`](production-env.local.example.sh) as a starting point (**exclude `production-env.local.sh` when copying `deploy/aws`** so laptop copies do not overwrite server secrets).
+
+## Remote MCP (Hermes / HTTP agents)
+
+When **`MCP_BEARER_TOKEN`** is set on the container (≥16 UTF-8 bytes, **separate** from **`BANK_SITE_ACCESS_SECRET`** recommended), the main Express process mounts **Streamable HTTP MCP** at **`/mcp`** on the same port Caddy already proxies (**`:3000`**). No second container or extra deploy step beyond **`07`** + **`09`**.
+
+1. On the server, add to **`production-env.local.sh`**: `export MCP_BEARER_TOKEN='…'` (once).
+2. Re-run **`09`** after **`07`** when MCP code changes.
+3. Confirm **`docker logs bank`** includes **`[MCP] Streamable HTTP mounted at /mcp`**.
+4. Configure [Hermes Agent](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp) in **`~/.hermes/config.yaml`**:
+
+```yaml
+mcp_servers:
+  bank-statements:
+    url: "https://finances.traxiproducts.com/mcp"
+    headers:
+      Authorization: "Bearer <MCP_BEARER_TOKEN>"
+    tools:
+      include: []   # optional allowlist — see Hermes MCP docs
+```
+
+**Auth:** **`Authorization: Bearer <MCP_BEARER_TOKEN>`** only — site login cookies do **not** grant MCP access. Use **`tools.include` / `exclude`** and **`approvals.mode`** in Hermes for blast-radius control on mutation tools.
+
+**Cursor (local dev):** unchanged — [`.cursor/mcp.json`](../../.cursor/mcp.json) spawns **`npm run mcp`** over **stdio**; you do not need **`MCP_BEARER_TOKEN`** on the laptop unless testing HTTP MCP on **`http://localhost:3000/mcp`**.
+
+**Smoke test:** `curl -si -X POST "https://<hostname>/mcp"` → **`401`** without Bearer; with Bearer → MCP response (not **`index.html`**).
 
 Optional edge friction: HTTP Basic Auth in Caddy — commented appendix in [`caddy/Caddyfile.example`](caddy/Caddyfile.example) (often awkward for browser automation unless credentials are wired into the tool).
 
