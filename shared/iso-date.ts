@@ -124,6 +124,16 @@ export function monthRange(iso: string): { start: string; end: string } {
 }
 
 /**
+ * Billing month **`YYYY-MM`** for the **last complete calendar month** before **local today**
+ * (May 2026 → `2026-04`; Jan 2026 → `2025-12`).
+ */
+export function previousCompleteBillingMonthYYYYMM(isoCalendarToday: string): string {
+  const firstOfThisMonth = monthRange(isoCalendarToday).start;
+  const lastDayPriorMonth = shiftIsoDate(firstOfThisMonth, -1);
+  return lastDayPriorMonth.slice(0, 7);
+}
+
+/**
  * Parse a `DD/MM/YYYY` string into an ISO `YYYY-MM-DD` date.
  *
  * Complements `toIsoDate` / `shiftIsoDate` / `monthRange` — used by

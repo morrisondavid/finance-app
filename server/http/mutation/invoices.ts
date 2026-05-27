@@ -5,6 +5,7 @@
 import { z } from 'zod';
 import {
   allInvoicePayments,
+  allInvoices,
   createInvoice,
   findInvoiceById,
   InvoiceSchema,
@@ -18,6 +19,7 @@ import {
   type ReconcileTransaction,
   type ReconciliationPlan,
 } from '../../domain/invoices/index.js';
+import { violationForMonthlySupplierInvoiceGenerate } from '../../domain/invoices/invoice-generate-monthly-guards.js';
 import { findContractById } from '../../domain/contracts/index.js';
 import { allClients, findClientById } from '../../domain/clients/index.js';
 import { companyById } from '../../domain/company/index.js';
@@ -32,6 +34,8 @@ const RECONCILE_LOOKBACK_DAYS = 180;
 /** POST `/generate` — same `{ invoice }` envelope as `/api/invoices/generate`. */
 export const InvoiceGenerateBodySchema = z.object({
   invoice: InvoiceSchema,
+  /** Skip strict monthly gap-list blocking (still enforces occupancy / other rules). */
+  allowOutsideGapList: z.boolean().optional(),
 });
 
 export const InvoiceReconcileBodySchema = z.object({
@@ -80,6 +84,17 @@ export async function mutateInvoiceGenerate(body: unknown): Promise<JsonMutation
           'This contract uses self-bill; supplier invoice generation does not apply. Use ingest instead.',
       },
     };
+  }
+
+  const monthlyGuard = violationForMonthlySupplierInvoiceGenerate({
+    draft,
+    contract: contractForGenerate,
+    allInvoices: allInvoices(),
+    today: todayIsoLocal(),
+    allowOutsideGapList: parsed.data.allowOutsideGapList,
+  });
+  if (monthlyGuard !== undefined) {
+    return { status: monthlyGuard.status, body: monthlyGuard.body };
   }
 
   const createResult = createInvoice({ invoice: draft });

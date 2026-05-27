@@ -1,5 +1,5 @@
 /**
- * Self-bill invoice PDF ingestion batch — same saga as `POST /api/upload/invoices`
+ * Self-bill invoice PDF ingestion batch — same workflow as `POST /api/upload/invoices`
  * and `POST /api/invoices/ingest-self-bill`, but wired from decoded buffers / disk reads.
  */
 

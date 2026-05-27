@@ -243,7 +243,7 @@ export interface RunFeedSyncDeps {
   readonly fetchEnableTransactions?: typeof defaultFetchEnableTransactions;
   /** Override TrueLayer fetching (parallel to Enable). */
   readonly fetchTrueLayerTransactions?: typeof defaultFetchTrueLayerTransactions;
-  /** Override the shared ingest saga (tests can isolate from the real `statements/`). */
+    /** Override the shared ingest workflow (tests can isolate from the real `statements/`). */
   readonly ingestCsvFile?: typeof defaultIngestCsvFile;
   /** Override the DB rebuild (tests skip the heavy reload). */
   readonly initDatabase?: () => Promise<void>;

@@ -9,9 +9,14 @@
  *                                         covering supplier invoice
  *                                         (monthly cadence only).
  *   GET  /api/invoices/draft?contract_id=...
- *                                       — Phase 2 builds a draft via the
- *                                         canonical `buildDraftInvoice`
- *                                         primitive. No persistence.
+ *                                       — Builds a supplier draft via
+ *                                         `composeSupplierInvoiceDraftForContract`
+ *                                         (canonical `buildDraftInvoice` internally).
+ *                                         No persistence.
+ *   POST /api/invoices/monthly/preview — resolve client/contract, compose draft +
+ *                                        fingerprint + occupancy / gap-list / workload flags.
+ *   POST /api/invoices/monthly/commit — commit when preview fingerprint matches
+ *                                        (optional issued notice delivery).
  *   POST /api/invoices/generate         — Phase 2 persists the reviewed
  *                                         draft, renders the PDF, flips
  *                                         the row to `issued`.
@@ -26,7 +31,7 @@
  *                                         company (so historical seed rows still
  *                                         open a PDF).
  *
- * The generate flow is a small saga: create → render → update. If the
+ * The generate flow is a small workflow: create → render → update. If the
  * render step fails, we flip the row back to `draft` so we never leave
  * a row claiming `status = 'issued'` with `pdf_path = null`.
  */
@@ -37,7 +42,14 @@ import { persistIngestedSelfBillFromBuffer } from '../domain/invoices/index.js';
 import { todayIsoLocal } from '../../shared/iso-date.js';
 import { sendJsonRead } from '../http/read/send-json-read.js';
 import { sendJsonMutation } from '../http/mutation/send-json-mutation.js';
-import { mutateInvoiceGenerate, mutateInvoiceReconcile } from '../http/mutation/invoices.js';
+import {
+  mutateInvoiceGenerate,
+  mutateInvoiceReconcile,
+} from '../http/mutation/invoices.js';
+import {
+  mutateMonthlyInvoiceCommit,
+  mutateMonthlyInvoicePreview,
+} from '../http/mutation/monthly-invoice-workflow.js';
 import { mutateInvoicePdfDownload } from '../http/mutation/invoice-pdf-download.js';
 import {
   readInvoiceList,
@@ -57,6 +69,15 @@ router.get('/draft', (req: Request, res: Response) => {
 
 router.get('/supplier-month-gaps', (_req: Request, res: Response) => {
   sendJsonRead(res, readSupplierMonthGaps());
+});
+
+router.post('/monthly/preview', (req: Request, res: Response) => {
+  sendJsonRead(res, mutateMonthlyInvoicePreview(req.body ?? {}));
+});
+
+router.post('/monthly/commit', async (req: Request, res: Response) => {
+  const result = await mutateMonthlyInvoiceCommit(req.body ?? {});
+  sendJsonMutation(res, result);
 });
 
 // ─── POST /generate ─────────────────────────────────────────────────────────

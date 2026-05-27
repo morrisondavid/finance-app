@@ -75,7 +75,7 @@ const upload = multer({
 });
 
 
-// POST /api/upload/:account/:type — multipart uploads; MCP uses `post_upload_statements_base64` with the same disk saga.
+// POST /api/upload/:account/:type — multipart uploads; MCP uses `post_upload_statements_base64` with the same disk workflow.
 router.post('/:account/:type', upload.array('files', 50), async (req: Request, res: Response) => {
   const account = getParam(req.params, 'account');
   const type = getParam(req.params, 'type');

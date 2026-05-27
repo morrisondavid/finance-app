@@ -6,6 +6,7 @@
 import type { Contract, SupplierMonthGap } from '../../../shared/api-contracts.js';
 import { monthRange, shiftIsoDate } from '../../../shared/iso-date.js';
 import type { Invoice } from './schema.js';
+import { isoPeriodRangesOverlap } from './period-range-overlap.js';
 
 function maxIso(a: string, b: string): string {
   return a >= b ? a : b;
@@ -13,15 +14,6 @@ function maxIso(a: string, b: string): string {
 
 function minIso(a: string, b: string): string {
   return a <= b ? a : b;
-}
-
-function periodsOverlap(
-  aStart: string,
-  aEnd: string,
-  bStart: string,
-  bEnd: string,
-): boolean {
-  return !(aEnd < bStart || aStart > bEnd);
 }
 
 /** First day of the month after `firstOfMonthIso` (YYYY-MM-01). */
@@ -75,7 +67,7 @@ export function listSupplierMonthlyInvoiceGaps(
           inv =>
             inv.contract_id === contract.id
             && inv.status !== 'draft'
-            && periodsOverlap(
+            && isoPeriodRangesOverlap(
               inv.period_start,
               inv.period_end,
               mStart,

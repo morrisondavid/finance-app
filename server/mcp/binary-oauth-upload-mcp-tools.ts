@@ -76,7 +76,7 @@ export function registerBankStatementsBinaryOAuthUploadTools(server: McpServer):
       description:
         'POST /api/upload/:account/:type parity via JSON **base64** file payloads (not multipart). Caps: `' +
         String(MCP_STATEMENT_UPLOAD_MAX_FILES) +
-        '` files max, **`6MiB` decoded per file**; rejects oversize totals. Writes the same disk + ingest saga as the browser uploader.',
+        '` files max, **`6MiB` decoded per file**; rejects oversize totals. Writes the same disk + ingest workflow as the browser uploader.',
       inputSchema: StatementUploadBase64McpSchema.shape,
     },
     async raw => httpMutationToMcpToolResult(await mutateStatementsUploadBase64(raw ?? {})),

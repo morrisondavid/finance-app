@@ -1,0 +1,175 @@
+---
+name: MCP — External actions
+overview: Unified integration epic — outbound email, packaging to accountant, approvals, audit. First vertical slice detailed below — monthly consultant invoice workflow (domain guards, preview/commit, MCP + UI parity, outbound outbox); later slices summarised here only.
+todos:
+  - id: f5e6f7a8-b9c0-4123-d456-789abcdef012
+    content: Epic — transactional email + packaging + human approval + audit (see body; slice 1 = monthly invoice)
+    status: pending
+  - id: overlap-helper
+    content: "Slice1: period overlap helper + refactor supplier-month-gaps + existingInvoicesOccupyingContractBillingMonth"
+    status: pending
+  - id: generate-guards
+    content: "Slice1: Preconditions before createInvoice in mutateInvoiceGenerate (occupancy; gap-list strict + optional escape)"
+    status: pending
+  - id: preview-checks
+    content: "Slice1: Draft vs calculateWorkload mismatch in preview workflow"
+    status: pending
+  - id: workflow-mcp-ui
+    content: "Slice1: monthly-invoice-workflow module + MCP preview_monthly_invoice / commit_monthly_invoice + mirrored HTTP routes + public invoices UI parity"
+    status: pending
+  - id: outbound-outbox
+    content: "Slice1: DeliveryAdapter (e.g. Resend) + outbox idempotency + hardcoded To in one module early on"
+    status: pending
+  - id: tests-slice1
+    content: "Slice1: unit + MCP/route contract tests + tsc + test:run"
+    status: pending
+isProject: false
+---
+
+# External actions (integrations) — consolidated plan
+
+## Why one document
+
+Older notes split **MCP parity milestones** (HTTP mirrors) from **integration product work** into separate plan files; the detailed **monthly invoice + email** specification lived in `.cursor/plans/monthly-supplier-invoice-outcome-mcp.plan.md`. That caused confusion about whether they were different projects.
+
+They are **not** separate strands of work forever: **Outbound email/MCP tooling for invoicing is the first delivery under this epic.** This file is now the **single source of truth**; the retired filename is reduced to a one-line redirect (below).
+
+---
+
+## Depends on
+
+- MCP↔HTTP baseline through uploads/OAuth/binary ([mcp-parity-uploads-oauth-binary.plan.md](mcp-parity-uploads-oauth-binary.plan.md)).
+
+---
+
+## Epic scope (what “external actions” ultimately includes)
+
+| Track | Contents |
+|-------|-----------|
+| **Slice 1 (spec below)** | Monthly **consultant-issued** invoice (**`supplier-issued` + `invoice_cadence: monthly`** in data): domain occupancy + gap guards, preview/commit workflow and fingerprint, Resend (**or**) adapter hook, persisted outbox, outcome MCP tools (**`preview_monthly_invoice`** / **`commit_monthly_invoice`**) and **matching HTTP endpoints** consumed by **`public/src/modules/invoices.ts`**. Natural inputs: **`client_name`** resolution server-side (`legal_name` / `trading_name`), **`billing_month` optional with default policy (e.g. previous complete calendar month)**. UI must not reimplement occupancy rules once preview returns **`occupancy`/`flags`** from the brain. |
+| **Later slices** | Accountant artefact bundles (VAT / CT / SA) with manifests + validation; broader approval UX; structured audit trail; parity tools that stay outcome-named where assistants should not compose raw HTTP chains. |
+
+The epic **does not** map 1:1 to existing REST; it **extends** Hermes/UI after parity.
+
+---
+
+## Application-wide architecture: server = brain; UI + MCP = two faces
+
+| Layer | Role |
+|-------|------|
+| **Brain** | **`server/domain/*`** + **`server/http/read/*`** + **`server/http/mutation/*`**. Persistence here. |
+| **UI** | **`public/`** → **`/api/...`** only for behaviour that mutates rules. |
+| **MCP** | **`server/mcp/*`** calls the same modules or **thin workflow** wrappers—not a fork of domain logic. |
+
+**Current gap:** **[`public/src/modules/invoices.ts`](../../public/src/modules/invoices.ts)** duplicates **`periodsOverlap`** and under-warns (only **`status !== 'draft'`**). Slice 1 replaces that with server-driven **`preview`** fields so UI and MCP share one contract.
+
+---
+
+## Slice 1 — Goals
+
+- **No double issue for same billing month:** before **`createInvoice`**, reject when **any** invoice for **`contract_id`** **occupies** the calendar month (**draft or issued**) — same interval overlap rule as **`listSupplierMonthlyInvoiceGaps`** ([`supplier-month-gaps.ts`](../../server/domain/invoices/supplier-month-gaps.ts)).
+- **Gap alignment (default strict):** commit requires **`(contract_id, month)`** in **`listSupplierMonthlyInvoiceGaps`** unless a narrow **`allowOutsideGapList`** escape exists. Gaps only enumerate **complete past months before current month** (“invoice prior month on 1st”).
+- Use **workflow** naming in new modules; **`assert*`** naming reserved for tests; **`supplier-issued`** only where it matches [`Contract invoice_mechanism`](../../shared/api-contracts.ts) — not user-facing MCP copy.
+
+**Overlap (plain language):** invoice **`period_start`…`period_end`** and calendar month **share ≥1 day** → that month is **occupied**.
+
+**Suggested helper:** **`existingInvoicesOccupyingContractBillingMonth(contractId, billingMonthYYYYMMDDorYYYYMM, invoices)`**; callers pass **`YYYY-MM`**; normalise **`monthRange`** internally.
+
+---
+
+## Slice 1 — Architecture diagram
+
+Rename modules/tools in implementation to match shortened MCP names (**`MonthlyInvoiceWorkflow`**, **`preview_monthly_invoice`**, **`commit_monthly_invoice`**).
+
+```mermaid
+sequenceDiagram
+  participant UiOrMCP as UiOrMCP
+  participant Tools as McpToolsOrRest
+  participant Workflow as MonthlyInvoiceWorkflow
+  participant ReadDraft as readInvoiceDraftFromQuery
+  participant Mutate as mutateInvoiceGenerate
+  participant Outbound as DeliveryAdapter
+
+  UiOrMCP->>Tools: preview_monthly_invoice or POST_/api/invoices/monthly/preview
+  Tools->>Workflow: preview
+  Workflow->>ReadDraft: same inputs as GET draft
+  Workflow-->>Tools: summary flags previewFingerprint
+  UiOrMCP->>Tools: commit_monthly_invoice or POST_/api/invoices/monthly/commit
+  Tools->>Workflow: occupancy gap fingerprint
+  Workflow->>Mutate: generate with guards
+  Mutate-->>Workflow: issued invoice
+  Workflow->>Outbound: sendOnce idempotent
+  Workflow-->>Tools: outcome envelope
+```
+
+---
+
+## Slice 1 — Work breakdown
+
+### 1) Shared helpers
+
+- [`server/domain/invoices/period-range-overlap.ts`](../../server/domain/invoices/period-range-overlap.ts) — **`isoPeriodRangesOverlap`**; refactor [`supplier-month-gaps.ts`](../../server/domain/invoices/supplier-month-gaps.ts) to import it.
+- **`existingInvoicesOccupyingContractBillingMonth`** (see Goals).
+
+### 2) `mutateInvoiceGenerate` guards
+
+- Before **`createInvoice`**: **`invoice_mechanism === supplier-issued`**, **`invoice_cadence === monthly`**, **occupancy**, **gap list** (strict + escape).
+
+### 3) Preview quality
+
+- **`days_billed`** vs **`calculateWorkload`** for draft (same idea as [`deriveInvoiceDaysMismatchWarnings`](../../server/domain/warnings/invoice-days-mismatch.ts)).
+- Compose via existing **`buildDraftInvoice`** pathway as **[`readInvoiceDraftFromQuery`](../../server/http/read/invoices.ts)**.
+
+### 4) Workflow module
+
+- Example path: **`server/domain/invoices/monthly-invoice-workflow.ts`** with **`preview…`** / **`commit…`** (signatures **`contractId`, `billingMonth`, `today`, `previewFingerprint` on commit**). Reuse **`mutateInvoiceGenerate`** after gates.
+
+### 5) Outbound + outbox
+
+- **`DeliveryAdapter`**; **single To constant** initially; persisted outbox keyed by **`invoice.id`** or **`contractId+billingMonth`**.
+
+### 6) Surfaces
+
+- **MCP:** [`server/mcp/monthly-invoice-mcp-tools.ts`](../../server/mcp/) registering **`preview_monthly_invoice`**, **`commit_monthly_invoice`**; update [`bank-mcp-server.ts`](../../server/mcp/bank-mcp-server.ts) instructions.
+- **HTTP:** Thin **`POST /api/invoices/monthly/preview`** and **`POST /api/invoices/monthly/commit`** (or equivalent under [`routes/invoices.ts`](../../server/routes/invoices.ts)) calling **identical workflow** exports.
+- **UI:** Extend [`public/src/modules/invoices.ts`](../../public/src/modules/invoices.ts); remove **`updateOverlapWarning`** overlap math once **`preview`** returns occupancy.
+
+### 7) MCP outcome backlog (beyond slice 1)
+
+| Area | Follow-on |
+|------|-----------|
+| **`get_http_invoice_pdf_base64`** ID chain | Carry **`issuedInvoiceId` / attachment** from **`commit`** when useful |
+| **Leave** book vs preview | Optional combined workflow later |
+| **HTTP parity tools** | Keep for regression; instructions steer assistants to outcome tools |
+
+### 8) Tests
+
+**`npx tsc --noEmit`**, **`npm run test:run`**; overlap, occupancy, gap, fingerprint stale, MCP + route contracts.
+
+---
+
+## Implementation order
+
+1. Overlap helper + occupancy + refactor gaps  
+2. Generate guards  
+3. Workflow preview/commit + fingerprint + client/name resolution (`legal_name` / `trading_name`, ambiguous contract handling)  
+4. Outbox + adapter  
+5. MCP + mirrored HTTP + UI  
+6. Delete client duplicate overlap UX after preview payloads exist  
+
+---
+
+## Retired sibling plan file
+
+Implementation detail for slice 1 was previously drafted in **`monthly-supplier-invoice-outcome-mcp.plan.md`**. That file is now **[redirect only](monthly-supplier-invoice-outcome-mcp.plan.md)** — edit **this** document only.
+
+---
+
+## Build (Cursor)
+
+1. Implement slice 1 against **this** consolidated plan  
+2. When slice 1 ships, tick **`overlap-helper` → `tests-slice1`** in frontmatter above and update [mcp-parity-overview.plan.md](mcp-parity-overview.plan.md) **external-actions** row if desired  
+
+**Agent prompt:**
+
+> Extend bank-statements-app per `.cursor/plans/mcp-parity-external-actions.plan.md`: slice 1 monthly invoice workflow, UI+MCP parity, outbound outbox. Follow engineering standards; run **`npx tsc --noEmit`** and **`npm run test:run`**.

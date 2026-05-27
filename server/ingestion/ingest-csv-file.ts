@@ -1,5 +1,5 @@
 /**
- * Shared CSV ingest saga — the **one** path data takes from "valid CSV
+ * Shared CSV ingest workflow — the **one** path data takes from "valid CSV
  * file on disk" to "merged + partitioned files in `statements/{account}/csv/`".
  *
  * Both callers funnel through this:

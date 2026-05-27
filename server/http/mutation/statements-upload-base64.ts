@@ -1,6 +1,6 @@
 /**
  * MCP entry for `POST /api/upload/:account/:type` using **base64 file payloads**.
- * Canonical disk saga lives in `server/ingestion/statement-disk-upload-batch.ts`.
+ * Canonical disk workflow lives in `server/ingestion/statement-disk-upload-batch.ts`.
  */
 
 import fs from 'fs';

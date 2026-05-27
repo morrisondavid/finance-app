@@ -87,6 +87,42 @@ export {
   type ListSupplierMonthlyInvoiceGapsInput,
 } from './supplier-month-gaps.js';
 
+export { isoPeriodRangesOverlap } from './period-range-overlap.js';
+
+export {
+  normaliseBillingMonthStart,
+  existingInvoicesOccupyingContractBillingMonth,
+} from './billing-month-occupancy.js';
+
+export {
+  composeSupplierInvoiceDraftForContract,
+  type ComposeSupplierInvoiceDraftResult,
+} from './compose-supplier-invoice-draft.js';
+
+export {
+  violationForMonthlySupplierInvoiceGenerate,
+  type InvoiceGenerateGuardViolation,
+  type MonthlySupplierGenerateGuardInput,
+} from './invoice-generate-monthly-guards.js';
+
+export { previewFingerprintForMonthlyInvoiceDraft } from './monthly-invoice-fingerprint.js';
+
+export {
+  draftWorkloadConsistencyForInvoice,
+  type DraftWorkloadConsistency,
+} from './monthly-invoice-preview-flags.js';
+
+export {
+  resolveMonthlyInvoiceContract,
+  type MonthlyInvoiceContractCandidate,
+  type ResolveMonthlyInvoiceContractResult,
+} from './monthly-invoice-contract-resolve.js';
+
+export {
+  applySupplierDraftLineEdits,
+  type ApplySupplierDraftLineEditsResult,
+} from './supplier-draft-line-edits.js';
+
 export {
   writeIngestedPdf,
   getIngestedPdfDir,

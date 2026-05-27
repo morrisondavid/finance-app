@@ -4,6 +4,7 @@
 
 import type { InvoicePdfDownloadMutationResult } from '../http/mutation/invoice-pdf-download.js';
 import type { JsonMutationResult } from '../http/mutation/types.js';
+import type { JsonReadResult } from '../http/read/types.js';
 
 export type HttpMutationMcpToolResult = {
   isError?: true;
@@ -63,6 +64,24 @@ export function httpMutationToMcpToolResult(r: JsonMutationResult): HttpMutation
 
   return {
     content: [{ type: 'text' as const, text }],
+    ...(structuredContent !== undefined ? { structuredContent } : {}),
+  };
+}
+
+/** Maps read-style JSON payloads (preview surfaces) onto MCP envelopes. */
+export function httpReadJsonToMcpToolResult(r: JsonReadResult): HttpMutationMcpToolResult {
+  const actualText = JSON.stringify(r.body, null, 2);
+
+  if (!r.ok) {
+    return {
+      isError: true,
+      content: [{ type: 'text' as const, text: actualText }],
+    };
+  }
+
+  const structuredContent = structuredRecordFromJsonBody(r.body);
+  return {
+    content: [{ type: 'text' as const, text: actualText }],
     ...(structuredContent !== undefined ? { structuredContent } : {}),
   };
 }

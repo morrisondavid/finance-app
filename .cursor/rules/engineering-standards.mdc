@@ -9,7 +9,7 @@ alwaysApply: true
 
 - Prefer **one canonical place** for behaviour (pure helpers, domain modules, shared utilities). If you touch a second call site that duplicates logic, **refactor into a shared function** and update callers unless the user explicitly forbids scope creep.
 - **Routes stay thin**: compose domain + persistence; avoid re-implementing parsing, matching, or money/date rules in HTTP handlers.
-- When adding a flow that mirrors an existing one (e.g. two upload paths), **extract a shared primitive** (e.g. one `persistX` used by both routes) instead of copying the saga.
+- When adding a flow that mirrors an existing one (e.g. two upload paths), **extract a shared primitive** (e.g. one `persistX` used by both routes) instead of copying the workflow.
 
 ## Naming and clarity
 
