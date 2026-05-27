@@ -12,7 +12,7 @@ import {
   resetTestData,
   type TestDbHandles,
 } from '../db/test-harness/in-memory-db.js';
-import { DashboardSummaryResponseSchema } from '../../shared/api-contracts.js';
+import { DashboardSummaryResponseSchema, DashboardAccountsSummaryResponseSchema } from '../../shared/api-contracts.js';
 
 const harness: { current: TestDbHandles | null } = { current: null };
 
@@ -79,5 +79,27 @@ describe('GET /api/dashboard/summary', () => {
     expect(res.status).toBe(200);
     const body = DashboardSummaryResponseSchema.parse(await res.json());
     expect(body.financialSafety).toBeUndefined();
+    expect(body.liquidityOverview).toBeDefined();
+    expect(body.liquidityCommitments).toBeDefined();
+    expect(body.fileCount).toBeDefined();
+    expect(body.transactionCount).toBeDefined();
+  });
+
+  it('scope=accounts returns slim envelope without liquidity or unused counts', async () => {
+    const res = await fetch(
+      `${baseUrl}/api/dashboard/summary?scope=accounts&account=barclays-current`,
+    );
+    expect(res.status).toBe(200);
+    const json: unknown = await res.json();
+    const body = DashboardAccountsSummaryResponseSchema.parse(json);
+    expect(body.totals).toBeDefined();
+    expect(body.monthly).toBeDefined();
+    expect(body.byAccount).toBeDefined();
+    expect(body.transferCount).toBeDefined();
+    expect(json).not.toHaveProperty('liquidityOverview');
+    expect(json).not.toHaveProperty('liquidityCommitments');
+    expect(json).not.toHaveProperty('fileCount');
+    expect(json).not.toHaveProperty('transactionCount');
+    expect(json).not.toHaveProperty('balances');
   });
 });

@@ -19,6 +19,7 @@ import type {
   AccountSummary as AccountSummaryContract,
   AccountBalance as AccountBalanceContract,
   TaxLiabilities as TaxLiabilitiesContract,
+  DashboardAccountsSummaryResponse,
   DashboardSummaryResponse,
   TransactionsResponse as TransactionsResponseContract,
   VATPaymentsResponse as VATPaymentsResponseContract,
@@ -42,7 +43,9 @@ export type MonthlySummary = MonthlySummaryContract;
 export type AccountSummary = AccountSummaryContract;
 export type AccountBalance = AccountBalanceContract;
 export type TaxLiabilities = TaxLiabilitiesContract;
-export type DashboardSummary = DashboardSummaryResponse;
+export type DashboardAccountsSummary = DashboardAccountsSummaryResponse;
+export type DashboardSummary = DashboardAccountsSummaryResponse;
+export type DashboardSummaryFull = DashboardSummaryResponse;
 export type TransactionsResponse = TransactionsResponseContract;
 export type VATPaymentsResponse = VATPaymentsResponseContract;
 export type StatementsResponse = StatementsResponseContract;

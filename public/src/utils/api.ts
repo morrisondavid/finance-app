@@ -5,7 +5,9 @@
 import {
   validateResponse,
   AiFinancialSafetyResponseSchema,
+  AiLiquidityResponseSchema,
   DashboardSummaryResponseSchema,
+  DashboardAccountsSummaryResponseSchema,
   AccountConfigsResponseSchema,
   TransactionsResponseSchema,
   AccountBalanceResponseSchema,
@@ -38,7 +40,9 @@ import {
   type FeedSyncBody,
   type FeedSyncResponse,
   type AiFinancialSafetyResponse,
+  type AiLiquidityResponse,
   type DashboardSummaryResponse,
+  type DashboardAccountsSummaryResponse,
   type AccountConfigsResponse,
   type TransactionsResponse,
   type AccountBalanceResponse,
@@ -198,18 +202,50 @@ export async function fetchAccountConfig(): Promise<AccountConfigsResponse> {
  * account-specific and tax rollups derive from the tax-applicable
  * accounts on their own.
  */
-export async function fetchDashboard(params?: {
+export async function fetchDashboard(params: {
+  scope: 'accounts';
   financialYear?: string;
   account?: string;
   signal?: AbortSignal;
-}): Promise<DashboardSummaryResponse> {
+}): Promise<DashboardAccountsSummaryResponse>;
+export async function fetchDashboard(params?: {
+  scope?: 'full';
+  financialYear?: string;
+  account?: string;
+  signal?: AbortSignal;
+}): Promise<DashboardSummaryResponse>;
+export async function fetchDashboard(params?: {
+  scope?: 'full' | 'accounts';
+  financialYear?: string;
+  account?: string;
+  signal?: AbortSignal;
+}): Promise<DashboardSummaryResponse | DashboardAccountsSummaryResponse> {
+  const query = new URLSearchParams();
+  if (params?.financialYear) query.set('financialYear', params.financialYear);
+  if (params?.account) query.set('account', params.account);
+  if (params?.scope === 'accounts') query.set('scope', 'accounts');
+
+  const url = `/api/dashboard/summary?${query}`;
+  const response = await fetch(url, { signal: params?.signal });
+  if (params?.scope === 'accounts') {
+    return validateResponse(response, DashboardAccountsSummaryResponseSchema);
+  }
+  return validateResponse(response, DashboardSummaryResponseSchema);
+}
+
+/** Household liquidity slice — GET /api/ai/liquidity (Liquidity tab). */
+export async function fetchLiquidity(params?: {
+  financialYear?: string;
+  account?: string;
+  signal?: AbortSignal;
+}): Promise<AiLiquidityResponse> {
   const query = new URLSearchParams();
   if (params?.financialYear) query.set('financialYear', params.financialYear);
   if (params?.account) query.set('account', params.account);
 
-  const url = `/api/dashboard/summary?${query}`;
+  const url = `/api/ai/liquidity?${query}`;
   const response = await fetch(url, { signal: params?.signal });
-  return validateResponse(response, DashboardSummaryResponseSchema);
+  return validateResponse(response, AiLiquidityResponseSchema);
 }
 
 /**

@@ -12,6 +12,8 @@ import { buildLiquidityCommitments } from '../../domain/accounts/liquidity-commi
 import { todayIsoLocal } from '../../../shared/iso-date.js';
 import {
   DashboardSummaryResponseSchema,
+  DashboardAccountsSummaryResponseSchema,
+  DashboardSummaryHttpQuerySchema,
   DashboardTransactionsQuerySchema,
   FeedToolbarStateSchema,
 } from '../../../shared/api-contracts.js';
@@ -50,7 +52,12 @@ export function readDashboardSummaryFromQuery(
   query: Record<string, string | undefined>,
 ): JsonReadResult {
   try {
-    const { financialYear, account } = query;
+    const parsedQuery = DashboardSummaryHttpQuerySchema.safeParse(query);
+    if (!parsedQuery.success) {
+      return jsonReadFail(400, { error: 'invalid-params', issues: parsedQuery.error.issues });
+    }
+
+    const { financialYear, account, scope = 'full' } = parsedQuery.data;
     const selectedAccount = validateAccount(account);
     const financialYears = getAvailableFinancialYears();
     const selectedFY = financialYear || (financialYears.length > 0 ? financialYears[0] : undefined);
@@ -86,6 +93,28 @@ export function readDashboardSummaryFromQuery(
       });
     }
 
+    const sharedCore = {
+      totals: getDashboardTotals(filters),
+      monthly: getMonthlySummary(filters),
+      byAccount: getAccountSummary({ financialYear: selectedFY }),
+      currentAccountBalance: accountBalanceForApi(
+        selectedAccount,
+        getAccountBalance(selectedAccount),
+      ),
+      taxLiabilities: getTaxLiabilities(filters),
+      transferCount: getTransferCount(filters),
+      financialYears,
+      selectedFinancialYear: selectedFY ?? null,
+      selectedAccount,
+      budgetComparisons,
+      yearlyBudgetComparisons,
+      budgetNudges,
+    };
+
+    if (scope === 'accounts') {
+      return jsonReadOk(DashboardAccountsSummaryResponseSchema.parse(sharedCore));
+    }
+
     const allBalances = getAllAccountBalances();
     const liquidityOverview = buildLiquidityOverview(allBalances);
     const liquidityCommitments = buildLiquidityCommitments({
@@ -94,26 +123,12 @@ export function readDashboardSummaryFromQuery(
     });
 
     const summaryUnchecked = {
-      totals: getDashboardTotals(filters),
-      monthly: getMonthlySummary(filters),
-      byAccount: getAccountSummary({ financialYear: selectedFY }),
+      ...sharedCore,
       balances: allAccountBalancesForApi(allBalances),
-      currentAccountBalance: accountBalanceForApi(
-        selectedAccount,
-        getAccountBalance(selectedAccount),
-      ),
       liquidityOverview,
       liquidityCommitments,
-      taxLiabilities: getTaxLiabilities(filters),
       transactionCount: getTransactionCount(filters),
-      transferCount: getTransferCount(filters),
       fileCount: getFileCount(),
-      financialYears,
-      selectedFinancialYear: selectedFY ?? null,
-      selectedAccount,
-      budgetComparisons,
-      yearlyBudgetComparisons,
-      budgetNudges,
     };
 
     return jsonReadOk(DashboardSummaryResponseSchema.parse(summaryUnchecked));

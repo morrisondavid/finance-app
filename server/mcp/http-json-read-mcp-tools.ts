@@ -5,7 +5,7 @@
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { ContractIdSchema, DashboardTransactionsRawQuerySchema } from '../../shared/api-contracts.js';
+import { ContractIdSchema, DashboardSummaryHttpQuerySchema, DashboardTransactionsRawQuerySchema } from '../../shared/api-contracts.js';
 import type { JsonReadResult } from '../http/read/types.js';
 import { readInvoiceDraftFromQuery, InvoiceDraftQuerySchema, readInvoiceList, readSupplierMonthGaps } from '../http/read/invoices.js';
 import {
@@ -106,11 +106,6 @@ export function httpJsonReadToMcpToolResult(r: JsonReadResult): HttpJsonReadMcpT
 
 const ContractIdOnlySchema = z.object({
   contractId: ContractIdSchema,
-});
-
-const DashboardSummaryHttpQuerySchema = z.object({
-  financialYear: z.string().optional(),
-  account: z.string().optional(),
 });
 
 const DashboardBalancePathSchema = z.object({

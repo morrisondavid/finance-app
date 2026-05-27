@@ -408,6 +408,33 @@ export const AiFinancialSafetyResponseSchema = z.object({
 });
 export type AiFinancialSafetyResponse = z.infer<typeof AiFinancialSafetyResponseSchema>;
 
+/** GET /api/dashboard/summary — `scope=accounts` skips liquidity/all-balances/unused counts. */
+export const DashboardSummaryScopeSchema = z.enum(['full', 'accounts']).default('full');
+export type DashboardSummaryScope = z.infer<typeof DashboardSummaryScopeSchema>;
+
+export const DashboardSummaryHttpQuerySchema = z.object({
+  financialYear: z.string().optional(),
+  account: z.string().optional(),
+  scope: DashboardSummaryScopeSchema.optional(),
+});
+
+/** Accounts-tab subset of GET /api/dashboard/summary (`scope=accounts`). */
+export const DashboardAccountsSummaryResponseSchema = z.object({
+  totals: DashboardTotalsSchema,
+  monthly: z.array(MonthlySummarySchema),
+  byAccount: z.record(z.string(), AccountSummarySchema),
+  currentAccountBalance: AccountBalanceSchema.optional(),
+  taxLiabilities: TaxLiabilitiesSchema,
+  transferCount: z.number(),
+  financialYears: z.array(z.string()),
+  selectedFinancialYear: z.string().nullable(),
+  selectedAccount: AccountNameSchema.optional(),
+  budgetComparisons: z.array(BudgetComparisonSchema).default([]),
+  yearlyBudgetComparisons: z.array(YearlyBudgetComparisonSchema).default([]),
+  budgetNudges: z.array(BudgetNudgeSchema).default([]),
+});
+export type DashboardAccountsSummaryResponse = z.infer<typeof DashboardAccountsSummaryResponseSchema>;
+
 // GET /api/dashboard/summary
 export const DashboardSummaryResponseSchema = z.object({
   totals: DashboardTotalsSchema,

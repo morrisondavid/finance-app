@@ -1,11 +1,11 @@
 /**
- * Dashboard tab — household liquidity hero from GET /api/dashboard/summary (liquidityOverview).
+ * Dashboard tab — household liquidity hero from GET /api/ai/liquidity.
  * Financial safety score loads lazily via GET /api/ai/financial-safety.
  */
 
-import type { DashboardSummaryResponse } from '../../../shared/api-contracts.js';
+import type { AiFinancialSafetyResponse, AiLiquidityResponse } from '../../../shared/api-contracts.js';
 import { renderFinancialSafetyHero } from './financial-safety-hero.js';
-import { fetchDashboard, fetchFinancialSafety } from '../utils/api';
+import { fetchLiquidity, fetchFinancialSafety } from '../utils/api';
 import { formatCurrency } from '../utils/formatting';
 import { escapeHtml } from '../utils/dom';
 import { state } from './state';
@@ -24,7 +24,7 @@ function renderFinancialSafetyLazyStripLoading(): string {
 }
 
 function renderFinancialSafetyLazyStripDone(
-  fs: DashboardSummaryResponse['financialSafety'],
+  fs: AiFinancialSafetyResponse,
 ): string {
   const inner = renderFinancialSafetyHero(fs);
   if (inner === '') {
@@ -43,7 +43,7 @@ function rootEl(): HTMLElement | null {
   return document.getElementById('liquidity-dashboard-root');
 }
 
-function renderLineRow(line: DashboardSummaryResponse['liquidityOverview']['lines'][number]): string {
+function renderLineRow(line: AiLiquidityResponse['liquidityOverview']['lines'][number]): string {
   const native = formatCurrency(line.amountNative, line.currency);
   const gbpEq = formatCurrency(line.amountGbp, 'GBP');
   const isCredit = line.kind === 'credit';
@@ -64,7 +64,7 @@ function renderLineRow(line: DashboardSummaryResponse['liquidityOverview']['line
 }
 
 type LiquidityCommitmentLine = NonNullable<
-  DashboardSummaryResponse['liquidityCommitments']
+  AiLiquidityResponse['liquidityCommitments']
 >['lines'][number];
 
 function renderCommitmentRow(line: LiquidityCommitmentLine): string {
@@ -97,7 +97,7 @@ function renderCommitmentList(lines: readonly LiquidityCommitmentLine[]): string
   return `<ul class="liquidity-dashboard__list liquidity-dashboard__list--breakdown liquidity-dashboard__list--commitments">${lines.map(renderCommitmentRow).join('')}</ul>`;
 }
 
-function renderCommitmentSections(lines: NonNullable<DashboardSummaryResponse['liquidityCommitments']>['lines']): string {
+function renderCommitmentSections(lines: NonNullable<AiLiquidityResponse['liquidityCommitments']>['lines']): string {
   if (lines.length === 0) {
     return '<p class="liquidity-dashboard__breakdown-empty">No commitment lines in this 12-month window.</p>';
   }
@@ -171,7 +171,7 @@ function renderHeroMetrics(
   totalCashGbp: number,
   totalCreditGbp: number,
   totalAvailableGbp: number,
-  commitments: DashboardSummaryResponse['liquidityCommitments'],
+  commitments: AiLiquidityResponse['liquidityCommitments'],
 ): string {
   const cashStr = formatCurrency(totalCashGbp, 'GBP');
   const creditStr = formatCurrency(totalCreditGbp, 'GBP');
@@ -221,7 +221,7 @@ function renderHeroMetrics(
     `;
 }
 
-function renderCommitmentsDetail(commitments: NonNullable<DashboardSummaryResponse['liquidityCommitments']>): string {
+function renderCommitmentsDetail(commitments: NonNullable<AiLiquidityResponse['liquidityCommitments']>): string {
   const th = formatCurrency(commitments.significantThresholdGbp, 'GBP');
   return `
     <div class="liquidity-dashboard__commitments-panel">
@@ -237,8 +237,8 @@ function renderCommitmentsDetail(commitments: NonNullable<DashboardSummaryRespon
 }
 
 function renderCard(
-  overview: DashboardSummaryResponse['liquidityOverview'],
-  commitments: DashboardSummaryResponse['liquidityCommitments'],
+  overview: AiLiquidityResponse['liquidityOverview'],
+  commitments: AiLiquidityResponse['liquidityCommitments'],
   financialSafetyStripHtml: string,
 ): string {
   const { totalCashGbp, totalCreditGbp, totalAvailableGbp, lines } = overview;
@@ -300,7 +300,7 @@ function renderCard(
   `;
 }
 
-/** Load and render liquidity hero + breakdown (same summary API as Accounts tab). */
+/** Load and render liquidity hero + breakdown via GET /api/ai/liquidity. */
 export async function loadLiquidityDashboard(): Promise<void> {
   const el = rootEl();
   if (!el) return;
@@ -313,7 +313,7 @@ export async function loadLiquidityDashboard(): Promise<void> {
   el.innerHTML = renderSkeleton();
 
   try {
-    const data = await fetchDashboard({
+    const data = await fetchLiquidity({
       account: state.selectedAccount,
       financialYear: state.selectedFinancialYear || undefined,
       signal: ac.signal,

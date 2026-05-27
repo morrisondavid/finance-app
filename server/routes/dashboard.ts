@@ -23,6 +23,7 @@ const router = express.Router();
 interface SummaryQuery {
   financialYear?: string;
   account?: string;
+  scope?: string;
 }
 
 router.get('/summary', (req: Request<object, object, object, SummaryQuery>, res: Response) => {
@@ -31,6 +32,7 @@ router.get('/summary', (req: Request<object, object, object, SummaryQuery>, res:
     readDashboardSummaryFromQuery({
       financialYear: typeof req.query.financialYear === 'string' ? req.query.financialYear : undefined,
       account: typeof req.query.account === 'string' ? req.query.account : undefined,
+      scope: typeof req.query.scope === 'string' ? req.query.scope : undefined,
     }),
   );
 });

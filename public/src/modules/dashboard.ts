@@ -30,6 +30,7 @@ import { applyBalancePanelLabelsForAccountType } from './balance-panel-labels';
 export async function loadDashboard(): Promise<void> {
   try {
     const data = await fetchDashboard({
+      scope: 'accounts',
       account: state.selectedAccount,
       financialYear: state.selectedFinancialYear || undefined,
     });
