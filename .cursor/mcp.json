@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "bank-statements": {
+      "command": "npm",
+      "args": ["run", "mcp"],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}
