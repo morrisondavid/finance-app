@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { REPO_ROOT } from '../../../repo-root.js';
 import { ACCOUNTS, type AccountName } from '../../../../shared/api-contracts.js';
 import { getAccountConfig } from '../../../domain/accounts/index.js';
+import { uploadOAuthDurableStateToS3 } from '../oauth-durable-upload.js';
 
 const RowSchema = z.object({
   refresh_token: z.string().min(1),
@@ -50,6 +51,7 @@ export function writeTrueLayerTokensFile(data: TrueLayerTokensFile): void {
   const tmp = `${p}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(validated, null, 2), 'utf-8');
   fs.renameSync(tmp, p);
+  uploadOAuthDurableStateToS3('truelayer-tokens');
 }
 
 export function getTrueLayerRefreshToken(account: AccountName): string | undefined {

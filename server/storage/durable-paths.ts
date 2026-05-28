@@ -30,14 +30,12 @@ export const DURABLE_DATA_CSV_RELATIVE_PATHS = [
 ] as const;
 
 /**
- * Basenames under `data/` that must never be read from or written to S3.
- * (`enable-sessions.json` — Enable OAuth; `truelayer-tokens.local.json`
- * — TrueLayer refresh tokens. Both stay writer-local.)
- * SQLite artefacts are rebuilt from CSVs — never authoritative in the bucket.
+ * Basenames under `data/` excluded from S3 sync (SQLite artefacts only —
+ * rebuilt from CSVs, never authoritative in the bucket).
+ * OAuth token files are uploaded via {@link ../ingestion/feeds/oauth-durable-upload.ts}
+ * on write and pulled by `09-docker-run-production.sh`.
  */
 export const DATA_SYNC_EXCLUDED_BASENAMES = new Set<string>([
-  'enable-sessions.json',
-  'truelayer-tokens.local.json',
   'transactions.db',
   'transactions.db-wal',
   'transactions.db-shm',

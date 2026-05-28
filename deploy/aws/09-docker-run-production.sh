@@ -61,7 +61,7 @@ DEST_ROOT=/opt/bank-app
 sudo mkdir -p "${DEST_ROOT}"
 sudo chown -R "${USER}:${USER}" "${DEST_ROOT}"
 
-# S3 ↔ local (--delete mirrors remote). Paths must align with ../../server/storage/durable-paths.ts (DURABLE_TOP_LEVEL_DIRS + data/, excluding enable-sessions.json).
+# S3 ↔ local (--delete mirrors remote). Paths must align with ../../server/storage/durable-paths.ts (DURABLE_TOP_LEVEL_DIRS + data/, excluding SQLite artefacts).
 if ! command -v aws >/dev/null 2>&1; then
   echo "[09] aws CLI not found — install awscli v2 before running this deploy (required for durable sync)." >&2
   exit 1
@@ -82,8 +82,6 @@ done
 
 mkdir -p "${DEST_ROOT}/data"
 aws s3 sync "${REMOTE_BASE}/data/" "${DEST_ROOT}/data/" --region "${AWS_REGION}" --delete \
-  --exclude 'enable-sessions.json' \
-  --exclude 'truelayer-tokens.local.json' \
   --exclude 'transactions.db*'
 
 rm -f \

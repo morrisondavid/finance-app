@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -8,6 +8,12 @@ import {
   setTrueLayerRefreshToken,
 } from './truelayer-tokens.js';
 
+const uploadOAuthMock = vi.fn();
+
+vi.mock('../oauth-durable-upload.js', () => ({
+  uploadOAuthDurableStateToS3: (...args: unknown[]) => uploadOAuthMock(...args),
+}));
+
 describe('resolveTrueLayerRefreshToken', () => {
   let tmpDir: string;
   let prevEnv: string | undefined;
@@ -16,6 +22,7 @@ describe('resolveTrueLayerRefreshToken', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-tokens-'));
     prevEnv = process.env.TRUELAYER_TOKENS_PATH;
     process.env.TRUELAYER_TOKENS_PATH = path.join(tmpDir, 'tokens.json');
+    uploadOAuthMock.mockClear();
   });
 
   afterEach(() => {
@@ -46,5 +53,10 @@ describe('resolveTrueLayerRefreshToken', () => {
     setTrueLayerRefreshToken('barclays-current', 'current-rt');
     setTrueLayerRefreshToken('barclays-savings', 'savings-rt');
     expect(resolveTrueLayerRefreshToken('barclays-savings')).toBe('savings-rt');
+  });
+
+  it('uploads OAuth durable state after persisting a refresh token', () => {
+    setTrueLayerRefreshToken('barclays-current', 'persist-me');
+    expect(uploadOAuthMock).toHaveBeenCalledWith('truelayer-tokens');
   });
 });

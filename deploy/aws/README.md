@@ -22,10 +22,9 @@ cp config.example.sh config.sh   # first time only
 - **`data/transactions.db`** (and `-wal`/`-shm`) are **not** sources of truth and **must not** be treated as backup objects in S3. The host **`09`** script **`--exclude`s** `transactions.db*` on **`data/`** sync and **`rm -f`s** any local SQLite files under the bind mount before starting Docker so the container always rebuilds the DB from CSVs. **`12-s3-seed-durable-from-local.sh`** also excludes `transactions.db*` from upload.
 - **One-time bucket hygiene:** if older syncs left **`…/data/transactions.db*`** in the bucket, remove them so nobody restores SQLite by mistake (ops task; not automated).
 - **Pull / run:** [`09-docker-run-production.sh`](09-docker-run-production.sh) prefetch **`docker pull`**s, stops **`bank`** (**`docker rm -f bank`** so SQLite releases files on mounts), runs **`aws s3 sync … --delete`** from S3 **per durable top-level folder** under **`/opt/bank-app`** (same trees as **`DURABLE_TOP_LEVEL_DIRS`** in [`server/storage/durable-paths.ts`](../server/storage/durable-paths.ts) plus **`data/`**), then **`docker pull`** again and **`docker run --pull=always`**. The instance **needs [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)** on PATH; IAM uses the instance profile. **`--delete`** removes files under those subtrees only if they were removed remotely (nothing under **`/opt/bank-app/secrets/`** — not in sync list — is touched by sync).
-- **`data/enable-sessions.json`** is excluded from **`data/`** sync (Enable OAuth blobs stay server-local for a single EC2 writer).
-- **`data/truelayer-tokens.local.json`** is excluded from **`data/`** sync (TrueLayer refresh tokens — same “server-local OAuth material” semantics as Enable).
+- **OAuth token durability:** **`data/truelayer-tokens.local.json`**, **`data/enable-sessions.json`**, and **`data/truelayer-account-links.csv`** are **uploaded to S3** on connect / token rotation via [`oauth-durable-upload.ts`](../server/ingestion/feeds/oauth-durable-upload.ts) when **`BANK_S3_DURABLE_BUCKET`** is set, and **restored on deploy** by **`09`** (`aws s3 sync` on **`data/`**). **`12-s3-seed-durable-from-local.sh`** still **excludes** OAuth JSON from laptop → S3 so empty local files never overwrite production tokens.
 - **Portable financial CSVs are not portable live OAuth session state:** if you run multiple app instances (Lambda/Fargate, `desiredCount > 1`), you need a **single shared, strongly consistent store** for refresh tokens (S3 conditional writes, DynamoDB, etc.) — see **Multi-instance Enable Banking** below.
-- **Push:** when **`BANK_S3_DURABLE_BUCKET`** is set, the Node process **uploads only the repo paths touched** by a mutation (CSV ingest, feed sync, opening-balance updates, warning user-state CSV, etc.), plus **`data/manifest.json`** after a full rebuild, via `@aws-sdk` PutObject. There is **no** periodic or shutdown bulk push. Omit the bucket env on your laptop → no pushes during dev.
+- **Push:** when **`BANK_S3_DURABLE_BUCKET`** is set, the Node process **uploads only the repo paths touched** by a mutation (CSV ingest, feed sync, opening-balance updates, warning user-state CSV, OAuth connect, etc.), plus **`data/manifest.json`** after a full rebuild, via `@aws-sdk` PutObject. There is **no** periodic or shutdown bulk push. Omit the bucket env on your laptop → no pushes during dev.
 
 **Container init:** **`09`** sets **`BANK_STATEMENTS_SKIP_INIT_WHEN_MANIFEST_UNCHANGED=0`** so production always runs a **full SQLite rebuild** after sync (deterministic from files), regardless of manifest digest shortcuts that are useful on dev machines.
 
@@ -40,6 +39,20 @@ At-rest encryption uses **S3 default encryption** (SSE-S3). Optional **`BANK_S3_
 3. **`npm run build`** / Docker with the same env as production; **`initDatabase`** performs a **full rebuild** from CSVs.
 
 **SQLite-only UX today:** **`warning_snapshots`** (computed warning history) is still **DB-only** — it resets after a full rebuild. **`warning_user_state`** (snooze/ack) is mirrored to **`data/warning-user-state.csv`** and is loaded early in **`initDatabase`** so S3 sync restores operator intent.
+
+### OAuth token durability (first deploy after upgrade)
+
+1. Ship the build that uploads OAuth files on connect (this repo).
+2. **Before** the first **`09`** on a host that already has tokens on disk but not yet in S3, either **re-connect banks once** on production, or manually copy existing files to the bucket:
+   ```bash
+   source config.sh
+   PREFIX="${BANK_S3_DURABLE_PREFIX:-bank-state/prod}"
+   aws s3 cp /opt/bank-app/data/truelayer-tokens.local.json \
+     "s3://${BUCKET_DATA}/${PREFIX}/data/truelayer-tokens.local.json" --region "${AWS_REGION}"
+   aws s3 cp /opt/bank-app/data/enable-sessions.json \
+     "s3://${BUCKET_DATA}/${PREFIX}/data/enable-sessions.json" --region "${AWS_REGION}"
+   ```
+3. Subsequent **`09`** runs restore tokens from S3 — no re-OAuth needed after redeploy.
 
 ### One-time seed from your laptop
 
@@ -183,7 +196,7 @@ Discover **Barclays Business**: open the dump and locate the Barclays **business
 1. **`TRUELAYER_CLIENT_ID`** + **`TRUELAYER_CLIENT_SECRET`** on the container (see repo **`.env.example`**); **`TRUELAYER_AUTH_BASE`** / **`TRUELAYER_API_BASE`** default to TrueLayer production hosts when unset.
 2. Redirect allowlist: **`https://<your-domain>/api/feed/truelayer/callback`** must match **`TRUELAYER_REDIRECT_URL`** exactly (**`09-docker-run-production.sh`** passes this through from **`config.sh`** / **`production-env.local.sh`**).
 3. Console scopes (**`info`**, **`accounts`**, **`balance`**, **`transactions`**, **`offline_access`**).
-4. **`POST /api/feed/truelayer/start`** → open **`url`** → callback persists **`data/truelayer-tokens.local.json`** (gitignored — excluded from **`aws s3 sync`** on **`09`**/`12`, same idea as **`enable-sessions.json`**). Multi-account: **`data/truelayer-account-links.csv`**.
+4. **`POST /api/feed/truelayer/start`** → open **`url`** → callback persists **`data/truelayer-tokens.local.json`** and uploads to S3 (plus **`data/truelayer-account-links.csv`** when a single TL account is returned). Multi-account: map rows in **`truelayer-account-links.csv`** manually.
 
 Automated **`POST /api/feed/sync`** prefers TrueLayer when **`aispFeed.trueLayer.dataAccountId`** is set **and** a TL refresh token exists; otherwise Enable.
 
