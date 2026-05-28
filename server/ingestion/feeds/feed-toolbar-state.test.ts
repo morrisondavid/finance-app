@@ -40,10 +40,21 @@ describe('deriveFeedToolbarState', () => {
     });
   });
 
-  it('natwest (no aispFeed in static registry) → hidden', () => {
-    const state = deriveFeedToolbarState('natwest', mockDeps({}));
+  it('natwest (aispFeed configured, not linked) → connect truelayer', () => {
+    const state = deriveFeedToolbarState(
+      'natwest',
+      mockDeps({
+        requireLinkedFeedFn: () => {
+          throw new FeedSyncError('not-linked', 'x');
+        },
+      }),
+    );
     assertParses(state);
-    expect(state).toEqual({ kind: 'hidden', account: 'natwest', reason: 'no-aisp-feed' });
+    expect(state).toEqual({
+      kind: 'connect',
+      account: 'natwest',
+      connectProvider: 'truelayer',
+    });
   });
 
   it('linked → sync with activeProvider from requireLinkedFeed', () => {
@@ -70,18 +81,17 @@ describe('deriveFeedToolbarState', () => {
   });
 
   it('not-linked with only Enable stub → connect enable', () => {
-    const base = ACCOUNT_CONFIG_DATA['santander-everyday'];
+    const base = ACCOUNT_CONFIG_DATA['natwest'];
     const mockCfg: AccountConfig = {
       ...base,
       aispFeed: {
         enableBanking: {
-          institutionHint: { institutionName: 'Mock ASPSP', country: 'ES' },
-          feedCurrency: 'EUR',
+          institutionHint: { institutionName: 'NatWest', country: 'GB' },
         },
       },
     };
     const state = deriveFeedToolbarState(
-      'santander-everyday',
+      'natwest',
       mockDeps({
         getAccountConfig: () => mockCfg,
         parsers: PARSERS,
@@ -93,8 +103,25 @@ describe('deriveFeedToolbarState', () => {
     assertParses(state);
     expect(state).toEqual({
       kind: 'connect',
-      account: 'santander-everyday',
+      account: 'natwest',
       connectProvider: 'enable',
+    });
+  });
+
+  it('santander-everyday (TrueLayer configured) → connect truelayer when not linked', () => {
+    const state = deriveFeedToolbarState(
+      'santander-everyday',
+      mockDeps({
+        requireLinkedFeedFn: () => {
+          throw new FeedSyncError('not-linked', 'x');
+        },
+      }),
+    );
+    assertParses(state);
+    expect(state).toEqual({
+      kind: 'connect',
+      account: 'santander-everyday',
+      connectProvider: 'truelayer',
     });
   });
 

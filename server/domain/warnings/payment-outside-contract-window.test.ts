@@ -27,9 +27,8 @@ function tx(overrides: Partial<Transaction>): Transaction {
   };
 }
 
-// Real seed data: `lf-2026-apr` is la-fosse on autonize-it-fzco, ending
-// 2026-04-30; `dc-sow-2026` is delta-capita on autonize-it-ltd, starting
-// 2026-03-02 ending 2027-03-01.
+// Real seed data: `lf-2026-may` is la-fosse on autonize-it-fzco from 2026-05-01
+// (open-ended); `dc-sow-jun-2026` is delta-capita on autonize-it-ltd through 2026-06-30.
 const WISE_FZCO = 'wise-fzco';
 const BARCLAYS = 'barclays-current';
 
@@ -43,21 +42,26 @@ describe('collectPaymentOutsideContractWindow', () => {
   it('emits a warning for a known payer depositing after the contract ended', () => {
     const warnings = collectPaymentOutsideContractWindow({
       transactions: [
-        tx({ date: '2026-05-12', description: 'LA FOSSE WIRE' }),
+        tx({
+          date: '2026-07-15',
+          description: 'DELTA CAPITA BACS',
+          account: BARCLAYS,
+          amount: 13200,
+        }),
       ],
       accountEntityId: entityIdFor,
     });
     expect(warnings).toHaveLength(1);
     expect(warnings[0].code).toBe('payment-outside-contract-window');
-    expect(warnings[0].detail).toContain('La Fosse');
-    expect(warnings[0].detail).toContain('lf-2026-apr');
+    expect(warnings[0].detail).toContain('Delta Capita');
+    expect(warnings[0].detail).toContain('dc-sow-jun-2026');
   });
 
   it('emits nothing for an in-window deposit', () => {
     const warnings = collectPaymentOutsideContractWindow({
       transactions: [
         tx({
-          date: '2026-04-15',
+          date: '2026-06-15',
           description: 'DELTA CAPITA BACS',
           account: BARCLAYS,
           amount: 13200,
@@ -87,7 +91,12 @@ describe('collectPaymentOutsideContractWindow', () => {
   });
 
   it('dedupes identical outside-window deposits', () => {
-    const row = tx({ date: '2026-05-12', description: 'LA FOSSE WIRE' });
+    const row = tx({
+      date: '2026-07-15',
+      description: 'DELTA CAPITA BACS',
+      account: BARCLAYS,
+      amount: 13200,
+    });
     const warnings = collectPaymentOutsideContractWindow({
       transactions: [row, row, row],
       accountEntityId: entityIdFor,

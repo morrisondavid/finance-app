@@ -26,11 +26,11 @@ import type { FetchTrueLayerTransactionsRequest } from './truelayer/truelayer-tr
 const mockDeps = vi.hoisted(() => ({
   getAccountConfigMock: vi.fn(),
   /** Default: no TL token — selects Enable when EB account id is set. */
-  getTrueLayerRefreshTokenMock: vi.fn(() => undefined as string | undefined),
+  resolveTrueLayerRefreshTokenMock: vi.fn(() => undefined as string | undefined),
 }));
 
 const getAccountConfigMock = mockDeps.getAccountConfigMock;
-const getTrueLayerRefreshTokenMock = mockDeps.getTrueLayerRefreshTokenMock;
+const resolveTrueLayerRefreshTokenMock = mockDeps.resolveTrueLayerRefreshTokenMock;
 
 vi.mock('../../domain/accounts/index.js', async () => {
   const actual = await vi.importActual<typeof import('../../domain/accounts/index.js')>(
@@ -48,8 +48,10 @@ vi.mock('./truelayer/truelayer-tokens.js', async () => {
   );
   return {
     ...actual,
-    getTrueLayerRefreshToken: (_name: AccountName): string | undefined =>
-      getTrueLayerRefreshTokenMock(),
+    getTrueLayerRefreshToken: actual.getTrueLayerRefreshToken,
+    resolveTrueLayerRefreshToken: (_name: AccountName): string | undefined =>
+      resolveTrueLayerRefreshTokenMock(),
+    resolveTrueLayerRefreshTokenSource: actual.resolveTrueLayerRefreshTokenSource,
   };
 });
 
@@ -76,8 +78,8 @@ function linked(name: AccountName, accountId: string) {
 beforeEach(() => {
   getAccountConfigMock.mockReset();
   getAccountConfigMock.mockImplementation(passthrough);
-  getTrueLayerRefreshTokenMock.mockReset();
-  getTrueLayerRefreshTokenMock.mockImplementation(() => undefined);
+  resolveTrueLayerRefreshTokenMock.mockReset();
+  resolveTrueLayerRefreshTokenMock.mockImplementation(() => undefined);
 });
 
 describe('resolveWindow', () => {
@@ -430,7 +432,7 @@ describe('runFeedSync', () => {
           }
         : passthrough(name),
     );
-    getTrueLayerRefreshTokenMock.mockReturnValue('stored-refresh');
+    resolveTrueLayerRefreshTokenMock.mockReturnValue('stored-refresh');
 
     const ebFetch = vi.fn();
     const tlFetch = vi.fn(async (_req: FetchTrueLayerTransactionsRequest): Promise<InternalFeedTransactions> => {
@@ -514,7 +516,7 @@ describe('runFeedSync', () => {
           }
         : passthrough(name),
     );
-    getTrueLayerRefreshTokenMock.mockReturnValue('rt');
+    resolveTrueLayerRefreshTokenMock.mockReturnValue('rt');
 
     const tlFetch = vi.fn(async (): Promise<InternalFeedTransactions> => {
       const payload: InternalFeedTransactions = {

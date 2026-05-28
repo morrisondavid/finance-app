@@ -1,2 +1,6 @@
 account,truelayer_account_id
-barclays-current,paste_tl_data_account_uuid_here
+barclays-current,paste_tl_data_account_uuid_for_current
+barclays-savings,paste_tl_data_account_uuid_for_savings
+natwest,paste_tl_data_account_uuid_here
+natwest-savings,paste_tl_savings_uuid_if_separate
+monzo-joint,paste_tl_data_account_uuid_here

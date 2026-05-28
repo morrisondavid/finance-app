@@ -55,7 +55,7 @@ afterEach(() => {
 describe('ingestSelfBill', () => {
   it('returns no-contract-match when the placement ref does not match any contract', async () => {
     const text = await readFixtureText('la-fosse-SB-277615.pdf');
-    const result = ingestSelfBill({ rawText: text, today: '2026-04-24' });
+    const result = ingestSelfBill({ rawText: text, today: '2026-06-15' });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.code).toBe('no-contract-match');
@@ -74,13 +74,13 @@ describe('ingestSelfBill', () => {
       'Placement Ref: LAF-TEG-002',
     );
 
-    const result = ingestSelfBill({ rawText: text, today: '2026-04-24' });
+    const result = ingestSelfBill({ rawText: text, today: '2026-06-15' });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
     const inv = result.invoice;
     expect(inv.client_id).toBe('la-fosse');
-    expect(inv.contract_id).toBe('lf-2026-apr');
+    expect(inv.contract_id).toBe('lf-2026-may');
     expect(inv.issuing_entity_id).toBe('autonize-it-fzco');
     expect(inv.mechanism).toBe('self-bill');
     expect(inv.payment_reference).toBe('SB-277615');
@@ -104,7 +104,7 @@ describe('ingestSelfBill', () => {
       'Placement Ref: LAF-TEG-002',
     );
 
-    const first = ingestSelfBill({ rawText: text, today: '2026-04-24' });
+    const first = ingestSelfBill({ rawText: text, today: '2026-06-15' });
     expect(first.ok).toBe(true);
     if (!first.ok) return;
 
@@ -112,7 +112,7 @@ describe('ingestSelfBill', () => {
     // the optional `existingInvoices` override.
     const second = ingestSelfBill({
       rawText: text,
-      today: '2026-04-24',
+      today: '2026-06-15',
       existingInvoices: [first.invoice],
     });
     expect(second.ok).toBe(false);
@@ -126,7 +126,7 @@ describe('ingestSelfBill', () => {
   it('returns no-parser-match for unrelated text', () => {
     const result = ingestSelfBill({
       rawText: 'Hello, this is an unrelated invoice text.',
-      today: '2026-04-24',
+      today: '2026-06-15',
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -140,7 +140,7 @@ describe('ingestSelfBill', () => {
       'La Fosse Associates Ltd\n' +
       'SELF BILLING INVOICE\n' +
       '...nothing else useful here...';
-    const result = ingestSelfBill({ rawText: text, today: '2026-04-24' });
+    const result = ingestSelfBill({ rawText: text, today: '2026-06-15' });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.code).toBe('parse-failed');

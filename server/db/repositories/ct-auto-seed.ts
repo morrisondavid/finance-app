@@ -236,7 +236,7 @@ export function deriveAndInsertAutoCtObligations(referenceDate: Date = new Date(
       id,
       type: 'corporation-tax',
       name: `Corporation Tax — FY ${slot.fyLabel}`,
-      entity: 'HMRC',
+      entity: 'autonize-it-ltd',
       frequency: 'annual',
       expectedAmount: amounts.expectedAmount,
       naiveAmount: amounts.naiveAmount,

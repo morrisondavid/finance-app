@@ -59,6 +59,11 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
     canMakeOutgoingPayments: false,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
+    aispFeed: {
+      trueLayer: {
+        providerId: 'ob-barclays',
+      },
+    },
   },
   'capital-on-tap': {
     name: 'capital-on-tap',
@@ -76,6 +81,7 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
     quarterOverlapMonths: 1,
+    /** Capital on Tap is not on TrueLayer AIS — use CSV upload (`capital-on-tap` parser). */
   },
   'barclaycard': {
     name: 'barclaycard',
@@ -92,6 +98,11 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
+    aispFeed: {
+      trueLayer: {
+        providerId: 'ob-barclaycard',
+      },
+    },
   },
   /**
    * Wise (formerly TransferWise) GBP business balance held by Autonize
@@ -118,6 +129,11 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: true,
     showTaxLiabilities: false,
+    aispFeed: {
+      trueLayer: {
+        providerId: 'ob-transferwise',
+      },
+    },
   },
   'natwest': {
     name: 'natwest',
@@ -129,6 +145,14 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
+    aispFeed: {
+      enableBanking: {
+        institutionHint: { institutionName: 'NatWest', country: 'GB' },
+      },
+      trueLayer: {
+        providerId: 'ob-natwest',
+      },
+    },
   },
   'natwest-savings': {
     name: 'natwest-savings',
@@ -140,6 +164,11 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
     canMakeOutgoingPayments: false,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
+    aispFeed: {
+      trueLayer: {
+        providerId: 'ob-natwest',
+      },
+    },
   },
   'monzo-joint': {
     name: 'monzo-joint',
@@ -151,6 +180,11 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
+    aispFeed: {
+      trueLayer: {
+        providerId: 'ob-monzo',
+      },
+    },
   },
   'emirates-islamic': {
     name: 'emirates-islamic',
@@ -181,6 +215,7 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
+    /** Emirates Islamic / UAE banks are not on TrueLayer AIS — use CSV upload. */
   },
   'santander-everyday': {
     name: 'santander-everyday',
@@ -192,19 +227,9 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
     canMakeOutgoingPayments: true,
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
-    /**
-     * Enable Banking (ES Mock ASPSP / other EUR sandboxes): set
-     * `accountId` to the matching `accounts[].uid` after
-     * `npm run enable-banking -- session --code '…' --merge`.
-     * `feedCurrency: 'EUR'` avoids invalid-response when the feed is EUR
-     * but the book account currency stays GBP. For live UK Santander,
-     * omit `feedCurrency` or set it to `GBP`.
-     */
     aispFeed: {
-      enableBanking: {
-        accountId: 'de8bcc9b-9a3b-4a8c-a65c-b73f5f33301a',
-        institutionHint: { institutionName: 'Mock ASPSP', country: 'ES' },
-        feedCurrency: 'EUR',
+      trueLayer: {
+        providerId: 'ob-santander-personal',
       },
     },
   },

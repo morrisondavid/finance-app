@@ -11,8 +11,8 @@
  *
  * The test redirects the leave domain at a temp `working-days/` folder
  * so we never touch the committed CSV; the contracts / clients /
- * company registries still read the real seed data (dc-sow-2026 +
- * lf-2026-mar) because those are configuration rather than test state.
+ * company registries still read the real seed data (dc-sow-jun-2026 +
+ * lf-2026-may) because those are configuration rather than test state.
  */
 
 import {
@@ -104,14 +104,11 @@ async function stopServer(): Promise<void> {
  * Pinned test clock — every handler calls `todayIsoLocal()` without
  * an injection point, so the test pins the real system clock to a
  * known date inside both active seed-contract windows. Monday
- * 6 Apr 2026 sits inside `dc-sow-2026` (2026-01-01 → 2026-04-30)
- * and inside `lf-2026-apr` (2026-03-02 → 2026-04-30); `lf-2026-mar`
- * (ended 2026-03-01) is inactive on the pinned date, which is why
- * the two-entity aggregate assertions expect one contract per entity.
- * The accrual reporting window is always the calendar month, so any
- * date inside April works equally well here.
+ * 15 Jun 2026 sits inside `dc-sow-jun-2026` (2026-05-01 → 2026-06-30)
+ * and inside `lf-2026-may` (from 2026-05-01, open-ended).
+ * The accrual reporting window is always the calendar month.
  */
-const PINNED_TODAY = '2026-04-06';
+const PINNED_TODAY = '2026-06-15';
 
 describe('/api/contracts routes', () => {
   beforeAll(async () => {
@@ -148,9 +145,9 @@ describe('/api/contracts routes', () => {
       const body = await response.json();
       expect(Array.isArray(body.contracts)).toBe(true);
       const ids = body.contracts.map((c: { id: string }) => c.id);
-      expect(ids).toContain('dc-sow-2026');
+      expect(ids).toContain('dc-sow-jun-2026');
       expect(ids).toContain('lf-2026-mar');
-      expect(ids).toContain('lf-2026-apr');
+      expect(ids).toContain('lf-2026-may');
     });
 
     it('exposes both la-fosse contracts with the correct issuing entities', async () => {
@@ -166,16 +163,16 @@ describe('/api/contracts routes', () => {
         ]),
       );
       expect(byId.get('lf-2026-mar')).toBe('autonize-it-ltd');
-      expect(byId.get('lf-2026-apr')).toBe('autonize-it-fzco');
+      expect(byId.get('lf-2026-may')).toBe('autonize-it-fzco');
     });
   });
 
   describe('GET /api/contracts/:id', () => {
     it('returns the contract for a known id', async () => {
-      const response = await fetch(`${baseUrl}/api/contracts/dc-sow-2026`);
+      const response = await fetch(`${baseUrl}/api/contracts/dc-sow-jun-2026`);
       expect(response.status).toBe(200);
       const body = await response.json();
-      expect(body.contract.id).toBe('dc-sow-2026');
+      expect(body.contract.id).toBe('dc-sow-jun-2026');
     });
 
     it('404s on unknown id', async () => {
@@ -203,7 +200,7 @@ describe('/api/contracts routes', () => {
       expect(byEntity.has('autonize-it-ltd')).toBe(true);
       expect(byEntity.has('autonize-it-fzco')).toBe(true);
       // UK Ltd holds only the DC SOW on the pinned date (lf-2026-mar is inactive);
-      // FZCO holds lf-2026-apr.
+      // FZCO holds lf-2026-may.
       expect(
         (byEntity.get('autonize-it-ltd') as { contract_count: number } | undefined)
           ?.contract_count,
@@ -333,12 +330,12 @@ describe('/api/contracts routes', () => {
   describe('GET /api/contracts/:id/income-accrual', () => {
     it('returns a well-formed per-contract payload', async () => {
       const response = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/income-accrual`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/income-accrual`,
       );
       expect(response.status).toBe(200);
       const body = await response.json();
-      expect(body.contract_id).toBe('dc-sow-2026');
-      expect(body.day_rate).toBe(550);
+      expect(body.contract_id).toBe('dc-sow-jun-2026');
+      expect(body.day_rate).toBe(555);
       expect(typeof body.projected_period_total).toBe('number');
     });
 
@@ -353,7 +350,7 @@ describe('/api/contracts routes', () => {
   describe('GET /api/contracts/:id/leave', () => {
     it('returns an empty list when no leave is booked', async () => {
       const response = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/leave`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/leave`,
       );
       expect(response.status).toBe(200);
       const body = await response.json();
@@ -364,12 +361,12 @@ describe('/api/contracts routes', () => {
   describe('POST /api/contracts/:id/leave', () => {
     it('creates leave rows for valid future dates', async () => {
       const response = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/leave`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/leave`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            dates: ['2026-04-20', '2026-04-21'],
+            dates: ['2026-06-16', '2026-06-17'],
             type: 'holiday',
           }),
         },
@@ -382,7 +379,7 @@ describe('/api/contracts routes', () => {
 
     it('400s on body missing required fields', async () => {
       const response = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/leave`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/leave`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -394,7 +391,7 @@ describe('/api/contracts routes', () => {
 
     it('422 LeaveOutsideContractWindow when a date is outside the window', async () => {
       const response = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/leave`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/leave`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -413,14 +410,14 @@ describe('/api/contracts routes', () => {
 
   describe('DELETE /api/contracts/:id/leave/:leaveId', () => {
     it('deletes a future-dated row', async () => {
-      await fetch(`${baseUrl}/api/contracts/dc-sow-2026/leave`, {
+      await fetch(`${baseUrl}/api/contracts/dc-sow-jun-2026/leave`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dates: ['2026-04-27'], type: 'holiday' }),
+        body: JSON.stringify({ dates: ['2026-06-20'], type: 'holiday' }),
       });
 
       const response = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/leave/dc-sow-2026-2026-04-27`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/leave/dc-sow-jun-2026-2026-06-20`,
         { method: 'DELETE' },
       );
       expect(response.status).toBe(200);
@@ -428,7 +425,7 @@ describe('/api/contracts routes', () => {
 
     it('404s when the leave id does not exist', async () => {
       const response = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/leave/ghost-2026-01-01`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/leave/ghost-2026-01-01`,
         { method: 'DELETE' },
       );
       expect(response.status).toBe(404);
@@ -437,8 +434,8 @@ describe('/api/contracts routes', () => {
     it('422 PastLeaveReadOnly when the date is in the past', async () => {
       // Build a past-dated row directly in the temp CSV.
       const pastRow = [
-        'dc-sow-2026-2020-01-06',
-        'dc-sow-2026',
+        'dc-sow-jun-2026-2020-01-06',
+        'dc-sow-jun-2026',
         '2020-01-06',
         'holiday',
         '',
@@ -454,7 +451,7 @@ describe('/api/contracts routes', () => {
       invalidateLeaveRegistry();
 
       const response = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/leave/dc-sow-2026-2020-01-06`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/leave/dc-sow-jun-2026-2020-01-06`,
         { method: 'DELETE' },
       );
       expect(response.status).toBe(422);
@@ -466,12 +463,12 @@ describe('/api/contracts routes', () => {
   describe('POST /api/contracts/:id/leave-preview', () => {
     it('renders the leave template for a direct client', async () => {
       const response = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/leave-preview`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/leave-preview`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            dates: ['2026-05-04', '2026-05-05'],
+            dates: ['2026-06-16', '2026-06-17'],
             type: 'holiday',
           }),
         },
@@ -486,12 +483,12 @@ describe('/api/contracts routes', () => {
 
     it('routes sick leave through the sickness template', async () => {
       const response = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/leave-preview`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/leave-preview`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            dates: ['2026-05-04'],
+            dates: ['2026-06-16'],
             type: 'sick',
           }),
         },
@@ -505,12 +502,12 @@ describe('/api/contracts routes', () => {
   describe('GET /api/contracts/:id/document', () => {
     it('404s with a helpful message when no PDF is committed', async () => {
       const response = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/document`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/document`,
       );
       expect(response.status).toBe(404);
       const body = await response.json();
       expect(body.error).toBe('ContractDocumentNotFound');
-      expect(body.detail).toContain('clients/contracts/dc-sow-2026.pdf');
+      expect(body.detail).toContain('clients/contracts/dc-sow-jun-2026.pdf');
     });
 
     it('404s on unknown contract id', async () => {
@@ -524,7 +521,7 @@ describe('/api/contracts routes', () => {
   describe('POST /api/contracts/:id/renew', () => {
     it('returns 501 with a clear "not yet wired up" message for a valid body', async () => {
       const response = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/renew`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/renew`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -538,14 +535,14 @@ describe('/api/contracts routes', () => {
       expect(response.status).toBe(501);
       const body = await response.json();
       expect(body.error).toBe('RenewFlowNotImplemented');
-      expect(body.received.contract_id).toBe('dc-sow-2026');
+      expect(body.received.contract_id).toBe('dc-sow-jun-2026');
       expect(body.received.start_date).toBe('2027-03-02');
       expect(body.received.day_rate).toBe(575);
     });
 
     it('400s on a malformed body', async () => {
       const response = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/renew`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/renew`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -573,37 +570,27 @@ describe('/api/contracts routes', () => {
 
   describe('GET /api/contracts/:id/income-accrual — since-last-payment semantics', () => {
     it('rebases worked/accrued onto the day AFTER the matched invoice payment', async () => {
-      // PINNED_TODAY = 2026-04-06 (Mon). Last payment = 2026-03-31 (Tue).
-      // Owed window = [2026-04-01, 2026-04-06] = Wed 1, Thu 2,
-      // Fri 3 (Good Friday — excluded), Mon 6 (Easter Monday — excluded)
-      // = 2 working days at £550 = £1,100. Projection window = full
-      // April: 22 weekdays minus 2 UK bank holidays = 20 × £550.
-      lastPaymentOverrides.set('dc-sow-2026', '2026-03-31');
+      lastPaymentOverrides.set('dc-sow-jun-2026', '2026-06-03');
       const response = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/income-accrual`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/income-accrual`,
       );
       expect(response.status).toBe(200);
       const body = await response.json();
-      expect(body.owed_window_start).toBe('2026-04-01');
-      expect(body.owed_window_end).toBe('2026-04-06');
-      expect(body.worked_days_to_date).toBe(2);
-      expect(body.accrued_to_date).toBe(2 * 550);
-      expect(body.projected_period_total).toBe(20 * 550);
+      expect(body.owed_window_start).toBe('2026-06-04');
+      expect(body.owed_window_end).toBe('2026-06-15');
+      expect(body.worked_days_to_date).toBe(8);
+      expect(body.accrued_to_date).toBe(8 * 555);
+      expect(body.projected_period_total).toBe(22 * 555);
     });
 
     it('falls back to month-start when no payment is matched (FZCO-shaped)', async () => {
-      // No override seeded → mock returns null → resolveAccrualWindowStart
-      // falls back to month-start. lf-2026-apr starts 2026-03-02 and
-      // PINNED_TODAY = 2026-04-06, so owed window = [2026-04-01, 2026-04-06].
       const response = await fetch(
-        `${baseUrl}/api/contracts/lf-2026-apr/income-accrual`,
+        `${baseUrl}/api/contracts/lf-2026-may/income-accrual`,
       );
       expect(response.status).toBe(200);
       const body = await response.json();
-      expect(body.owed_window_start).toBe('2026-04-01');
-      expect(body.owed_window_end).toBe('2026-04-06');
-      // period_start (projection) should coincide with owed_window_start
-      // when no payment is matched, because both resolve to month-start.
+      expect(body.owed_window_start).toBe('2026-06-01');
+      expect(body.owed_window_end).toBe('2026-06-15');
       expect(body.period_start).toBe(body.owed_window_start);
     });
   });
@@ -627,7 +614,7 @@ describe('/api/contracts routes', () => {
       // Now seed a matched payment for DC only. Accrued should drop,
       // but projection (and therefore every Retained/VAT/CT figure) must
       // stay identical — those read off projection, not owed.
-      lastPaymentOverrides.set('dc-sow-2026', '2026-04-03');
+      lastPaymentOverrides.set('dc-sow-jun-2026', '2026-06-03');
       const after = await (
         await fetch(`${baseUrl}/api/contracts/income-accrual`)
       ).json() as typeof before;
@@ -647,7 +634,7 @@ describe('/api/contracts routes', () => {
     });
 
     it('per-contract accrued reflects the seeded matched payment on DC only', async () => {
-      lastPaymentOverrides.set('dc-sow-2026', '2026-04-03');
+      lastPaymentOverrides.set('dc-sow-jun-2026', '2026-06-03');
       const body = await (
         await fetch(`${baseUrl}/api/contracts/income-accrual`)
       ).json() as {
@@ -658,41 +645,37 @@ describe('/api/contracts routes', () => {
           day_rate: number;
         }>;
       };
-      const dc = body.contracts.find(c => c.contract_id === 'dc-sow-2026');
-      const fzco = body.contracts.find(c => c.contract_id === 'lf-2026-apr');
+      const dc = body.contracts.find(c => c.contract_id === 'dc-sow-jun-2026');
+      const fzco = body.contracts.find(c => c.contract_id === 'lf-2026-may');
       expect(dc).toBeDefined();
       expect(fzco).toBeDefined();
       if (dc === undefined || fzco === undefined) throw new Error('contract missing');
-      // DC owed window starts the day after 2026-04-03, i.e. 2026-04-04.
-      expect(dc.owed_window_start).toBe('2026-04-04');
-      // 2026-04-04 = Sat, 2026-04-05 = Sun, 2026-04-06 = Mon (Easter Monday,
-      // UK public holiday — excluded) → 0 working days.
-      expect(dc.accrued_to_date).toBe(0);
-      // FZCO has no override → month-start fallback, unchanged.
-      expect(fzco.owed_window_start).toBe('2026-04-01');
+      expect(dc.owed_window_start).toBe('2026-06-04');
+      // 2026-06-04 Thu through 2026-06-15 Mon → 8 working days × £555
+      expect(dc.accrued_to_date).toBe(8 * 555);
+      expect(fzco.owed_window_start).toBe('2026-06-01');
     });
   });
 
   /**
    * End-to-end flow test — the regression lock for the cross-module
    * contract between contracts / leave / income-accrual. `today` is
-   * pinned at `PINNED_TODAY` (Mon 6 Apr 2026), so the billing period
-   * for dc-sow-2026 (monthly cadence) is 2026-04-01..2026-04-30 and
+   * pinned at `PINNED_TODAY` (Mon 15 Jun 2026), so the billing period
+   * for dc-sow-jun-2026 (monthly cadence) is 2026-06-01..2026-06-30 and
    * the three booked days fall inside it.
    */
   describe('cross-module flow: accrual <-> leave writes', () => {
     it('drops projected_period_total by exactly 3 × day_rate after a 3-day booking', async () => {
       const baselineRes = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/income-accrual`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/income-accrual`,
       );
       const baseline = await baselineRes.json();
       const dayRate = baseline.day_rate;
-      expect(dayRate).toBe(550);
+      expect(dayRate).toBe(555);
 
-      // Three future Mon-Wed inside the April 2026 billing window.
-      const dates = ['2026-04-13', '2026-04-14', '2026-04-15'];
+      const dates = ['2026-06-16', '2026-06-17', '2026-06-18'];
       const bookRes = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/leave`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/leave`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -702,7 +685,7 @@ describe('/api/contracts routes', () => {
       expect(bookRes.status).toBe(201);
 
       const afterRes = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/income-accrual`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/income-accrual`,
       );
       const after = await afterRes.json();
       expect(baseline.projected_period_total - after.projected_period_total).toBe(
@@ -710,20 +693,20 @@ describe('/api/contracts routes', () => {
       );
 
       const listRes = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/leave`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/leave`,
       );
       const list = await listRes.json();
       expect(list.leave).toHaveLength(3);
 
       const firstId = list.leave[0].id as string;
       const delRes = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/leave/${firstId}`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/leave/${firstId}`,
         { method: 'DELETE' },
       );
       expect(delRes.status).toBe(200);
 
       const restoredRes = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-2026/income-accrual`,
+        `${baseUrl}/api/contracts/dc-sow-jun-2026/income-accrual`,
       );
       const restored = await restoredRes.json();
       expect(

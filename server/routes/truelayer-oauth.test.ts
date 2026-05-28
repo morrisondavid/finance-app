@@ -8,6 +8,8 @@ import express from 'express';
 import type { AddressInfo } from 'net';
 import type { Server } from 'http';
 import type { TrueLayerFeedStartResponse } from '../../shared/api-contracts.js';
+import * as accountsIndex from '../domain/accounts/index.js';
+import { ACCOUNT_CONFIG_DATA } from '../domain/accounts/data.js';
 
 const hoisted = vi.hoisted(() => ({
   exchangeTrueLayerAuthorizationCode: vi.fn(),
@@ -135,11 +137,20 @@ describe('POST /api/feed/truelayer/start', () => {
   });
 
   it('400 when account has no TrueLayer slice in registry', async () => {
+    const spy = vi.spyOn(accountsIndex, 'getAccountConfig').mockReturnValueOnce({
+      ...ACCOUNT_CONFIG_DATA.natwest,
+      aispFeed: {
+        enableBanking: {
+          institutionHint: { institutionName: 'NatWest', country: 'GB' },
+        },
+      },
+    });
     const res = await fetch(`${baseUrl}/api/feed/truelayer/start`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ account: 'santander-everyday' }),
+      body: JSON.stringify({ account: 'natwest' }),
     });
+    spy.mockRestore();
     expect(res.status).toBe(400);
     const j = (await res.json()) as { error?: string };
     expect(j.error).toMatch(/trueLayer/i);

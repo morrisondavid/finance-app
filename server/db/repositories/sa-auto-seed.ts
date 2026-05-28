@@ -252,7 +252,7 @@ export function deriveAndInsertAutoSaObligations(): void {
       id: payload.id,
       type: 'self-assessment',
       name: payload.name,
-      entity: 'HMRC',
+      entity: 'autonize-it-ltd',
       frequency: 'annual',
       expectedAmount: payload.expectedAmount,
       dueDate: slot.dueDate,

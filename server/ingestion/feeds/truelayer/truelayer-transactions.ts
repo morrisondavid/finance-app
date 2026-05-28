@@ -11,7 +11,11 @@ import {
   type FetchLike,
 } from './truelayer-auth-http.js';
 import { TrueLayerError } from './truelayer-error.js';
-import { getTrueLayerRefreshToken, setTrueLayerRefreshToken } from './truelayer-tokens.js';
+import {
+  resolveTrueLayerRefreshTokenSource,
+  setTrueLayerRefreshToken,
+  type TrueLayerRefreshTokenSource,
+} from './truelayer-tokens.js';
 
 /** Matches TrueLayer paging cap pattern used for Enable Banking. */
 const MAX_PAGES = 20;
@@ -53,7 +57,9 @@ export interface FetchTrueLayerTransactionsDeps {
   readonly fetch?: FetchLike;
   readonly apiBase?: string;
   readonly authBase?: string;
-  readonly getRefreshToken?: (account: AccountName) => string | undefined;
+  readonly getRefreshTokenSource?: (
+    account: AccountName,
+  ) => import('./truelayer-tokens.js').TrueLayerRefreshTokenSource | undefined;
   readonly persistRefreshToken?: (account: AccountName, refreshToken: string) => void;
 }
 
@@ -155,24 +161,27 @@ export async function fetchTrueLayerTransactions(
     throw new TrueLayerError('http-error', 'No fetch implementation available');
   }
 
-  const getRt = deps.getRefreshToken ?? getTrueLayerRefreshToken;
+  const getRtSource =
+    deps.getRefreshTokenSource ??
+    ((account: AccountName): TrueLayerRefreshTokenSource | undefined =>
+      resolveTrueLayerRefreshTokenSource(account));
   const persistRt = deps.persistRefreshToken ?? setTrueLayerRefreshToken;
 
-  const initialRt = getRt(req.account);
-  if (initialRt === undefined || initialRt.trim() === '') {
+  const tokenSource = getRtSource(req.account);
+  if (tokenSource === undefined) {
     throw new TrueLayerError(
       'not-linked',
       'TrueLayer refresh token missing — run POST /api/feed/truelayer/start and complete OAuth',
     );
   }
 
-  let refreshTokenInput = initialRt.trim();
+  let refreshTokenInput = tokenSource.refreshToken;
   const refreshed = await refreshTrueLayerAccessToken(refreshTokenInput, {
     fetch: fetchImpl,
     authBase: deps.authBase,
   });
   if (refreshed.refreshToken !== refreshTokenInput) {
-    persistRt(req.account, refreshed.refreshToken);
+    persistRt(tokenSource.tokenAccount, refreshed.refreshToken);
   }
   const accessToken = refreshed.accessToken;
 

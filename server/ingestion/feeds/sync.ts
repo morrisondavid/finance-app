@@ -45,7 +45,7 @@ import {
 } from '../ingest-csv-file.js';
 import { fetchEnableTransactions as defaultFetchEnableTransactions } from './enable-banking.js';
 import { fetchTrueLayerTransactions as defaultFetchTrueLayerTransactions } from './truelayer/truelayer-transactions.js';
-import { getTrueLayerRefreshToken } from './truelayer/truelayer-tokens.js';
+import { resolveTrueLayerRefreshToken } from './truelayer/truelayer-tokens.js';
 import type { InternalFeedTransactions } from './model.js';
 import { uploadDurableRelPathsToS3 } from '../../storage/s3-durable-sync.js';
 
@@ -105,7 +105,7 @@ export function requireLinkedFeed(account: AccountName): LinkedFeed {
   const dataAccountIdRaw = config.aispFeed?.trueLayer?.dataAccountId;
   const dataAccountId = dataAccountIdRaw?.trim() ?? '';
 
-  const refreshTokenRow = getTrueLayerRefreshToken(account);
+  const refreshTokenRow = resolveTrueLayerRefreshToken(account);
   const hasTlRefresh = refreshTokenRow !== undefined && refreshTokenRow.trim() !== '';
 
   const ebReady = enableAccountId !== '';

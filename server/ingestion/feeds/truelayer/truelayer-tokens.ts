@@ -9,7 +9,8 @@ import fs from 'fs';
 import path from 'path';
 import { z } from 'zod';
 import { REPO_ROOT } from '../../../repo-root.js';
-import type { AccountName } from '../../../../shared/api-contracts.js';
+import { ACCOUNTS, type AccountName } from '../../../../shared/api-contracts.js';
+import { getAccountConfig } from '../../../domain/accounts/index.js';
 
 const RowSchema = z.object({
   refresh_token: z.string().min(1),
@@ -54,6 +55,57 @@ export function writeTrueLayerTokensFile(data: TrueLayerTokensFile): void {
 export function getTrueLayerRefreshToken(account: AccountName): string | undefined {
   const row = readTrueLayerTokensFile().accounts[account];
   return row?.refresh_token;
+}
+
+export interface TrueLayerRefreshTokenSource {
+  readonly refreshToken: string;
+  /** Ledger account whose token file row should be updated on rotation. */
+  readonly tokenAccount: AccountName;
+}
+
+function nonEmptyRefreshToken(account: AccountName): TrueLayerRefreshTokenSource | undefined {
+  const token = getTrueLayerRefreshToken(account)?.trim();
+  if (token === undefined || token === '') return undefined;
+  return { refreshToken: token, tokenAccount: account };
+}
+
+/**
+ * Refresh token for `account`, falling back to a sibling ledger account that
+ * shares the same `aispFeed.trueLayer.providerId` (e.g. barclays-savings
+ * reuses barclays-current after one Barclays OAuth).
+ */
+export function resolveTrueLayerRefreshTokenSource(
+  account: AccountName,
+): TrueLayerRefreshTokenSource | undefined {
+  const own = nonEmptyRefreshToken(account);
+  if (own !== undefined) return own;
+
+  let providerId: string | undefined;
+  try {
+    providerId = getAccountConfig(account).aispFeed?.trueLayer?.providerId?.trim();
+  } catch {
+    return undefined;
+  }
+  if (providerId === undefined || providerId === '') return undefined;
+
+  for (const sibling of ACCOUNTS) {
+    if (sibling === account) continue;
+    try {
+      const sibCfg = getAccountConfig(sibling);
+      const sibPid = sibCfg.aispFeed?.trueLayer?.providerId?.trim();
+      if (sibPid !== providerId) continue;
+      const sib = nonEmptyRefreshToken(sibling);
+      if (sib !== undefined) return sib;
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
+/** Token string only — see {@link resolveTrueLayerRefreshTokenSource} for rotation target. */
+export function resolveTrueLayerRefreshToken(account: AccountName): string | undefined {
+  return resolveTrueLayerRefreshTokenSource(account)?.refreshToken;
 }
 
 export function setTrueLayerRefreshToken(account: AccountName, refreshToken: string): void {

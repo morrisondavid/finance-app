@@ -137,6 +137,17 @@ describe('tax-reserve-trajectory-missing', () => {
 });
 
 describe('missing reserve → no warning (config gap, not violation)', () => {
+  it('skips legacy auto-seeded rows with entity HMRC (not an EntityId)', () => {
+    const out = deriveTaxReserveWarnings({
+      today,
+      reserves: [makeReserve()],
+      obligations: [makeObligation({ entity: 'HMRC', expectedAmount: 10000 })],
+      balanceByAccount: balances({ 'barclays-savings': 0 }),
+      monthlyContributionByAccount: contributions({}),
+    });
+    expect(out).toHaveLength(0);
+  });
+
   it('emits nothing when no reserve is configured for the obligation type/entity', () => {
     const out = deriveTaxReserveWarnings({
       today,

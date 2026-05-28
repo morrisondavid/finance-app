@@ -224,7 +224,7 @@ export function deriveAndInsertAutoObligations(): void {
       id,
       type: 'vat',
       name: `VAT ${q.label}`,
-      entity: 'HMRC',
+      entity: 'autonize-it-ltd',
       frequency: 'quarterly',
       expectedAmount: expectedForRow,
       naiveAmount: amounts?.naiveAmount ?? null,

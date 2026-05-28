@@ -101,7 +101,7 @@ describe('POST /api/feed/enable/start', () => {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        account: 'santander-everyday',
+        account: 'natwest',
       }),
     });
 
@@ -111,8 +111,8 @@ describe('POST /api/feed/enable/start', () => {
     expect(body.state).toBe('csrf-nonce');
     expect(hoisted.fetchEnableAuthRedirectUrl).toHaveBeenCalledWith(
       expect.objectContaining({
-        country: 'ES',
-        aspspName: 'Mock ASPSP',
+        country: 'GB',
+        aspspName: 'NatWest',
         psuType: 'personal',
         state: 'csrf-nonce',
         redirectUrl: 'http://127.0.0.1:3000/api/feed/enable/callback',
@@ -151,7 +151,7 @@ describe('POST /api/feed/enable/start', () => {
     const res = await fetch(`${baseUrl}/api/feed/enable/start`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ account: 'santander-everyday', country: 'ES', aspspName: 'X' }),
+      body: JSON.stringify({ account: 'natwest', country: 'GB', aspspName: 'X' }),
     });
     expect(res.status).toBe(503);
     process.env.ENABLE_BANKING_REDIRECT_URL = 'http://127.0.0.1:3000/api/feed/enable/callback';
@@ -160,7 +160,7 @@ describe('POST /api/feed/enable/start', () => {
 
 describe('GET /api/feed/enable/callback', () => {
   it('302 and binds link when exactly one uid', async () => {
-    hoisted.consumeEnableOAuthState.mockReturnValue('santander-everyday');
+    hoisted.consumeEnableOAuthState.mockReturnValue('natwest');
     hoisted.exchangeEnableAuthorizationCode.mockResolvedValue({
       sessionId: 'sess-1',
       uids: ['uid-only'],
@@ -174,11 +174,11 @@ describe('GET /api/feed/enable/callback', () => {
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('/?enableLinked=1');
     expect(hoisted.mergeEnableBankingSessionForAccounts).toHaveBeenCalledWith('sess-1', ['uid-only']);
-    expect(hoisted.upsertEnableAccountLink).toHaveBeenCalledWith('santander-everyday', 'uid-only');
+    expect(hoisted.upsertEnableAccountLink).toHaveBeenCalledWith('natwest', 'uid-only');
   });
 
   it('200 HTML when multiple uids (operator maps in CSV)', async () => {
-    hoisted.consumeEnableOAuthState.mockReturnValue('santander-everyday');
+    hoisted.consumeEnableOAuthState.mockReturnValue('natwest');
     hoisted.exchangeEnableAuthorizationCode.mockResolvedValue({
       sessionId: 'sess-1',
       uids: ['uid-a', 'uid-b'],

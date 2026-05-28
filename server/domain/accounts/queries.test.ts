@@ -85,11 +85,11 @@ describe('getAccountConfig / isBusinessConfig', () => {
   it('overrides enableBanking.accountId when enable-account-links.csv has a row', () => {
     const spy = vi.spyOn(enableLinks, 'getEnableAccountIdFromFile');
     spy.mockImplementation((acct: AccountName) =>
-      acct === 'santander-everyday' ? 'from-csv-uid' : undefined,
+      acct === 'natwest' ? 'from-csv-uid' : undefined,
     );
-    const cfg = getAccountConfig('santander-everyday', reg);
+    const cfg = getAccountConfig('natwest', reg);
     expect(cfg.aispFeed?.enableBanking?.accountId).toBe('from-csv-uid');
-    expect(cfg.aispFeed?.enableBanking?.institutionHint?.country).toBe('ES');
+    expect(cfg.aispFeed?.enableBanking?.institutionHint?.country).toBe('GB');
     spy.mockRestore();
   });
 

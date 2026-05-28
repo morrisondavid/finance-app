@@ -125,7 +125,9 @@ export function ingestSelfBill(input: IngestSelfBillInput): IngestSelfBillResult
 
   const contracts = listContractsByClient(clientId);
   const matches = contracts.filter(
-    c => selfBillPlacementMatchKey(c) === parsed.placementRef,
+    c =>
+      c.active &&
+      selfBillPlacementMatchKey(c) === parsed.placementRef,
   );
   if (matches.length === 0) {
     return {
