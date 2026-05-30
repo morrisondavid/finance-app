@@ -259,6 +259,7 @@ describe('DashboardSummaryResponseSchema', () => {
     financialYears: ['2025/26'],
     selectedFinancialYear: null,
     liquidityCommitments: null,
+    feedLinkByAccount: {},
   };
 
   it('validates a minimal dashboard response', () => {

@@ -1,11 +1,11 @@
 /**
  * Monzo Joint Account CSV Parser
- * 
+ *
  * Monzo CSV export format has columns:
  * Transaction ID, Date, Time, Type, Name, Emoji, Category, Amount, Currency,
  * Local amount, Local currency, Notes and #tags, Address, Receipt, Description,
- * Category split, Money Out, Money In
- * 
+ * Category split, Money Out, Money In, Balance, Balance currency
+ *
  * Date format: "DD/MM/YYYY" (e.g., "05/08/2019")
  * Amount is already signed (negative for outgoing, positive for incoming)
  * Transaction types: Faster payment, Card payment, Direct Debit, Monzo-to-Monzo, Bacs (Direct Credit)
@@ -17,17 +17,17 @@ import { buildCsv, formatAmount, isoToDDMMYYYY } from './lib/feed-emitter-helper
 
 const MONTHS: Record<string, string> = {
   'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04', 'may': '05', 'jun': '06',
-  'jul': '07', 'aug': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12'
+  'jul': '07', 'aug': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12',
 };
 
-function getColumnValue(row: CSVRow, columnName: string): string {
+export function getMonzoColumnValue(row: CSVRow, columnName: string): string {
   if (columnName in row) return row[columnName];
   const lowerCol = columnName.toLowerCase();
   const key = Object.keys(row).find(k => k.toLowerCase() === lowerCol);
   return key ? row[key] : '';
 }
 
-function parseAmount(amountStr: string | undefined): number {
+export function parseMonzoAmount(amountStr: string | undefined): number {
   if (!amountStr || amountStr === '') return 0;
 
   const cleaned = amountStr.toString()
@@ -38,7 +38,21 @@ function parseAmount(amountStr: string | undefined): number {
   return parseFloat(cleaned) || 0;
 }
 
-function parseDateInternal(dateStr: string | undefined): Date | null {
+/** Signed amount from Amount column, falling back to Money In / Money Out split columns. */
+export function parseMonzoSignedAmount(row: CSVRow): number {
+  const amount = parseMonzoAmount(getMonzoColumnValue(row, 'Amount'));
+  if (amount !== 0) return amount;
+
+  const moneyIn = parseMonzoAmount(getMonzoColumnValue(row, 'Money In'));
+  if (moneyIn > 0) return moneyIn;
+
+  const moneyOut = parseMonzoAmount(getMonzoColumnValue(row, 'Money Out'));
+  if (moneyOut > 0) return -moneyOut;
+
+  return 0;
+}
+
+export function parseMonzoDateInternal(dateStr: string | undefined): Date | null {
   if (!dateStr) return null;
 
   const ddmmyyyy = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
@@ -46,7 +60,7 @@ function parseDateInternal(dateStr: string | undefined): Date | null {
     return new Date(
       parseInt(ddmmyyyy[3], 10),
       parseInt(ddmmyyyy[2], 10) - 1,
-      parseInt(ddmmyyyy[1], 10)
+      parseInt(ddmmyyyy[1], 10),
     );
   }
 
@@ -58,29 +72,35 @@ function parseDateInternal(dateStr: string | undefined): Date | null {
   return null;
 }
 
+export function formatMonzoIsoDate(date: Date): string {
+  return `${date.getFullYear().toString()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 const monzoParser: BankParser = {
   columns: 'auto',
 
   dateColumn: 'Date',
   amountColumn: 'Amount',
   descriptionColumn: 'Name',
+  externalIdColumn: 'Transaction ID',
 
   headers: [
     'Transaction ID', 'Date', 'Time', 'Type', 'Name', 'Emoji', 'Category',
     'Amount', 'Currency', 'Local amount', 'Local currency', 'Notes and #tags',
-    'Address', 'Receipt', 'Description', 'Category split', 'Money Out', 'Money In'
+    'Address', 'Receipt', 'Description', 'Category split', 'Money Out', 'Money In',
+    'Balance', 'Balance currency',
   ] as const,
 
   requiredHeaders: ['Date', 'Amount', 'Name'] as const,
 
   parseOptions: {
-    skip_records_with_empty_values: false
+    skip_records_with_empty_values: false,
   },
 
   validateHeaders(headers: string[]): ValidationResult {
     const normalizedHeaders = headers.map(h => h.toLowerCase().trim());
     const missing = this.requiredHeaders.filter(
-      req => !normalizedHeaders.includes(req.toLowerCase())
+      req => !normalizedHeaders.includes(req.toLowerCase()),
     );
     if (missing.length > 0) {
       return { valid: false, errors: [`Missing required headers: ${missing.join(', ')}`] };
@@ -89,23 +109,7 @@ const monzoParser: BankParser = {
   },
 
   parseDate(dateStr: string): Date | null {
-    if (!dateStr) return null;
-
-    const ddmmyyyy = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (ddmmyyyy) {
-      return new Date(
-        parseInt(ddmmyyyy[3], 10),
-        parseInt(ddmmyyyy[2], 10) - 1,
-        parseInt(ddmmyyyy[1], 10)
-      );
-    }
-
-    const parsed = new Date(dateStr);
-    if (!isNaN(parsed.getTime())) {
-      return parsed;
-    }
-
-    return null;
+    return parseMonzoDateInternal(dateStr);
   },
 
   /**
@@ -115,9 +119,8 @@ const monzoParser: BankParser = {
    * Also handles the ISO date portion after the range (e.g. "2026-04-12")
    */
   extractFilenameDate(filename: string): string | null {
-    // Pattern: DDMonYYYY at end of a date range (e.g. "12Apr2026" from "1Jan2019-12Apr2026")
     const rangeMatch = filename.match(
-      /\d{1,2}[A-Za-z]{3}\d{4}-(\d{1,2})([A-Za-z]{3})(\d{4})/
+      /\d{1,2}[A-Za-z]{3}\d{4}-(\d{1,2})([A-Za-z]{3})(\d{4})/,
     );
     if (rangeMatch) {
       const monthStr = MONTHS[rangeMatch[2].toLowerCase()];
@@ -127,7 +130,6 @@ const monzoParser: BankParser = {
       }
     }
 
-    // Pattern: YYYY-MM-DD in filename
     const isoMatch = filename.match(/(\d{4})-(\d{2})-(\d{2})/);
     if (isoMatch) {
       return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
@@ -141,24 +143,28 @@ const monzoParser: BankParser = {
   },
 
   transform(row: CSVRow, account: string): Transaction | null {
-    const amountStr = getColumnValue(row, 'Amount');
-    const amount = parseAmount(amountStr);
-    const date = parseDateInternal(getColumnValue(row, 'Date'));
+    const amount = parseMonzoSignedAmount(row);
+    const date = parseMonzoDateInternal(getMonzoColumnValue(row, 'Date'));
 
     if (!date) return null;
     if (amount === 0) return null;
 
-    const name = getColumnValue(row, 'Name');
-    const description = getColumnValue(row, 'Description');
-    const displayDescription = name || description || getColumnValue(row, 'Type') || '';
+    const name = getMonzoColumnValue(row, 'Name');
+    const description = getMonzoColumnValue(row, 'Description');
+    const displayDescription = name || description || getMonzoColumnValue(row, 'Type') || '';
 
-    return {
+    const transactionId = getMonzoColumnValue(row, 'Transaction ID').trim();
+    const tx: Transaction = {
       date,
       description: displayDescription,
       amount,
       account,
       type: amount >= 0 ? 'income' : 'expense',
     };
+    if (transactionId !== '') {
+      tx.externalId = transactionId;
+    }
+    return tx;
   },
 
   /**
@@ -173,8 +179,13 @@ const monzoParser: BankParser = {
     const rows = tx.rows.map<Record<string, string>>(row => {
       const moneyIn = row.amount >= 0 ? formatAmount(row.amount) : '';
       const moneyOut = row.amount < 0 ? formatAmount(-row.amount) : '';
+      const reference = row.reference?.trim();
+      const externalId = row.externalId?.trim();
+      const transactionId = (reference !== undefined && reference !== '')
+        ? reference
+        : (externalId ?? '');
       return {
-        'Transaction ID': row.externalId ?? '',
+        'Transaction ID': transactionId,
         Date: isoToDDMMYYYY(row.date),
         Time: '',
         Type: '',
@@ -192,6 +203,8 @@ const monzoParser: BankParser = {
         'Category split': '',
         'Money Out': moneyOut,
         'Money In': moneyIn,
+        Balance: row.balance !== undefined ? formatAmount(row.balance) : '',
+        'Balance currency': row.balance !== undefined ? row.currency : '',
       };
     });
     return buildCsv(this.headers, rows);

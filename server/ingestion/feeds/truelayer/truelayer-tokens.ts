@@ -13,9 +13,13 @@ import { ACCOUNTS, type AccountName } from '../../../../shared/api-contracts.js'
 import { getAccountConfig } from '../../../domain/accounts/index.js';
 import { uploadOAuthDurableStateToS3 } from '../oauth-durable-upload.js';
 
+/** UK PSD2 AIS re-consent window — used for account-chip amber indicator. */
+export const FEED_CONSENT_MAX_DAYS = 90;
+
 const RowSchema = z.object({
   refresh_token: z.string().min(1),
   updated_at: z.string().min(1),
+  consent_expires_at: z.string().min(1).optional(),
 });
 
 const FileSchema = z.object({
@@ -110,11 +114,50 @@ export function resolveTrueLayerRefreshToken(account: AccountName): string | und
   return resolveTrueLayerRefreshTokenSource(account)?.refreshToken;
 }
 
+export type TrueLayerTokenRow = z.infer<typeof RowSchema>;
+
+function addDaysIso(iso: string, days: number): string {
+  const base = Date.parse(iso);
+  if (!Number.isFinite(base)) {
+    throw new Error(`Invalid ISO timestamp: ${iso}`);
+  }
+  return new Date(base + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+/** Row for `account` or a sibling sharing the same TrueLayer providerId. */
+export function getTrueLayerTokenRow(account: AccountName): TrueLayerTokenRow | undefined {
+  const source = resolveTrueLayerRefreshTokenSource(account);
+  if (source === undefined) return undefined;
+  return readTrueLayerTokensFile().accounts[source.tokenAccount];
+}
+
+/**
+ * Consent expiry for feed-link indicator — explicit field or `updated_at + 90d`.
+ */
+export function resolveTrueLayerConsentExpiresAt(account: AccountName): string | undefined {
+  const row = getTrueLayerTokenRow(account);
+  if (row === undefined) return undefined;
+  if (row.consent_expires_at !== undefined && row.consent_expires_at.trim() !== '') {
+    return row.consent_expires_at;
+  }
+  return addDaysIso(row.updated_at, FEED_CONSENT_MAX_DAYS);
+}
+
 export function setTrueLayerRefreshToken(account: AccountName, refreshToken: string): void {
   const rt = refreshToken.trim();
   if (rt === '') throw new Error('refreshToken must be non-empty');
+  const now = new Date();
+  const updatedAt = now.toISOString();
+  const consentExpiresAt = addDaysIso(updatedAt, FEED_CONSENT_MAX_DAYS);
   const prev = readTrueLayerTokensFile();
-  prev.accounts = { ...prev.accounts, [account]: { refresh_token: rt, updated_at: new Date().toISOString() } };
+  prev.accounts = {
+    ...prev.accounts,
+    [account]: {
+      refresh_token: rt,
+      updated_at: updatedAt,
+      consent_expires_at: consentExpiresAt,
+    },
+  };
   writeTrueLayerTokensFile(prev);
 }
 

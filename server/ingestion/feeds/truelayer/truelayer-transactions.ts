@@ -86,7 +86,8 @@ function metaBankTxId(meta: Record<string, unknown> | undefined): string | undef
   return typeof v === 'string' && v.trim() !== '' ? v : undefined;
 }
 
-function mapTransactionRow(
+/** Map one TrueLayer API transaction to a provider-neutral feed row. */
+export function mapTrueLayerTransactionRow(
   raw: z.infer<typeof TrueLayerTxnSchema>,
   expectedCurrency: string,
   resourceSegment: TrueLayerDataResourceSegment,
@@ -111,10 +112,11 @@ function mapTransactionRow(
   const metaObj = raw.meta ?? {};
   const ref = metaBankTxId(metaObj);
 
-  let description = raw.description;
+  const description = raw.description;
   const merchant = raw.merchant_name?.trim();
-  if (merchant !== undefined && merchant !== '' && description.trim() !== merchant) {
-    description = `${description} (${merchant})`.trim();
+  let counterparty: string | undefined;
+  if (merchant !== undefined && merchant !== '') {
+    counterparty = merchant;
   }
 
   /** Card API: charges are typically positive; internal model uses inflow-positive (purchase = negative). */
@@ -127,6 +129,9 @@ function mapTransactionRow(
     currency: raw.currency,
     externalId: raw.transaction_id,
   };
+  if (counterparty !== undefined) {
+    row.counterparty = counterparty;
+  }
   if (balance !== undefined) {
     row.balance = balance;
   }
@@ -258,7 +263,7 @@ export async function fetchTrueLayerTransactions(
     }
 
     for (const tx of envelopeParsed.results) {
-      collected.push(mapTransactionRow(tx, req.currency.trim(), resourceSegment));
+      collected.push(mapTrueLayerTransactionRow(tx, req.currency.trim(), resourceSegment));
     }
 
     const candidate = pickNextHref(jsonUnknown);

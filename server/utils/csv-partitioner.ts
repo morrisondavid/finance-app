@@ -141,6 +141,13 @@ export function addOccurrenceIndex(rows: CSVRow[], parser: BankParser): CSVRow[]
  * @returns String key for comparison
  */
 export function generateRowKey(row: CSVRow, parser: BankParser): string {
+  const idColumn = parser.externalIdColumn;
+  if (idColumn !== undefined && idColumn !== '') {
+    const externalId = getColumnValue(row, idColumn).trim();
+    if (externalId !== '') {
+      return `externalId:${externalId}`;
+    }
+  }
   const date = getColumnValue(row, parser.dateColumn).trim();
   const amount = parseFloat(getColumnValue(row, parser.amountColumn) || '0').toFixed(2);
   const description = getColumnValue(row, parser.descriptionColumn).trim().toLowerCase();

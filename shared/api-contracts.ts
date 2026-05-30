@@ -412,6 +412,24 @@ export type AiFinancialSafetyResponse = z.infer<typeof AiFinancialSafetyResponse
 export const DashboardSummaryScopeSchema = z.enum(['full', 'accounts']).default('full');
 export type DashboardSummaryScope = z.infer<typeof DashboardSummaryScopeSchema>;
 
+/** Bank-feed connection dot on account chips (Accounts tab). */
+export const FeedLinkIndicatorStatusSchema = z.enum([
+  'not_applicable',
+  'disconnected',
+  'connected',
+  'expiring_soon',
+]);
+export type FeedLinkIndicatorStatus = z.infer<typeof FeedLinkIndicatorStatusSchema>;
+
+export const FeedLinkIndicatorSchema = z.object({
+  status: FeedLinkIndicatorStatusSchema,
+  consentExpiresAt: z.string().nullable().optional(),
+});
+export type FeedLinkIndicator = z.infer<typeof FeedLinkIndicatorSchema>;
+
+export const FeedLinkByAccountSchema = z.record(z.string(), FeedLinkIndicatorSchema);
+export type FeedLinkByAccount = z.infer<typeof FeedLinkByAccountSchema>;
+
 export const DashboardSummaryHttpQuerySchema = z.object({
   financialYear: z.string().optional(),
   account: z.string().optional(),
@@ -432,6 +450,7 @@ export const DashboardAccountsSummaryResponseSchema = z.object({
   budgetComparisons: z.array(BudgetComparisonSchema).default([]),
   yearlyBudgetComparisons: z.array(YearlyBudgetComparisonSchema).default([]),
   budgetNudges: z.array(BudgetNudgeSchema).default([]),
+  feedLinkByAccount: FeedLinkByAccountSchema,
 });
 export type DashboardAccountsSummaryResponse = z.infer<typeof DashboardAccountsSummaryResponseSchema>;
 
@@ -454,6 +473,7 @@ export const DashboardSummaryResponseSchema = z.object({
   budgetComparisons: z.array(BudgetComparisonSchema).default([]),
   yearlyBudgetComparisons: z.array(YearlyBudgetComparisonSchema).default([]),
   budgetNudges: z.array(BudgetNudgeSchema).default([]),
+  feedLinkByAccount: FeedLinkByAccountSchema,
   /** §2.2 — same payload as `GET /api/ai/financial-safety` when present. */
   financialSafety: AiFinancialSafetyResponseSchema.optional(),
 });

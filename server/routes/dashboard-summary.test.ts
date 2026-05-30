@@ -83,6 +83,7 @@ describe('GET /api/dashboard/summary', () => {
     expect(body.liquidityCommitments).toBeDefined();
     expect(body.fileCount).toBeDefined();
     expect(body.transactionCount).toBeDefined();
+    expect(body.feedLinkByAccount).toBeDefined();
   });
 
   it('scope=accounts returns slim envelope without liquidity or unused counts', async () => {
@@ -96,6 +97,8 @@ describe('GET /api/dashboard/summary', () => {
     expect(body.monthly).toBeDefined();
     expect(body.byAccount).toBeDefined();
     expect(body.transferCount).toBeDefined();
+    expect(body.feedLinkByAccount).toBeDefined();
+    expect(body.feedLinkByAccount['capital-on-tap']).toEqual({ status: 'not_applicable' });
     expect(json).not.toHaveProperty('liquidityOverview');
     expect(json).not.toHaveProperty('liquidityCommitments');
     expect(json).not.toHaveProperty('fileCount');

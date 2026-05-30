@@ -105,10 +105,15 @@ export function normalizeDescription(desc: string): string {
 }
 
 /**
- * Generate a unique hash for a transaction to detect duplicates
- * Uses: account + date + amount + full normalized description + occurrence
+ * Generate a unique hash for a transaction to detect duplicates.
+ * When `externalId` is set (Monzo Transaction ID, etc.), identity is id-only.
  */
 export function generateTransactionHash(t: Transaction): string {
+  const externalId = t.externalId?.trim();
+  if (externalId !== undefined && externalId !== '') {
+    const key = `${t.account}|externalId:${externalId}`;
+    return crypto.createHash('md5').update(key).digest('hex');
+  }
   const dateStr = formatDateISO(t.date);
   const descNormalized = normalizeDescription(t.description);
   // Occurrence should always be set (1 for non-duplicates), but default to 1 for safety

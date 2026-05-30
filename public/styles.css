@@ -767,18 +767,33 @@ body {
   color: white;
 }
 
-.account-btn.has-data .account-btn-label::after {
+.account-btn.feed-link-disconnected .account-btn-label::after,
+.account-btn.feed-link-connected .account-btn-label::after,
+.account-btn.feed-link-expiring_soon .account-btn-label::after {
   content: '';
   display: inline-block;
   width: 8px;
   height: 8px;
-  background: var(--color-income);
   border-radius: 50%;
   margin-left: 8px;
   vertical-align: middle;
 }
 
-.account-btn.active.has-data .account-btn-label::after {
+.account-btn.feed-link-disconnected .account-btn-label::after {
+  background: var(--color-expense);
+}
+
+.account-btn.feed-link-connected .account-btn-label::after {
+  background: var(--color-income);
+}
+
+.account-btn.feed-link-expiring_soon .account-btn-label::after {
+  background: var(--color-vat);
+}
+
+.account-btn.active.feed-link-disconnected .account-btn-label::after,
+.account-btn.active.feed-link-connected .account-btn-label::after,
+.account-btn.active.feed-link-expiring_soon .account-btn-label::after {
   background: white;
 }
 
@@ -1662,6 +1677,19 @@ body {
 
 .feed-sync-hint:empty,
 .feed-sync-hint[hidden] {
+  display: none;
+}
+
+.balance-panel-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin: 0 0 8px 0;
+  line-height: 1.45;
+  max-width: 52rem;
+}
+
+.balance-panel-hint:empty,
+.balance-panel-hint[hidden] {
   display: none;
 }
 

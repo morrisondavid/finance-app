@@ -18,6 +18,8 @@ export const EnableAccountSessionSchema = z.object({
   sessionId: z.string().min(1).optional(),
   refreshToken: z.string().min(1).optional(),
   validUntil: z.string().min(1).optional(),
+  /** ISO timestamp when bank consent was last completed (OAuth callback). */
+  linked_at: z.string().min(1).optional(),
 });
 export type EnableAccountSession = z.infer<typeof EnableAccountSessionSchema>;
 
@@ -141,9 +143,11 @@ export function mergeEnableBankingSessionForAccounts(
   sessionId: string,
   accountUids: readonly string[],
   filePath?: string,
+  linkedAt?: string,
 ): void {
   const id = sessionId.trim();
   if (id === '') throw new Error('sessionId must be non-empty');
+  const linkedAtIso = linkedAt?.trim() ?? new Date().toISOString();
   const all = readSessions(filePath);
   for (const uid of accountUids) {
     const u = uid.trim();
@@ -152,6 +156,7 @@ export function mergeEnableBankingSessionForAccounts(
     all[u] = EnableAccountSessionSchema.parse({
       ...prev,
       sessionId: id,
+      linked_at: linkedAtIso,
     });
   }
   writeSessions(all, filePath);

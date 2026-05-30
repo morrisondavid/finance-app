@@ -57,7 +57,37 @@ export const trueLayerSameMerchantAndDescription: TrueLayerRawTransaction = {
   merchant_name: 'COFFEE SHOP',
 };
 
-/** Outside the canonical `[DATE_FROM, DATE_TO]` window — filtered client-side. */
+/** Rental payee with distinct merchant_name — Monzo Name/Description split regression. */
+export const trueLayerStoneshawRental: TrueLayerRawTransaction = {
+  transaction_id: 'tl-stoneshaw-ext',
+  timestamp: '2026-04-15T10:00:00Z',
+  description: '78 HUNTERS SQ',
+  amount: 850,
+  currency: 'GBP',
+  merchant_name: 'Stoneshaw',
+  meta: { bank_transaction_id: 'monzo-tx-stoneshaw' },
+};
+
+/** Expected row after {@link mapTrueLayerTransactionRow} for {@link trueLayerStoneshawRental}. */
+export const expectedStoneshawMappedFeedRow: FeedTransactionRow = {
+  date: '2026-04-15',
+  description: '78 HUNTERS SQ',
+  amount: 850,
+  currency: 'GBP',
+  externalId: 'tl-stoneshaw-ext',
+  reference: 'monzo-tx-stoneshaw',
+  counterparty: 'Stoneshaw',
+};
+
+/** Native Monzo export row shape for {@link trueLayerStoneshawRental}. */
+export const nativeMonzoStoneshawCsvRow: Readonly<Record<string, string>> = {
+  'Transaction ID': 'monzo-tx-stoneshaw',
+  Date: '15/04/2026',
+  Name: 'Stoneshaw',
+  Description: '78 HUNTERS SQ',
+  Amount: '850.00',
+};
+
 export const trueLayerOutsideWindow: TrueLayerRawTransaction = {
   transaction_id: 'ext-out',
   timestamp: '2026-04-20T12:00:00Z',
@@ -95,11 +125,12 @@ export const canonicalTrueLayerCardRawTransactions: readonly TrueLayerRawTransac
 export const expectedMappedFeedTransactionRows: readonly FeedTransactionRow[] = [
   {
     date: '2026-04-15',
-    description: 'COFFEE SHOP (Coffee Shop Ltd)',
+    description: 'COFFEE SHOP',
     amount: -3.5,
     currency: 'GBP',
     externalId: 'ext-1',
     reference: 'ref-1',
+    counterparty: 'Coffee Shop Ltd',
   },
   {
     date: '2026-04-16',

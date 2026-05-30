@@ -10,7 +10,7 @@ import { formatCurrency } from '../utils/formatting';
 import { escapeHtml, escapeAttribute } from '../utils/dom';
 import { loadRecurring } from './recurring.js';
 import { loadAdHocExpenses } from './ad-hoc-expenses.js';
-import { AccountNameSchema, type FeedSyncResponse, type FeedToolbarState } from '../../../shared/api-contracts.js';
+import { AccountNameSchema, type FeedSyncResponse, type FeedLinkByAccount, type FeedLinkIndicator, type FeedToolbarState } from '../../../shared/api-contracts.js';
 import { renderMonthlyChart, renderCategoryChart, renderMonthlyTable } from './dashboard-charts';
 import {
   initTransactionsModal,
@@ -42,7 +42,10 @@ export async function loadDashboard(): Promise<void> {
     }
 
     populateFinancialYearFilter(data.financialYears);
-    updateAccountIndicators(data.byAccount as Record<string, AccountSummary>);
+    updateAccountFeedIndicators(
+      data.feedLinkByAccount,
+      data.byAccount as Record<string, AccountSummary>,
+    );
     setActiveAccountButtons(state.selectedAccount);
     renderSummaryCards(data);
     renderMonthlyChart(data.monthly);
@@ -386,6 +389,7 @@ async function runFeedSyncFromUi(
     } else {
       statusEl.textContent = err instanceof Error ? err.message : 'Sync failed.';
     }
+    refreshAccountFeedIndicatorsFromState();
   } finally {
     btn.classList.remove('feed-sync-btn-loading');
     await refreshFeedToolbarState();
@@ -406,21 +410,67 @@ function initFeedSyncControl(): void {
   void refreshFeedToolbarState();
 }
 
-function updateAccountIndicators(accountData: Record<string, AccountSummary>): void {
+function feedLinkIndicatorTitle(indicator: FeedLinkIndicator): string {
+  if (indicator.status === 'disconnected') {
+    return 'Bank feed not connected';
+  }
+  if (indicator.status === 'connected') {
+    if (indicator.consentExpiresAt) {
+      const date = new Date(indicator.consentExpiresAt);
+      return `Bank feed connected — re-consent due ${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+    }
+    return 'Bank feed connected';
+  }
+  if (indicator.status === 'expiring_soon' && indicator.consentExpiresAt) {
+    const date = new Date(indicator.consentExpiresAt);
+    return `Bank feed connected — re-consent due soon (${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })})`;
+  }
+  return 'Bank feed connected — re-consent due soon';
+}
+
+const FEED_LINK_DOT_CLASSES = [
+  'feed-link-disconnected',
+  'feed-link-connected',
+  'feed-link-expiring_soon',
+] as const;
+
+function effectiveFeedLinkIndicator(
+  account: string,
+  indicator: FeedLinkIndicator | undefined,
+): FeedLinkIndicator | undefined {
+  if (indicator === undefined || indicator.status === 'not_applicable') {
+    return undefined;
+  }
+  if (sessionStorage.getItem(feedUiReconnectStorageKey(account)) === '1') {
+    return { status: 'disconnected' };
+  }
+  return indicator;
+}
+
+function applyFeedLinkDotToButton(btn: HTMLElement, indicator: FeedLinkIndicator | undefined): void {
+  btn.classList.remove('has-data', ...FEED_LINK_DOT_CLASSES);
+  if (indicator === undefined) {
+    btn.removeAttribute('title');
+    return;
+  }
+  btn.classList.add(`feed-link-${indicator.status}`);
+  btn.title = feedLinkIndicatorTitle(indicator);
+}
+
+function updateAccountFeedIndicators(
+  feedLinkByAccount: FeedLinkByAccount,
+  accountData: Record<string, AccountSummary>,
+): void {
   const accountBtns = document.querySelectorAll<HTMLElement>('.account-btn');
 
   accountBtns.forEach(btn => {
     const account = btn.dataset.account;
     if (!account) return;
 
+    const indicator = effectiveFeedLinkIndicator(account, feedLinkByAccount[account]);
+    applyFeedLinkDotToButton(btn, indicator);
+
     const data = accountData[account];
-
-    if (data && data.transactionCount > 0) {
-      btn.classList.add('has-data');
-    } else {
-      btn.classList.remove('has-data');
-    }
-
     const latestEl = btn.querySelector('.account-btn-latest');
     if (latestEl) {
       if (data?.newestTransaction) {
@@ -431,6 +481,15 @@ function updateAccountIndicators(accountData: Record<string, AccountSummary>): v
       }
     }
   });
+}
+
+function refreshAccountFeedIndicatorsFromState(): void {
+  const summary = state.summaryData;
+  if (summary == null) return;
+  updateAccountFeedIndicators(
+    summary.feedLinkByAccount,
+    summary.byAccount as Record<string, AccountSummary>,
+  );
 }
 
 // ─── Summary cards ────────────────────────────────────────────────────────────
@@ -513,6 +572,21 @@ function renderBalancePanel(balance: DashboardSummary['currentAccountBalance']):
 
   const currentBalanceEl = document.getElementById('current-balance');
   if (currentBalanceEl) currentBalanceEl.textContent = formatCurrency(balance.currentBalance, cur);
+
+  const balanceHintEl = document.getElementById('balance-panel-hint');
+  if (balanceHintEl) {
+    const cfg = getAccountConfig(state.selectedAccount);
+    const feedCapable = cfg.aispFeed !== undefined;
+    const openingUnset = balance.openingBalanceDate === null && balance.openingBalance === 0;
+    if (feedCapable && openingUnset) {
+      balanceHintEl.textContent =
+        'Balance = opening balance + all transactions. Upload your bank export and/or sync the feed; set opening balance if the total does not match your app.';
+      balanceHintEl.hidden = false;
+    } else {
+      balanceHintEl.textContent = '';
+      balanceHintEl.hidden = true;
+    }
+  }
 }
 
 // ─── Recent transactions ──────────────────────────────────────────────────────

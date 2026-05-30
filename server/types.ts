@@ -45,6 +45,8 @@ export interface Transaction {
   account: string;
   type: TransactionType;
   occurrence?: number;
+  /** Provider-native id (e.g. Monzo `Transaction ID`) for dedup when present. */
+  externalId?: string;
 }
 
 /** JSON-safe transaction (date as string). */
@@ -111,6 +113,8 @@ export interface BankParser {
   dateColumn: string;
   amountColumn: string;
   descriptionColumn: string;
+  /** When set, non-empty values in this CSV column dedupe by id (e.g. Monzo `Transaction ID`). */
+  externalIdColumn?: string;
   headers: readonly string[];
   requiredHeaders: readonly string[];
   parseOptions?: Record<string, unknown>;

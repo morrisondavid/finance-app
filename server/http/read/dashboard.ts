@@ -39,6 +39,7 @@ import { round2 } from '../../utils/math.js';
 import { buildExpensePipelineForAccount, transactionRowToRaw } from '../../utils/expenses-overview-pipeline.js';
 import { computeBudgetNudges } from '../../utils/budget-nudges.js';
 import { feedToolbarStateForAccount } from '../../ingestion/feeds/feed-toolbar-state.js';
+import { feedLinkIndicatorsForAllAccounts } from '../../ingestion/feeds/feed-link-indicator.js';
 import { flattenExpressQuery } from '../../utils/flatten-express-query.js';
 import { jsonReadFail, jsonReadOk, type JsonReadResult } from './types.js';
 
@@ -97,6 +98,7 @@ export function readDashboardSummaryFromQuery(
       totals: getDashboardTotals(filters),
       monthly: getMonthlySummary(filters),
       byAccount: getAccountSummary({ financialYear: selectedFY }),
+      feedLinkByAccount: feedLinkIndicatorsForAllAccounts(),
       currentAccountBalance: accountBalanceForApi(
         selectedAccount,
         getAccountBalance(selectedAccount),

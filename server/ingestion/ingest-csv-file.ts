@@ -24,6 +24,7 @@ import { REPO_ROOT } from '../repo-root.js';
 import { validateAndCleanup } from '../utils/csv-validator.js';
 import { normalizeFileOnDisk } from '../utils/filename-normalizer.js';
 import { partitionByMonth, type PartitionResult } from '../utils/csv-partitioner.js';
+import { maybeApplyMonzoOpeningBalanceFromCsvFile } from '../parsers/monzo-opening-balance.js';
 
 export interface IngestCsvFileOptions {
   /**
@@ -132,6 +133,11 @@ export function ingestCsvFile(
 
   // Step 3: save original (overwrite-safe — copyFileSync replaces existing)
   fs.copyFileSync(filePath, originalDest);
+
+  // Monzo: auto-anchor opening balance from export Balance column when unset.
+  if (account === 'monzo-joint') {
+    maybeApplyMonzoOpeningBalanceFromCsvFile(account, originalDest);
+  }
 
   // Step 4: ensure the working copy lives in csv/ (multer already does this
   // for uploads; the feed adapter writes to `os.tmpdir()` so we move).

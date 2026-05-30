@@ -32,6 +32,7 @@ import wiseParser from './wise.js';
 import santanderEverydayParser from './santander-everyday.js';
 import { normaliseCreditCardAmounts } from './index.js';
 import { isCreditCard, isValidAccountName } from '../domain/accounts/index.js';
+import { expectedFeedLedgerDescription } from './lib/feed-ledger-description.js';
 import type { BankParser, CSVRow } from '../types.js';
 import type {
   FeedTransactionRow,
@@ -105,9 +106,9 @@ const EMITTER_CASES: readonly EmitterCase[] = [
     account: 'monzo-joint',
     parser: monzoParser,
     expectedCsv:
-      'Transaction ID,Date,Time,Type,Name,Emoji,Category,Amount,Currency,Local amount,Local currency,Notes and #tags,Address,Receipt,Description,Category split,Money Out,Money In\n' +
-      'ext-1,15/04/2026,,,Coffee Shop Ltd,,,-3.50,GBP,-3.50,GBP,,,,COFFEE SHOP,,3.50,\n' +
-      'ext-2,16/04/2026,,,Acme Inc,,,1200.00,GBP,1200.00,GBP,,,,SALARY,,,1200.00',
+      'Transaction ID,Date,Time,Type,Name,Emoji,Category,Amount,Currency,Local amount,Local currency,Notes and #tags,Address,Receipt,Description,Category split,Money Out,Money In,Balance,Balance currency\n' +
+      'ref-1,15/04/2026,,,Coffee Shop Ltd,,,-3.50,GBP,-3.50,GBP,,,,COFFEE SHOP,,3.50,,,\n' +
+      'ref-2,16/04/2026,,,Acme Inc,,,1200.00,GBP,1200.00,GBP,,,,SALARY,,,1200.00,5000.00,GBP',
   },
   {
     name: 'Wise — Direction-driven sign with absolute Source amount',
@@ -218,6 +219,11 @@ describe.each(EMITTER_CASES)('emitFeedTransactionsAsCsv — $name', testCase => 
       const expectedIso = expected.date;
       const actualIso = `${finalised.date.getFullYear().toString()}-${String(finalised.date.getMonth() + 1).padStart(2, '0')}-${String(finalised.date.getDate()).padStart(2, '0')}`;
       expect(actualIso, `row ${i.toString()} date`).toBe(expectedIso);
+
+      const expectedDescription = expectedFeedLedgerDescription(testCase.account, expected);
+      if (testCase.account !== 'wise-ltd') {
+        expect(finalised.description, `row ${i.toString()} description`).toBe(expectedDescription);
+      }
     }
   });
 });
