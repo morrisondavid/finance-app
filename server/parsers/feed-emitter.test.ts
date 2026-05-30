@@ -34,6 +34,7 @@ import { normaliseCreditCardAmounts } from './index.js';
 import { isCreditCard, isValidAccountName } from '../domain/accounts/index.js';
 import { expectedFeedLedgerDescription } from './lib/feed-ledger-description.js';
 import type { BankParser, CSVRow } from '../types.js';
+import type { AccountName } from '../../shared/api-contracts.js';
 import type {
   FeedTransactionRow,
   InternalFeedTransactions,
@@ -41,7 +42,7 @@ import type {
 
 interface EmitterCase {
   readonly name: string;
-  readonly account: string;
+  readonly account: AccountName;
   readonly parser: BankParser;
   /** Exact expected CSV string. Newlines are literal `\n`. */
   readonly expectedCsv: string;
