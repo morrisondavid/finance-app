@@ -3,9 +3,13 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { fetchTrueLayerTransactions } from './truelayer-transactions.js';
+import {
+  fetchTrueLayerTransactions,
+  type FetchTrueLayerTransactionsDeps,
+} from './truelayer-transactions.js';
 import { TrueLayerError } from './truelayer-error.js';
 import type { FetchLike } from './truelayer-auth-http.js';
+import type { AccountName } from '../../../../shared/api-contracts.js';
 import {
   TRUE_LAYER_ACCOUNT_ID,
   TRUE_LAYER_CARD_ID,
@@ -72,18 +76,23 @@ const baseRequest = {
   currency: 'GBP',
 };
 
-function trueLayerDeps(fetch: FetchLike, overrides: {
-  persistRefreshToken?: (account: typeof baseRequest.account, refreshToken: string) => void;
-  getRefreshTokenSource?: () => { refreshToken: string; tokenAccount: typeof baseRequest.account };
-} = {}) {
+function trueLayerDeps(
+  fetch: FetchLike,
+  overrides: {
+    persistRefreshToken?: FetchTrueLayerTransactionsDeps['persistRefreshToken'];
+    getRefreshTokenSource?: FetchTrueLayerTransactionsDeps['getRefreshTokenSource'];
+  } = {},
+): FetchTrueLayerTransactionsDeps {
   return {
     fetch,
     apiBase: API_BASE,
     authBase: AUTH_BASE,
-    getRefreshTokenSource: overrides.getRefreshTokenSource ?? (() => ({
-      refreshToken: 'refresh-token-original',
-      tokenAccount: baseRequest.account,
-    })),
+    getRefreshTokenSource:
+      overrides.getRefreshTokenSource ??
+      ((account: AccountName) => ({
+        refreshToken: 'refresh-token-original',
+        tokenAccount: account,
+      })),
     persistRefreshToken: overrides.persistRefreshToken ?? vi.fn(),
   };
 }

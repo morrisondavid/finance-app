@@ -700,15 +700,13 @@ describe.each(TRUE_LAYER_SYNC_ORCHESTRATION_CASES)(
       const { fetchTrueLayerWithFakeHttp, transactionUrls } =
         buildTrueLayerSyncFetchDeps(syncCase.account);
       const ebFetch = vi.fn();
-      let observedCsv: string | null = null;
       const ingestMock = vi.fn(
         (
           account: AccountName,
-          filePath: string,
+          _filePath: string,
           originalName: string,
           _options: IngestCsvFileOptions,
         ): IngestResult => {
-          observedCsv = fs.readFileSync(filePath, 'utf-8');
           return {
             ok: true,
             outcome: 'ingested',
@@ -745,11 +743,13 @@ describe.each(TRUE_LAYER_SYNC_ORCHESTRATION_CASES)(
 
       expect(ebFetch).not.toHaveBeenCalled();
       expect(ingestMock).toHaveBeenCalledOnce();
-      expect(observedCsv).not.toBeNull();
+      const ingestArgs = ingestMock.mock.calls[0];
+      expect(ingestArgs).toBeDefined();
+      const writtenCsv = fs.readFileSync(ingestArgs![1], 'utf-8');
       const parser = PARSERS[syncCase.account];
-      expect(observedCsv?.split('\n')[0]).toBe(parser.headers.join(','));
+      expect(writtenCsv.split('\n')[0]).toBe(parser.headers.join(','));
       for (const snippet of syncCase.csvMustContain) {
-        expect(observedCsv).toContain(snippet);
+        expect(writtenCsv).toContain(snippet);
       }
       expect(result.csvWritten).toBe(true);
       expect(result.rowsFetched).toBe(2);

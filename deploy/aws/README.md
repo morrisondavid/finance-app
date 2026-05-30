@@ -106,6 +106,14 @@ From your **laptop**, at **repo root** (`bank-statements-app/`).
 
 Uses `deploy/aws/.elastic-ip` when `EC2_IP` is unset.
 
+**SSH times out (`Operation timed out` on port 22)?** Your home public IP likely changed. From repo root, with AWS CLI on the **production** account:
+
+```bash
+./deploy/aws/update-ssh-ip.sh
+```
+
+That adds your current IPv4 (`checkip.amazonaws.com`) to the security group in `config.sh` (`BANK_APP_SG_NAME`). Old `/32` rules are left in place; remove stale ones in Console if the list grows.
+
 **Avoid `scp -r deploy/aws … ~/bank-deploy-aws`** when **`~/bank-deploy-aws` already exists** — that often creates **`~/bank-deploy-aws/aws/`**.
 
 ### Manual equivalent (`tar` over SSH)
