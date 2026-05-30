@@ -17,7 +17,14 @@ import type {
   Jurisdiction,
 } from '../shared/api-contracts.js';
 import { ACCOUNTS } from '../shared/api-contracts.js';
-import type { InternalFeedTransactions } from './ingestion/feeds/model.js';
+import type {
+  FeedTransactionRow,
+  InternalFeedTransactions,
+} from './ingestion/feeds/model.js';
+import type {
+  TrueLayerMapContext,
+  TrueLayerRawTransaction,
+} from './ingestion/feeds/truelayer/truelayer-raw-types.js';
 
 export type {
   MonthlySummary,
@@ -155,6 +162,16 @@ export interface BankParser {
    * whose parser has not implemented this method.
    */
   emitFeedTransactionsAsCsv?: (tx: InternalFeedTransactions) => string;
+
+  /**
+   * Map one TrueLayer Data API transaction to a provider-neutral feed row.
+   * Implemented on parsers whose accounts sync via TrueLayer — symmetric to
+   * {@link emitFeedTransactionsAsCsv}.
+   */
+  mapTrueLayerTransaction?: (
+    raw: TrueLayerRawTransaction,
+    ctx: TrueLayerMapContext,
+  ) => FeedTransactionRow;
 }
 
 export interface ParserMap {

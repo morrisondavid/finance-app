@@ -1,0 +1,15 @@
+{
+  "transaction_id": "baf72c9d53cc388a55b8d8d750d3ac91",
+  "timestamp": "2026-04-21T08:44:07.734Z",
+  "description": "78 HUNTERS SQ",
+  "amount": 1292.72,
+  "currency": "GBP",
+  "provider_transaction_id": "tx_0000B5VsqK9jVw9TYU2zNi",
+  "meta": {
+    "provider_category": "payport_faster_payments",
+    "transaction_type": "Credit",
+    "provider_id": "tx_0000B5VsqK9jVw9TYU2zNi",
+    "counter_party_preferred_name": "Stoneshaw Estates",
+    "debtor_account_name": "Stoneshaw Estates"
+  }
+}

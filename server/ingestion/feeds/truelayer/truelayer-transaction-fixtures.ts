@@ -6,18 +6,9 @@
  */
 
 import type { FeedTransactionRow } from '../model.js';
+import type { TrueLayerRawTransaction } from './truelayer-raw-types.js';
 
-/** Shape of one row in a TrueLayer transactions `results` array. */
-export interface TrueLayerRawTransaction {
-  readonly transaction_id: string;
-  readonly timestamp: string;
-  readonly description: string;
-  readonly amount: number;
-  readonly currency: string;
-  readonly merchant_name?: string;
-  readonly meta?: Record<string, unknown>;
-  readonly running_balance?: { readonly amount: number; readonly currency: string };
-}
+export type { TrueLayerRawTransaction };
 
 export const TRUE_LAYER_ACCOUNT_ID = 'tl-acc-test-1';
 export const TRUE_LAYER_CARD_ID = 'tl-card-test-1';
@@ -57,7 +48,24 @@ export const trueLayerSameMerchantAndDescription: TrueLayerRawTransaction = {
   merchant_name: 'COFFEE SHOP',
 };
 
-/** Rental payee with distinct merchant_name — Monzo Name/Description split regression. */
+/** Production Monzo FPS rental — no top-level merchant_name; payee in meta. */
+export const mockTrueLayerStoneshawRentalRow: TrueLayerRawTransaction = {
+  transaction_id: 'baf72c9d53cc388a55b8d8d750d3ac91',
+  timestamp: '2026-04-21T08:44:07.734Z',
+  description: '78 HUNTERS SQ',
+  amount: 1292.72,
+  currency: 'GBP',
+  provider_transaction_id: 'tx_0000B5VsqK9jVw9TYU2zNi',
+  meta: {
+    provider_category: 'payport_faster_payments',
+    transaction_type: 'Credit',
+    provider_id: 'tx_0000B5VsqK9jVw9TYU2zNi',
+    counter_party_preferred_name: 'Stoneshaw Estates',
+    debtor_account_name: 'Stoneshaw Estates',
+  },
+};
+
+/** Card-style merchant_name + bank_transaction_id (legacy fixture). */
 export const trueLayerStoneshawRental: TrueLayerRawTransaction = {
   transaction_id: 'tl-stoneshaw-ext',
   timestamp: '2026-04-15T10:00:00Z',
@@ -68,24 +76,24 @@ export const trueLayerStoneshawRental: TrueLayerRawTransaction = {
   meta: { bank_transaction_id: 'monzo-tx-stoneshaw' },
 };
 
-/** Expected row after {@link mapTrueLayerTransactionRow} for {@link trueLayerStoneshawRental}. */
+/** Expected row after {@link mapTrueLayerTransactionRow} for production Stoneshaw. */
 export const expectedStoneshawMappedFeedRow: FeedTransactionRow = {
-  date: '2026-04-15',
+  date: '2026-04-21',
   description: '78 HUNTERS SQ',
-  amount: 850,
+  amount: 1292.72,
   currency: 'GBP',
-  externalId: 'tl-stoneshaw-ext',
-  reference: 'monzo-tx-stoneshaw',
-  counterparty: 'Stoneshaw',
+  externalId: 'baf72c9d53cc388a55b8d8d750d3ac91',
+  reference: 'tx_0000B5VsqK9jVw9TYU2zNi',
+  counterparty: 'Stoneshaw Estates',
 };
 
-/** Native Monzo export row shape for {@link trueLayerStoneshawRental}. */
+/** Native Monzo export row shape for production Stoneshaw. */
 export const nativeMonzoStoneshawCsvRow: Readonly<Record<string, string>> = {
-  'Transaction ID': 'monzo-tx-stoneshaw',
-  Date: '15/04/2026',
-  Name: 'Stoneshaw',
+  'Transaction ID': 'tx_0000B5VsqK9jVw9TYU2zNi',
+  Date: '21/04/2026',
+  Name: 'Stoneshaw Estates',
   Description: '78 HUNTERS SQ',
-  Amount: '850.00',
+  Amount: '1292.72',
 };
 
 export const trueLayerOutsideWindow: TrueLayerRawTransaction = {

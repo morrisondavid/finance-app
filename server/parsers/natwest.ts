@@ -9,6 +9,7 @@
 
 import type { BankParser, CSVRow, Transaction, ValidationResult } from '../types.js';
 import type { InternalFeedTransactions } from '../ingestion/feeds/model.js';
+import { defaultTrueLayerRowMapping } from '../ingestion/feeds/truelayer/truelayer-map-helpers.js';
 import { buildCsv, formatAmount, isoToNatwestDate } from './lib/feed-emitter-helpers.js';
 
 const MONTHS: Record<string, number> = {
@@ -272,6 +273,10 @@ const natwestParser: BankParser = {
     }
     
     return null;
+  },
+
+  mapTrueLayerTransaction(raw, ctx) {
+    return defaultTrueLayerRowMapping(raw, ctx);
   },
 
   /**

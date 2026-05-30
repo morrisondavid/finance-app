@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-04-01T00:00:00Z",
+  "description": "AUTONIZE IT LTD F STO AUTONIZE IT LTD F STO",
+  "transaction_type": "CREDIT",
+  "transaction_category": "STANDING_ORDER",
+  "transaction_classification": [],
+  "amount": 2500,
+  "currency": "GBP",
+  "transaction_id": "44b82c7dffa4a15a916c32025aed85ce",
+  "running_balance": {
+    "currency": "GBP",
+    "amount": 2501.71
+  },
+  "meta": {
+    "transaction_type": "Credit"
+  }
+}

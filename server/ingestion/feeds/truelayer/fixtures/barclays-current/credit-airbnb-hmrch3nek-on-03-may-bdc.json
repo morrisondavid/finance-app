@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-05-05T00:00:00Z",
+  "description": "AIRBNB * HMRCH3NEK ON 03 MAY BDC",
+  "transaction_type": "CREDIT",
+  "transaction_category": "CREDIT",
+  "transaction_classification": [],
+  "amount": 98.07,
+  "currency": "GBP",
+  "transaction_id": "c0c8b026be2ccff9acefb1e5e073f2ab",
+  "running_balance": {
+    "currency": "GBP",
+    "amount": 14610.65
+  },
+  "meta": {
+    "transaction_type": "Credit"
+  }
+}

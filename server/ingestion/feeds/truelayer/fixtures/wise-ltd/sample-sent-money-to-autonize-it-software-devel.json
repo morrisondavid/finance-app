@@ -1,0 +1,19 @@
+{
+  "timestamp": "2026-03-31T06:01:05.344Z",
+  "description": "Sent money to Autonize IT Software Development - FZCO (fee: 5.74 GBP)",
+  "transaction_type": "DEBIT",
+  "transaction_category": "TRANSFER",
+  "transaction_classification": [],
+  "amount": -994.89,
+  "currency": "GBP",
+  "transaction_id": "66c5e0c6a02d140696aad1a65a87e1ba",
+  "provider_transaction_id": "144152846.TRANSFER-2049952671",
+  "normalised_provider_transaction_id": "txn-fa37f87aa377e8d93",
+  "meta": {
+    "provider_reference": "TRANSFER-2049952671",
+    "provider_category": "TRANSFER",
+    "transaction_type": "Debit",
+    "provider_id": "144152846.TRANSFER-2049952671",
+    "counter_party_preferred_name": "Autonize IT Software Development - FZCO"
+  }
+}

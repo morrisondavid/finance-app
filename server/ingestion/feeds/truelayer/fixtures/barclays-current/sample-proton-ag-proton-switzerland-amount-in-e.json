@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-05-28T00:00:00Z",
+  "description": "PROTON AG* PROTON SWITZERLAND AMOUNT IN EUR 11.99 ON 27 MAY VISA 1.155799 FINAL GBP AMOUNT INCLUDES NON-STERLING TRANS FEE £0.29",
+  "transaction_type": "DEBIT",
+  "transaction_category": "DEBIT",
+  "transaction_classification": [],
+  "amount": -10.66,
+  "currency": "GBP",
+  "transaction_id": "014828fc824f3d4f85e5292865fe2c75",
+  "running_balance": {
+    "currency": "GBP",
+    "amount": 9192.9
+  },
+  "meta": {
+    "provider_merchant_name": "PROTON AG* PROTON AG",
+    "transaction_type": "Debit"
+  }
+}

@@ -13,6 +13,7 @@
 
 import type { BankParser, CSVRow, Transaction, ValidationResult } from '../types.js';
 import type { InternalFeedTransactions } from '../ingestion/feeds/model.js';
+import { defaultTrueLayerRowMapping } from '../ingestion/feeds/truelayer/truelayer-map-helpers.js';
 import { buildCsv, formatAmount, isoToDDMMYYYY } from './lib/feed-emitter-helpers.js';
 
 /**
@@ -236,6 +237,10 @@ const barclaycardParser: BankParser = {
       account,
       type: amount > 0 ? 'expense' : 'income',
     };
+  },
+
+  mapTrueLayerTransaction(raw, ctx) {
+    return defaultTrueLayerRowMapping(raw, ctx);
   },
 
   /**

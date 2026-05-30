@@ -21,9 +21,12 @@ import {
   canonicalTrueLayerCreditInflow,
   trueLayerOutsideWindow,
   trueLayerSameMerchantAndDescription,
+  mockTrueLayerStoneshawRentalRow,
+  expectedStoneshawMappedFeedRow,
   expectedMappedFeedTransactionRows,
   makeTrueLayerTransactionsEnvelope,
 } from './truelayer-transaction-fixtures.js';
+import { mapTrueLayerTransactionRow } from './truelayer-transactions.js';
 
 const API_BASE = 'https://api.test';
 const AUTH_BASE = 'https://auth.test';
@@ -110,6 +113,13 @@ function tokenThenTransactionsFetch(
 beforeEach(() => {
   process.env.TRUELAYER_CLIENT_ID = 'test-client-id';
   process.env.TRUELAYER_CLIENT_SECRET = 'test-client-secret';
+});
+
+describe('mapTrueLayerTransactionRow — Monzo FPS rental (production shape)', () => {
+  it('maps provider_transaction_id and meta payee name for Stoneshaw', () => {
+    const mapped = mapTrueLayerTransactionRow(mockTrueLayerStoneshawRentalRow, 'GBP', 'accounts');
+    expect(mapped).toEqual(expectedStoneshawMappedFeedRow);
+  });
 });
 
 describe('fetchTrueLayerTransactions — happy paths', () => {

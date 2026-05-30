@@ -21,6 +21,7 @@ import type {
   ValidationResult,
 } from '../types.js';
 import type { InternalFeedTransactions } from '../ingestion/feeds/model.js';
+import { defaultTrueLayerRowMapping } from '../ingestion/feeds/truelayer/truelayer-map-helpers.js';
 import { convertSantanderHtmlToCsv, isSantanderHtmlExport } from '../utils/santander-html-converter.js';
 import { buildCsv, formatAmount } from './lib/feed-emitter-helpers.js';
 
@@ -192,6 +193,10 @@ const santanderEverydayParser: BankParser = {
       account,
       type: amount > 0 ? 'expense' : 'income',
     };
+  },
+
+  mapTrueLayerTransaction(raw, ctx) {
+    return defaultTrueLayerRowMapping(raw, ctx);
   },
 
   /**

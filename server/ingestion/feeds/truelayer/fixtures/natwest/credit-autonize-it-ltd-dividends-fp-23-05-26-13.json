@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-05-26T00:00:00Z",
+  "description": "AUTONIZE IT LTD DIVIDENDS FP 23/05/26 1306 RP4679965839773600",
+  "transaction_type": "CREDIT",
+  "transaction_category": "CREDIT",
+  "transaction_classification": [],
+  "amount": 350,
+  "currency": "GBP",
+  "transaction_id": "feba142de0ae3430b324eb9b8f2f4e6d",
+  "provider_transaction_id": "MUU1RTUyMjk2RTU1MTE0OTEzQjExMTY0ODQ2MUFCQjBGM0VCNjBBMDdGOTY1MkU5NkZENUQwMDc3QkQ0QUMyMnwyMDI2LTA1LTI2VDAwOjAwOjAwfDE",
+  "normalised_provider_transaction_id": "txn-52465fb7dfd95a6f5",
+  "running_balance": {
+    "currency": "GBP",
+    "amount": 747.07
+  },
+  "meta": {
+    "provider_category": "BAC",
+    "transaction_type": "Credit",
+    "provider_id": "MUU1RTUyMjk2RTU1MTE0OTEzQjExMTY0ODQ2MUFCQjBGM0VCNjBBMDdGOTY1MkU5NkZENUQwMDc3QkQ0QUMyMnwyMDI2LTA1LTI2VDAwOjAwOjAwfDE"
+  }
+}

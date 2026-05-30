@@ -1,8 +1,9 @@
 /**
  * Monzo-only: TrueLayer `merchant_name` vs `description` → Monzo CSV Name/Description.
  *
- * Regression for the Stoneshaw case: raw feed has
- * `description: "78 HUNTERS SQ"` and `merchant_name: "Stoneshaw"`.
+ * Regression for the Stoneshaw case: TrueLayer sends
+ * `description: "78 HUNTERS SQ"`, payee in `meta.counter_party_preferred_name`,
+ * and Monzo id in `provider_transaction_id`.
  * Monzo's feed emitter must mirror native export (`Name` = payee, `Description` = detail).
  * Other bank parsers continue to emit `row.description` in their narrative column.
  */
@@ -12,14 +13,13 @@ import { parse } from 'csv-parse/sync';
 import { PARSERS } from '../../../parsers/index.js';
 import type { CSVRow } from '../../../types.js';
 import type { InternalFeedTransactions } from '../model.js';
-import { mapTrueLayerTransactionRow } from './truelayer-transactions.js';
 import {
-  trueLayerStoneshawRental,
   expectedStoneshawMappedFeedRow,
   nativeMonzoStoneshawCsvRow,
 } from './truelayer-transaction-fixtures.js';
+import { loadTrueLayerFixture } from './truelayer-fixture-loader.js';
 
-const STONESHA_WINDOW = { dateFrom: '2026-04-15', dateTo: '2026-04-15' };
+const STONESHA_WINDOW = { dateFrom: '2026-04-21', dateTo: '2026-04-21' };
 
 function stoneshawMonzoFixture(): InternalFeedTransactions {
   return {
@@ -48,8 +48,12 @@ function csvCell(row: CSVRow, column: string): string {
 }
 
 describe('TrueLayer Stoneshaw — raw API → mapped row', () => {
-  it('mapTrueLayerTransactionRow preserves merchant as counterparty and address as description', () => {
-    const mapped = mapTrueLayerTransactionRow(trueLayerStoneshawRental, 'GBP', 'accounts');
+  it('monzo mapTrueLayerTransaction preserves payee and Monzo id', () => {
+    const raw = loadTrueLayerFixture('monzo-joint', 'credit-stoneshaw-fps-rental');
+    const mapped = PARSERS['monzo-joint'].mapTrueLayerTransaction!(raw, {
+      currency: 'GBP',
+      resourceSegment: 'accounts',
+    });
     expect(mapped).toEqual(expectedStoneshawMappedFeedRow);
   });
 });
@@ -65,12 +69,16 @@ describe('TrueLayer Stoneshaw → Monzo CSV', () => {
     const csv = PARSERS['monzo-joint'].emitFeedTransactionsAsCsv?.(stoneshawMonzoFixture()) ?? '';
     const records = parseMonzoCsv(csv);
     const tx = PARSERS['monzo-joint'].transform(records[0], 'monzo-joint');
-    expect(tx?.description).toBe('Stoneshaw');
-    expect(tx?.externalId).toBe('monzo-tx-stoneshaw');
+    expect(tx?.description).toBe('Stoneshaw Estates');
+    expect(tx?.externalId).toBe('tx_0000B5VsqK9jVw9TYU2zNi');
   });
 
   it('raw TrueLayer → map → emit → transform matches native export', () => {
-    const mapped = mapTrueLayerTransactionRow(trueLayerStoneshawRental, 'GBP', 'accounts');
+    const raw = loadTrueLayerFixture('monzo-joint', 'credit-stoneshaw-fps-rental');
+    const mapped = PARSERS['monzo-joint'].mapTrueLayerTransaction!(raw, {
+      currency: 'GBP',
+      resourceSegment: 'accounts',
+    });
     const fixture: InternalFeedTransactions = {
       account: 'monzo-joint',
       window: STONESHA_WINDOW,
@@ -106,6 +114,6 @@ describe('TrueLayer Stoneshaw — non-Monzo parsers keep provider narrative', ()
       ...parser.parseOptions,
     }) as CSVRow[];
     expect(csvCell(records[0], column)).toBe('78 HUNTERS SQ');
-    expect(csvCell(records[0], column)).not.toBe('Stoneshaw');
+    expect(csvCell(records[0], column)).not.toBe('Stoneshaw Estates');
   });
 });

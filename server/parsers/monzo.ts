@@ -13,6 +13,8 @@
 
 import type { BankParser, CSVRow, Transaction, ValidationResult } from '../types.js';
 import type { InternalFeedTransactions } from '../ingestion/feeds/model.js';
+import type { TrueLayerMapContext, TrueLayerRawTransaction } from '../ingestion/feeds/truelayer/truelayer-raw-types.js';
+import { defaultTrueLayerRowMapping } from '../ingestion/feeds/truelayer/truelayer-map-helpers.js';
 import { buildCsv, formatAmount, isoToDDMMYYYY } from './lib/feed-emitter-helpers.js';
 
 const MONTHS: Record<string, string> = {
@@ -165,6 +167,10 @@ const monzoParser: BankParser = {
       tx.externalId = transactionId;
     }
     return tx;
+  },
+
+  mapTrueLayerTransaction(raw: TrueLayerRawTransaction, ctx: TrueLayerMapContext) {
+    return defaultTrueLayerRowMapping(raw, ctx);
   },
 
   /**

@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-05-29T00:00:00Z",
+  "description": "5120 27MAY26 WWW.2C2P.COM*2C2P BOLT BANGKOK TH THB 333.00VRATE 43.5294N-S TRN FEE 0.21",
+  "transaction_type": "DEBIT",
+  "transaction_category": "PURCHASE",
+  "transaction_classification": [],
+  "amount": -7.86,
+  "currency": "GBP",
+  "transaction_id": "9f51541a468605678b81c8c5c8743531",
+  "provider_transaction_id": "MUU1RTUyMjk2RTU1MTE0OTEzQjExMTY0ODQ2MUFCQjBGM0VCNjBBMDdGOTY1MkU5NkZENUQwMDc3QkQ0QUMyMnwyMDI2LTA1LTI5VDAwOjAwOjAwfDM",
+  "normalised_provider_transaction_id": "txn-2a47f3e6597f3015d",
+  "running_balance": {
+    "currency": "GBP",
+    "amount": 150.85
+  },
+  "meta": {
+    "provider_category": "POS",
+    "transaction_type": "Debit",
+    "provider_id": "MUU1RTUyMjk2RTU1MTE0OTEzQjExMTY0ODQ2MUFCQjBGM0VCNjBBMDdGOTY1MkU5NkZENUQwMDc3QkQ0QUMyMnwyMDI2LTA1LTI5VDAwOjAwOjAwfDM"
+  }
+}

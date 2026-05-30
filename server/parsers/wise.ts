@@ -33,6 +33,7 @@
 
 import type { BankParser, CSVRow, Transaction, ValidationResult } from '../types.js';
 import type { InternalFeedTransactions } from '../ingestion/feeds/model.js';
+import { defaultTrueLayerRowMapping } from '../ingestion/feeds/truelayer/truelayer-map-helpers.js';
 import { buildCsv, formatAmount } from './lib/feed-emitter-helpers.js';
 
 function getColumnValue(row: CSVRow, columnName: string): string {
@@ -175,6 +176,10 @@ const wiseParser: BankParser = {
     }
 
     return null;
+  },
+
+  mapTrueLayerTransaction(raw, ctx) {
+    return defaultTrueLayerRowMapping(raw, ctx);
   },
 
   /**

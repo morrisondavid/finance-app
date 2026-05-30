@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-03-31T05:58:39.125Z",
+  "description": "Topped up account",
+  "transaction_type": "CREDIT",
+  "transaction_category": "CREDIT",
+  "transaction_classification": [],
+  "amount": 1000,
+  "currency": "GBP",
+  "transaction_id": "55a4b12f0651da2760560fde04641578",
+  "provider_transaction_id": "144152846.TRANSFER-2049948142",
+  "normalised_provider_transaction_id": "txn-e23122f919f8f7e7b",
+  "meta": {
+    "provider_reference": "TRANSFER-2049948142",
+    "provider_category": "MONEY_ADDED",
+    "transaction_type": "Credit",
+    "provider_id": "144152846.TRANSFER-2049948142"
+  }
+}

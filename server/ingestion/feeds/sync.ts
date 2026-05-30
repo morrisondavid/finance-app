@@ -115,6 +115,12 @@ export function requireLinkedFeed(account: AccountName): LinkedFeed {
   const feedCurrencyFromTl = config.aispFeed?.trueLayer?.feedCurrency;
 
   if (tlReady) {
+    if (parser.mapTrueLayerTransaction === undefined) {
+      throw new FeedSyncError(
+        'no-emitter',
+        `Parser for ${account} does not implement mapTrueLayerTransaction; cannot map TrueLayer feed rows`,
+      );
+    }
     return {
       config,
       parser,
