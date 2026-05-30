@@ -8,11 +8,13 @@ import { mutateTrueLayerFeedStart } from '../http/mutation/feed-oauth-start.js';
 import {
   exchangeTrueLayerAuthorizationCode,
   listTrueLayerDataAccounts,
+  listTrueLayerDataCards,
 } from '../ingestion/feeds/truelayer/truelayer-auth-http.js';
 import { TrueLayerError } from '../ingestion/feeds/truelayer/truelayer-error.js';
 import { consumeTrueLayerOAuthState } from '../ingestion/feeds/truelayer/truelayer-oauth-state.js';
 import { setTrueLayerRefreshToken } from '../ingestion/feeds/truelayer/truelayer-tokens.js';
 import { upsertTrueLayerAccountLink } from '../ingestion/feeds/truelayer-account-links-csv.js';
+import { isCreditCard } from '../domain/accounts/index.js';
 
 const router = express.Router();
 
@@ -48,6 +50,12 @@ router.get('/truelayer/callback', async (req: Request, res: Response) => {
     return;
   }
 
+  const linkCreditCard = isCreditCard(account);
+  const resourceLabel = linkCreditCard ? 'cards' : 'accounts';
+  const scopeHint = linkCreditCard
+    ? 'Ensure the <code>cards</code> and <code>transactions</code> scopes are enabled in TrueLayer Console and retry.'
+    : 'Ensure the <code>accounts</code> and <code>transactions</code> scopes are enabled in TrueLayer Console and retry.';
+
   try {
     const { accessToken, refreshToken } = await exchangeTrueLayerAuthorizationCode(
       code.trim(),
@@ -55,15 +63,17 @@ router.get('/truelayer/callback', async (req: Request, res: Response) => {
     );
     setTrueLayerRefreshToken(account, refreshToken);
 
-    const results = await listTrueLayerDataAccounts(accessToken);
+    const results = linkCreditCard
+      ? await listTrueLayerDataCards(accessToken)
+      : await listTrueLayerDataAccounts(accessToken);
 
     if (results.length === 0) {
       res
         .status(200)
         .type('text/html; charset=utf-8')
         .send(
-          `<!DOCTYPE html><html><body><p>TrueLayer linked (refresh token saved) but <strong>no accounts</strong> were returned.</p>` +
-            `<p>Check Data API scopes in Console and retry.</p>` +
+          `<!DOCTYPE html><html><body><p>TrueLayer linked (refresh token saved) but <strong>no ${resourceLabel}</strong> were returned.</p>` +
+            `<p>${scopeHint}</p>` +
             `<p>Account: <code>${escapeHtml(account)}</code></p>` +
             `</body></html>`,
         );
@@ -93,8 +103,8 @@ router.get('/truelayer/callback', async (req: Request, res: Response) => {
       .status(200)
       .type('text/html; charset=utf-8')
       .send(
-        `<!DOCTYPE html><html><head><meta charset="utf-8"><title>TrueLayer — pick account</title></head><body>` +
-          `<p>Multiple accounts returned. Refresh token was saved for <strong>${escapeHtml(account)}</strong>.</p>` +
+        `<!DOCTYPE html><html><head><meta charset="utf-8"><title>TrueLayer — pick ${resourceLabel.slice(0, -1)}</title></head><body>` +
+          `<p>Multiple TrueLayer ${resourceLabel} returned. Refresh token was saved for <strong>${escapeHtml(account)}</strong>.</p>` +
           `<p>Map the correct <code>truelayer_account_id</code> by adding a row to ` +
           `<code>data/truelayer-account-links.csv</code> (see <code>server/ingestion/feeds/truelayer-account-links.csv.example</code>).</p>` +
           `<ul>${idList}</ul>` +

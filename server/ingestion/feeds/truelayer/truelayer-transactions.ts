@@ -1,5 +1,6 @@
 /**
- * TrueLayer Data API — `/data/v1/accounts/{account_id}/transactions`.
+ * TrueLayer Data API — `/data/v1/accounts/{account_id}/transactions`
+ * and `/data/v1/cards/{card_id}/transactions`.
  */
 
 import { z } from 'zod';
@@ -16,6 +17,10 @@ import {
   setTrueLayerRefreshToken,
   type TrueLayerRefreshTokenSource,
 } from './truelayer-tokens.js';
+import {
+  trueLayerDataResourceSegment,
+  type TrueLayerDataResourceSegment,
+} from './truelayer-data-resource.js';
 
 /** Matches TrueLayer paging cap pattern used for Enable Banking. */
 const MAX_PAGES = 20;
@@ -46,7 +51,7 @@ const TransactionsEnvelopeSchema = z
 
 export interface FetchTrueLayerTransactionsRequest {
   readonly account: AccountName;
-  /** TrueLayer `/data/v1/accounts/:id` resource id */
+  /** TrueLayer `/data/v1/accounts/:id` or `/data/v1/cards/:id` resource id */
   readonly trueLayerAccountId: string;
   readonly dateFrom: string;
   readonly dateTo: string;
@@ -81,7 +86,11 @@ function metaBankTxId(meta: Record<string, unknown> | undefined): string | undef
   return typeof v === 'string' && v.trim() !== '' ? v : undefined;
 }
 
-function mapTransactionRow(raw: z.infer<typeof TrueLayerTxnSchema>, expectedCurrency: string): FeedTransactionRow {
+function mapTransactionRow(
+  raw: z.infer<typeof TrueLayerTxnSchema>,
+  expectedCurrency: string,
+  resourceSegment: TrueLayerDataResourceSegment,
+): FeedTransactionRow {
   if (raw.currency !== expectedCurrency) {
     throw new TrueLayerError(
       'invalid-response',
@@ -108,10 +117,13 @@ function mapTransactionRow(raw: z.infer<typeof TrueLayerTxnSchema>, expectedCurr
     description = `${description} (${merchant})`.trim();
   }
 
+  /** Card API: charges are typically positive; internal model uses inflow-positive (purchase = negative). */
+  const amount = resourceSegment === 'cards' ? -raw.amount : raw.amount;
+
   const row: FeedTransactionRow = {
     date,
     description,
-    amount: raw.amount,
+    amount,
     currency: raw.currency,
     externalId: raw.transaction_id,
   };
@@ -186,8 +198,9 @@ export async function fetchTrueLayerTransactions(
   const accessToken = refreshed.accessToken;
 
   const apiBase = resolveTrueLayerApiBase(deps.apiBase);
+  const resourceSegment = trueLayerDataResourceSegment(req.account);
   let nextUrl: string | null =
-    `${apiBase}/data/v1/accounts/${encodeURIComponent(req.trueLayerAccountId.trim())}` +
+    `${apiBase}/data/v1/${resourceSegment}/${encodeURIComponent(req.trueLayerAccountId.trim())}` +
     `/transactions?from=${encodeURIComponent(req.dateFrom)}&to=${encodeURIComponent(req.dateTo)}`;
 
   const collected: FeedTransactionRow[] = [];
@@ -245,7 +258,7 @@ export async function fetchTrueLayerTransactions(
     }
 
     for (const tx of envelopeParsed.results) {
-      collected.push(mapTransactionRow(tx, req.currency.trim()));
+      collected.push(mapTransactionRow(tx, req.currency.trim(), resourceSegment));
     }
 
     const candidate = pickNextHref(jsonUnknown);

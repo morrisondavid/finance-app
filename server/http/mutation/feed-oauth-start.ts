@@ -18,7 +18,7 @@ import { TrueLayerError } from '../../ingestion/feeds/truelayer/truelayer-error.
 import { createTrueLayerOAuthState } from '../../ingestion/feeds/truelayer/truelayer-oauth-state.js';
 import type { JsonMutationResult } from './types.js';
 
-const TL_SCOPES = ['info', 'accounts', 'balance', 'transactions', 'offline_access'] as const;
+const TL_SCOPES = ['info', 'accounts', 'cards', 'balance', 'transactions', 'offline_access'] as const;
 
 export async function mutateEnableFeedStart(body: unknown): Promise<JsonMutationResult> {
   const parsed = EnableFeedStartBodySchema.safeParse(body);

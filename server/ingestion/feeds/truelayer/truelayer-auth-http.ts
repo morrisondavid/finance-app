@@ -175,28 +175,32 @@ export async function refreshTrueLayerAccessToken(
   return { accessToken: parsed.access_token, refreshToken: nextRefresh };
 }
 
-const DataAccountsResponseSchema = z.object({
-  results: z.array(
-    z.object({
-      account_id: z.string().min(1),
-      display_name: z.string().optional(),
-      account_type: z.string().optional(),
-    }),
-  ),
+const DataResourceListItemSchema = z.object({
+  account_id: z.string().min(1),
+  display_name: z.string().optional(),
+  account_type: z.string().optional(),
 });
 
-export interface ListDataAccountsDeps {
+const DataResourceListResponseSchema = z.object({
+  results: z.array(DataResourceListItemSchema),
+});
+
+export type TrueLayerDataResourceListItem = z.infer<typeof DataResourceListItemSchema>;
+
+export interface ListDataResourcesDeps {
   readonly fetch?: FetchLike;
   readonly apiBase?: string;
 }
 
-export async function listTrueLayerDataAccounts(
+async function listTrueLayerDataResources(
   accessToken: string,
-  deps: ListDataAccountsDeps = {},
-): Promise<readonly { account_id: string; display_name?: string; account_type?: string }[]> {
+  resourceSegment: 'accounts' | 'cards',
+  deps: ListDataResourcesDeps = {},
+): Promise<readonly TrueLayerDataResourceListItem[]> {
   const fetchImpl = deps.fetch ?? globalThis.fetch;
   const apiBase = resolveTrueLayerApiBase(deps.apiBase);
-  const url = `${apiBase}/data/v1/accounts`;
+  const label = `/data/v1/${resourceSegment}`;
+  const url = `${apiBase}${label}`;
   const resp = await fetchImpl(url, {
     method: 'GET',
     headers: {
@@ -211,24 +215,42 @@ export async function listTrueLayerDataAccounts(
   } catch (err) {
     throw new TrueLayerError(
       'invalid-response',
-      'TrueLayer GET /data/v1/accounts: response was not JSON',
+      `TrueLayer GET ${label}: response was not JSON`,
       err,
     );
   }
   if (!resp.ok) {
     throw new TrueLayerError(
       'http-error',
-      `TrueLayer GET /data/v1/accounts failed: ${resp.status} — ${text.slice(0, 500)}`,
+      `TrueLayer GET ${label} failed: ${resp.status} — ${text.slice(0, 500)}`,
     );
   }
   try {
-    const parsed = DataAccountsResponseSchema.parse(json);
+    const parsed = DataResourceListResponseSchema.parse(json);
     return parsed.results;
   } catch (err) {
     throw new TrueLayerError(
       'invalid-response',
-      'TrueLayer GET /data/v1/accounts: unexpected JSON shape',
+      `TrueLayer GET ${label}: unexpected JSON shape`,
       err,
     );
   }
+}
+
+export type ListDataAccountsDeps = ListDataResourcesDeps;
+
+export async function listTrueLayerDataAccounts(
+  accessToken: string,
+  deps: ListDataAccountsDeps = {},
+): Promise<readonly TrueLayerDataResourceListItem[]> {
+  return listTrueLayerDataResources(accessToken, 'accounts', deps);
+}
+
+export type ListDataCardsDeps = ListDataResourcesDeps;
+
+export async function listTrueLayerDataCards(
+  accessToken: string,
+  deps: ListDataCardsDeps = {},
+): Promise<readonly TrueLayerDataResourceListItem[]> {
+  return listTrueLayerDataResources(accessToken, 'cards', deps);
 }

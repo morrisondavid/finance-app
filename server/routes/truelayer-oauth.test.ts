@@ -14,6 +14,7 @@ import { ACCOUNT_CONFIG_DATA } from '../domain/accounts/data.js';
 const hoisted = vi.hoisted(() => ({
   exchangeTrueLayerAuthorizationCode: vi.fn(),
   listTrueLayerDataAccounts: vi.fn(),
+  listTrueLayerDataCards: vi.fn(),
   createTrueLayerOAuthState: vi.fn(),
   consumeTrueLayerOAuthState: vi.fn(),
   setTrueLayerRefreshToken: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock('../ingestion/feeds/truelayer/truelayer-auth-http.js', async () => {
     ...actual,
     exchangeTrueLayerAuthorizationCode: hoisted.exchangeTrueLayerAuthorizationCode,
     listTrueLayerDataAccounts: hoisted.listTrueLayerDataAccounts,
+    listTrueLayerDataCards: hoisted.listTrueLayerDataCards,
   };
 });
 
@@ -108,6 +110,7 @@ afterAll(async () => {
 beforeEach(() => {
   hoisted.exchangeTrueLayerAuthorizationCode.mockReset();
   hoisted.listTrueLayerDataAccounts.mockReset();
+  hoisted.listTrueLayerDataCards.mockReset();
   hoisted.createTrueLayerOAuthState.mockReset();
   hoisted.consumeTrueLayerOAuthState.mockReset();
   hoisted.setTrueLayerRefreshToken.mockReset();
@@ -172,6 +175,7 @@ describe('POST /api/feed/truelayer/start', () => {
     expect(tlUrl.searchParams.get('response_type')).toBe('code');
     expect(tlUrl.searchParams.get('client_id')).toBeTruthy();
     expect(tlUrl.searchParams.get('provider_id')).toBe('ob-barclays');
+    expect(tlUrl.searchParams.get('scope')).toContain('cards');
   });
 });
 
@@ -192,6 +196,26 @@ describe('GET /api/feed/truelayer/callback', () => {
     expect(res.headers.get('location')).toBe('/?trueLayerLinked=1');
     expect(hoisted.setTrueLayerRefreshToken).toHaveBeenCalledWith('barclays-current', 'rt-store-me');
     expect(hoisted.upsertTrueLayerAccountLink).toHaveBeenCalledWith('barclays-current', 'acct-only');
+    expect(hoisted.listTrueLayerDataCards).not.toHaveBeenCalled();
+  });
+
+  it('302 and upserts card id when exactly one TL card returned for barclaycard', async () => {
+    hoisted.consumeTrueLayerOAuthState.mockReturnValue('barclaycard');
+    hoisted.exchangeTrueLayerAuthorizationCode.mockResolvedValue({
+      accessToken: 'acc-card',
+      refreshToken: 'rt-card',
+    });
+    hoisted.listTrueLayerDataCards.mockResolvedValue([{ account_id: 'card-only' }]);
+
+    const res = await fetch(`${baseUrl}/api/feed/truelayer/callback?code=z&state=opaque`, {
+      redirect: 'manual',
+    });
+
+    expect(res.status).toBe(302);
+    expect(hoisted.setTrueLayerRefreshToken).toHaveBeenCalledWith('barclaycard', 'rt-card');
+    expect(hoisted.upsertTrueLayerAccountLink).toHaveBeenCalledWith('barclaycard', 'card-only');
+    expect(hoisted.listTrueLayerDataCards).toHaveBeenCalledOnce();
+    expect(hoisted.listTrueLayerDataAccounts).not.toHaveBeenCalled();
   });
 
   it('200 HTML listing accounts when TL returns multiples', async () => {

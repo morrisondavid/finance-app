@@ -132,7 +132,7 @@ export type EnableBankingFeedConfig = z.infer<typeof EnableBankingFeedConfigSche
 
 /**
  * TrueLayer Data API linkage (§3.4). OAuth stores refresh tokens separately;
- * `dataAccountId` is the `/data/v1/accounts/:id` resource id after linking.
+ * `dataAccountId` is the `/data/v1/accounts/:id` or `/data/v1/cards/:id` resource id after linking.
  */
 export const TrueLayerFeedConfigSchema = z.object({
   dataAccountId: z.string().min(1).optional(),

@@ -22,6 +22,16 @@ import type { InternalFeedTransactions } from './model.js';
 import type { IngestResult, IngestCsvFileOptions } from '../ingest-csv-file.js';
 import type { FetchEnableTransactionsRequest } from './enable-banking.js';
 import type { FetchTrueLayerTransactionsRequest } from './truelayer/truelayer-transactions.js';
+import { fetchTrueLayerTransactions } from './truelayer/truelayer-transactions.js';
+import type { FetchLike } from './truelayer/truelayer-auth-http.js';
+import {
+  TRUE_LAYER_ACCOUNT_ID,
+  canonicalTrueLayerRawTransactions,
+  canonicalTrueLayerCardRawTransactions,
+  makeTrueLayerTransactionsEnvelope,
+} from './truelayer/truelayer-transaction-fixtures.js';
+import { PARSERS } from '../../parsers/index.js';
+import { isCreditCard } from '../../domain/accounts/index.js';
 
 const mockDeps = vi.hoisted(() => ({
   getAccountConfigMock: vi.fn(),
@@ -561,3 +571,193 @@ describe('runFeedSync', () => {
     );
   });
 });
+
+interface TrueLayerSyncOrchestrationCase {
+  readonly account: AccountName;
+  readonly csvMustContain: readonly string[];
+  readonly transactionPathMustContain: string;
+}
+
+const TRUE_LAYER_SYNC_ORCHESTRATION_CASES: readonly TrueLayerSyncOrchestrationCase[] = [
+  {
+    account: 'barclays-current',
+    csvMustContain: ['Number,Date,Account,Amount', '-3.50', '1200.00'],
+    transactionPathMustContain: '/data/v1/accounts/',
+  },
+  {
+    account: 'natwest',
+    csvMustContain: ['Date,Type,Description,Value', '-3.50', '1200.00'],
+    transactionPathMustContain: '/data/v1/accounts/',
+  },
+  {
+    account: 'monzo-joint',
+    csvMustContain: ['Money Out', 'Money In', '3.50', '1200.00'],
+    transactionPathMustContain: '/data/v1/accounts/',
+  },
+  {
+    account: 'wise-ltd',
+    csvMustContain: ['Direction', ',OUT,', ',IN,'],
+    transactionPathMustContain: '/data/v1/accounts/',
+  },
+  {
+    account: 'barclaycard',
+    csvMustContain: ['Merchant Name', '3.50', '-1200.00'],
+    transactionPathMustContain: '/data/v1/cards/',
+  },
+  {
+    account: 'santander-everyday',
+    csvMustContain: ['Date,Card,Description,Amount', '3.50', '-1200.00'],
+    transactionPathMustContain: '/data/v1/cards/',
+  },
+];
+
+function makeTrueLayerSyncFetch(account: AccountName): {
+  fetch: FetchLike;
+  transactionUrls: string[];
+} {
+  const transactionUrls: string[] = [];
+  let callIndex = 0;
+  const useCardTransactions = isCreditCard(account);
+  const responses = [
+    {
+      access_token: 'sync-access-token',
+      refresh_token: 'sync-refresh-token',
+      token_type: 'Bearer',
+    },
+    makeTrueLayerTransactionsEnvelope(
+      useCardTransactions ? canonicalTrueLayerCardRawTransactions : canonicalTrueLayerRawTransactions,
+    ),
+  ];
+  const fetch: FetchLike = async (input, init) => {
+    const url = input instanceof URL ? input.toString() : input.toString();
+    void init;
+    if (url.includes('/transactions')) {
+      transactionUrls.push(url);
+    }
+    const payload = responses[callIndex++];
+    if (payload === undefined) {
+      throw new Error(`TrueLayer sync fake fetch ran out of responses at ${url}`);
+    }
+    return {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () => JSON.stringify(payload),
+      json: async () => payload,
+    } as globalThis.Response;
+  };
+  return { fetch, transactionUrls };
+}
+
+function buildTrueLayerSyncFetchDeps(account: AccountName): {
+  fetchTrueLayerWithFakeHttp: (
+    req: FetchTrueLayerTransactionsRequest,
+  ) => ReturnType<typeof fetchTrueLayerTransactions>;
+  transactionUrls: string[];
+} {
+  const { fetch, transactionUrls } = makeTrueLayerSyncFetch(account);
+  return {
+    transactionUrls,
+    fetchTrueLayerWithFakeHttp: (req: FetchTrueLayerTransactionsRequest) =>
+      fetchTrueLayerTransactions(req, {
+        fetch,
+        apiBase: 'https://api.test',
+        authBase: 'https://auth.test',
+        getRefreshTokenSource: tokenAccount => ({
+          refreshToken: 'sync-refresh-token',
+          tokenAccount,
+        }),
+        persistRefreshToken: () => undefined,
+      }),
+  };
+}
+
+describe.each(TRUE_LAYER_SYNC_ORCHESTRATION_CASES)(
+  'runFeedSync — TrueLayer orchestration for $account',
+  syncCase => {
+    let tmpRoot: string;
+
+    beforeEach(() => {
+      tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'feed-tl-sync-test-'));
+      process.env.TRUELAYER_CLIENT_ID = 'test-client-id';
+      process.env.TRUELAYER_CLIENT_SECRET = 'test-client-secret';
+      resolveTrueLayerRefreshTokenMock.mockReturnValue('sync-refresh-token');
+      getAccountConfigMock.mockImplementation((name: AccountName) =>
+        name === syncCase.account
+          ? {
+              ...realGetAccountConfig(name),
+              aispFeed: { trueLayer: { dataAccountId: TRUE_LAYER_ACCOUNT_ID } },
+            }
+          : passthrough(name),
+      );
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    });
+
+    it('fetches via TrueLayer, emits bank-shaped CSV, and skips Enable', async () => {
+      const { fetchTrueLayerWithFakeHttp, transactionUrls } =
+        buildTrueLayerSyncFetchDeps(syncCase.account);
+      const ebFetch = vi.fn();
+      let observedCsv: string | null = null;
+      const ingestMock = vi.fn(
+        (
+          account: AccountName,
+          filePath: string,
+          originalName: string,
+          _options: IngestCsvFileOptions,
+        ): IngestResult => {
+          observedCsv = fs.readFileSync(filePath, 'utf-8');
+          return {
+            ok: true,
+            outcome: 'ingested',
+            originalSavedAt: '/dev/null',
+            finalPath: '/dev/null',
+            normalizedFilename: originalName,
+            renamed: false,
+            partition: {
+              deleted: true,
+              filesCreated: [`2026-04_transactions_${account}.csv`],
+              originalFile: '',
+              totalRows: 2,
+              rowsByMonth: new Map([['2026-04', 2]]),
+            },
+          };
+        },
+      );
+      const initDbMock = vi.fn(async () => undefined);
+
+      const result = await runFeedSync(
+        syncCase.account,
+        { dateFrom: '2026-04-15', force: true },
+        {
+          fetchEnableTransactions: ebFetch,
+          fetchTrueLayerTransactions: fetchTrueLayerWithFakeHttp,
+          ingestCsvFile: ingestMock,
+          initDatabase: initDbMock,
+          statementsDir: tmpRoot,
+          today: () => '2026-04-20',
+          findLatestCsvDate: () => null,
+          tmpDir: () => tmpRoot,
+        },
+      );
+
+      expect(ebFetch).not.toHaveBeenCalled();
+      expect(ingestMock).toHaveBeenCalledOnce();
+      expect(observedCsv).not.toBeNull();
+      const parser = PARSERS[syncCase.account];
+      expect(observedCsv?.split('\n')[0]).toBe(parser.headers.join(','));
+      for (const snippet of syncCase.csvMustContain) {
+        expect(observedCsv).toContain(snippet);
+      }
+      expect(result.csvWritten).toBe(true);
+      expect(result.rowsFetched).toBe(2);
+      expect(initDbMock).toHaveBeenCalledOnce();
+      expect(transactionUrls.some(u => u.includes(syncCase.transactionPathMustContain))).toBe(true);
+      if (syncCase.transactionPathMustContain === '/data/v1/cards/') {
+        expect(transactionUrls.some(u => u.includes('/data/v1/accounts/'))).toBe(false);
+      }
+    });
+  },
+);

@@ -1,6 +1,11 @@
 account,truelayer_account_id
+# `truelayer_account_id` is the TrueLayer Data API resource id from OAuth callback HTML.
+# Current/savings rows use `/data/v1/accounts/{id}`; credit-card rows use `/data/v1/cards/{id}`.
 barclays-current,paste_tl_data_account_uuid_for_current
 barclays-savings,paste_tl_data_account_uuid_for_savings
 natwest,paste_tl_data_account_uuid_here
 natwest-savings,paste_tl_savings_uuid_if_separate
 monzo-joint,paste_tl_data_account_uuid_here
+wise-ltd,paste_tl_data_account_uuid_here
+barclaycard,paste_tl_card_uuid_here
+santander-everyday,paste_tl_card_uuid_here
