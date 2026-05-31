@@ -12,6 +12,12 @@ export { composeAiSpendContext } from './compose-spend-context.js';
 export { composeAiNetWorthHistory } from './compose-net-worth-history.js';
 export { composeAiSpendByCurrency, composeAiSpendByCurrencyForCurrentMonth, defaultSpendByCurrencyPeriodFromTodayIso } from './compose-spend-by-currency.js';
 export { composeAiEntityLiquidityFx } from './compose-entity-liquidity-fx.js';
+export { composeAiSpendRate, type ComposeAiSpendRateOpts } from './compose-spend-rate.js';
+export { composeAiAvailableFunds, type ComposeAiAvailableFundsOpts } from './compose-available-funds.js';
+export { composeAiUpcoming, type ComposeAiUpcomingOpts } from './compose-upcoming.js';
+export { composeAiSurvival, type ComposeAiSurvivalOpts } from './compose-survival.js';
+export { composeAiSpendAllowance, type ComposeAiSpendAllowanceOpts } from './compose-spend-allowance.js';
+export { composeHouseholdSpendDeltas } from './compose-household-deltas.js';
 export {
   composeAiTransactionDrill,
   buildAiTransactionDrillResponse,

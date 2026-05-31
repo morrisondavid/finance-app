@@ -75,6 +75,8 @@ export interface AssembleForecastEventsParams {
   readonly includeDetectedIncomeRecurring?: boolean;
   /** When set, only recurring events whose `UpcomingRecurring` passes are included. */
   readonly recurringPredicate?: (item: UpcomingRecurring) => boolean;
+  /** When true with `includeAccrual`, project contract income monthly through end_date. */
+  readonly projectAccrualToContractEnd?: boolean;
 }
 
 /**
@@ -158,6 +160,7 @@ export function assembleForecastEvents(params: AssembleForecastEventsParams): Fo
     includeAccrual,
     includeDetectedIncomeRecurring,
     recurringPredicate,
+    projectAccrualToContractEnd,
   } = params;
 
   const obligationEvents = collectObligationEvents({
@@ -225,6 +228,7 @@ export function assembleForecastEvents(params: AssembleForecastEventsParams): Fo
         accountsByEntity,
         currencyByAccount,
         invoicedContractIds,
+        projectToContractEnd: projectAccrualToContractEnd,
       })
     : [];
 

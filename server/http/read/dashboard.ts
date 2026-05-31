@@ -40,6 +40,7 @@ import { buildExpensePipelineForAccount, transactionRowToRaw } from '../../utils
 import { computeBudgetNudges } from '../../utils/budget-nudges.js';
 import { feedToolbarStateForAccount } from '../../ingestion/feeds/feed-toolbar-state.js';
 import { feedLinkIndicatorsForAllAccounts } from '../../ingestion/feeds/feed-link-indicator.js';
+import { composeAiAvailableFunds } from '../../domain/ai/compose-available-funds.js';
 import { flattenExpressQuery } from '../../utils/flatten-express-query.js';
 import { jsonReadFail, jsonReadOk, type JsonReadResult } from './types.js';
 
@@ -131,6 +132,7 @@ export function readDashboardSummaryFromQuery(
       liquidityCommitments,
       transactionCount: getTransactionCount(filters),
       fileCount: getFileCount(),
+      availableFunds: composeAiAvailableFunds({ horizonDays: 720 }),
     };
 
     return jsonReadOk(DashboardSummaryResponseSchema.parse(summaryUnchecked));

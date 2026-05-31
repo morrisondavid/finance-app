@@ -41,6 +41,35 @@ export const FinancialSnapshotQuerySchema = SnapshotQuerySchema.extend({
 /** MCP tool `household_financial_posture` — extends financial-snapshot query + optional per-account balances. */
 export const HouseholdFinancialPostureQuerySchema = FinancialSnapshotQuerySchema.extend({
   includeBalancesByAccount: z.boolean().optional(),
+  includeRunway: z.boolean().optional(),
+  includeIncomeComposition: z.boolean().optional(),
+  includeSpendRate: z.boolean().optional(),
+  includeDeltas: z.boolean().optional(),
+  spendRateWindow: z.coerce.number().int().positive().default(30),
+});
+
+export const SpendRateQuerySchema = z.object({
+  window: z.coerce.number().int().positive().default(30),
+  entityId: EntityIdSchema.optional(),
+});
+
+export const AvailableFundsQuerySchema = HorizonEntityQuerySchema;
+
+export const UpcomingQuerySchema = z.object({
+  months: z.coerce.number().int().positive().max(36).default(3),
+  kind: z.enum(['expenses', 'income', 'both']).default('both'),
+  entityId: EntityIdSchema.optional(),
+});
+
+export const SurvivalQuerySchema = z.object({
+  scope: z.enum(['personal', 'household']).default('personal'),
+  dailyDiscretionary: z.coerce.number().nonnegative().optional(),
+  targetDate: z.string().optional(),
+  horizonDays: z.coerce.number().int().positive().default(720),
+});
+
+export const SpendAllowanceQuerySchema = z.object({
+  period: z.enum(['today', 'week']).default('today'),
 });
 
 /** GET /api/ai/spend-by-currency */

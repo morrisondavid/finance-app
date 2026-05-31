@@ -95,44 +95,78 @@ export function getMonthlySummary(filters: DashboardFilters = {}): MonthlySummar
 export function getAccountSummary(filters: DashboardFilters = {}): Record<string, AccountSummary> {
   const db = getDb();
   const result: Record<string, AccountSummary> = {};
-  const { clause, params } = buildDashboardFilters({ financialYear: filters.financialYear }); // Don't filter by account here
-  
-  // Initialize all accounts with zeros
+  const { clause, params } = buildDashboardFilters({ financialYear: filters.financialYear });
+
   for (const account of ACCOUNTS) {
     result[account] = { income: 0, expenses: 0, transactionCount: 0, newestTransaction: null };
   }
-  
-  const newestOverallStmt = db.prepare(
-    `SELECT MAX(date) as newest FROM transactions WHERE account = ?`,
-  );
 
-  // Get raw data for each account and apply account-specific logic
+  type AggRow = {
+    account: string;
+    type: string;
+    cnt: number;
+    income_sum: number;
+    expense_sum: number;
+    transfer_in: number;
+    transfer_out: number;
+  };
+
+  const aggRows = db.prepare(`
+    SELECT account,
+           type,
+           COUNT(*) AS cnt,
+           SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS income_sum,
+           SUM(CASE WHEN type = 'expense' THEN ABS(amount) ELSE 0 END) AS expense_sum,
+           SUM(CASE WHEN type = 'transfer' AND amount > 0 THEN amount ELSE 0 END) AS transfer_in,
+           SUM(CASE WHEN type = 'transfer' AND amount < 0 THEN ABS(amount) ELSE 0 END) AS transfer_out
+    FROM transactions
+    WHERE 1=1${clause}
+    GROUP BY account, type
+  `).all(...params) as AggRow[];
+
+  const byAccountAgg = new Map<string, AggRow[]>();
+  for (const row of aggRows) {
+    const bucket = byAccountAgg.get(row.account);
+    if (bucket) bucket.push(row);
+    else byAccountAgg.set(row.account, [row]);
+  }
+
+  const newestOverallRows = db.prepare(
+    `SELECT account, MAX(date) AS newest FROM transactions GROUP BY account`,
+  ).all() as Array<{ account: string; newest: string | null }>;
+
+  const newestByAccount = new Map(newestOverallRows.map(r => [r.account, r.newest]));
+
   for (const account of ACCOUNTS) {
     const includeTransfers = shouldIncludeTransfersAsIncome(account);
-    
-    const row = db.prepare(`
-      SELECT 
-        SUM(CASE WHEN ${getIncomeCondition(includeTransfers)} THEN amount ELSE 0 END) as income,
-        SUM(CASE WHEN ${getExpenseCondition(includeTransfers)} THEN ABS(amount) ELSE 0 END) as expenses,
-        COUNT(*) as count,
-        MAX(date) as newest
-      FROM transactions
-      WHERE account = ?${clause}
-    `).get(account, ...params) as { income: number | null; expenses: number | null; count: number; newest: string | null };
+    const rows = byAccountAgg.get(account) ?? [];
+    let income = 0;
+    let expenses = 0;
+    let transactionCount = 0;
 
-    const newestOverall = newestOverallStmt.get(account) as { newest: string | null };
+    for (const row of rows) {
+      if (row.type === 'income') {
+        income += row.income_sum;
+        transactionCount += row.cnt;
+      } else if (row.type === 'expense') {
+        expenses += row.expense_sum;
+        transactionCount += row.cnt;
+      } else if (row.type === 'transfer') {
+        if (includeTransfers) {
+          income += row.transfer_in;
+          expenses += row.transfer_out;
+          transactionCount += row.cnt;
+        }
+      }
+    }
 
     result[account] = {
-      income: round2(row.income || 0),
-      expenses: round2(row.expenses || 0),
-      transactionCount: row.count,
-      // "Latest" on account chips + feed-sync `dateFrom` must reflect the true
-      // newest row for the account, not MAX(date) inside the selected FY (a
-      // transaction in e.g. 2026/27 would not move the FY-scoped MAX when
-      // 2025/26 is selected).
-      newestTransaction: newestOverall.newest,
+      income: round2(income),
+      expenses: round2(expenses),
+      transactionCount,
+      newestTransaction: newestByAccount.get(account) ?? null,
     };
   }
-  
+
   return result;
 }

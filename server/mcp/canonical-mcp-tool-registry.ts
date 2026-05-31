@@ -6,6 +6,19 @@
 
 export const CANONICAL_MCP_TOOL_GROUPS = [
   ['Cross-domain', ['household_financial_posture', 'income_get_composition']],
+  [
+    'Survival & insights',
+    [
+      'analytics_get_available_funds',
+      'analytics_get_spend_rate',
+      'analytics_get_upcoming',
+      'analytics_get_survival',
+      'survival_get_allowance',
+      'survival_plan_commit',
+      'survival_plan_get',
+      'survival_plan_clear',
+    ],
+  ],
   ['Net worth', ['net_worth_capture_snapshot']],
   [
     'Analytics §2.0',

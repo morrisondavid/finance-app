@@ -25,6 +25,11 @@ import {
   composeAiNetWorthHistory,
   composeAiSpendByCurrency,
   composeAiEntityLiquidityFx,
+  composeAiSpendRate,
+  composeAiAvailableFunds,
+  composeAiUpcoming,
+  composeAiSurvival,
+  composeAiSpendAllowance,
   buildAiTransactionDrillResponse,
 } from '../domain/ai/index.js';
 import { captureNetWorthSnapshots } from '../domain/net-worth/snapshot.js';
@@ -37,6 +42,11 @@ import {
   RunwayQuerySchema,
   SnapshotQuerySchema,
   SpendByCurrencyQuerySchema,
+  SpendRateQuerySchema,
+  AvailableFundsQuerySchema,
+  UpcomingQuerySchema,
+  SurvivalQuerySchema,
+  SpendAllowanceQuerySchema,
 } from '../domain/ai/ai-get-query-schemas.js';
 
 const router = Router();
@@ -328,6 +338,99 @@ router.get('/spend-context', (_req: Request, res: Response) => {
     console.error('[AI] GET /spend-context error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     res.status(500).json({ error: `Failed to build AI spend context: ${message}` });
+  }
+});
+
+router.get('/spend-rate', (req: Request, res: Response) => {
+  try {
+    const parsed = SpendRateQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid-params', issues: parsed.error.issues });
+      return;
+    }
+    res.json(composeAiSpendRate({ window: parsed.data.window, entityId: parsed.data.entityId }));
+  } catch (error) {
+    console.error('[AI] GET /spend-rate error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: `Failed to build AI spend-rate: ${message}` });
+  }
+});
+
+router.get('/available-funds', (req: Request, res: Response) => {
+  try {
+    const parsed = AvailableFundsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid-params', issues: parsed.error.issues });
+      return;
+    }
+    res.json(
+      composeAiAvailableFunds({
+        horizonDays: parsed.data.days,
+        filterEntityId: parsed.data.entityId,
+      }),
+    );
+  } catch (error) {
+    console.error('[AI] GET /available-funds error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: `Failed to build AI available-funds: ${message}` });
+  }
+});
+
+router.get('/upcoming', (req: Request, res: Response) => {
+  try {
+    const parsed = UpcomingQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid-params', issues: parsed.error.issues });
+      return;
+    }
+    res.json(
+      composeAiUpcoming({
+        months: parsed.data.months,
+        kind: parsed.data.kind,
+        filterEntityId: parsed.data.entityId,
+      }),
+    );
+  } catch (error) {
+    console.error('[AI] GET /upcoming error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: `Failed to build AI upcoming: ${message}` });
+  }
+});
+
+router.get('/survival', (req: Request, res: Response) => {
+  try {
+    const parsed = SurvivalQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid-params', issues: parsed.error.issues });
+      return;
+    }
+    res.json(
+      composeAiSurvival({
+        scope: parsed.data.scope,
+        dailyDiscretionary: parsed.data.dailyDiscretionary,
+        targetDate: parsed.data.targetDate,
+        horizonDays: parsed.data.horizonDays,
+      }),
+    );
+  } catch (error) {
+    console.error('[AI] GET /survival error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: `Failed to build AI survival: ${message}` });
+  }
+});
+
+router.get('/spend-allowance', (req: Request, res: Response) => {
+  try {
+    const parsed = SpendAllowanceQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'invalid-params', issues: parsed.error.issues });
+      return;
+    }
+    res.json(composeAiSpendAllowance({ period: parsed.data.period }));
+  } catch (error) {
+    console.error('[AI] GET /spend-allowance error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: `Failed to build AI spend-allowance: ${message}` });
   }
 });
 

@@ -478,17 +478,10 @@ export const DashboardSummaryResponseSchema = z.object({
   feedLinkByAccount: FeedLinkByAccountSchema,
   /** §2.2 — same payload as `GET /api/ai/financial-safety` when present. */
   financialSafety: AiFinancialSafetyResponseSchema.optional(),
+  /** Future income + projected available (survival insights). */
+  availableFunds: z.lazy(() => AiAvailableFundsResponseSchema).optional(),
 });
 
-/** MCP composite `household_financial_posture` — orchestration envelope (no HTTP route). */
-export const HouseholdFinancialPostureResponseSchema = z.object({
-  generatedAt: z.string(),
-  financialSafety: AiFinancialSafetyResponseSchema,
-  dashboardSummary: DashboardSummaryResponseSchema,
-  balancesByAccount: z.record(z.string(), AccountBalanceSchema).optional(),
-});
-
-export type HouseholdFinancialPostureResponse = z.infer<typeof HouseholdFinancialPostureResponseSchema>;
 export const AccountConfigsResponseSchema = z.array(AccountConfigSchema);
 
 /** GET /api/dashboard/feed-toolbar-state — drive Connect vs Sync toolbar (no OAuth side effects). */
@@ -2699,6 +2692,156 @@ export const ExpectedReceiptsResponseSchema = z.object({
   receipts: z.array(ExpectedReceiptRowSchema),
 });
 export type ExpectedReceiptsResponse = z.infer<typeof ExpectedReceiptsResponseSchema>;
+
+export const AiSpendRateSplitSchema = z.object({
+  personalDiscretionary: z.number(),
+  personalMandatory: z.number(),
+  businessDiscretionary: z.number(),
+  businessMandatory: z.number(),
+});
+export type AiSpendRateSplit = z.infer<typeof AiSpendRateSplitSchema>;
+
+export const AiSpendRateResponseSchema = z.object({
+  generatedAt: z.string(),
+  schemaVersion: z.string(),
+  windowDays: z.number().int().positive(),
+  currency: z.literal('GBP'),
+  perDay: z.number(),
+  perWeek: z.number(),
+  perMonth: z.number(),
+  split: AiSpendRateSplitSchema,
+});
+export type AiSpendRateResponse = z.infer<typeof AiSpendRateResponseSchema>;
+
+export const AiAvailableFundsResponseSchema = z.object({
+  generatedAt: z.string(),
+  schemaVersion: z.string(),
+  horizonDays: z.number().int().positive(),
+  availableNowGbp: z.number(),
+  confirmedFutureIncomeGbp: z.number(),
+  futureIncome: z.array(ExpectedReceiptRowSchema),
+  nextIncomeDate: z.string().nullable(),
+  lastConfirmedIncomeDate: z.string().nullable(),
+  committedOutflowsGbp: z.number(),
+  projectedAvailableGbp: z.number(),
+});
+export type AiAvailableFundsResponse = z.infer<typeof AiAvailableFundsResponseSchema>;
+
+export const AiUpcomingMonthBucketSchema = z.object({
+  month: z.string().regex(/^\d{4}-\d{2}$/),
+  expensesGbp: z.number(),
+  incomeGbp: z.number(),
+  net: z.number(),
+});
+
+export const AiUpcomingResponseSchema = z.object({
+  generatedAt: z.string(),
+  schemaVersion: z.string(),
+  asOf: IsoDateSchema,
+  months: z.number().int().positive(),
+  buckets: z.array(AiUpcomingMonthBucketSchema),
+  totals: z.object({
+    expensesGbp: z.number(),
+    incomeGbp: z.number(),
+    net: z.number(),
+  }),
+});
+export type AiUpcomingResponse = z.infer<typeof AiUpcomingResponseSchema>;
+
+export const SurvivalEssentialOverrideSchema = z.object({
+  category: z.string().optional(),
+  merchant: z.string().optional(),
+  weeklyAmountGbp: z.coerce.number().nonnegative().optional(),
+  monthlyAmountGbp: z.coerce.number().nonnegative().optional(),
+});
+
+export const AiSurvivalGivenSchema = z.object({
+  dailyDiscretionary: z.number(),
+  survivalDateCashOnly: z.string().nullable(),
+  survivalDateCreditIncluded: z.string().nullable(),
+  daysOfSurvival: z.number().nullable(),
+});
+
+export const AiSurvivalResponseSchema = z.object({
+  generatedAt: z.string(),
+  schemaVersion: z.string(),
+  today: IsoDateSchema,
+  scope: z.enum(['personal', 'household']),
+  essentialsMonthlyGbp: z.number(),
+  confirmedFutureIncome: z.array(ExpectedReceiptRowSchema),
+  availableCreditGbp: z.number(),
+  given: AiSurvivalGivenSchema.optional(),
+  solveForTarget: z.object({
+    targetDate: IsoDateSchema,
+    maxDailyDiscretionary: z.number(),
+  }).optional(),
+  appliedOverrides: z.array(SurvivalEssentialOverrideSchema),
+  narrative: z.string(),
+});
+export type AiSurvivalResponse = z.infer<typeof AiSurvivalResponseSchema>;
+
+export const AiSpendAllowancePlanSchema = z.object({
+  startDate: IsoDateSchema,
+  dailyAmount: z.number(),
+  scope: z.enum(['personal', 'household']),
+});
+
+export const AiSpendAllowanceResponseSchema = z.object({
+  generatedAt: z.string(),
+  schemaVersion: z.string(),
+  plan: AiSpendAllowancePlanSchema,
+  period: z.enum(['today', 'week']),
+  accruedAllowanceGbp: z.number(),
+  spentGbp: z.number(),
+  remainingGbp: z.number(),
+  status: z.enum(['on-track', 'overspent', 'ahead']),
+  tomorrowAllowanceGbp: z.number(),
+});
+export type AiSpendAllowanceResponse = z.infer<typeof AiSpendAllowanceResponseSchema>;
+
+export const SurvivalPlanCommitBodySchema = z.object({
+  startDate: IsoDateSchema,
+  dailyAmount: z.coerce.number().nonnegative(),
+  scope: z.enum(['personal', 'household']).default('personal'),
+  note: z.string().default(''),
+  confirmedInChat: z.literal(true),
+  narrativeBasis: z.string().optional(),
+});
+
+export const SurvivalPlanGetResponseSchema = z.object({
+  plan: AiSpendAllowancePlanSchema.extend({
+    note: z.string(),
+    active: z.boolean(),
+  }).nullable(),
+});
+
+/** MCP composite `household_financial_posture` — orchestration envelope (no HTTP route). */
+export const HouseholdFinancialPostureDeltasCategorySchema = z.object({
+  category: z.string(),
+  current: z.number(),
+  previous: z.number(),
+  deltaPct: z.number().nullable(),
+  flagged: z.boolean(),
+});
+
+export const HouseholdFinancialPostureDeltasSchema = z.object({
+  income: z.object({ current: z.number(), previous: z.number(), deltaPct: z.number().nullable() }),
+  expenses: z.object({ current: z.number(), previous: z.number(), deltaPct: z.number().nullable() }),
+  byCategory: z.array(HouseholdFinancialPostureDeltasCategorySchema),
+});
+export type HouseholdFinancialPostureDeltas = z.infer<typeof HouseholdFinancialPostureDeltasSchema>;
+
+export const HouseholdFinancialPostureResponseSchema = z.object({
+  generatedAt: z.string(),
+  financialSafety: AiFinancialSafetyResponseSchema,
+  dashboardSummary: DashboardSummaryResponseSchema,
+  balancesByAccount: z.record(z.string(), AccountBalanceSchema).optional(),
+  runway: RunwayResponseSchema.optional(),
+  incomeComposition: IncomeCompositionResponseSchema.optional(),
+  spendRate: AiSpendRateResponseSchema.optional(),
+  deltas: HouseholdFinancialPostureDeltasSchema.optional(),
+});
+export type HouseholdFinancialPostureResponse = z.infer<typeof HouseholdFinancialPostureResponseSchema>;
 
 // ---------------------------------------------------------------------------
 // §2.0.E AI slices (same leaf types as product routes; composition-only envelopes)

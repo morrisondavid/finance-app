@@ -18,6 +18,11 @@ import {
   AiFinancialSnapshotResponseSchema,
   AiFinancialSafetyResponseSchema,
   AiSpendByCurrencyResponseSchema,
+  AiSpendRateResponseSchema,
+  AiAvailableFundsResponseSchema,
+  AiUpcomingResponseSchema,
+  AiSurvivalResponseSchema,
+  AiSpendAllowanceResponseSchema,
   HouseholdFinancialPostureResponseSchema,
   IncomeCompositionResponseSchema,
   AccountBalanceSchema,
@@ -41,8 +46,15 @@ import {
   composeAiSpendByCurrencyForCurrentMonth,
   composeAiSpendByCurrency,
   composeAiEntityLiquidityFx,
+  composeAiSpendRate,
+  composeAiAvailableFunds,
+  composeAiUpcoming,
+  composeAiSurvival,
+  composeAiSpendAllowance,
+  composeHouseholdSpendDeltas,
   buildAiTransactionDrillResponse,
 } from '../domain/ai/index.js';
+import { loadForecastInputs } from '../domain/forecast/load-inputs.js';
 import type { SpendByCurrencyPeriod } from '../domain/cross-currency/spend-by-currency.js';
 import {
   FinancialSnapshotQuerySchema,
@@ -51,6 +63,11 @@ import {
   RunwayQuerySchema,
   SnapshotQuerySchema,
   SpendByCurrencyQuerySchema,
+  SpendRateQuerySchema,
+  AvailableFundsQuerySchema,
+  UpcomingQuerySchema,
+  SurvivalQuerySchema,
+  SpendAllowanceQuerySchema,
   HouseholdFinancialPostureQuerySchema,
 } from '../domain/ai/ai-get-query-schemas.js';
 import { assembleRunway } from '../domain/forecast/index.js';
@@ -65,6 +82,7 @@ import { registerBankStatementsHttpMutationTools } from './http-mutation-mcp-too
 import { registerBankStatementsBinaryOAuthUploadTools } from './binary-oauth-upload-mcp-tools.js';
 import { registerMonthlyInvoiceMcpTools } from './monthly-invoice-mcp-tools.js';
 import { registerAccountantPackMcpTools } from './accountant-pack-mcp-tools.js';
+import { registerSurvivalPlanMcpTools } from './survival-plan-mcp-tools.js';
 
 export const BANK_STATEMENTS_AI_RESOURCE_BASE = 'bankstatements://ai';
 
@@ -294,7 +312,15 @@ export function runHouseholdFinancialPostureMcpTool(args: unknown): McpJsonToolR
   const parsed = HouseholdFinancialPostureQuerySchema.safeParse(args ?? {});
   if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
   try {
-    const { includeBalancesByAccount, ...snapshotQuery } = parsed.data;
+    const {
+      includeBalancesByAccount,
+      includeRunway,
+      includeIncomeComposition,
+      includeSpendRate,
+      includeDeltas,
+      spendRateWindow,
+      ...snapshotQuery
+    } = parsed.data;
     const {
       days: horizonDays,
       entityId: filterEntityId,
@@ -304,6 +330,7 @@ export function runHouseholdFinancialPostureMcpTool(args: unknown): McpJsonToolR
       groupByEntity,
       commitmentDays,
     } = snapshotQuery;
+    const loaded = loadForecastInputs({ horizonDays, filterEntityId });
     const financialSafety = composeAiFinancialSafety({
       horizonDays,
       commitmentDays,
@@ -312,6 +339,7 @@ export function runHouseholdFinancialPostureMcpTool(args: unknown): McpJsonToolR
       account,
       financialYear,
       groupByEntity,
+      forecastInputs: loaded,
     });
     const summaryResult = readDashboardSummaryFromQuery({
       account,
@@ -339,13 +367,134 @@ export function runHouseholdFinancialPostureMcpTool(args: unknown): McpJsonToolR
       }
     }
 
+    let runway;
+    if (includeRunway === true) {
+      const assembled = assembleRunway({ forecastInputs: loaded });
+      runway = runwayResponseFromAssembled(assembled, filterEntityId, {
+        detail: runwayDetail ?? 'summary',
+      });
+    }
+
+    const incomeComposition = includeIncomeComposition === true
+      ? composeAiIncomeComposition()
+      : undefined;
+
+    const spendRate = includeSpendRate === true
+      ? composeAiSpendRate({ window: spendRateWindow ?? 30, entityId: filterEntityId })
+      : undefined;
+
+    const deltas = includeDeltas === true
+      ? composeHouseholdSpendDeltas(spendRateWindow ?? 30, filterEntityId, loaded.today)
+      : undefined;
+
     const structuredContent = HouseholdFinancialPostureResponseSchema.parse({
       generatedAt: new Date().toISOString(),
       financialSafety,
       dashboardSummary: summaryResult.body,
       ...(balancesByAccount !== undefined ? { balancesByAccount } : {}),
+      ...(runway !== undefined ? { runway } : {}),
+      ...(incomeComposition !== undefined ? { incomeComposition } : {}),
+      ...(spendRate !== undefined ? { spendRate } : {}),
+      ...(deltas !== undefined ? { deltas } : {}),
     });
 
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (err) {
+    return mcpAiInternalError(err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+/** @internal */
+export function runAnalyticsGetSpendRateMcpTool(args: unknown): McpJsonToolReturn {
+  const parsed = SpendRateQuerySchema.safeParse(args ?? {});
+  if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
+  try {
+    const structuredContent = AiSpendRateResponseSchema.parse(
+      composeAiSpendRate({ window: parsed.data.window, entityId: parsed.data.entityId }),
+    );
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (err) {
+    return mcpAiInternalError(err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+/** @internal */
+export function runAnalyticsGetAvailableFundsMcpTool(args: unknown): McpJsonToolReturn {
+  const parsed = AvailableFundsQuerySchema.safeParse(args ?? {});
+  if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
+  try {
+    const structuredContent = AiAvailableFundsResponseSchema.parse(
+      composeAiAvailableFunds({
+        horizonDays: parsed.data.days,
+        filterEntityId: parsed.data.entityId,
+      }),
+    );
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (err) {
+    return mcpAiInternalError(err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+/** @internal */
+export function runAnalyticsGetUpcomingMcpTool(args: unknown): McpJsonToolReturn {
+  const parsed = UpcomingQuerySchema.safeParse(args ?? {});
+  if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
+  try {
+    const structuredContent = AiUpcomingResponseSchema.parse(
+      composeAiUpcoming({
+        months: parsed.data.months,
+        kind: parsed.data.kind,
+        filterEntityId: parsed.data.entityId,
+      }),
+    );
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (err) {
+    return mcpAiInternalError(err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+/** @internal */
+export function runAnalyticsGetSurvivalMcpTool(args: unknown): McpJsonToolReturn {
+  const parsed = SurvivalQuerySchema.safeParse(args ?? {});
+  if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
+  try {
+    const structuredContent = AiSurvivalResponseSchema.parse(
+      composeAiSurvival({
+        scope: parsed.data.scope,
+        dailyDiscretionary: parsed.data.dailyDiscretionary,
+        targetDate: parsed.data.targetDate,
+        horizonDays: parsed.data.horizonDays,
+      }),
+    );
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (err) {
+    return mcpAiInternalError(err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
+/** @internal */
+export function runSurvivalGetAllowanceMcpTool(args: unknown): McpJsonToolReturn {
+  const parsed = SpendAllowanceQuerySchema.safeParse(args ?? {});
+  if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
+  try {
+    const structuredContent = AiSpendAllowanceResponseSchema.parse(
+      composeAiSpendAllowance({ period: parsed.data.period }),
+    );
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
       structuredContent,
@@ -429,7 +578,8 @@ export function createBankStatementsMcpServer(): McpServer {
     {
       instructions:
         '## Outcome-first MCP (bank-statements-app)\n\n' +
-        '**Tier-1 reads:** `household_financial_posture` (financial safety score + dashboard summary + optional `includeBalancesByAccount`) and `income_get_composition` (§1.7 income mix / concentration). Prefer these before scattering many raw GET mirrors.\n\n' +
+        '**Tier-1 reads:** `household_financial_posture` (financial safety + dashboard summary + optional runway/income/spend-rate/deltas via `includeRunway`, `includeIncomeComposition`, `includeSpendRate`, `includeDeltas`) and `income_get_composition`. For money anxiety / survival: also **`analytics_get_survival`**, **`analytics_get_available_funds`**, **`survival_get_allowance`**.\n\n' +
+        '**Survival & insights:** `analytics_get_available_funds` (future income, next/last payment date, projected available), `analytics_get_spend_rate` (daily/weekly/monthly burn split personal/business), `analytics_get_upcoming` (N-month expense/income buckets), `analytics_get_survival` (safe £/day + how long money lasts), `survival_get_allowance` (today\'s rollover budget), `survival_plan_commit` / `survival_plan_get` / `survival_plan_clear`.\n\n' +
         '**Canonical registry:** grouped prefixed tool ids live in `server/mcp/canonical-mcp-tool-registry.ts` (`CANONICAL_MCP_TOOL_GROUPS`) — use it as the Appendix A–style checklist for automation and reviews.\n\n' +
         '**Canonical naming:** tools use `{domain}_{action}` snake_case (`invoices_list`, `deadlines_create`, `financial_obligations_*`, …). The **first path segment** must be an approved domain token (see that registry). **`get_http_*` / `post_http_*` / `get_ai_*` / verb-first names remain as temporary aliases** registered alongside the canonical tool and will be removed after a deprecation window — always prefer the prefixed name in new automation.\n\n' +
         '**Analytics / §2.0:** `analytics_get_liquidity`, `analytics_get_pipeline`, `analytics_get_runway`, `analytics_get_snapshot`, `analytics_get_financial_snapshot`, `analytics_get_financial_safety`, `analytics_get_spend_by_currency` mirror `GET /api/ai/*` with the same Zod query shapes as legacy `get_ai_*` tools.\n\n' +
@@ -702,12 +852,69 @@ export function createBankStatementsMcpServer(): McpServer {
     'household_financial_posture',
     {
       description:
-        'Composite decision snapshot: **`analytics_get_financial_safety`-grade score** plus **dashboard summary** (balances, liquidity, FY context). Same query shape as FinancialSnapshot + optional **`includeBalancesByAccount`** boolean to attach per-account **`dashboard_get_balance`** payloads for every ledger account.',
+        'Composite decision snapshot: financial safety score + dashboard summary (includes availableFunds when scope=full). Optional `includeRunway`, `includeIncomeComposition`, `includeSpendRate`, `includeDeltas`, `includeBalancesByAccount`. **Use for holistic money health** before drilling into survival tools.',
       inputSchema: HouseholdFinancialPostureQuerySchema.shape,
       outputSchema: HouseholdFinancialPostureResponseSchema.shape,
     },
     raw => runHouseholdFinancialPostureMcpTool(raw ?? {}),
   );
+
+  server.registerTool(
+    'analytics_get_spend_rate',
+    {
+      description:
+        'Spend rate per day/week/month split personal/business and mandatory/discretionary. **Use when the user asks how much they spend per day/week/month, burn rate, or personal vs business spending.**',
+      inputSchema: SpendRateQuerySchema.shape,
+      outputSchema: AiSpendRateResponseSchema.shape,
+    },
+    args => runAnalyticsGetSpendRateMcpTool(args),
+  );
+
+  server.registerTool(
+    'analytics_get_available_funds',
+    {
+      description:
+        'Cash now + confirmed future income − committed outflows; includes next and **final** payment dates. **Use for future income, when income runs out, projected available, or "what is coming in".**',
+      inputSchema: AvailableFundsQuerySchema.shape,
+      outputSchema: AiAvailableFundsResponseSchema.shape,
+    },
+    args => runAnalyticsGetAvailableFundsMcpTool(args),
+  );
+
+  server.registerTool(
+    'analytics_get_upcoming',
+    {
+      description:
+        'Expenses and income bucketed by month for the next N months. **Use when the user asks what is coming up, upcoming bills/income, or next few months cash flow.**',
+      inputSchema: UpcomingQuerySchema.shape,
+      outputSchema: AiUpcomingResponseSchema.shape,
+    },
+    args => runAnalyticsGetUpcomingMcpTool(args),
+  );
+
+  server.registerTool(
+    'analytics_get_survival',
+    {
+      description:
+        'Safe daily discretionary spend + how long money lasts after essentials and confirmed income. **Use when the user mentions losing a contract/job, money anxiety, survival mode, how long money will last, or how much they can safely spend per day.** Optional `dailyDiscretionary` or `targetDate` solve.',
+      inputSchema: SurvivalQuerySchema.shape,
+      outputSchema: AiSurvivalResponseSchema.shape,
+    },
+    args => runAnalyticsGetSurvivalMcpTool(args),
+  );
+
+  server.registerTool(
+    'survival_get_allowance',
+    {
+      description:
+        'Today\'s (or this week\'s) committed survival allowance with rollover — includes `tomorrowAllowanceGbp` after overspend. **Use for daily budget check: "how much can I spend today", "did I overspend", "tomorrow\'s budget".**',
+      inputSchema: SpendAllowanceQuerySchema.shape,
+      outputSchema: AiSpendAllowanceResponseSchema.shape,
+    },
+    args => runSurvivalGetAllowanceMcpTool(args),
+  );
+
+  registerSurvivalPlanMcpTools(server);
 
   // §3.4 — sync_bank_feed mirrors `POST /api/feed/sync`.
   // Same Zod input/output schemas; same `runFeedSync` engine. The MCP

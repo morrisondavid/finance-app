@@ -3,9 +3,9 @@
  * Financial safety score loads lazily via GET /api/ai/financial-safety.
  */
 
-import type { AiFinancialSafetyResponse, AiLiquidityResponse } from '../../../shared/api-contracts.js';
+import type { AiFinancialSafetyResponse, AiLiquidityResponse, AiAvailableFundsResponse, AiSurvivalResponse } from '../../../shared/api-contracts.js';
 import { renderFinancialSafetyHero } from './financial-safety-hero.js';
-import { fetchLiquidity, fetchFinancialSafety } from '../utils/api';
+import { fetchLiquidity, fetchFinancialSafety, fetchAvailableFunds, fetchSurvival } from '../utils/api';
 import { formatCurrency } from '../utils/formatting';
 import { escapeHtml } from '../utils/dom';
 import { state } from './state';
@@ -236,10 +236,78 @@ function renderCommitmentsDetail(commitments: NonNullable<AiLiquidityResponse['l
     </div>`;
 }
 
+function renderInsightPods(
+  available: AiAvailableFundsResponse | null,
+  survival: AiSurvivalResponse | null,
+): string {
+  if (available === null && survival === null) return '';
+
+  const futureBlock = available !== null
+    ? `<section class="liquidity-dashboard__hero-tile liquidity-dashboard__hero-tile--insight" aria-label="Future income">
+        <h3 class="liquidity-dashboard__pane-kicker">Future income</h3>
+        <p class="liquidity-dashboard__total">${formatCurrency(available.confirmedFutureIncomeGbp, 'GBP')}</p>
+        <p class="liquidity-dashboard__insight-sub">Next payment: ${escapeHtml(available.nextIncomeDate ?? '—')}</p>
+        <p class="liquidity-dashboard__insight-sub liquidity-dashboard__insight-sub--emph">Final payment: ${escapeHtml(available.lastConfirmedIncomeDate ?? '—')}</p>
+      </section>
+      <section class="liquidity-dashboard__hero-tile liquidity-dashboard__hero-tile--insight" aria-label="Projected available">
+        <h3 class="liquidity-dashboard__pane-kicker">Projected available</h3>
+        <p class="liquidity-dashboard__total">${formatCurrency(available.projectedAvailableGbp, 'GBP')}</p>
+        <p class="liquidity-dashboard__insight-sub">= cash ${formatCurrency(available.availableNowGbp, 'GBP')} + future − committed ${formatCurrency(available.committedOutflowsGbp, 'GBP')}</p>
+      </section>`
+    : '';
+
+  const daily = survival?.given?.dailyDiscretionary ?? survival?.solveForTarget?.maxDailyDiscretionary;
+  const survivalBlock = survival !== null && daily !== undefined
+    ? `<section class="liquidity-dashboard__hero-tile liquidity-dashboard__hero-tile--survival" aria-label="Survival mode">
+        <h3 class="liquidity-dashboard__pane-kicker">Survival mode</h3>
+        <p class="liquidity-dashboard__total">Safe to spend: ${formatCurrency(daily, 'GBP')}/day</p>
+        <p class="liquidity-dashboard__insight-sub">Lasts until ${escapeHtml(survival.given?.survivalDateCashOnly ?? '—')} (cash)</p>
+        ${survival.given?.survivalDateCreditIncluded
+          ? `<p class="liquidity-dashboard__insight-sub">Incl. credit: ${escapeHtml(survival.given.survivalDateCreditIncluded)}</p>`
+          : ''}
+        <p class="liquidity-dashboard__insight-sub">Essentials ~${formatCurrency(survival.essentialsMonthlyGbp, 'GBP')}/mo covered</p>
+        <label class="liquidity-dashboard__survival-control">
+          <span>Adjust £/day</span>
+          <input type="number" id="survival-daily-input" min="0" step="1" value="${String(Math.round(daily))}" />
+        </label>
+      </section>`
+    : '';
+
+  return `<div class="liquidity-dashboard__hero-grid liquidity-dashboard__hero-grid--insights">${futureBlock}${survivalBlock}</div>`;
+}
+
+let cachedAvailableFunds: AiAvailableFundsResponse | null = null;
+
+function bindSurvivalControl(ac: AbortController, myGen: number): void {
+  const input = document.getElementById('survival-daily-input');
+  if (!(input instanceof HTMLInputElement)) return;
+  let debounce: ReturnType<typeof setTimeout> | null = null;
+  input.addEventListener('change', () => {
+    if (debounce !== null) clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      void (async () => {
+        const daily = Number(input.value);
+        if (!Number.isFinite(daily) || daily < 0) return;
+        try {
+          const survival = await fetchSurvival({ dailyDiscretionary: daily, signal: ac.signal });
+          if (myGen !== liquidityDashboardLoadGeneration) return;
+          const slot = document.getElementById('liquidity-insight-pods');
+          if (!slot) return;
+          slot.innerHTML = renderInsightPods(cachedAvailableFunds, survival);
+          bindSurvivalControl(ac, myGen);
+        } catch (err) {
+          console.error('[Survival pod]', err);
+        }
+      })();
+    }, 300);
+  });
+}
+
 function renderCard(
   overview: AiLiquidityResponse['liquidityOverview'],
   commitments: AiLiquidityResponse['liquidityCommitments'],
   financialSafetyStripHtml: string,
+  insightPodsHtml: string,
 ): string {
   const { totalCashGbp, totalCreditGbp, totalAvailableGbp, lines } = overview;
 
@@ -250,6 +318,7 @@ function renderCard(
         <div class="liquidity-dashboard__card">
           <p class="liquidity-dashboard__kicker">${escapeHtml(HERO_KICKER)}</p>
           ${renderHeroMetrics(0, 0, 0, commitments)}
+          <div id="liquidity-insight-pods">${insightPodsHtml}</div>
           <p class="liquidity-dashboard__empty">No account balances to show.</p>
         </div>
       </div>
@@ -278,6 +347,7 @@ function renderCard(
       <div class="liquidity-dashboard__card">
         <p class="liquidity-dashboard__kicker">${escapeHtml(HERO_KICKER)}</p>
         ${renderHeroMetrics(totalCashGbp, totalCreditGbp, totalAvailableGbp, commitments)}
+        <div id="liquidity-insight-pods">${insightPodsHtml}</div>
         <p class="liquidity-dashboard__subtitle">Static AED→GBP (and other) rates on the server — totals are directional, not live market rates.</p>
 
         <div class="liquidity-dashboard__breakdown-columns">
@@ -313,18 +383,41 @@ export async function loadLiquidityDashboard(): Promise<void> {
   el.innerHTML = renderSkeleton();
 
   try {
-    const data = await fetchLiquidity({
-      account: state.selectedAccount,
-      financialYear: state.selectedFinancialYear || undefined,
-      signal: ac.signal,
-    });
+    const [data, availableFunds] = await Promise.all([
+      fetchLiquidity({
+        account: state.selectedAccount,
+        financialYear: state.selectedFinancialYear || undefined,
+        signal: ac.signal,
+      }),
+      fetchAvailableFunds({ signal: ac.signal }).catch(() => null),
+    ]);
+
+    let survival: AiSurvivalResponse | null = null;
+    try {
+      if (availableFunds?.lastConfirmedIncomeDate) {
+        survival = await fetchSurvival({
+          targetDate: availableFunds.lastConfirmedIncomeDate,
+          signal: ac.signal,
+        });
+      } else {
+        survival = await fetchSurvival({ signal: ac.signal });
+      }
+    } catch {
+      survival = null;
+    }
+
     if (myGen !== liquidityDashboardLoadGeneration) return;
+
+    cachedAvailableFunds = availableFunds;
+    const insightPodsHtml = renderInsightPods(availableFunds, survival);
 
     el.innerHTML = renderCard(
       data.liquidityOverview,
       data.liquidityCommitments,
       renderFinancialSafetyLazyStripLoading(),
+      insightPodsHtml,
     );
+    bindSurvivalControl(ac, myGen);
 
     try {
       const fs = await fetchFinancialSafety({

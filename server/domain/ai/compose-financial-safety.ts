@@ -8,6 +8,7 @@ import { computeFinancialSafety } from '../../../shared/financial-safety/compute
 import type { FinancialSafetyInput } from '../../../shared/financial-safety/types.js';
 import { getDb } from '../../db/connection.js';
 import { assembleDebtStrategy, type AssembledDebtStrategy } from '../debt-strategy/assemble.js';
+import { loadForecastInputs } from '../forecast/load-inputs.js';
 import { buildConsolidatedWarningsResponse } from '../warnings/consolidated-feed.js';
 import { AI_MANIFEST_SCHEMA_VERSION } from './constants.js';
 import {
@@ -29,7 +30,14 @@ function minDebtAvailableHeadroomRatio(bundle: AssembledDebtStrategy): number | 
 }
 
 export function composeAiFinancialSafety(opts: ComposeAiFinancialSafetyOpts = {}): AiFinancialSafetyResponse {
-  const snapshot = composeAiFinancialSnapshot(opts);
+  const loaded =
+    opts.forecastInputs ??
+    loadForecastInputs({
+      horizonDays: opts.horizonDays,
+      filterEntityId: opts.filterEntityId,
+      today: opts.today,
+    });
+  const snapshot = composeAiFinancialSnapshot({ ...opts, forecastInputs: loaded });
   const income = composeAiIncomeComposition();
   const warnings = buildConsolidatedWarningsResponse(getDb(), { applySnoozeListingFilter: false });
   const debtBundle = assembleDebtStrategy({});

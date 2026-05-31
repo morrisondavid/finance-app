@@ -227,9 +227,60 @@ export interface CollectAccrualEventsInput {
   readonly publicHolidayDatesByEntity: ReadonlyMap<EntityId, ReadonlySet<string>>;
   readonly today: string;
   readonly horizon: string;
+  /** When true, emit one accrual per month through contract end (survival / future income). Default false. */
+  readonly projectToContractEnd?: boolean;
   readonly accountsByEntity: ReadonlyMap<EntityId, readonly AccountName[]>;
   readonly currencyByAccount: ReadonlyMap<AccountName, CurrencyCode>;
   readonly invoicedContractIds: ReadonlySet<string>;
+}
+
+function minIsoDate(a: string, b: string): string {
+  return a <= b ? a : b;
+}
+
+function maxIsoDate(a: string, b: string): string {
+  return a >= b ? a : b;
+}
+
+function tryEmitAccrualForWindow(
+  contract: Contract,
+  periodStart: string,
+  periodEnd: string,
+  arrivalMonthEnd: string,
+  leaveRows: readonly import('../../../shared/api-contracts.js').LeaveRow[],
+  publicHolidayDatesByEntity: ReadonlyMap<EntityId, ReadonlySet<string>>,
+  horizon: string,
+  account: AccountName,
+  currencyByAccount: ReadonlyMap<AccountName, CurrencyCode>,
+): ForecastEvent | null {
+  if (periodStart > periodEnd) return null;
+
+  const publicHolidayDates = publicHolidayDatesByEntity.get(contract.issuing_entity_id);
+  const workload = calculateWorkload({
+    contract,
+    leaveRows,
+    start: periodStart,
+    end: periodEnd,
+    publicHolidayDates,
+  });
+
+  if (workload.subtotal <= 0) return null;
+
+  const arrivalDate = contract.invoice_cadence === 'weekly'
+    ? shiftIsoDate(periodEnd, contract.payment_terms_days + 7)
+    : shiftIsoDate(arrivalMonthEnd, contract.payment_terms_days);
+
+  if (arrivalDate > horizon) return null;
+
+  return {
+    date: arrivalDate,
+    amount: workload.subtotal,
+    account,
+    currency: accountCurrency(account, currencyByAccount),
+    source: 'accrual',
+    label: `Accrual ${contract.id}`,
+    contractId: contract.id,
+  };
 }
 
 export function collectAccrualEvents(
@@ -238,7 +289,7 @@ export function collectAccrualEvents(
   const {
     contracts, leaveRows, publicHolidayDatesByEntity,
     today, horizon, accountsByEntity, currencyByAccount,
-    invoicedContractIds,
+    invoicedContractIds, projectToContractEnd,
   } = input;
   const events: ForecastEvent[] = [];
 
@@ -249,40 +300,48 @@ export function collectAccrualEvents(
     const account = primaryAccountForEntity(contract.issuing_entity_id, accountsByEntity);
     if (!account) continue;
 
-    const { end: monthEnd } = monthRange(today);
-    const periodEnd = contract.end_date !== null && contract.end_date < monthEnd
-      ? contract.end_date : monthEnd;
-    const periodStart = today;
+    if (projectToContractEnd !== true) {
+      const { end: monthEnd } = monthRange(today);
+      const periodEnd = contract.end_date !== null && contract.end_date < monthEnd
+        ? contract.end_date : monthEnd;
+      const periodStart = maxIsoDate(today, contract.start_date);
+      const ev = tryEmitAccrualForWindow(
+        contract,
+        periodStart,
+        periodEnd,
+        monthEnd,
+        leaveRows,
+        publicHolidayDatesByEntity,
+        horizon,
+        account,
+        currencyByAccount,
+      );
+      if (ev) events.push(ev);
+      continue;
+    }
 
-    if (periodStart > periodEnd) continue;
-
-    const publicHolidayDates = publicHolidayDatesByEntity.get(contract.issuing_entity_id);
-    const workload = calculateWorkload({
-      contract,
-      leaveRows,
-      start: periodStart,
-      end: periodEnd,
-      publicHolidayDates,
-    });
-
-    if (workload.subtotal <= 0) continue;
-
-    const arrivalDate = contract.invoice_cadence === 'weekly'
-      ? shiftIsoDate(periodEnd, contract.payment_terms_days + 7)
-      : shiftIsoDate(monthEnd, contract.payment_terms_days);
-
-    const clampedDate = arrivalDate > horizon ? null : arrivalDate;
-    if (!clampedDate) continue;
-
-    events.push({
-      date: clampedDate,
-      amount: workload.subtotal,
-      account,
-      currency: accountCurrency(account, currencyByAccount),
-      source: 'accrual',
-      label: `Accrual ${contract.id}`,
-      contractId: contract.id,
-    });
+    const contractEndLimit = contract.end_date ?? horizon;
+    let cursor = today;
+    while (cursor <= horizon && cursor <= contractEndLimit) {
+      const { start: monthStart, end: monthEnd } = monthRange(cursor);
+      const periodStart = maxIsoDate(maxIsoDate(monthStart, today), contract.start_date);
+      const periodEnd = minIsoDate(monthEnd, contractEndLimit);
+      const ev = tryEmitAccrualForWindow(
+        contract,
+        periodStart,
+        periodEnd,
+        monthEnd,
+        leaveRows,
+        publicHolidayDatesByEntity,
+        horizon,
+        account,
+        currencyByAccount,
+      );
+      if (ev) events.push(ev);
+      const nextMonthFirst = shiftIsoDate(monthEnd, 1);
+      if (nextMonthFirst <= cursor) break;
+      cursor = nextMonthFirst;
+    }
   }
 
   return events;

@@ -6,6 +6,8 @@ import {
   validateResponse,
   AiFinancialSafetyResponseSchema,
   AiLiquidityResponseSchema,
+  AiAvailableFundsResponseSchema,
+  AiSurvivalResponseSchema,
   DashboardSummaryResponseSchema,
   DashboardAccountsSummaryResponseSchema,
   AccountConfigsResponseSchema,
@@ -41,6 +43,8 @@ import {
   type FeedSyncResponse,
   type AiFinancialSafetyResponse,
   type AiLiquidityResponse,
+  type AiAvailableFundsResponse,
+  type AiSurvivalResponse,
   type DashboardSummaryResponse,
   type DashboardAccountsSummaryResponse,
   type AccountConfigsResponse,
@@ -264,6 +268,36 @@ export async function fetchFinancialSafety(params?: {
   const url = `/api/ai/financial-safety?${query}`;
   const response = await fetch(url, { signal: params?.signal });
   return validateResponse(response, AiFinancialSafetyResponseSchema);
+}
+
+/** Confirmed future income + projected available — GET /api/ai/available-funds */
+export async function fetchAvailableFunds(params?: {
+  days?: number;
+  signal?: AbortSignal;
+}): Promise<AiAvailableFundsResponse> {
+  const query = new URLSearchParams();
+  if (params?.days !== undefined) query.set('days', String(params.days));
+  const url = `/api/ai/available-funds?${query}`;
+  const response = await fetch(url, { signal: params?.signal });
+  return validateResponse(response, AiAvailableFundsResponseSchema);
+}
+
+/** Survival mode projection — GET /api/ai/survival */
+export async function fetchSurvival(params?: {
+  dailyDiscretionary?: number;
+  targetDate?: string;
+  scope?: 'personal' | 'household';
+  signal?: AbortSignal;
+}): Promise<AiSurvivalResponse> {
+  const query = new URLSearchParams();
+  if (params?.dailyDiscretionary !== undefined) {
+    query.set('dailyDiscretionary', String(params.dailyDiscretionary));
+  }
+  if (params?.targetDate) query.set('targetDate', params.targetDate);
+  if (params?.scope) query.set('scope', params.scope);
+  const url = `/api/ai/survival?${query}`;
+  const response = await fetch(url, { signal: params?.signal });
+  return validateResponse(response, AiSurvivalResponseSchema);
 }
 
 /**

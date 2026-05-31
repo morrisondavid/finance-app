@@ -247,6 +247,38 @@ body {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.liquidity-dashboard__hero-grid--insights {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 8px;
+}
+
+.liquidity-dashboard__insight-sub {
+  font-size: 0.85rem;
+  color: var(--text-muted, #64748b);
+  margin: 4px 0 0;
+}
+
+.liquidity-dashboard__insight-sub--emph {
+  font-weight: 600;
+}
+
+.liquidity-dashboard__survival-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 0.85rem;
+}
+
+.liquidity-dashboard__survival-control input {
+  width: 5rem;
+  padding: 4px 8px;
+}
+
+.liquidity-dashboard__hero-tile--survival {
+  border-color: #f59e0b44;
+}
+
 .liquidity-dashboard__hero-tile {
   min-width: 0;
   padding: 12px 14px;

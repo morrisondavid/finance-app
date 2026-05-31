@@ -6,7 +6,6 @@
 import type {
   AiFinancialSnapshotResponse,
   AiPipelineResponse,
-  EntityId,
 } from '../../../shared/api-contracts.js';
 import { AiFinancialSnapshotResponseSchema } from '../../../shared/api-contracts.js';
 import { shiftIsoDate } from '../../../shared/iso-date.js';
@@ -24,6 +23,10 @@ import { validateAccount } from '../accounts/queries.js';
 import { buildAggregateAccrualResponse } from '../contracts/aggregate-accrual.js';
 import { assembleRunway } from '../forecast/index.js';
 import { runwayResponseFromAssembled } from '../forecast/runway-api-response.js';
+import type {
+  LoadedForecastInputs,
+  LoadForecastInputsOpts,
+} from '../forecast/load-inputs.js';
 import { loadForecastInputs } from '../forecast/load-inputs.js';
 import { allInvoicePayments, allInvoices, outstandingInvoicesGbpSummary } from '../invoices/index.js';
 import { AI_MANIFEST_SCHEMA_VERSION } from './constants.js';
@@ -31,15 +34,15 @@ import { composeAiLiquidity } from './compose-liquidity.js';
 import { buildAiPipelineFromLoaded } from './compose-pipeline.js';
 import { deriveFinancialVerdict } from './derive-financial-verdict.js';
 
-export interface ComposeAiFinancialSnapshotOpts {
-  readonly horizonDays?: number;
+export interface ComposeAiFinancialSnapshotOpts extends LoadForecastInputsOpts {
   /** Obligation-only pipeline window; clamped to `horizonDays`. Default 90. */
   readonly commitmentDays?: number;
-  readonly filterEntityId?: EntityId;
   readonly runwayDetail?: 'accounts' | 'summary';
   readonly account?: string;
   readonly financialYear?: string;
   readonly groupByEntity?: boolean;
+  /** When supplied, skips a redundant `loadForecastInputs` (shared composite reads). */
+  readonly forecastInputs?: LoadedForecastInputs;
 }
 
 function sumObligationOutflowsGbpInWindow(
@@ -67,7 +70,9 @@ export function composeAiFinancialSnapshot(
   }
 
   const filterEntityId = opts.filterEntityId;
-  const loaded = loadForecastInputs({ horizonDays, filterEntityId });
+  const loaded =
+    opts.forecastInputs ??
+    loadForecastInputs({ horizonDays, filterEntityId, today: opts.today });
   const pipeline = buildAiPipelineFromLoaded(loaded);
   const liquidity = composeAiLiquidity({
     account: opts.account,

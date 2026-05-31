@@ -31,6 +31,8 @@ export interface ComposeExpectedReceiptsInput {
   readonly accountsByEntity: ReadonlyMap<EntityId, readonly AccountName[]>;
   readonly currencyByAccount: ReadonlyMap<AccountName, CurrencyCode>;
   readonly allowedAccountSet: ReadonlySet<AccountName>;
+  /** When true, accrual receipts span monthly through contract end. Default false. */
+  readonly projectToContractEnd?: boolean;
 }
 
 /**
@@ -49,6 +51,7 @@ export function composeExpectedReceipts(input: ComposeExpectedReceiptsInput): Ex
     accountsByEntity,
     currencyByAccount,
     allowedAccountSet,
+    projectToContractEnd,
   } = input;
 
   const invoicedContractIds = new Set(unpaidInvoices.map(inv => inv.contract_id));
@@ -62,6 +65,7 @@ export function composeExpectedReceipts(input: ComposeExpectedReceiptsInput): Ex
     accountsByEntity,
     currencyByAccount,
     invoicedContractIds,
+    projectToContractEnd,
   });
 
   const invoiceEvents = collectInvoiceReceiptEvents({
@@ -119,7 +123,9 @@ export function composeExpectedReceipts(input: ComposeExpectedReceiptsInput): Ex
 
 /** Loads forecast inputs and composes the canonical expected-receipt list. */
 export function buildExpectedReceipts(opts: LoadForecastInputsOpts = {}): ExpectedReceiptsResponse {
-  const loaded = loadForecastInputs(opts);
+  const loaded =
+    opts.forecastInputs ??
+    loadForecastInputs(opts);
   return composeExpectedReceipts({
     asOf: loaded.today,
     horizon: loaded.horizon,
@@ -130,5 +136,6 @@ export function buildExpectedReceipts(opts: LoadForecastInputsOpts = {}): Expect
     accountsByEntity: loaded.accountsByEntity,
     currencyByAccount: loaded.currencyByAccount,
     allowedAccountSet: loaded.allowedAccountSet,
+    projectToContractEnd: opts.projectToContractEnd,
   });
 }

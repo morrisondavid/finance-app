@@ -81,6 +81,10 @@ export interface LoadForecastInputsOpts {
    * via `filterEventsToAccountSet` (the runway pattern).
    */
   readonly filterEntityId?: EntityId;
+  /** When supplied, skips loading (shared composite / survival reads). */
+  readonly forecastInputs?: LoadedForecastInputs;
+  /** When true, accrual receipts span monthly through contract end. Default false. */
+  readonly projectToContractEnd?: boolean;
 }
 
 export interface LoadedForecastInputs {
