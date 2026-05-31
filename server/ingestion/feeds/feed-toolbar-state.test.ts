@@ -125,6 +125,35 @@ describe('deriveFeedToolbarState', () => {
     });
   });
 
+  it('not-linked TrueLayer with configured dataAccountId → connect reconnect', () => {
+    const base = ACCOUNT_CONFIG_DATA['monzo-joint'];
+    const mockCfg: AccountConfig = {
+      ...base,
+      aispFeed: {
+        trueLayer: {
+          providerId: 'ob-monzo',
+          dataAccountId: 'tl-monzo-joint-id',
+        },
+      },
+    };
+    const state = deriveFeedToolbarState(
+      'monzo-joint',
+      mockDeps({
+        getAccountConfig: () => mockCfg,
+        requireLinkedFeedFn: () => {
+          throw new FeedSyncError('not-linked', 'x');
+        },
+      }),
+    );
+    assertParses(state);
+    expect(state).toEqual({
+      kind: 'connect',
+      account: 'monzo-joint',
+      connectProvider: 'truelayer',
+      reconnect: true,
+    });
+  });
+
   it('missing parser for account → hidden no-feed-emitter', () => {
     const minimalParsers = { 'barclays-savings': PARSERS['barclays-savings'] } as unknown as ParserMap;
     const state = deriveFeedToolbarState(

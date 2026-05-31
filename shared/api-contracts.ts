@@ -48,6 +48,8 @@ export const AccountNameSchema = z.enum([
   'natwest-savings',
   'monzo-joint',
   'emirates-islamic',
+  'emirates-islamic-gbp',
+  'emirates-islamic-usd',
   'santander-everyday'
 ]);
 
@@ -59,7 +61,7 @@ export const AccountNameSchema = z.enum([
  */
 export const ACCOUNTS = AccountNameSchema.options;
 
-export const CurrencyCodeSchema = z.enum(['GBP', 'AED']);
+export const CurrencyCodeSchema = z.enum(['GBP', 'AED', 'USD']);
 export type CurrencyCode = z.infer<typeof CurrencyCodeSchema>;
 
 /**
@@ -508,6 +510,8 @@ export const FeedToolbarStateSchema = z.discriminatedUnion('kind', [
     kind: z.literal('connect'),
     account: AccountNameSchema,
     connectProvider: z.enum(['truelayer', 'enable']),
+    /** True when a TrueLayer data account id is configured but the refresh token is missing. */
+    reconnect: z.boolean().optional(),
   }),
 ]);
 export type FeedToolbarState = z.infer<typeof FeedToolbarStateSchema>;

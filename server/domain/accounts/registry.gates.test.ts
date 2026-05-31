@@ -51,7 +51,11 @@ describe('indexes.byEntity', () => {
   });
 
   it('partitions FZCO accounts under autonize-it-fzco', () => {
-    expect(reg.indexes.byEntity.get('autonize-it-fzco')).toEqual(['emirates-islamic']);
+    expect(reg.indexes.byEntity.get('autonize-it-fzco')).toEqual([
+      'emirates-islamic',
+      'emirates-islamic-gbp',
+      'emirates-islamic-usd',
+    ]);
   });
 
   it('never contains personal accounts', () => {

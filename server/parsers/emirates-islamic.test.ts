@@ -118,6 +118,38 @@ describe('Emirates Islamic Parser', () => {
       expect(tx).not.toBeNull();
       expect(tx!.amount).toBe(-25200);
     });
+
+    it('stamps the passed account id for GBP sub-account', () => {
+      const row = {
+        'Transaction Date': '20-05-2026',
+        'Value Date': '20-05-2026',
+        'Narration': 'INWARD REMITTANCE GBP 4500',
+        'Transaction Reference': '25-352577744-1-151',
+        'Debit': '0.00',
+        'Credit': '4,500.00',
+        'Running Balance': '4,500.00',
+      };
+      const tx = emiratesIslamicParser.transform(row, 'emirates-islamic-gbp');
+      expect(tx).not.toBeNull();
+      expect(tx!.account).toBe('emirates-islamic-gbp');
+      expect(tx!.amount).toBe(4500);
+    });
+
+    it('stamps the passed account id for USD sub-account', () => {
+      const row = {
+        'Transaction Date': '20-05-2026',
+        'Value Date': '20-05-2026',
+        'Narration': 'INWARD REMITTANCE USD 1000',
+        'Transaction Reference': 'ref-1',
+        'Debit': '0.00',
+        'Credit': '1,000.00',
+        'Running Balance': '1,000.00',
+      };
+      const tx = emiratesIslamicParser.transform(row, 'emirates-islamic-usd');
+      expect(tx).not.toBeNull();
+      expect(tx!.account).toBe('emirates-islamic-usd');
+      expect(tx!.amount).toBe(1000);
+    });
   });
 
   describe('validateHeaders', () => {

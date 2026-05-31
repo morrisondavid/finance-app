@@ -122,6 +122,8 @@ export interface BankParser {
   descriptionColumn: string;
   /** When set, non-empty values in this CSV column dedupe by id (e.g. Monzo `Transaction ID`). */
   externalIdColumn?: string;
+  /** Signed ledger amount for dedup keys (e.g. Monzo Money In/Out when Amount is empty). */
+  parseSignedAmount?(row: CSVRow): number;
   headers: readonly string[];
   requiredHeaders: readonly string[];
   parseOptions?: Record<string, unknown>;

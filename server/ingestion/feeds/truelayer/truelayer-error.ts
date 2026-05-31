@@ -8,6 +8,7 @@ export class TrueLayerError extends Error {
       | 'missing-credentials'
       | 'not-linked'
       | 'expired-session'
+      | 'sca-exceeded'
       | 'http-error'
       | 'invalid-response',
     message: string,

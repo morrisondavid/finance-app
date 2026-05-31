@@ -106,12 +106,13 @@ export function normalizeDescription(desc: string): string {
 
 /**
  * Generate a unique hash for a transaction to detect duplicates.
- * When `externalId` is set (Monzo Transaction ID, etc.), identity is id-only.
+ * When `externalId` is set (Monzo Transaction ID, etc.), identity is id + signed amount
+ * so FX debit/credit legs with the same id are not collapsed.
  */
 export function generateTransactionHash(t: Transaction): string {
   const externalId = t.externalId?.trim();
   if (externalId !== undefined && externalId !== '') {
-    const key = `${t.account}|externalId:${externalId}`;
+    const key = `${t.account}|externalId:${externalId}|${t.amount.toFixed(2)}`;
     return crypto.createHash('md5').update(key).digest('hex');
   }
   const dateStr = formatDateISO(t.date);

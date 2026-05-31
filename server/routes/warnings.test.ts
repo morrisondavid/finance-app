@@ -156,6 +156,18 @@ describe('GET /api/warnings/entity-foundation', () => {
     expect(codes).not.toContain('fzco-vat-voluntary-threshold-crossed');
   });
 
+  it('converts GBP FZCO income to AED for the VAT threshold check', async () => {
+    const recent = isoDaysAgo(30);
+    // 100_000 GBP × 4.76 ≈ 476_000 AED — above the mandatory 375_000 threshold.
+    insertTx('emirates-islamic-gbp', 'income', recent, 100_000);
+
+    const resp = await fetch(`${baseUrl}/api/warnings/entity-foundation`);
+    const body = await resp.json();
+    const parsed = EntityFoundationWarningsResponseSchema.parse(body);
+    const codes = parsed.warnings.map(w => w.code);
+    expect(codes).toContain('fzco-vat-mandatory-threshold-crossed');
+  });
+
   it('does not count FZCO income older than 12 months toward the threshold', async () => {
     const tooOld = isoDaysAgo(400);
     insertTx('emirates-islamic', 'income', tooOld, 500_000);

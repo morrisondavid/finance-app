@@ -143,6 +143,21 @@ export function resolveTrueLayerConsentExpiresAt(account: AccountName): string |
   return addDaysIso(row.updated_at, FEED_CONSENT_MAX_DAYS);
 }
 
+/**
+ * Delete the refresh-token row for `account` (or its sibling token owner).
+ * Used when sync hits reconnect-worthy TrueLayer errors so `requireLinkedFeed`
+ * falls back to `not-linked` without a separate persisted flag.
+ */
+export function removeTrueLayerRefreshToken(account: AccountName): void {
+  const source = resolveTrueLayerRefreshTokenSource(account);
+  if (source === undefined) return;
+  const prev = readTrueLayerTokensFile();
+  if (prev.accounts[source.tokenAccount] === undefined) return;
+  const nextAccounts = { ...prev.accounts };
+  delete nextAccounts[source.tokenAccount];
+  writeTrueLayerTokensFile({ accounts: nextAccounts });
+}
+
 export function setTrueLayerRefreshToken(account: AccountName, refreshToken: string): void {
   const rt = refreshToken.trim();
   if (rt === '') throw new Error('refreshToken must be non-empty');

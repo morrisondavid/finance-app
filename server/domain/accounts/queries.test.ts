@@ -156,7 +156,11 @@ describe('getEntityIdForAccount / accountsForEntity', () => {
   });
 
   it('accountsForEntity(id) returns business accounts for that entity', () => {
-    expect(accountsForEntity('autonize-it-fzco', reg)).toEqual(['emirates-islamic']);
+    expect(accountsForEntity('autonize-it-fzco', reg)).toEqual([
+      'emirates-islamic',
+      'emirates-islamic-gbp',
+      'emirates-islamic-usd',
+    ]);
   });
 });
 

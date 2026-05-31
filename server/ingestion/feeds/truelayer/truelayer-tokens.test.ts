@@ -5,6 +5,7 @@ import path from 'path';
 import {
   resolveTrueLayerRefreshToken,
   resolveTrueLayerRefreshTokenSource,
+  removeTrueLayerRefreshToken,
   setTrueLayerRefreshToken,
 } from './truelayer-tokens.js';
 
@@ -57,6 +58,16 @@ describe('resolveTrueLayerRefreshToken', () => {
 
   it('uploads OAuth durable state after persisting a refresh token', () => {
     setTrueLayerRefreshToken('barclays-current', 'persist-me');
+    expect(uploadOAuthMock).toHaveBeenCalledWith('truelayer-tokens');
+  });
+
+  it('removeTrueLayerRefreshToken deletes the owning token row only', () => {
+    setTrueLayerRefreshToken('barclays-current', 'shared-barclays-rt');
+    setTrueLayerRefreshToken('natwest', 'natwest-rt');
+    removeTrueLayerRefreshToken('barclays-savings');
+    expect(resolveTrueLayerRefreshToken('barclays-savings')).toBeUndefined();
+    expect(resolveTrueLayerRefreshToken('barclays-current')).toBeUndefined();
+    expect(resolveTrueLayerRefreshToken('natwest')).toBe('natwest-rt');
     expect(uploadOAuthMock).toHaveBeenCalledWith('truelayer-tokens');
   });
 });

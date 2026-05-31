@@ -20,8 +20,13 @@ const rateCache = new Map<string, RateCacheEntry>();
 const HARDCODED_RATES: Record<string, number> = {
   'AED/GBP': 0.21,
   'GBP/AED': 4.76,
+  'USD/GBP': 0.79,
+  'GBP/USD': 1.27,
+  'USD/AED': 3.67,
+  'AED/USD': 0.27,
   'AED/AED': 1,
   'GBP/GBP': 1,
+  'USD/USD': 1,
 };
 
 function cacheKey(from: CurrencyCode, to: CurrencyCode, date: string | undefined): string {

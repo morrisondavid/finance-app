@@ -117,6 +117,16 @@ describe('runSyncBankFeedMcpTool — error envelope', () => {
     expect(body.code).toBe('expired-session');
   });
 
+  it('wraps TrueLayerError sca-exceeded with its specific code', async () => {
+    runFeedSyncMock.mockRejectedValue(new TrueLayerError('sca-exceeded', 'SCA window expired'));
+
+    const result = await runSyncBankFeedMcpTool(VALID_INPUT);
+
+    expect(result.isError).toBe(true);
+    const body = JSON.parse(result.content[0].text) as { code: string };
+    expect(body.code).toBe('sca-exceeded');
+  });
+
   it('falls through to internal-error for generic exceptions', async () => {
     runFeedSyncMock.mockRejectedValue(new Error('boom'));
 

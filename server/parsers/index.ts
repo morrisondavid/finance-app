@@ -26,6 +26,8 @@ export const PARSERS: ParserMap = {
   'wise-ltd': wiseParser,
   'monzo-joint': monzoParser,
   'emirates-islamic': emiratesIslamicParser,
+  'emirates-islamic-gbp': emiratesIslamicParser,
+  'emirates-islamic-usd': emiratesIslamicParser,
   'santander-everyday': santanderEverydayParser
 };
 

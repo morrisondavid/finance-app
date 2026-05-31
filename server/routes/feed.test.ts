@@ -165,6 +165,19 @@ describe('POST /api/feed/sync — error mapping', () => {
     expect(body.code).toBe('expired-session');
   });
 
+  it('401 on TrueLayerError("sca-exceeded")', async () => {
+    const { TrueLayerError } = await import('../ingestion/feeds/truelayer/truelayer-error.js');
+    runFeedSyncMock.mockRejectedValue(new TrueLayerError('sca-exceeded', 'SCA window expired'));
+    const res = await fetch(`${baseUrl}/api/feed/sync`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ account: 'monzo-joint', dateFrom: '2026-04-15' }),
+    });
+    expect(res.status).toBe(401);
+    const body = await res.json() as { code: string };
+    expect(body.code).toBe('sca-exceeded');
+  });
+
   it('503 on EnableBankingError("missing-credentials")', async () => {
     runFeedSyncMock.mockRejectedValue(new EnableBankingError('missing-credentials', 'no creds'));
     const res = await fetch(`${baseUrl}/api/feed/sync`, {

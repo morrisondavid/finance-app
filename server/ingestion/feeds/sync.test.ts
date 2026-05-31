@@ -37,10 +37,12 @@ const mockDeps = vi.hoisted(() => ({
   getAccountConfigMock: vi.fn(),
   /** Default: no TL token — selects Enable when EB account id is set. */
   resolveTrueLayerRefreshTokenMock: vi.fn(() => undefined as string | undefined),
+  removeTrueLayerRefreshTokenMock: vi.fn(),
 }));
 
 const getAccountConfigMock = mockDeps.getAccountConfigMock;
 const resolveTrueLayerRefreshTokenMock = mockDeps.resolveTrueLayerRefreshTokenMock;
+const removeTrueLayerRefreshTokenMock = mockDeps.removeTrueLayerRefreshTokenMock;
 
 vi.mock('../../domain/accounts/index.js', async () => {
   const actual = await vi.importActual<typeof import('../../domain/accounts/index.js')>(
@@ -62,6 +64,8 @@ vi.mock('./truelayer/truelayer-tokens.js', async () => {
     resolveTrueLayerRefreshToken: (_name: AccountName): string | undefined =>
       resolveTrueLayerRefreshTokenMock(),
     resolveTrueLayerRefreshTokenSource: actual.resolveTrueLayerRefreshTokenSource,
+    removeTrueLayerRefreshToken: (...args: Parameters<typeof actual.removeTrueLayerRefreshToken>) =>
+      removeTrueLayerRefreshTokenMock(...args),
   };
 });
 
@@ -76,6 +80,10 @@ const {
 const { getAccountConfig: realGetAccountConfig } = await vi.importActual<
   typeof import('../../domain/accounts/index.js')
 >('../../domain/accounts/index.js');
+
+const { TrueLayerError } = await vi.importActual<
+  typeof import('./truelayer/truelayer-error.js')
+>('./truelayer/truelayer-error.js');
 
 function passthrough(name: AccountName) {
   return realGetAccountConfig(name);
@@ -193,6 +201,7 @@ describe('runFeedSync', () => {
         ? linked('barclays-current', 'enable-uuid-test')
         : passthrough(name),
     );
+    removeTrueLayerRefreshTokenMock.mockClear();
   });
 
   afterEach(() => {
@@ -258,6 +267,91 @@ describe('runFeedSync', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(ingestMock).not.toHaveBeenCalled();
     expect(initDbMock).not.toHaveBeenCalled();
+  });
+
+  it('removes TrueLayer refresh token on sca-exceeded before rethrowing', async () => {
+    resolveTrueLayerRefreshTokenMock.mockReturnValue('sync-refresh-token');
+    getAccountConfigMock.mockImplementation((name: AccountName) => ({
+      ...realGetAccountConfig(name),
+      aispFeed: { trueLayer: { dataAccountId: TRUE_LAYER_ACCOUNT_ID } },
+    }));
+
+    const fetchTl = vi.fn().mockRejectedValue(new TrueLayerError('sca-exceeded', 'SCA expired'));
+    const ebFetch = vi.fn();
+
+    await expect(
+      runFeedSync(
+        'barclays-current',
+        { dateFrom: '2026-04-15', force: true },
+        {
+          fetchEnableTransactions: ebFetch,
+          fetchTrueLayerTransactions: fetchTl,
+          statementsDir: tmpRoot,
+          today: () => '2026-04-20',
+          findLatestCsvDate: () => null,
+          tmpDir: () => tmpRoot,
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'sca-exceeded' });
+
+    expect(removeTrueLayerRefreshTokenMock).toHaveBeenCalledOnce();
+    expect(removeTrueLayerRefreshTokenMock).toHaveBeenCalledWith('barclays-current');
+    expect(ebFetch).not.toHaveBeenCalled();
+  });
+
+  it('removes TrueLayer refresh token on expired-session before rethrowing', async () => {
+    resolveTrueLayerRefreshTokenMock.mockReturnValue('sync-refresh-token');
+    getAccountConfigMock.mockImplementation((name: AccountName) => ({
+      ...realGetAccountConfig(name),
+      aispFeed: { trueLayer: { dataAccountId: TRUE_LAYER_ACCOUNT_ID } },
+    }));
+
+    const fetchTl = vi.fn().mockRejectedValue(new TrueLayerError('expired-session', 'expired'));
+    const ebFetch = vi.fn();
+
+    await expect(
+      runFeedSync(
+        'barclays-current',
+        { dateFrom: '2026-04-15', force: true },
+        {
+          fetchEnableTransactions: ebFetch,
+          fetchTrueLayerTransactions: fetchTl,
+          statementsDir: tmpRoot,
+          today: () => '2026-04-20',
+          findLatestCsvDate: () => null,
+          tmpDir: () => tmpRoot,
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'expired-session' });
+
+    expect(removeTrueLayerRefreshTokenMock).toHaveBeenCalledOnce();
+    expect(removeTrueLayerRefreshTokenMock).toHaveBeenCalledWith('barclays-current');
+  });
+
+  it('does not remove token on other TrueLayer errors', async () => {
+    resolveTrueLayerRefreshTokenMock.mockReturnValue('sync-refresh-token');
+    getAccountConfigMock.mockImplementation((name: AccountName) => ({
+      ...realGetAccountConfig(name),
+      aispFeed: { trueLayer: { dataAccountId: TRUE_LAYER_ACCOUNT_ID } },
+    }));
+
+    const fetchTl = vi.fn().mockRejectedValue(new TrueLayerError('http-error', 'upstream 500'));
+
+    await expect(
+      runFeedSync(
+        'barclays-current',
+        { dateFrom: '2026-04-15', force: true },
+        {
+          fetchTrueLayerTransactions: fetchTl,
+          statementsDir: tmpRoot,
+          today: () => '2026-04-20',
+          findLatestCsvDate: () => null,
+          tmpDir: () => tmpRoot,
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'http-error' });
+
+    expect(removeTrueLayerRefreshTokenMock).not.toHaveBeenCalled();
   });
 
   it('writes a temp CSV with the parser-emitter output, calls ingest with overwrite=true on force, runs initDatabase on success', async () => {

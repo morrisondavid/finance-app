@@ -59,7 +59,15 @@ describe('locked snapshot — corpTaxApplicableAccounts', () => {
 describe('locked snapshot — payment account enumerations', () => {
   it('businessPaymentAccounts', () => {
     expect([...businessPaymentAccounts()].sort()).toEqual(
-      ['barclaycard', 'barclays-current', 'capital-on-tap', 'emirates-islamic', 'wise-ltd'],
+      [
+        'barclaycard',
+        'barclays-current',
+        'capital-on-tap',
+        'emirates-islamic',
+        'emirates-islamic-gbp',
+        'emirates-islamic-usd',
+        'wise-ltd',
+      ],
     );
   });
 
@@ -76,6 +84,8 @@ describe('locked snapshot — payment account enumerations', () => {
         'barclays-current',
         'capital-on-tap',
         'emirates-islamic',
+        'emirates-islamic-gbp',
+        'emirates-islamic-usd',
         'monzo-joint',
         'natwest',
         'santander-everyday',
@@ -92,7 +102,7 @@ describe('locked snapshot — accountsForEntity', () => {
       scope: 'autonize-it-ltd',
       expected: ['barclaycard', 'barclays-current', 'barclays-savings', 'capital-on-tap', 'wise-ltd'],
     },
-    { scope: 'autonize-it-fzco', expected: ['emirates-islamic'] },
+    { scope: 'autonize-it-fzco', expected: ['emirates-islamic', 'emirates-islamic-gbp', 'emirates-islamic-usd'] },
   ];
   for (const { scope, expected } of cases) {
     it(`scope ${scope ?? '(null)'}`, () => {
@@ -112,6 +122,8 @@ describe('locked snapshot — per-account predicates', () => {
       'natwest-savings': null,
       'monzo-joint': null,
       'emirates-islamic': 'autonize-it-fzco',
+      'emirates-islamic-gbp': 'autonize-it-fzco',
+      'emirates-islamic-usd': 'autonize-it-fzco',
       'santander-everyday': null,
       'wise-ltd': 'autonize-it-ltd',
     };
@@ -130,6 +142,8 @@ describe('locked snapshot — per-account predicates', () => {
       'natwest-savings': false,
       'monzo-joint': false,
       'emirates-islamic': true,
+      'emirates-islamic-gbp': true,
+      'emirates-islamic-usd': true,
       'santander-everyday': false,
       'wise-ltd': true,
     };
@@ -154,6 +168,8 @@ describe('locked snapshot — per-account predicates', () => {
       'natwest-savings': false,
       'monzo-joint': false,
       'emirates-islamic': false,
+      'emirates-islamic-gbp': false,
+      'emirates-islamic-usd': false,
       'santander-everyday': true,
       'wise-ltd': false,
     };

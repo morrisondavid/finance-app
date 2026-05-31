@@ -45,7 +45,11 @@ import {
 } from '../ingest-csv-file.js';
 import { fetchEnableTransactions as defaultFetchEnableTransactions } from './enable-banking.js';
 import { fetchTrueLayerTransactions as defaultFetchTrueLayerTransactions } from './truelayer/truelayer-transactions.js';
-import { resolveTrueLayerRefreshToken } from './truelayer/truelayer-tokens.js';
+import { TrueLayerError } from './truelayer/truelayer-error.js';
+import {
+  removeTrueLayerRefreshToken,
+  resolveTrueLayerRefreshToken,
+} from './truelayer/truelayer-tokens.js';
 import type { InternalFeedTransactions } from './model.js';
 import { uploadDurableRelPathsToS3 } from '../../storage/s3-durable-sync.js';
 
@@ -309,13 +313,23 @@ export async function runFeedSync(
 
   let internal: InternalFeedTransactions;
   if (linked.provider === 'truelayer' && linked.trueLayer !== undefined) {
-    internal = await fetchTrueLayer({
-      account,
-      trueLayerAccountId: linked.trueLayer.dataAccountId,
-      dateFrom: window.dateFrom,
-      dateTo: window.dateTo,
-      currency: feedCurrency,
-    });
+    try {
+      internal = await fetchTrueLayer({
+        account,
+        trueLayerAccountId: linked.trueLayer.dataAccountId,
+        dateFrom: window.dateFrom,
+        dateTo: window.dateTo,
+        currency: feedCurrency,
+      });
+    } catch (err) {
+      if (
+        err instanceof TrueLayerError &&
+        (err.code === 'sca-exceeded' || err.code === 'expired-session')
+      ) {
+        removeTrueLayerRefreshToken(account);
+      }
+      throw err;
+    }
   } else if (linked.provider === 'enable' && linked.enable !== undefined) {
     internal = await fetchEnable({
       account,

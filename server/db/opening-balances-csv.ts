@@ -47,6 +47,8 @@ const DEFAULT_ROWS: readonly OpeningBalanceRow[] = [
   { account: 'natwest', openingBalance: 3256.79, openingBalanceDate: '2021-01-03' },
   { account: 'natwest-savings', openingBalance: 0.32, openingBalanceDate: '2025-06-12' },
   { account: 'emirates-islamic', openingBalance: 0, openingBalanceDate: '2026-02-22' },
+  { account: 'emirates-islamic-gbp', openingBalance: 0, openingBalanceDate: '2026-05-20' },
+  { account: 'emirates-islamic-usd', openingBalance: 0, openingBalanceDate: null },
   { account: 'santander-everyday', openingBalance: 0, openingBalanceDate: '2025-03-19' },
 ];
 

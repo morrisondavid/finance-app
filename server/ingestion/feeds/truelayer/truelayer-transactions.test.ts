@@ -267,6 +267,22 @@ describe('fetchTrueLayerTransactions — error paths', () => {
     ).rejects.toMatchObject({ code: 'expired-session' });
   });
 
+  it('maps 403 sca_exceeded on transactions GET → sca-exceeded', async () => {
+    const { fetch } = makeFetch([
+      { body: tokenRefreshBody },
+      {
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        body: { error: 'sca_exceeded', error_description: 'SCA window expired' },
+      },
+    ]);
+
+    await expect(
+      fetchTrueLayerTransactions(baseRequest, trueLayerDeps(fetch)),
+    ).rejects.toMatchObject({ code: 'sca-exceeded' });
+  });
+
   it('maps non-2xx on transactions GET → http-error', async () => {
     const { fetch } = makeFetch([
       { body: tokenRefreshBody },

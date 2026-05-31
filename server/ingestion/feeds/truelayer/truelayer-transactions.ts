@@ -221,6 +221,15 @@ export async function fetchTrueLayerTransactions(
           'TrueLayer rejected the access token — complete bank link again (POST /api/feed/truelayer/start)',
         );
       }
+      if (resp.status === 403) {
+        const errorBody = z.object({ error: z.string().optional() }).safeParse(jsonUnknown);
+        if (errorBody.success && errorBody.data.error === 'sca_exceeded') {
+          throw new TrueLayerError(
+            'sca-exceeded',
+            'TrueLayer SCA window expired — complete bank link again (POST /api/feed/truelayer/start)',
+          );
+        }
+      }
       throw new TrueLayerError(
         'http-error',
         `TrueLayer GET transactions failed: ${resp.status} — ${text.slice(0, 500)}`,

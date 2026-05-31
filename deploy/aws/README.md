@@ -217,7 +217,7 @@ Discover **Barclays Business**: open the dump and locate the Barclays **business
 | `barclaycard` | `ob-barclaycard` | `barclaycard` (cards API) |
 | `santander-everyday` | `ob-santander-personal` | `santander-everyday` (cards API) |
 
-CSV-only (not on TrueLayer): **`capital-on-tap`**, **`emirates-islamic`**.
+CSV-only (not on TrueLayer): **`capital-on-tap`**, **`emirates-islamic`**, **`emirates-islamic-gbp`**, **`emirates-islamic-usd`**.
 
 Automated **`POST /api/feed/sync`** prefers TrueLayer when **`aispFeed.trueLayer.dataAccountId`** is set **and** a TL refresh token exists; otherwise Enable.
 

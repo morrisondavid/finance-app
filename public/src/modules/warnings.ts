@@ -9,6 +9,7 @@ import {
   classifyInterCompanyMovement,
 } from '../utils/api';
 import { escapeHtml } from '../utils/dom';
+import { getAccountConfig } from './state';
 import type {
   EntityFoundationWarning,
   WarningSeverity,
@@ -235,7 +236,7 @@ function renderPairSide(
 }
 
 function formatAmount(amount: number, account: string): string {
-  const currency = account === 'emirates-islamic' ? 'AED' : 'GBP';
+  const currency = getAccountConfig(account).currency;
   return `${amount < 0 ? '−' : ''}${currency} ${Math.abs(amount).toLocaleString('en-GB', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,

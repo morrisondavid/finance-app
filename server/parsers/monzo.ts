@@ -85,6 +85,7 @@ const monzoParser: BankParser = {
   amountColumn: 'Amount',
   descriptionColumn: 'Name',
   externalIdColumn: 'Transaction ID',
+  parseSignedAmount: parseMonzoSignedAmount,
 
   headers: [
     'Transaction ID', 'Date', 'Time', 'Type', 'Name', 'Emoji', 'Category',

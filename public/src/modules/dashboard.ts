@@ -237,7 +237,9 @@ function applyFeedToolbarDom(toolbar: FeedToolbarState | null): void {
   forceWrap.hidden = true;
   forceCb.disabled = true;
   const account = state.selectedAccount;
-  const showReconnect = sessionStorage.getItem(feedUiReconnectStorageKey(account)) === '1';
+  const showReconnect =
+    toolbar.reconnect === true ||
+    sessionStorage.getItem(feedUiReconnectStorageKey(account)) === '1';
   btn.textContent = showReconnect ? 'Reconnect bank' : 'Connect bank';
   btn.title = '';
   if (!btn.classList.contains('feed-sync-btn-loading')) {
@@ -380,7 +382,9 @@ async function runFeedSyncFromUi(
     if (err instanceof FeedSyncRequestError) {
       if (
         err.status === 401 &&
-        (err.code === 'expired-session' || err.code === 'no-session')
+        (err.code === 'expired-session' ||
+          err.code === 'no-session' ||
+          err.code === 'sca-exceeded')
       ) {
         sessionStorage.setItem(feedUiReconnectStorageKey(state.selectedAccount), '1');
       }

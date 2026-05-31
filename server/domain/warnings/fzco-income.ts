@@ -8,14 +8,15 @@
  */
 
 import type Database from 'better-sqlite3';
-import { accountsForEntity } from '../accounts/index.js';
+import { accountsForEntity, getAccountConfig } from '../accounts/index.js';
+import { convertAmountSync } from '../../config/exchange-rates.js';
 import { toIsoDate, shiftIsoDate } from '../../../shared/iso-date.js';
 
 /**
  * Sum of `income` amounts on FZCO-linked accounts over the 365-day
- * window ending at `today` (inclusive). Returns 0 when the FZCO
- * entity has no registered accounts so callers can treat it as a
- * no-op on UK-only deployments.
+ * window ending at `today` (inclusive), converted to AED. Returns 0
+ * when the FZCO entity has no registered accounts so callers can
+ * treat it as a no-op on UK-only deployments.
  */
 export function sumFzcoTrailing12mIncomeAed(
   db: Database.Database,
@@ -26,14 +27,21 @@ export function sumFzcoTrailing12mIncomeAed(
   const placeholders = uaeAccounts.map(() => '?').join(', ');
   const endIso = toIsoDate(today);
   const startIso = shiftIsoDate(endIso, -365);
-  const row = db
+  const rows = db
     .prepare(
-      `SELECT COALESCE(SUM(amount), 0) AS total
+      `SELECT account, COALESCE(SUM(amount), 0) AS total
        FROM transactions
        WHERE type = 'income'
          AND account IN (${placeholders})
-         AND date >= ? AND date <= ?`,
+         AND date >= ? AND date <= ?
+       GROUP BY account`,
     )
-    .get(...uaeAccounts, startIso, endIso) as { total: number };
-  return row.total;
+    .all(...uaeAccounts, startIso, endIso) as Array<{ account: string; total: number }>;
+
+  let totalAed = 0;
+  for (const row of rows) {
+    const currency = getAccountConfig(row.account).currency;
+    totalAed += convertAmountSync(row.total, currency, 'AED');
+  }
+  return totalAed;
 }

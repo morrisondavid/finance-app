@@ -26,6 +26,11 @@ function pickConnectProvider(config: AccountConfig): 'truelayer' | 'enable' {
   return 'enable';
 }
 
+function hasConfiguredTrueLayerDataAccountId(config: AccountConfig): boolean {
+  const id = config.aispFeed?.trueLayer?.dataAccountId?.trim() ?? '';
+  return id !== '';
+}
+
 /** Public for tests via dependency injection only. */
 export function deriveFeedToolbarState(
   account: AccountName,
@@ -63,10 +68,14 @@ export function deriveFeedToolbarState(
   } catch (e) {
     if (e instanceof FeedSyncError) {
       if (e.code === 'not-linked') {
+        const connectProvider = pickConnectProvider(config);
+        const reconnect =
+          connectProvider === 'truelayer' && hasConfiguredTrueLayerDataAccountId(config);
         return {
           kind: 'connect',
           account,
-          connectProvider: pickConnectProvider(config),
+          connectProvider,
+          ...(reconnect ? { reconnect: true } : {}),
         };
       }
       if (e.code === 'unknown-account') {

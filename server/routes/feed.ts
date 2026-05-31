@@ -20,7 +20,7 @@
  *   - `EnableBankingError` (`no-session`, `expired-session`) → 401 (operator must re-link)
  *   - `EnableBankingError` (`missing-credentials`) → 503 (server config gap)
  *   - `EnableBankingError` (otherwise) → 502
- *   - `TrueLayerError` (`expired-session`) → 401 (re-link OAuth)
+ *   - `TrueLayerError` (`expired-session`, `sca-exceeded`) → 401 (re-link OAuth)
  *   - `TrueLayerError` (`missing-credentials`, `not-linked`) → 503 (config / credential gap)
  *   - `TrueLayerError` (otherwise) → 502
  *   - Anything else                  → 500
@@ -66,7 +66,7 @@ function mapError(err: unknown): { status: number; body: ErrorBody } {
     return { status: 502, body: { error: err.message, code: err.code } };
   }
   if (err instanceof TrueLayerError) {
-    if (err.code === 'expired-session') {
+    if (err.code === 'expired-session' || err.code === 'sca-exceeded') {
       return { status: 401, body: { error: err.message, code: err.code } };
     }
     if (err.code === 'missing-credentials' || err.code === 'not-linked') {

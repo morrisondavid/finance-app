@@ -132,6 +132,13 @@ export function addOccurrenceIndex(rows: CSVRow[], parser: BankParser): CSVRow[]
   return result;
 }
 
+function signedAmountFromRow(row: CSVRow, parser: BankParser): number {
+  if (parser.parseSignedAmount !== undefined) {
+    return parser.parseSignedAmount(row);
+  }
+  return parseFloat(getColumnValue(row, parser.amountColumn) || '0');
+}
+
 /**
  * PURE - Generate a unique key for a CSV row for deduplication
  * Uses date + amount + description + occurrence (case-insensitive)
@@ -141,19 +148,19 @@ export function addOccurrenceIndex(rows: CSVRow[], parser: BankParser): CSVRow[]
  * @returns String key for comparison
  */
 export function generateRowKey(row: CSVRow, parser: BankParser): string {
+  const signedAmount = signedAmountFromRow(row, parser).toFixed(2);
   const idColumn = parser.externalIdColumn;
   if (idColumn !== undefined && idColumn !== '') {
     const externalId = getColumnValue(row, idColumn).trim();
     if (externalId !== '') {
-      return `externalId:${externalId}`;
+      return `externalId:${externalId}|${signedAmount}`;
     }
   }
   const date = getColumnValue(row, parser.dateColumn).trim();
-  const amount = parseFloat(getColumnValue(row, parser.amountColumn) || '0').toFixed(2);
   const description = getColumnValue(row, parser.descriptionColumn).trim().toLowerCase();
   const occurrence = row._occurrence || '1'; // Default to 1 if not set
   
-  return `${date}|${amount}|${description}|${occurrence}`;
+  return `${date}|${signedAmount}|${description}|${occurrence}`;
 }
 
 /**

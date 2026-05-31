@@ -188,7 +188,7 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
   },
   'emirates-islamic': {
     name: 'emirates-islamic',
-    label: 'Emirates Islamic',
+    label: 'Emirates Islamic (AED)',
     type: 'current',
     currency: 'AED',
     entityId: 'autonize-it-fzco',
@@ -216,6 +216,38 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
     /** Emirates Islamic / UAE banks are not on TrueLayer AIS — use CSV upload. */
+  },
+  'emirates-islamic-gbp': {
+    name: 'emirates-islamic-gbp',
+    label: 'Emirates Islamic (GBP)',
+    type: 'current',
+    currency: 'GBP',
+    entityId: 'autonize-it-fzco',
+    category: 'business',
+    business: {
+      jurisdiction: 'UAE',
+      vat: { applicable: true, rate: 0.05, registered: false },
+      corpTax: { applicable: true, qualifyingFreeZone: 'TBC' },
+    },
+    canMakeOutgoingPayments: true,
+    excludeTransfersFromIncome: false,
+    showTaxLiabilities: false,
+  },
+  'emirates-islamic-usd': {
+    name: 'emirates-islamic-usd',
+    label: 'Emirates Islamic (USD)',
+    type: 'current',
+    currency: 'USD',
+    entityId: 'autonize-it-fzco',
+    category: 'business',
+    business: {
+      jurisdiction: 'UAE',
+      vat: { applicable: true, rate: 0.05, registered: false },
+      corpTax: { applicable: true, qualifyingFreeZone: 'TBC' },
+    },
+    canMakeOutgoingPayments: true,
+    excludeTransfersFromIncome: false,
+    showTaxLiabilities: false,
   },
   'santander-everyday': {
     name: 'santander-everyday',

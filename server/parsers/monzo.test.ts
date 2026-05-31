@@ -74,9 +74,9 @@ describe('Monzo Transaction ID dedup', () => {
     Amount: '-850.00',
   });
 
-  it('generateRowKey uses external id when present', () => {
-    expect(generateRowKey(exportRow, monzoParser)).toBe('externalId:tx-dup-1');
-    expect(generateRowKey(feedRow, monzoParser)).toBe('externalId:tx-dup-1');
+  it('generateRowKey uses external id and signed amount when present', () => {
+    expect(generateRowKey(exportRow, monzoParser)).toBe('externalId:tx-dup-1|-850.00');
+    expect(generateRowKey(feedRow, monzoParser)).toBe('externalId:tx-dup-1|-850.00');
     expect(generateRowKey(exportRow, monzoParser)).toBe(generateRowKey(feedRow, monzoParser));
   });
 
@@ -85,7 +85,7 @@ describe('Monzo Transaction ID dedup', () => {
     expect(deduped).toHaveLength(1);
   });
 
-  it('generateTransactionHash uses account + externalId only', () => {
+  it('generateTransactionHash matches when externalId and amount match despite different description', () => {
     const txA: Transaction = {
       date: new Date(2026, 3, 15),
       description: 'Stoneshaw',
@@ -150,6 +150,106 @@ describe('Monzo feed emitter — Stoneshaw alignment', () => {
     const tx = monzoParser.transform(records[0], 'monzo-joint');
     expect(tx?.description).toBe('Stoneshaw');
     expect(tx?.externalId).toBe('monzo-tx-stoneshaw');
+  });
+});
+
+describe('Monzo signed amount dedup — FX debit/credit pairs (Moshi Moshi)', () => {
+  const moshiCredit = csvRow({
+    'Transaction ID': 'tx_0000B6PoATkVwBf3PVUfLd',
+    Date: '18/05/2026',
+    Name: 'Moshi Moshi Retail 126',
+    Description: 'Moshi Moshi Retail 126',
+    Amount: '11.85',
+    'Money In': '11.85',
+    'Money Out': '',
+  });
+
+  const moshiDebit = csvRow({
+    'Transaction ID': 'tx_0000B6MoshiDebitLeg',
+    Date: '18/05/2026',
+    Name: 'Moshi Moshi Retail 126',
+    Description: 'Moshi Moshi Retail 126',
+    Amount: '-11.85',
+    'Money In': '',
+    'Money Out': '11.85',
+  });
+
+  it('parseMonzoSignedAmount respects credit vs debit sign', () => {
+    expect(parseMonzoSignedAmount(moshiCredit)).toBe(11.85);
+    expect(parseMonzoSignedAmount(moshiDebit)).toBe(-11.85);
+  });
+
+  it('deduplicateRows keeps both legs when Transaction IDs differ', () => {
+    const deduped = deduplicateRows([moshiCredit, moshiDebit], monzoParser);
+    expect(deduped).toHaveLength(2);
+  });
+
+  it('generateRowKey distinguishes opposite signs when Transaction ID is absent', () => {
+    const creditNoId = csvRow({
+      Date: '18/05/2026',
+      Name: 'Moshi Moshi Retail 126',
+      Amount: '11.85',
+    });
+    const debitNoId = csvRow({
+      Date: '18/05/2026',
+      Name: 'Moshi Moshi Retail 126',
+      Amount: '-11.85',
+    });
+    expect(generateRowKey(creditNoId, monzoParser)).not.toBe(generateRowKey(debitNoId, monzoParser));
+    expect(deduplicateRows([creditNoId, debitNoId], monzoParser)).toHaveLength(2);
+  });
+
+  it('deduplicateRows keeps both legs when Amount is empty but Money In/Out differ', () => {
+    const creditMoneyInOnly = csvRow({
+      Date: '18/05/2026',
+      Name: 'Moshi Moshi Retail 126',
+      Amount: '',
+      'Money In': '11.85',
+      'Money Out': '',
+    });
+    const debitMoneyOutOnly = csvRow({
+      Date: '18/05/2026',
+      Name: 'Moshi Moshi Retail 126',
+      Amount: '',
+      'Money In': '',
+      'Money Out': '11.85',
+    });
+    expect(parseMonzoSignedAmount(creditMoneyInOnly)).toBe(11.85);
+    expect(parseMonzoSignedAmount(debitMoneyOutOnly)).toBe(-11.85);
+    expect(deduplicateRows([creditMoneyInOnly, debitMoneyOutOnly], monzoParser)).toHaveLength(2);
+  });
+
+  it('generateTransactionHash differs when sign differs (no externalId)', () => {
+    const creditTx = monzoParser.transform(moshiCredit, 'monzo-joint');
+    const debitTx = monzoParser.transform(moshiDebit, 'monzo-joint');
+    expect(creditTx).not.toBeNull();
+    expect(debitTx).not.toBeNull();
+    if (creditTx === null || debitTx === null) return;
+
+    const creditNoId: Transaction = { ...creditTx, externalId: undefined };
+    const debitNoId: Transaction = { ...debitTx, externalId: undefined };
+    expect(generateTransactionHash(creditNoId)).not.toBe(generateTransactionHash(debitNoId));
+  });
+
+  it('generateRowKey and generateTransactionHash treat opposite signs as distinct even with same Transaction ID', () => {
+    const sameIdCredit = csvRow({
+      ...moshiCredit,
+      'Transaction ID': 'tx_shared_moshi',
+    });
+    const sameIdDebit = csvRow({
+      ...moshiDebit,
+      'Transaction ID': 'tx_shared_moshi',
+    });
+
+    expect(generateRowKey(sameIdCredit, monzoParser)).not.toBe(generateRowKey(sameIdDebit, monzoParser));
+    expect(deduplicateRows([sameIdCredit, sameIdDebit], monzoParser)).toHaveLength(2);
+
+    const creditTx = monzoParser.transform(sameIdCredit, 'monzo-joint');
+    const debitTx = monzoParser.transform(sameIdDebit, 'monzo-joint');
+    expect(creditTx).not.toBeNull();
+    expect(debitTx).not.toBeNull();
+    if (creditTx === null || debitTx === null) return;
+    expect(generateTransactionHash(creditTx)).not.toBe(generateTransactionHash(debitTx));
   });
 });
 
