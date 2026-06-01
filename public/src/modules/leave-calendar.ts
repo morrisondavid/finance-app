@@ -18,11 +18,13 @@ import dayGridPlugin from '@fullcalendar/daygrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import type { DateClickArg } from '@fullcalendar/interaction';
 
+import { isContractCurrent } from '../../../shared/contract-display.js';
 import type {
   Contract,
   LeaveRow,
   PublicHolidaysResponse,
 } from '../../../shared/api-contracts.js';
+import { todayIsoLocal } from '../../../shared/iso-date.js';
 
 const CALENDAR_PANEL_ID = 'contracts-leave-calendar-panel';
 const CALENDAR_EL_ID = 'contracts-leave-calendar';
@@ -174,7 +176,7 @@ export async function showLeaveCalendar(
   contracts: Contract[],
   leaveChangedCallback: () => Promise<void>,
 ): Promise<void> {
-  activeContracts = contracts.filter(c => c.active);
+  activeContracts = contracts.filter(c => isContractCurrent(c, todayIsoLocal()));
   onLeaveChanged = leaveChangedCallback;
 
   const panel = getEl(CALENDAR_PANEL_ID);
@@ -211,5 +213,5 @@ export function initLeaveCalendar(
 }
 
 export function updateLeaveCalendarContracts(contracts: Contract[]): void {
-  activeContracts = contracts.filter(c => c.active);
+  activeContracts = contracts.filter(c => isContractCurrent(c, todayIsoLocal()));
 }

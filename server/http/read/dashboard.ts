@@ -132,7 +132,7 @@ export function readDashboardSummaryFromQuery(
       liquidityCommitments,
       transactionCount: getTransactionCount(filters),
       fileCount: getFileCount(),
-      availableFunds: composeAiAvailableFunds({ horizonDays: 720 }),
+      availableFunds: composeAiAvailableFunds(),
     };
 
     return jsonReadOk(DashboardSummaryResponseSchema.parse(summaryUnchecked));

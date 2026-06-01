@@ -22,7 +22,7 @@
  *     This is the key index for the payment matcher and for deriving
  *     renewal position (the 2nd+ row in a series is the renewal).
  *   - `byMaster` — all contracts under a given master agreement id.
- *   - `active` — contracts with `active === true`, in CSV order.
+ *   - `current` — contracts in effect on a given ISO date (`start_date <= date <= end_date`).
  */
 
 import path from 'path';
@@ -73,8 +73,6 @@ export interface ContractRegistry {
     readonly byClientAndEntity: ReadonlyMap<string, readonly Contract[]>;
     /** Contracts under a given master agreement. Rows with `master_id === null` are absent. */
     readonly byMaster: ReadonlyMap<MasterAgreementId, readonly Contract[]>;
-    /** Contracts with `active === true`. */
-    readonly active: readonly Contract[];
   };
 }
 
@@ -165,8 +163,6 @@ export function buildContractRegistryFromData(
   const byMaster = new Map<MasterAgreementId, readonly Contract[]>();
   for (const [k, v] of byMasterRaw) byMaster.set(k, sortedByStartDate(v));
 
-  const active = filterToIndex(all, c => c.active);
-
   return {
     all,
     indexes: {
@@ -174,7 +170,6 @@ export function buildContractRegistryFromData(
       byClient,
       byClientAndEntity,
       byMaster,
-      active,
     },
   };
 }

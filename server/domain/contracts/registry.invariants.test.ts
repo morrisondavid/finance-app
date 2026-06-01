@@ -14,7 +14,6 @@ import {
   dcSowRow,
   lfContractRow,
   lfExtensionRow,
-  dcSowInactiveRow,
 } from './test-helpers.js';
 
 function buildWithStubs(tmpDir: string) {
@@ -78,23 +77,6 @@ describe('contracts registry invariants', () => {
     const reg = buildWithStubs(tmpDir);
     for (const rows of reg.indexes.byMaster.values()) {
       for (const c of rows) expect(c.master_id).not.toBeNull();
-    }
-  });
-
-  it('active ⊆ all', () => {
-    seedCsv(tmpDir, [dcSowRow, dcSowInactiveRow]);
-    const reg = buildWithStubs(tmpDir);
-    const allIds = new Set(reg.all.map(c => c.id));
-    for (const c of reg.indexes.active) {
-      expect(allIds.has(c.id)).toBe(true);
-    }
-  });
-
-  it('every active contract has active === true', () => {
-    seedCsv(tmpDir, [dcSowRow, dcSowInactiveRow]);
-    const reg = buildWithStubs(tmpDir);
-    for (const c of reg.indexes.active) {
-      expect(c.active).toBe(true);
     }
   });
 });

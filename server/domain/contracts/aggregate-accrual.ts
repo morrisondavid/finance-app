@@ -21,7 +21,7 @@ import { allLeave } from '../leave/index.js';
 import { holidayDatesForEntity } from '../working-days/public-holidays.js';
 import { computeAccrual } from './income-accrual.js';
 import { resolveLastPaymentsForContracts } from './last-payment-resolver.js';
-import { allContracts, listActiveContracts } from './queries.js';
+import { allContracts, listContractsForForecast } from './queries.js';
 
 function rollupByEntity(rows: readonly AccrualResponse[]): AggregateAccrualEntityRollup[] {
   const byKey = new Map<
@@ -122,15 +122,18 @@ export function buildAggregateAccrualResponse(
   opts: BuildAggregateAccrualResponseOpts = {},
 ): AggregateAccrualResponse {
   const today = opts.today ?? todayIsoLocal();
-  const active = listActiveContracts();
+  // Forecast set, not just strictly-current: a just-ended engagement is still
+  // owed for its final unpaid month, so its trailing receivable must surface
+  // on the Contracts tab (and AI snapshot) until that payment could land.
+  const forecastContracts = listContractsForForecast(today);
   const allLeaveRows = allLeave();
   const lastPayments = resolveLastPaymentsForContracts({
-    contracts: active,
+    contracts: forecastContracts,
     today,
   });
   const yearStart = `${today.slice(0, 4)}-01-01`;
   const yearEnd = `${today.slice(0, 4)}-12-31`;
-  const perContract = active.map(contract => {
+  const perContract = forecastContracts.map(contract => {
     const publicHolidayDates = holidayDatesForEntity(contract.issuing_entity_id, yearStart, yearEnd);
     return AccrualResponseSchema.parse(
       computeAccrual({

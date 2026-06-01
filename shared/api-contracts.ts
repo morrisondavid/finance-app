@@ -2405,7 +2405,7 @@ export const ContractSchema = z.object({
    */
   placement_ref: z.string().nullable(),
   start_date: IsoDateSchema,
-  end_date: IsoDateSchema.nullable(),
+  end_date: IsoDateSchema,
   works_monday: z.boolean(),
   works_tuesday: z.boolean(),
   works_wednesday: z.boolean(),
@@ -2431,7 +2431,6 @@ export const ContractSchema = z.object({
   jurisdiction: z.string().min(1),
   signed_at: IsoDateSchema,
   docusign_envelope: z.string().nullable(),
-  active: z.boolean(),
   updated_at: IsoDateSchema.nullable(),
 });
 export type Contract = z.infer<typeof ContractSchema>;
@@ -2713,17 +2712,54 @@ export const AiSpendRateResponseSchema = z.object({
 });
 export type AiSpendRateResponse = z.infer<typeof AiSpendRateResponseSchema>;
 
+export const AiFutureIncomeMonthSchema = z.object({
+  month: z.string().regex(/^\d{4}-\d{2}$/),
+  amountGbp: z.number(),
+});
+export type AiFutureIncomeMonth = z.infer<typeof AiFutureIncomeMonthSchema>;
+
+export const AiFutureIncomeContractSchema = z.object({
+  contractId: z.string().nullable(),
+  label: z.string(),
+  reference: z.string(),
+  contractEndDate: IsoDateSchema.nullable(),
+  impliedWorkingDays: z.number().nullable(),
+  /** Gross (before VAT/CT) total in GBP for this contract in the window. */
+  totalGbp: z.number(),
+  /** After-tax retained total in GBP (matches the funds headline semantics). */
+  retainedGbp: z.number(),
+  monthly: z.array(AiFutureIncomeMonthSchema),
+});
+export type AiFutureIncomeContract = z.infer<typeof AiFutureIncomeContractSchema>;
+
+export const AiLastContractPaymentSchema = z.object({
+  date: IsoDateSchema,
+  amountGbp: z.number(),
+  label: z.string(),
+});
+export type AiLastContractPayment = z.infer<typeof AiLastContractPaymentSchema>;
+
 export const AiAvailableFundsResponseSchema = z.object({
   generatedAt: z.string(),
   schemaVersion: z.string(),
-  horizonDays: z.number().int().positive(),
+  months: z.number().int(),
+  projectionEndDate: IsoDateSchema,
   availableNowGbp: z.number(),
-  confirmedFutureIncomeGbp: z.number(),
+  confirmedFutureIncomeGrossGbp: z.number(),
+  confirmedFutureIncomeRetainedGbp: z.number(),
+  futureIncomeVatReserveGbp: z.number(),
+  futureIncomeCtReserveGbp: z.number(),
   futureIncome: z.array(ExpectedReceiptRowSchema),
+  futureIncomeByMonth: z.array(AiFutureIncomeMonthSchema),
+  futureIncomeByContract: z.array(AiFutureIncomeContractSchema),
   nextIncomeDate: z.string().nullable(),
   lastConfirmedIncomeDate: z.string().nullable(),
   committedOutflowsGbp: z.number(),
-  projectedAvailableGbp: z.number(),
+  /** Full horizon-scoped committed-outflows breakdown so the dashboard panel re-scopes with the toggle. */
+  committedOutflows: LiquidityCommitmentsOverviewSchema,
+  totalFundsGbp: z.number(),
+  netAfterCommitmentsGbp: z.number(),
+  lastContractPayment: AiLastContractPaymentSchema.nullable(),
 });
 export type AiAvailableFundsResponse = z.infer<typeof AiAvailableFundsResponseSchema>;
 
@@ -2814,6 +2850,7 @@ export const SurvivalPlanGetResponseSchema = z.object({
     active: z.boolean(),
   }).nullable(),
 });
+export type SurvivalPlanGetResponse = z.infer<typeof SurvivalPlanGetResponseSchema>;
 
 /** MCP composite `household_financial_posture` — orchestration envelope (no HTTP route). */
 export const HouseholdFinancialPostureDeltasCategorySchema = z.object({

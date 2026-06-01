@@ -10,7 +10,7 @@
  *
  * All three load `getAllAccountBalances`, `getUpcomingObligations`,
  * `runExpensesOverviewPipeline`, `buildUpcomingRecurring`,
- * `listInvoicesByStatus('issued')`, `listActiveContracts`, `allLeave`
+ * `listInvoicesByStatus('issued')`, `listCurrentContracts`, `allLeave`
  * + the same three lookup maps (`currencyByAccount`,
  * `accountsByEntity`, `defaultAccountByType`). They differ only in
  * which `assembleForecastEvents` flags they pass downstream, so the
@@ -45,7 +45,9 @@ import { runExpensesOverviewPipeline } from '../../utils/expenses-overview-pipel
 import { buildUpcomingRecurring, type UpcomingRecurringBuckets } from '../../utils/recurring-upcoming.js';
 import type { PipelineResult } from '../../utils/recurring-pipeline.js';
 import { listInvoicesByStatus } from '../invoices/index.js';
-import { listActiveContracts } from '../contracts/queries.js';
+import { listContractsForForecast } from '../contracts/queries.js';
+import { resolveLastPaymentsForContracts } from '../contracts/last-payment-resolver.js';
+import { resolveAccrualWindowStart } from '../contracts/last-payment.js';
 import { allLeave } from '../leave/index.js';
 import { holidayDatesForEntity } from '../working-days/public-holidays.js';
 import type { AccountStartingBalance } from './build-forecast.js';
@@ -97,6 +99,13 @@ export interface LoadedForecastInputs {
   readonly upcomingBuckets: UpcomingRecurringBuckets;
   readonly unpaidInvoices: readonly Invoice[];
   readonly contracts: readonly Contract[];
+  /**
+   * Per-contract owed-window start (`YYYY-MM-DD`): the day after the most
+   * recent matched payment, clamped into the contract window. Drives the
+   * accrual backfill so already-worked-but-unpaid periods are projected as
+   * trailing receipts. Empty when a contract has no resolvable history.
+   */
+  readonly accrualWindowStartByContractId: ReadonlyMap<string, string>;
   readonly leaveRows: readonly LeaveRow[];
   readonly publicHolidayDatesByEntity: ReadonlyMap<EntityId, ReadonlySet<string>>;
   readonly currencyByAccount: ReadonlyMap<AccountName, CurrencyCode>;
@@ -160,7 +169,18 @@ export function loadForecastInputs(opts: LoadForecastInputsOpts = {}): LoadedFor
   const todayDate = new Date(today + 'T00:00:00Z');
   const upcomingBuckets = buildUpcomingRecurring(pipeline, todayDate);
   const unpaidInvoices = listInvoicesByStatus('issued');
-  const contracts = listActiveContracts();
+  const contracts = listContractsForForecast(today);
+  const lastPaymentByContractId = resolveLastPaymentsForContracts({ contracts, today });
+  const accrualWindowStartByContractId = new Map<string, string>(
+    contracts.map(contract => [
+      contract.id,
+      resolveAccrualWindowStart({
+        contract,
+        lastPaymentDate: lastPaymentByContractId.get(contract.id) ?? null,
+        today,
+      }),
+    ]),
+  );
   const leaveRows = allLeave();
 
   // Public holidays for the calendar year of `today` and the year
@@ -184,6 +204,7 @@ export function loadForecastInputs(opts: LoadForecastInputsOpts = {}): LoadedFor
     upcomingBuckets,
     unpaidInvoices,
     contracts,
+    accrualWindowStartByContractId,
     leaveRows,
     publicHolidayDatesByEntity,
     currencyByAccount,

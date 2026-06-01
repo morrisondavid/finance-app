@@ -33,6 +33,8 @@ export interface ComposeExpectedReceiptsInput {
   readonly allowedAccountSet: ReadonlySet<AccountName>;
   /** When true, accrual receipts span monthly through contract end. Default false. */
   readonly projectToContractEnd?: boolean;
+  /** Per-contract owed-window start, so trailing unpaid work is projected. */
+  readonly accrualWindowStartByContractId?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -52,9 +54,8 @@ export function composeExpectedReceipts(input: ComposeExpectedReceiptsInput): Ex
     currencyByAccount,
     allowedAccountSet,
     projectToContractEnd,
+    accrualWindowStartByContractId,
   } = input;
-
-  const invoicedContractIds = new Set(unpaidInvoices.map(inv => inv.contract_id));
 
   const accrualEvents = collectAccrualEvents({
     contracts,
@@ -64,8 +65,9 @@ export function composeExpectedReceipts(input: ComposeExpectedReceiptsInput): Ex
     horizon,
     accountsByEntity,
     currencyByAccount,
-    invoicedContractIds,
+    unpaidInvoices,
     projectToContractEnd,
+    accrualWindowStartByContractId,
   });
 
   const invoiceEvents = collectInvoiceReceiptEvents({
@@ -137,5 +139,6 @@ export function buildExpectedReceipts(opts: LoadForecastInputsOpts = {}): Expect
     currencyByAccount: loaded.currencyByAccount,
     allowedAccountSet: loaded.allowedAccountSet,
     projectToContractEnd: opts.projectToContractEnd,
+    accrualWindowStartByContractId: loaded.accrualWindowStartByContractId,
   });
 }

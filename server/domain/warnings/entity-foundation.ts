@@ -52,7 +52,7 @@ import {
   UAE_VAT_MANDATORY_AED,
 } from '../../config/tax-rules.js';
 import { daysBetween, toIsoDate } from '../../../shared/iso-date.js';
-import { contractDisplayName } from '../../../shared/contract-display.js';
+import { contractDisplayName, isContractCurrent } from '../../../shared/contract-display.js';
 import { formatIsoDateUkLong } from '../../../shared/formatting.js';
 
 const IFZA_RENEWAL_WINDOW_DAYS = 60;
@@ -261,16 +261,16 @@ function collectClientTbcFields(client: Client): string[] {
 }
 
 /**
- * Emit one `contract-ending-soon` warning per active contract whose
+ * Emit one `contract-ending-soon` warning per current contract whose
  * `end_date` is within its `renewal_warning_days` window (or already
  * past). Severity bands (matched by the Contracts tab's tile badge):
  *
- *   - `daysLeft < 0`        → `critical` (overdue, still active)
+ *   - `daysLeft < 0`        → `critical` (overdue, still current)
  *   - `0 <= daysLeft <= 14` → `critical` (imminent)
  *   - `daysLeft > 14`       → `warn`     (approaching)
  *
- * Skipped entirely when the contract is inactive, open-ended, or
- * still outside its `renewal_warning_days` window.
+ * Skipped when the contract is not in effect on `todayIso`, or still
+ * outside its `renewal_warning_days` window.
  */
 function sumActiveProjectedNetForEntity(
   entityId: EntityId,
@@ -282,7 +282,7 @@ function sumActiveProjectedNetForEntity(
   const hol = publicHolidayDatesByEntity.get(entityId);
   let sum = 0;
   for (const c of contracts) {
-    if (!c.active || c.issuing_entity_id !== entityId) continue;
+    if (!isContractCurrent(c, todayIso) || c.issuing_entity_id !== entityId) continue;
     sum += computeProjectedPeriodTotal({
       contract: c,
       leaveRows,
@@ -307,8 +307,7 @@ function collectContractEndingSoon(
   const out: EntityFoundationWarning[] = [];
 
   for (const contract of contracts) {
-    if (!contract.active) continue;
-    if (contract.end_date === null) continue;
+    if (!isContractCurrent(contract, todayIso)) continue;
     const daysLeft = daysBetween(contract.end_date, todayIso);
     if (daysLeft > contract.renewal_warning_days) continue;
 
@@ -320,7 +319,7 @@ function collectContractEndingSoon(
       daysLeft < 0 || daysLeft <= 14 ? 'critical' : 'warn';
 
     const detail = daysLeft < 0
-      ? `Contract ${engagementLabel} with ${clientLabel} ended ${Math.abs(daysLeft)} day${Math.abs(daysLeft) === 1 ? '' : 's'} ago on ${endDateLabel} but is still marked active.`
+      ? `Contract ${engagementLabel} with ${clientLabel} ended ${Math.abs(daysLeft)} day${Math.abs(daysLeft) === 1 ? '' : 's'} ago on ${endDateLabel}.`
       : `Contract ${engagementLabel} with ${clientLabel} ends in ${daysLeft} day${daysLeft === 1 ? '' : 's'} on ${endDateLabel}.`;
 
     const title = daysLeft < 0
@@ -328,7 +327,7 @@ function collectContractEndingSoon(
       : `Contract ${engagementLabel} is approaching renewal`;
 
     const recommended_action = daysLeft < 0
-      ? `Flip ${contract.id} to active=false in clients/contracts.csv once the engagement is truly over, or add the successor contract so the deadline clears.`
+      ? `Add the successor contract to clients/contracts.csv if the engagement continues, or confirm the engagement has ended.`
       : `Confirm renewal intent with ${clientLabel} and sign the successor contract before ${endDateLabel}.`;
 
     const company = companyById.get(contract.issuing_entity_id);

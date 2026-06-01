@@ -12,8 +12,9 @@
  */
 
 import type { CurrencyCode } from '../../../shared/api-contracts.js';
+import { todayIsoLocal } from '../../../shared/iso-date.js';
 import { isMandatoryCategory } from '../../../shared/expenses-insight.js';
-import { listActiveContracts } from '../contracts/queries.js';
+import { listCurrentContracts } from '../contracts/queries.js';
 import { allClients } from '../clients/queries.js';
 import { getObligationRegistry } from '../obligations/registry.js';
 import { runExpensesOverviewPipeline } from '../../utils/expenses-overview-pipeline.js';
@@ -135,11 +136,13 @@ export function buildPropertyLeverageInputs(
  * warnings risk-signal bridge call this; nothing duplicates the loaders.
  */
 export function assembleIncomeComposition(): AssembledIncomeComposition {
+  const today = todayIsoLocal();
   const pipeline = runExpensesOverviewPipeline();
   const obligations = getObligationRegistry();
 
   const sources = listAllIncomeSources({
-    contracts: listActiveContracts(),
+    today,
+    contracts: listCurrentContracts(today),
     obligations: obligations.all,
     monthlyIncomeRecurring: pipeline.monthlyIncomeRecurring,
     clientLabelById: buildClientLabelMap(),

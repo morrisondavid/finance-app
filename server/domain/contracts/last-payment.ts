@@ -89,6 +89,19 @@ export interface FindLastPaymentInput {
 const FALLBACK_DAY_COUNTS: readonly number[] = [4, 5, 6, 15, 16, 17, 18, 19, 20, 21, 22, 23];
 const FALLBACK_AMOUNT_TOLERANCE = 0.05;
 
+/**
+ * Earliest date a narrative-matched bank credit could plausibly settle work
+ * performed under `contract`. Weekly self-bills land ~terms + 7 days after the
+ * first worked day; monthly after terms from start. Payments before this are
+ * almost always trailing receipts for a prior engagement row (same payer,
+ * same account) and must not shorten this contract's owed window — otherwise
+ * a May landing for April work hides May's full accrual on the follow-on row.
+ */
+export function earliestPlausibleNarrativePaymentDate(contract: Contract): string {
+  const cadenceLag = contract.invoice_cadence === 'weekly' ? 7 : 0;
+  return shiftIsoDate(contract.start_date, contract.payment_terms_days + cadenceLag);
+}
+
 function amountMatchesDayRate(
   amount: number,
   dayRate: number,
@@ -137,14 +150,19 @@ export function findLastInvoicePaymentDate(
     .filter(tx => tx.type === 'income' && tx.date <= today)
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 
-  // Pass 1: narrative match.
+  // Pass 1: narrative match — ignore credits that pre-date the earliest
+  // settlement this contract could have received (see
+  // `earliestPlausibleNarrativePaymentDate`).
+  const earliestNarrative = earliestPlausibleNarrativePaymentDate(contract);
   for (const tx of sorted) {
+    if (tx.date < earliestNarrative) continue;
     if (narrativeMatches(tx.description, tokens)) return tx.date;
   }
 
   // Pass 2: amount-tolerance fallback, opt-in only.
   if (enableAmountFallback) {
     for (const tx of sorted) {
+      if (tx.date < earliestNarrative) continue;
       if (amountMatchesDayRate(tx.amount, contract.day_rate)) return tx.date;
     }
   }
@@ -173,11 +191,15 @@ function pickLatestLedgerPayment(
  *   payment (the paid day is already settled).
  * - When no payment is known — new contracts, new entities, or just
  *   contracts whose invoices haven't been paid yet — the window falls
- *   back to the first of the current calendar month. The fallback
- *   deliberately doesn't reach back further: without a payment
- *   anchor, "since last payment" is indistinguishable from the
- *   calendar forecast the banner already shows, and reaching further
- *   back would silently inflate the accrued figure.
+ *   back to the first of the calendar month containing the effective
+ *   "now". For a contract that has already ended, that month is the
+ *   month of `end_date` (not `today`), otherwise the fallback would
+ *   start after the contract end and clip to an empty owed window,
+ *   hiding the final unpaid month. The fallback deliberately doesn't
+ *   reach back further: without a payment anchor, "since last payment"
+ *   is indistinguishable from the calendar forecast the banner already
+ *   shows, and reaching further back would silently inflate the
+ *   accrued figure.
  * - Always clamped to `contract.start_date` — a contract can't owe
  *   for work predating its own start.
  */
@@ -187,8 +209,9 @@ export function resolveAccrualWindowStart(opts: {
   readonly today: string;
 }): string {
   const { contract, lastPaymentDate, today } = opts;
+  const effectiveNow = today <= contract.end_date ? today : contract.end_date;
   const base = lastPaymentDate !== null
     ? shiftIsoDate(lastPaymentDate, 1)
-    : monthRange(today).start;
+    : monthRange(effectiveNow).start;
   return base < contract.start_date ? contract.start_date : base;
 }

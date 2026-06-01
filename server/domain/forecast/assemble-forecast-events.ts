@@ -63,6 +63,8 @@ export interface AssembleForecastEventsParams {
   readonly upcomingBuckets: UpcomingRecurringBuckets;
   readonly unpaidInvoices: readonly Invoice[];
   readonly contracts: readonly Contract[];
+  /** Per-contract owed-window start, so trailing unpaid work is projected as accrual. */
+  readonly accrualWindowStartByContractId?: ReadonlyMap<string, string>;
   readonly leaveRows: readonly import('../../../shared/api-contracts.js').LeaveRow[];
   readonly publicHolidayDatesByEntity: ReadonlyMap<EntityId, ReadonlySet<string>>;
   readonly includeInvoiceReceipts: boolean;
@@ -154,6 +156,7 @@ export function assembleForecastEvents(params: AssembleForecastEventsParams): Fo
     upcomingBuckets,
     unpaidInvoices,
     contracts,
+    accrualWindowStartByContractId,
     leaveRows,
     publicHolidayDatesByEntity,
     includeInvoiceReceipts,
@@ -214,10 +217,6 @@ export function assembleForecastEvents(params: AssembleForecastEventsParams): Fo
       })
     : [];
 
-  const invoicedContractIds = new Set(
-    unpaidInvoices.map(inv => inv.contract_id),
-  );
-
   const accrualEvents = includeAccrual
     ? collectAccrualEvents({
         contracts,
@@ -227,8 +226,9 @@ export function assembleForecastEvents(params: AssembleForecastEventsParams): Fo
         horizon,
         accountsByEntity,
         currencyByAccount,
-        invoicedContractIds,
+        unpaidInvoices,
         projectToContractEnd: projectAccrualToContractEnd,
+        accrualWindowStartByContractId,
       })
     : [];
 

@@ -64,15 +64,15 @@ describe('ingestSelfBill', () => {
     expect(result.placementRef).toBe('BH-28240');
   });
 
-  it('composes a canonical Invoice when the placement ref matches an active contract', async () => {
-    // `LAF-TEG-002` is the active la-fosse contract on FZCO — swap the
-    // PDF's placement_ref in place to exercise the happy path without
-    // mutating the real contracts.csv.
+  it('composes a canonical Invoice when the placement ref matches a contract in period', async () => {
     const realText = await readFixtureText('la-fosse-SB-277615.pdf');
-    const text = realText.replace(
-      'Placement Ref: BH-28240',
-      'Placement Ref: LAF-TEG-002',
-    );
+    const text = realText
+      .replace('Placement Ref: BH-28240', 'Placement Ref: LAF-TEG-002')
+      .replace(/02\/11\/2025/g, '31/05/2026')
+      .replace('02/11/25', '31/05/26')
+      .replace('05/11/2025', '05/06/2026')
+      .replace(/30\/10\/2025/g, '28/05/2026')
+      .replace(/31\/10\/2025/g, '29/05/2026');
 
     const result = ingestSelfBill({ rawText: text, today: '2026-06-15' });
     expect(result.ok).toBe(true);
@@ -90,19 +90,22 @@ describe('ingestSelfBill', () => {
     expect(inv.vat_amount).toBe(200);
     expect(inv.total).toBe(1200);
     expect(inv.status).toBe('issued');
-    expect(inv.invoice_date).toBe('2025-11-05');
-    expect(inv.period_start).toBe('2025-10-30');
-    expect(inv.period_end).toBe('2025-11-02');
-    expect(inv.due_date).toBe('2025-12-05');
+    expect(inv.invoice_date).toBe('2026-06-05');
+    expect(inv.period_start).toBe('2026-05-28');
+    expect(inv.period_end).toBe('2026-05-31');
+    expect(inv.due_date).toBe('2026-07-05');
     expect(inv.description).toContain('Full Stack Engineer');
   });
 
   it('detects duplicate supplier invoice numbers', async () => {
     const realText = await readFixtureText('la-fosse-SB-277615.pdf');
-    const text = realText.replace(
-      'Placement Ref: BH-28240',
-      'Placement Ref: LAF-TEG-002',
-    );
+    const text = realText
+      .replace('Placement Ref: BH-28240', 'Placement Ref: LAF-TEG-002')
+      .replace(/02\/11\/2025/g, '31/05/2026')
+      .replace('02/11/25', '31/05/26')
+      .replace('05/11/2025', '05/06/2026')
+      .replace(/30\/10\/2025/g, '28/05/2026')
+      .replace(/31\/10\/2025/g, '29/05/2026');
 
     const first = ingestSelfBill({ rawText: text, today: '2026-06-15' });
     expect(first.ok).toBe(true);

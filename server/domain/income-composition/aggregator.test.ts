@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { listAllIncomeSources } from './aggregator.js';
 import type { Contract, Obligation, RecurringExpense } from '../../../shared/api-contracts.js';
 
+const TODAY = '2026-04-15';
+
 function makeContract(over: Partial<Contract> = {}): Contract {
   const base: Contract = {
     id: 'c1',
@@ -11,7 +13,7 @@ function makeContract(over: Partial<Contract> = {}): Contract {
     reference: 'REF',
     placement_ref: null,
     start_date: '2026-01-01',
-    end_date: null,
+    end_date: '2026-12-31',
     works_monday: true,
     works_tuesday: true,
     works_wednesday: true,
@@ -36,7 +38,6 @@ function makeContract(over: Partial<Contract> = {}): Contract {
     jurisdiction: 'England',
     signed_at: '2026-01-01',
     docusign_envelope: null,
-    active: true,
     updated_at: '2026-01-01',
   };
   return { ...base, ...over };
@@ -83,6 +84,7 @@ const clientLabelById = new Map<string, string>([
 describe('listAllIncomeSources', () => {
   it('emits a contract source with day_rate × ~21.7 days/month for Mon-Fri', () => {
     const out = listAllIncomeSources({
+      today: TODAY,
       contracts: [makeContract({ day_rate: 600 })],
       obligations: [],
       monthlyIncomeRecurring: [],
@@ -97,9 +99,10 @@ describe('listAllIncomeSources', () => {
     expect(out[0].monthlyAmount).toBeLessThan(13100);
   });
 
-  it('skips inactive contracts', () => {
+  it('skips expired contracts', () => {
     const out = listAllIncomeSources({
-      contracts: [makeContract({ active: false })],
+      today: TODAY,
+      contracts: [makeContract({ end_date: '2026-03-01' })],
       obligations: [],
       monthlyIncomeRecurring: [],
       clientLabelById,
@@ -109,6 +112,7 @@ describe('listAllIncomeSources', () => {
 
   it('emits one source per rental-income obligation, gross at face value', () => {
     const out = listAllIncomeSources({
+      today: TODAY,
       contracts: [],
       obligations: [makeRentalObligation()],
       monthlyIncomeRecurring: [],
@@ -123,6 +127,7 @@ describe('listAllIncomeSources', () => {
 
   it('skips recurring income whose category is already represented (Property/Payroll/Transfers/Income/Dividends)', () => {
     const out = listAllIncomeSources({
+      today: TODAY,
       contracts: [],
       obligations: [],
       monthlyIncomeRecurring: [
@@ -139,6 +144,7 @@ describe('listAllIncomeSources', () => {
 
   it('includes recurring income whose category is NOT a known duplicate', () => {
     const out = listAllIncomeSources({
+      today: TODAY,
       contracts: [],
       obligations: [],
       monthlyIncomeRecurring: [

@@ -97,7 +97,6 @@ export const dcSowRow = rowFromHeaders({
   engagement_tax_status: 'outside-ir35',
   jurisdiction: 'England',
   signed_at: '2025-12-22',
-  active: 'true',
   updated_at: '2026-04-24',
 });
 
@@ -145,7 +144,6 @@ export const lfContractRow = rowFromHeaders({
   engagement_tax_status: 'outside-ir35',
   jurisdiction: 'England',
   signed_at: '2025-12-20',
-  active: 'true',
   updated_at: '2026-04-24',
 });
 
@@ -163,7 +161,6 @@ export const lfExtensionRow = rowFromHeaders({
   start_date: '2026-04-01',
   end_date: '2026-06-30',
   signed_at: '2026-03-15',
-  active: 'true',
 });
 
 /**
@@ -205,18 +202,16 @@ export const lfFzcoContractRow = rowFromHeaders({
   work_location: 'Remote with occasional office visits (London, Sheffield or Newcastle)',
   jurisdiction: 'England',
   signed_at: '2026-04-02',
-  active: 'true',
   updated_at: '2026-04-24',
 });
 
-export const dcSowInactiveRow = rowFromHeaders({
+export const dcSowExpiredRow = rowFromHeaders({
   ...dcSowRow,
   id: 'dc-sow-2025-prior',
   reference: 'Delta Capita · 02 Mar 2025–01 Mar 2026',
   start_date: '2025-03-02',
   end_date: '2026-03-01',
   signed_at: '2025-01-15',
-  active: 'false',
 });
 
 export function seedCsv(tmpDir: string, rows: readonly Record<string, string>[]): void {

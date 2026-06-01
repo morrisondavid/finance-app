@@ -21,6 +21,7 @@ import type {
   Obligation,
   RecurringExpense,
 } from '../../../shared/api-contracts.js';
+import { isContractCurrent } from '../../../shared/contract-display.js';
 import { SPECIAL_CATEGORY } from '../../../shared/special-category.js';
 import { contractWeekdayMask } from '../working-days/weekday-mask.js';
 import { INCOME_ACTIVITY_CLASS, type ActivityClass, type IncomeKind } from './activity-class.js';
@@ -96,6 +97,7 @@ const DEDUPLICATED_INCOME_CATEGORIES: ReadonlySet<string> = new Set([
 ]);
 
 export interface ListAllIncomeSourcesInput {
+  readonly today: string;
   readonly contracts: readonly Contract[];
   readonly obligations: readonly Obligation[];
   readonly monthlyIncomeRecurring: readonly RecurringExpense[];
@@ -106,9 +108,9 @@ export interface ListAllIncomeSourcesInput {
 export function listAllIncomeSources(input: ListAllIncomeSourcesInput): IncomeSource[] {
   const out: IncomeSource[] = [];
 
-  // 1. Contracts (active only).
+  // 1. Contracts in effect on `today`.
   for (const c of input.contracts) {
-    if (!c.active) continue;
+    if (!isContractCurrent(c, input.today)) continue;
     const monthly = contractMonthlyEquivalent(c);
     const label = input.clientLabelById.get(c.client_id) ?? c.client_id;
     out.push({

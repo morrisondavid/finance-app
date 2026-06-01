@@ -1,16 +1,13 @@
 /**
  * Contract-renewal deadline seeder.
  *
- * For every active contract with a defined `end_date`, ensure a matching
+ * For every contract still in effect on `todayIso`, ensure a matching
  * deadline exists in the deadlines table with:
  *
  *   - id       = `contract-renewal-${contract.id}`
  *   - type     = `'contract-renewal'`
  *   - dueDate  = `end_date - renewal_warning_days`
  *   - title    = `${client.trading_name} renewal (${contract.reference})`
- *
- * Contracts with `end_date === null` (open-ended masters, rolling
- * engagements) are skipped — there's no concrete warning date to seed.
  *
  * This seeder is idempotent: repeated calls converge to the same set of
  * deadlines. See `upsertDeadline` for the write semantics — crucially,
@@ -21,6 +18,7 @@
  */
 
 import { shiftIsoDate } from '../../../shared/iso-date.js';
+import { isContractCurrent } from '../../../shared/contract-display.js';
 import { upsertDeadline } from '../../db/repositories/deadlines.js';
 import { getClientRegistry, type ClientRegistry } from '../clients/registry.js';
 import type { Contract } from './schema.js';
@@ -29,6 +27,8 @@ import { getContractRegistry, type ContractRegistry } from './registry.js';
 export interface SyncContractRenewalDeadlinesInput {
   readonly contracts?: ContractRegistry;
   readonly clients?: ClientRegistry;
+  /** ISO date — defaults to local today. */
+  readonly todayIso?: string;
 }
 
 /**
@@ -63,11 +63,12 @@ export function syncContractRenewalDeadlines(
 ): readonly string[] {
   const contracts = input.contracts ?? getContractRegistry();
   const clients = input.clients ?? getClientRegistry();
+  const todayIso = input.todayIso ?? new Date().toISOString().slice(0, 10);
 
   const seeded: string[] = [];
 
-  for (const contract of contracts.indexes.active) {
-    if (contract.end_date === null) continue;
+  for (const contract of contracts.all) {
+    if (!isContractCurrent(contract, todayIso)) continue;
 
     const client = clients.indexes.byId.get(contract.client_id);
     if (client === undefined) {

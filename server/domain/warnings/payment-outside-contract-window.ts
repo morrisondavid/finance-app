@@ -131,7 +131,7 @@ function buildWarning(
 ): EntityFoundationWarning {
   const client = match.client;
   const contract = match.nearestContract;
-  const endedOnIso = contract.end_date ?? contract.start_date;
+  const endedOnIso = contract.end_date;
   const engagementLabel = contractDisplayName(contract, client);
   const endedOnLabel = formatIsoDateUkLong(endedOnIso);
   const startLabel = formatIsoDateUkLong(contract.start_date);

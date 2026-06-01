@@ -8,6 +8,7 @@ import {
   AiLiquidityResponseSchema,
   AiAvailableFundsResponseSchema,
   AiSurvivalResponseSchema,
+  SurvivalPlanGetResponseSchema,
   DashboardSummaryResponseSchema,
   DashboardAccountsSummaryResponseSchema,
   AccountConfigsResponseSchema,
@@ -45,6 +46,7 @@ import {
   type AiLiquidityResponse,
   type AiAvailableFundsResponse,
   type AiSurvivalResponse,
+  type SurvivalPlanGetResponse,
   type DashboardSummaryResponse,
   type DashboardAccountsSummaryResponse,
   type AccountConfigsResponse,
@@ -270,13 +272,13 @@ export async function fetchFinancialSafety(params?: {
   return validateResponse(response, AiFinancialSafetyResponseSchema);
 }
 
-/** Confirmed future income + projected available — GET /api/ai/available-funds */
+/** Confirmed future income + funds picture — GET /api/ai/available-funds */
 export async function fetchAvailableFunds(params?: {
-  days?: number;
+  months?: 3 | 6 | 12;
   signal?: AbortSignal;
 }): Promise<AiAvailableFundsResponse> {
   const query = new URLSearchParams();
-  if (params?.days !== undefined) query.set('days', String(params.days));
+  if (params?.months !== undefined) query.set('months', String(params.months));
   const url = `/api/ai/available-funds?${query}`;
   const response = await fetch(url, { signal: params?.signal });
   return validateResponse(response, AiAvailableFundsResponseSchema);
@@ -298,6 +300,14 @@ export async function fetchSurvival(params?: {
   const url = `/api/ai/survival?${query}`;
   const response = await fetch(url, { signal: params?.signal });
   return validateResponse(response, AiSurvivalResponseSchema);
+}
+
+/** Active committed survival plan (or null) — GET /api/ai/survival-plan */
+export async function fetchSurvivalPlan(params?: {
+  signal?: AbortSignal;
+}): Promise<SurvivalPlanGetResponse> {
+  const response = await fetch('/api/ai/survival-plan', { signal: params?.signal });
+  return validateResponse(response, SurvivalPlanGetResponseSchema);
 }
 
 /**

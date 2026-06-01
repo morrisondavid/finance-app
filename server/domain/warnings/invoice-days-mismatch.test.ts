@@ -36,7 +36,6 @@ const DC_CONTRACT: Contract = {
   jurisdiction: 'England',
   signed_at: '2025-12-22',
   docusign_envelope: null,
-  active: true,
   updated_at: '2026-04-24',
 };
 

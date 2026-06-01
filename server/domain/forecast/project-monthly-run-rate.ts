@@ -202,11 +202,10 @@ export function projectMonthlyRunRate(
 
   // 1. Active contracts: workdays × day-rate over the window.
   for (const contract of inputs.contracts) {
-    if (!contract.active) continue;
-    if (contract.end_date !== null && contract.end_date < today) continue;
+    if (contract.end_date < today) continue;
 
     const windowEnd =
-      contract.end_date !== null && contract.end_date < windowEndAbsolute
+      contract.end_date < windowEndAbsolute
         ? contract.end_date
         : windowEndAbsolute;
     if (windowEnd < today) continue;

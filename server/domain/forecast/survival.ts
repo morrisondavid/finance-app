@@ -141,6 +141,7 @@ function buildMandatoryEvents(
     },
     unpaidInvoices: loaded.unpaidInvoices,
     contracts: loaded.contracts,
+    accrualWindowStartByContractId: loaded.accrualWindowStartByContractId,
     leaveRows: loaded.leaveRows,
     publicHolidayDatesByEntity: loaded.publicHolidayDatesByEntity,
     includeInvoiceReceipts: true,

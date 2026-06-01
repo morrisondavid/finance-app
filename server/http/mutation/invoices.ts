@@ -11,6 +11,7 @@ import {
   InvoiceSchema,
   listInvoicesByStatus,
   listInvoicesByIssuingEntityId,
+  loadLaFosseReconcileTransactions,
   planReconciliation,
   recordInvoicePayments,
   updateInvoice,
@@ -157,31 +158,49 @@ function loadReconcileTransactions(
   windowEnd: string,
 ): readonly ReconcileTransaction[] {
   if (invoices.length === 0) return [];
-  const entities = new Set(invoices.map(i => i.issuing_entity_id));
+
+  const queryRows = (
+    accounts: readonly string[],
+    start: string,
+    end: string,
+  ) =>
+    getDb()
+      .prepare(
+        `SELECT id, date, description, amount, account
+           FROM transactions
+           WHERE type = 'income'
+             AND account IN (${accounts.map(() => '?').join(', ')})
+             AND date >= ? AND date <= ?
+           ORDER BY date ASC`,
+      )
+      .all(...accounts, start, end) as readonly {
+      id: number;
+      date: string;
+      description: string;
+      amount: number;
+      account: string;
+    }[];
+
+  const entities = [...new Set(invoices.map(i => i.issuing_entity_id))];
+  const allLaFosse =
+    invoices.length > 0 && invoices.every(inv => inv.client_id === 'la-fosse');
+
+  if (allLaFosse && entities.length === 1) {
+    return loadLaFosseReconcileTransactions({
+      invoiceEntityId: entities[0]!,
+      windowStart,
+      windowEnd,
+      queryRows,
+    });
+  }
+
   const accounts: string[] = [];
   for (const entityId of entities) {
     accounts.push(...accountsForEntity(entityId));
   }
   if (accounts.length === 0) return [];
 
-  const placeholders = accounts.map(() => '?').join(', ');
-  const rows = getDb()
-    .prepare(
-      `SELECT id, date, description, amount, account
-         FROM transactions
-         WHERE type = 'income'
-           AND account IN (${placeholders})
-           AND date >= ? AND date <= ?
-         ORDER BY date ASC`,
-    )
-    .all(...accounts, windowStart, windowEnd) as readonly {
-    id: number;
-    date: string;
-    description: string;
-    amount: number;
-    account: string;
-  }[];
-
+  const rows = queryRows(accounts, windowStart, windowEnd);
   const out: ReconcileTransaction[] = [];
   for (const r of rows) {
     const cfg = getAccountConfig(r.account as Parameters<typeof getAccountConfig>[0]);

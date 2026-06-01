@@ -39,6 +39,7 @@ function preLoaded() {
     upcomingBuckets: { thisMonth: [], thisYear: [] } as never,
     unpaidInvoices: [],
     contracts: [],
+    accrualWindowStartByContractId: new Map(),
     leaveRows: [],
     publicHolidayDatesByEntity: new Map() as never,
     currencyByAccount: new Map() as never,

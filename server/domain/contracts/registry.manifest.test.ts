@@ -61,20 +61,6 @@ describe('contracts registry manifest', () => {
             functions: ['byMaster-only-non-null'],
           },
         ],
-        active: [
-          {
-            file: 'server/domain/contracts/queries.ts',
-            functions: ['listActiveContracts'],
-          },
-          {
-            file: 'server/domain/contracts/deadline-seeder.ts',
-            functions: ['syncContractRenewalDeadlines'],
-          },
-          {
-            file: 'server/domain/contracts/registry.gates.test.ts',
-            functions: ['indexes.active'],
-          },
-        ],
       },
     });
   });

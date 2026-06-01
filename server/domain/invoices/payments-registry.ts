@@ -13,9 +13,9 @@
  *   - `byInvoiceId`       — every payment row for a given invoice
  *     (group; multi-row supported so partial payments / future
  *     refunds split across deposits don't need a schema change).
- *   - `byBankTransactionId` — single-payment-per-deposit rule
- *     enforced at build time. The reconciler's `recordInvoicePayments`
- *     refuses to write a duplicate.
+ *   - `byBankTransactionId` — every payment row claiming a bank
+ *     deposit (grouped; batched remittances may split one deposit
+ *     across several invoices).
  */
 
 import path from 'path';
@@ -45,7 +45,7 @@ export interface InvoicePaymentRegistry {
   readonly indexes: {
     readonly byId: ReadonlyMap<InvoicePaymentId, InvoicePayment>;
     readonly byInvoiceId: ReadonlyMap<InvoiceId, readonly InvoicePayment[]>;
-    readonly byBankTransactionId: ReadonlyMap<string, InvoicePayment>;
+    readonly byBankTransactionId: ReadonlyMap<string, readonly InvoicePayment[]>;
   };
 }
 
@@ -53,9 +53,7 @@ export function buildInvoicePaymentRegistryFromData(
   all: readonly InvoicePayment[],
 ): InvoicePaymentRegistry {
   const byId = indexBy(all, p => p.id, { indexName: 'invoice-payments.byId' });
-  const byBankTransactionId = indexBy(all, p => p.bank_transaction_id, {
-    indexName: 'invoice-payments.byBankTransactionId',
-  });
+  const byBankTransactionId = groupBy(all, p => p.bank_transaction_id);
   const byInvoiceId = groupBy(all, p => p.invoice_id);
 
   return {

@@ -12,7 +12,7 @@ import {
 } from './last-payment.js';
 import { parseContractRow } from './csv-io.js';
 import { parseClientRow } from '../clients/csv-io.js';
-import { dcSowRow, lfContractRow, lfFzcoContractRow } from './test-helpers.js';
+import { dcSowRow, lfContractRow, lfFzcoContractRow, rowFromHeaders } from './test-helpers.js';
 import { directRow, agencyRow } from '../clients/test-helpers.js';
 import type { InvoicePayment, Transaction } from '../../../shared/api-contracts.js';
 
@@ -21,6 +21,13 @@ const laFosse = parseClientRow(agencyRow);
 const dc = parseContractRow(dcSowRow);
 const lfLtd = parseContractRow(lfContractRow);
 const lfFzco = parseContractRow(lfFzcoContractRow);
+const lfMayFzco = parseContractRow(rowFromHeaders({
+  ...lfFzcoContractRow,
+  id: 'lf-2026-may',
+  reference: 'La Fosse · 01 May 2026–31 May 2026',
+  start_date: '2026-05-01',
+  end_date: '2026-05-31',
+}));
 
 function mkIncome(date: string, description: string, amount: number): Transaction {
   return {
@@ -122,6 +129,34 @@ describe('findLastInvoicePaymentDate — narrative matching', () => {
       today: '2026-04-24',
     });
     expect(got).toBeNull();
+  });
+
+  it('ignores a narrative credit that lands before this contract could first pay out (trailing prior row)', () => {
+    // May-20 La Fosse credit is April-work settlement; lf-2026-may cannot
+    // plausibly pay before ~7 Jun (start + 30d terms + 7d weekly lag).
+    const txns: Transaction[] = [
+      mkIncome('2026-05-20', 'LA FOSSE ASSOCIATES LTD', 9500),
+    ];
+    const got = findLastInvoicePaymentDate({
+      contract: lfMayFzco,
+      client: laFosse,
+      incomeTransactions: txns,
+      today: '2026-06-01',
+    });
+    expect(got).toBeNull();
+  });
+
+  it('accepts the same narrative credit for the prior contract row it actually settles', () => {
+    const txns: Transaction[] = [
+      mkIncome('2026-05-20', 'LA FOSSE ASSOCIATES LTD', 9500),
+    ];
+    const got = findLastInvoicePaymentDate({
+      contract: lfFzco,
+      client: laFosse,
+      incomeTransactions: txns,
+      today: '2026-06-01',
+    });
+    expect(got).toBe('2026-05-20');
   });
 });
 
@@ -289,5 +324,17 @@ describe('resolveAccrualWindowStart', () => {
       today: '2026-03-10',
     });
     expect(got).toBe('2026-03-02');
+  });
+
+  it('falls back to the end-month start for an already-ended contract (no payment)', () => {
+    // dc ends 2026-04-30. Today is well past that. Without clamping the
+    // effective "now" to the contract end, the fallback would land on
+    // 2026-06-01 — after the contract — and hide the final unpaid month.
+    const got = resolveAccrualWindowStart({
+      contract: dc,
+      lastPaymentDate: null,
+      today: '2026-06-15',
+    });
+    expect(got).toBe('2026-04-01');
   });
 });

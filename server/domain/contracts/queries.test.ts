@@ -8,7 +8,8 @@ import {
   allContracts,
   findContractById,
   findContractForTransaction,
-  listActiveContracts,
+  listCurrentContracts,
+  listContractsForForecast,
   listContractsByClient,
   upsertContract,
 } from './queries.js';
@@ -23,7 +24,7 @@ import {
   lfContractRow,
   lfExtensionRow,
   lfFzcoContractRow,
-  dcSowInactiveRow,
+  dcSowExpiredRow,
 } from './test-helpers.js';
 
 const clients = makeStubClients();
@@ -48,8 +49,8 @@ const dcOnly = makeTestContractRegistry({
   masters,
 });
 
-const withInactive = makeTestContractRegistry({
-  contracts: [parseContractRow(dcSowRow), parseContractRow(dcSowInactiveRow)],
+const withExpired = makeTestContractRegistry({
+  contracts: [parseContractRow(dcSowRow), parseContractRow(dcSowExpiredRow)],
   clients,
   companies,
   masters,
@@ -88,9 +89,31 @@ describe('listContractsByClient', () => {
   });
 });
 
-describe('listActiveContracts', () => {
-  it('excludes inactive contracts', () => {
-    expect(listActiveContracts(withInactive).map(c => c.id)).toEqual(['dc-sow-2026']);
+describe('listCurrentContracts', () => {
+  it('excludes expired contracts', () => {
+    expect(listCurrentContracts('2026-04-15', withExpired).map(c => c.id)).toEqual(['dc-sow-2026']);
+  });
+});
+
+describe('listContractsForForecast', () => {
+  // dc-sow-2026 ends 2026-04-30 (monthly, 30-day terms): its final payment
+  // could land up to 2026-04-30 + 30 + 7-day buffer = 2026-06-06.
+  it('includes a current contract', () => {
+    expect(listContractsForForecast('2026-04-15', dcOnly).map(c => c.id)).toEqual(['dc-sow-2026']);
+  });
+
+  it('keeps a recently-ended contract while its final payment is still outstanding', () => {
+    expect(listContractsForForecast('2026-05-15', dcOnly).map(c => c.id)).toEqual(['dc-sow-2026']);
+  });
+
+  it('drops a contract once past its last expected payment date', () => {
+    expect(listContractsForForecast('2026-06-10', dcOnly)).toEqual([]);
+  });
+
+  it('excludes a long-ended contract that is already settled', () => {
+    // dc-sow-2025-prior ended 2026-03-01; by 2026-04-15 its trailing window
+    // (to 2026-04-07) has closed, so only the current SOW remains.
+    expect(listContractsForForecast('2026-04-15', withExpired).map(c => c.id)).toEqual(['dc-sow-2026']);
   });
 });
 
@@ -152,7 +175,7 @@ describe('findContractForTransaction', () => {
     // not date alone.
     const splitReg = makeTestContractRegistry({
       contracts: [
-        parseContractRow({ ...lfContractRow, end_date: '2026-03-01', active: 'false' }),
+        parseContractRow({ ...lfContractRow, end_date: '2026-03-01' }),
         parseContractRow(lfFzcoContractRow),
       ],
       clients,

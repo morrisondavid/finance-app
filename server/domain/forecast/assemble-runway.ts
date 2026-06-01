@@ -151,6 +151,7 @@ export function assembleRunway(input: AssembleRunwayInput = {}): AssembledRunway
     upcomingBuckets: inputs.upcomingBuckets,
     unpaidInvoices: inputs.unpaidInvoices,
     contracts: inputs.contracts,
+    accrualWindowStartByContractId: inputs.accrualWindowStartByContractId,
     leaveRows: inputs.leaveRows,
     publicHolidayDatesByEntity: inputs.publicHolidayDatesByEntity,
     // Runway is the "lose all contracts" stress scenario — both off.
@@ -260,6 +261,7 @@ export function assembleRunwayScenario(
     upcomingBuckets: forecastInputs.upcomingBuckets,
     unpaidInvoices: forecastInputs.unpaidInvoices,
     contracts: forecastInputs.contracts,
+    accrualWindowStartByContractId: forecastInputs.accrualWindowStartByContractId,
     leaveRows: forecastInputs.leaveRows,
     publicHolidayDatesByEntity: forecastInputs.publicHolidayDatesByEntity,
     includeInvoiceReceipts: false,

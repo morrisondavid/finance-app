@@ -25,6 +25,8 @@ vi.mock('../../db/repositories/balance.js', () => ({
     'natwest-savings': { currentBalance: 500 },
     'monzo-joint': { currentBalance: 300 },
     'emirates-islamic': { currentBalance: 10000 },
+    'emirates-islamic-gbp': { currentBalance: 0 },
+    'emirates-islamic-usd': { currentBalance: 0 },
     'santander-everyday': { currentBalance: 0 },
   })),
 }));
@@ -52,7 +54,8 @@ vi.mock('../invoices/index.js', () => ({
   listInvoicesByStatus: vi.fn(() => []),
 }));
 vi.mock('../contracts/queries.js', () => ({
-  listActiveContracts: vi.fn(() => []),
+  listCurrentContracts: vi.fn(() => []),
+  listContractsForForecast: vi.fn(() => []),
   accountsForEntity: vi.fn((id: string) => {
     if (id === 'autonize-it-ltd') {
       return ['barclays-current', 'barclays-savings', 'capital-on-tap', 'barclaycard', 'wise-ltd'];
@@ -87,6 +90,9 @@ vi.mock('../accounts/queries.js', () => ({
     if (name === 'emirates-islamic') return 'autonize-it-fzco';
     return null;
   }),
+}));
+vi.mock('../contracts/last-payment-resolver.js', () => ({
+  resolveLastPaymentsForContracts: vi.fn(() => new Map<string, string | null>()),
 }));
 vi.mock('../leave/index.js', () => ({
   allLeave: vi.fn(() => []),
@@ -131,6 +137,7 @@ describe('loadForecastInputs', () => {
     expect(inputs.accountsByEntity instanceof Map).toBe(true);
     expect(inputs.defaultAccountByType instanceof Map).toBe(true);
     expect(inputs.allowedAccountSet instanceof Set).toBe(true);
+    expect(inputs.accrualWindowStartByContractId instanceof Map).toBe(true);
   });
 
   it('honours an explicit horizonDays override', () => {

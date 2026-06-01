@@ -53,7 +53,9 @@ export const SpendRateQuerySchema = z.object({
   entityId: EntityIdSchema.optional(),
 });
 
-export const AvailableFundsQuerySchema = HorizonEntityQuerySchema;
+export const AvailableFundsQuerySchema = EntityQuerySchema.extend({
+  months: z.coerce.number().int().default(12).refine(m => [3, 6, 12].includes(m)),
+});
 
 export const UpcomingQuerySchema = z.object({
   months: z.coerce.number().int().positive().max(36).default(3),

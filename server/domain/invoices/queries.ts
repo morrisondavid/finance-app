@@ -100,13 +100,21 @@ export function listPaymentsForInvoice(
 }
 
 /**
- * Single payment that claims a given bank transaction, or `null`. The
- * registry enforces single-claim at build time, so callers can rely on
- * "either one row or none" without a defensive sort.
+ * Every payment row that claims a given bank transaction. Batched
+ * remittances may return several rows for one deposit id.
  */
+export function findPaymentsByBankTransaction(
+  bankTransactionId: string,
+  reg: InvoicePaymentRegistry = getInvoicePaymentRegistry(),
+): readonly InvoicePayment[] {
+  return reg.indexes.byBankTransactionId.get(bankTransactionId) ?? [];
+}
+
+/** @deprecated Prefer {@link findPaymentsByBankTransaction}. */
 export function findPaymentByBankTransaction(
   bankTransactionId: string,
   reg: InvoicePaymentRegistry = getInvoicePaymentRegistry(),
 ): InvoicePayment | null {
-  return reg.indexes.byBankTransactionId.get(bankTransactionId) ?? null;
+  const rows = findPaymentsByBankTransaction(bankTransactionId, reg);
+  return rows[0] ?? null;
 }

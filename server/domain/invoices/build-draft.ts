@@ -96,9 +96,7 @@ export function resolveBillingMonthPeriod(
 ): { readonly periodStart: string; readonly periodEnd: string } | null {
   const { start: mStart, end: mEnd } = monthRange(billingMonthAnyDay);
   const periodStart = maxIso(mStart, contract.start_date);
-  const periodEnd = contract.end_date === null
-    ? mEnd
-    : minIso(mEnd, contract.end_date);
+  const periodEnd = minIso(mEnd, contract.end_date);
   if (periodStart > periodEnd) return null;
   return { periodStart, periodEnd };
 }
@@ -139,9 +137,7 @@ export function buildDraftInvoice(input: BuildDraftInput): Invoice {
     });
 
     const monthEnd = monthRange(today).end;
-    periodEnd = contract.end_date === null
-      ? monthEnd
-      : minIso(monthEnd, contract.end_date);
+    periodEnd = minIso(monthEnd, contract.end_date);
   }
 
   const workload = calculateWorkload({

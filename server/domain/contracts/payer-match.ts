@@ -135,7 +135,7 @@ function contractGapDays(contract: Contract, date: string): number {
   if (date < contract.start_date) {
     return dayDiff(contract.start_date, date);
   }
-  if (contract.end_date !== null && date > contract.end_date) {
+  if (date > contract.end_date) {
     return dayDiff(date, contract.end_date);
   }
   return 0;

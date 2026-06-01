@@ -48,7 +48,7 @@ export function listSupplierMonthlyInvoiceGaps(
       continue;
     }
 
-    const contractEnd = contract.end_date ?? today;
+    const contractEnd = contract.end_date;
     const engagementEnd = minIso(contractEnd, lastCompleteMonthEnd);
     if (contract.start_date > engagementEnd) continue;
 
@@ -58,9 +58,7 @@ export function listSupplierMonthlyInvoiceGaps(
       if (mEnd > lastCompleteMonthEnd) break;
 
       const periodStart = maxIso(mStart, contract.start_date);
-      const periodEnd = contract.end_date === null
-        ? mEnd
-        : minIso(mEnd, contract.end_date);
+      const periodEnd = minIso(mEnd, contract.end_date);
 
       if (periodStart <= periodEnd) {
         const covered = invoices.some(

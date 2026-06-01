@@ -19,7 +19,6 @@ import {
   lfContractRow,
   lfExtensionRow,
   lfFzcoContractRow,
-  dcSowInactiveRow,
   rowFromHeaders,
 } from './test-helpers.js';
 
@@ -43,7 +42,6 @@ describe('contracts registry gates', () => {
     expect(reg.indexes.byClient.size).toBe(0);
     expect(reg.indexes.byClientAndEntity.size).toBe(0);
     expect(reg.indexes.byMaster.size).toBe(0);
-    expect(reg.indexes.active).toEqual([]);
   });
 
   it('preserves CSV order in `all`', () => {
@@ -202,14 +200,6 @@ describe('contracts registry gates', () => {
       seedCsv(tmpDir, [lfContractRow]);
       const reg = buildWithStubs(tmpDir);
       expect(reg.indexes.byMaster.size).toBe(0);
-    });
-  });
-
-  describe('indexes.active', () => {
-    it('includes contracts with active === true', () => {
-      seedCsv(tmpDir, [dcSowRow, dcSowInactiveRow]);
-      const reg = buildWithStubs(tmpDir);
-      expect(reg.indexes.active.map(c => c.id)).toEqual(['dc-sow-2026']);
     });
   });
 });

@@ -27,6 +27,7 @@ import type {
 import { escapeHtml, openModal, closeModal } from '../utils/dom';
 import { formatCurrency, formatIsoDateUk } from '../utils/formatting';
 import { previousCompleteBillingMonthYYYYMM, todayIsoLocal } from '../../../shared/iso-date.js';
+import { isContractCurrent } from '../../../shared/contract-display.js';
 import { activateTabByName } from './tabs.js';
 
 const GROUPS_ID = 'invoices-groups';
@@ -371,19 +372,19 @@ function populateContractSelect(
   const supplier = contracts.filter(
     c => c.invoice_mechanism === 'supplier-issued',
   );
+  const today = todayIsoLocal();
   const sorted = [...supplier].sort((a, b) => {
-    if (a.active !== b.active) return a.active ? -1 : 1;
-    if (a.end_date === null && b.end_date === null) return 0;
-    if (a.end_date === null) return -1;
-    if (b.end_date === null) return 1;
+    const aCurrent = isContractCurrent(a, today);
+    const bCurrent = isContractCurrent(b, today);
+    if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
     return a.end_date >= b.end_date ? -1 : 1;
   });
   const options = [
     '<option value="">— Pick a contract —</option>',
     ...sorted.map(c => {
       const client = clientById.get(c.client_id);
-      const inactive = c.active ? '' : ' · inactive';
-      const label = `${client?.trading_name ?? c.client_id} · ${c.reference}${inactive}`;
+      const expired = isContractCurrent(c, today) ? '' : ' · ended';
+      const label = `${client?.trading_name ?? c.client_id} · ${c.reference}${expired}`;
       return `<option value="${escapeHtml(c.id)}">${escapeHtml(label)}</option>`;
     }),
   ];

@@ -7,6 +7,8 @@ import type { z } from 'zod';
 import {
   IncomeCompositionResponseSchema,
   type AiFinancialSafetyResponse,
+  type DashboardSummaryResponse,
+  DashboardSummaryResponseSchema,
   HouseholdFinancialPostureResponseSchema,
 } from '../../shared/api-contracts.js';
 import { HouseholdFinancialPostureQuerySchema } from '../domain/ai/ai-get-query-schemas.js';
@@ -61,6 +63,23 @@ function expectFinancialSafetyStableFields(
   ).toBe(true);
 }
 
+/**
+ * The dashboard summary embeds `availableFunds`, which carries a live
+ * `generatedAt` stamped at composition time. The orchestrating MCP tool and
+ * the direct dashboard read compose moments apart, so that one timestamp
+ * legitimately differs; pin it to a constant before the structural compare
+ * (mirrors {@link expectFinancialSafetyStableFields} ignoring volatile stamps).
+ */
+function withStableAvailableFundsTimestamp(
+  summary: DashboardSummaryResponse,
+): DashboardSummaryResponse {
+  if (summary.availableFunds === undefined) return summary;
+  return {
+    ...summary,
+    availableFunds: { ...summary.availableFunds, generatedAt: 'stable' },
+  };
+}
+
 describe('outcome MCP — income composition + posture + accountant readiness', () => {
   beforeAll(async () => {
     await initDatabase();
@@ -94,7 +113,10 @@ describe('outcome MCP — income composition + posture + accountant readiness', 
       }
       const sc = HouseholdFinancialPostureResponseSchema.parse(r.structuredContent);
       expectFinancialSafetyStableFields(sc.financialSafety, expectedSafety);
-      expect(sc.dashboardSummary).toEqual(dash.body);
+      const expectedDash = DashboardSummaryResponseSchema.parse(dash.body);
+      expect(withStableAvailableFundsTimestamp(sc.dashboardSummary)).toEqual(
+        withStableAvailableFundsTimestamp(expectedDash),
+      );
       expect(typeof sc.generatedAt).toBe('string');
     },
     25_000,

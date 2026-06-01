@@ -3,8 +3,6 @@
  *
  * `partitionContracts` + `isEnded` + `daysUntilEnd` are the predicates
  * behind the ended-contract panel and the "Ends in Nd" tile badge.
- * Keeping them pure means we can lock the boundaries (strict `<`,
- * open-ended `null`, overdue negative) without spinning up the DOM.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -15,7 +13,7 @@ import {
 } from './contracts';
 import type { Contract } from '../../../shared/api-contracts.js';
 
-function contract(overrides: Partial<Contract> & { id: string; end_date: string | null }): Contract {
+function contract(overrides: Partial<Contract> & { id: string; end_date: string }): Contract {
   const base: Contract = {
     id: overrides.id,
     client_id: 'la-fosse',
@@ -49,17 +47,12 @@ function contract(overrides: Partial<Contract> & { id: string; end_date: string 
     jurisdiction: 'England',
     signed_at: '2025-12-20',
     docusign_envelope: null,
-    active: true,
     updated_at: '2026-04-24',
   };
   return { ...base, ...overrides };
 }
 
 describe('isEnded', () => {
-  it('returns false for open-ended contracts', () => {
-    expect(isEnded(contract({ id: 'a', end_date: null }), '2030-01-01')).toBe(false);
-  });
-
   it('returns false on the exact end date (strict <)', () => {
     expect(isEnded(contract({ id: 'a', end_date: '2026-04-24' }), '2026-04-24')).toBe(false);
   });
@@ -70,10 +63,6 @@ describe('isEnded', () => {
 });
 
 describe('daysUntilEnd', () => {
-  it('returns null for open-ended contracts', () => {
-    expect(daysUntilEnd(contract({ id: 'a', end_date: null }), '2026-04-24')).toBeNull();
-  });
-
   it('returns 0 on the end date itself', () => {
     expect(daysUntilEnd(contract({ id: 'a', end_date: '2026-04-24' }), '2026-04-24')).toBe(0);
   });
@@ -90,19 +79,12 @@ describe('daysUntilEnd', () => {
 describe('partitionContracts', () => {
   const activeContract = contract({ id: 'active', end_date: '2026-06-30' });
   const endedContract = contract({ id: 'ended', end_date: '2026-03-01' });
-  const openEnded = contract({ id: 'open', end_date: null });
   const today = '2026-04-24';
 
   it('splits an active and an ended contract correctly', () => {
     const { active, ended } = partitionContracts([activeContract, endedContract], today);
     expect(active.map(c => c.id)).toEqual(['active']);
     expect(ended.map(c => c.id)).toEqual(['ended']);
-  });
-
-  it('sorts open-ended contracts into active', () => {
-    const { active, ended } = partitionContracts([openEnded], today);
-    expect(active.map(c => c.id)).toEqual(['open']);
-    expect(ended).toEqual([]);
   });
 
   it('keeps a contract ending exactly today in active (strict <)', () => {

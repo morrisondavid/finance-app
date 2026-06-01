@@ -583,15 +583,19 @@ describe('/api/contracts routes', () => {
       expect(body.projected_period_total).toBe(22 * 555);
     });
 
-    it('falls back to month-start when no payment is matched (FZCO-shaped)', async () => {
+    it('ended contract with no payment: owed window covers its final worked month', async () => {
+      // lf-2026-may ended 2026-05-31; today is 2026-06-15. With no matched
+      // payment the owed window falls back to the *end* month (May), not the
+      // current calendar month, so the final unpaid month still accrues. The
+      // projection window (June) is empty because the contract has ended.
       const response = await fetch(
         `${baseUrl}/api/contracts/lf-2026-may/income-accrual`,
       );
       expect(response.status).toBe(200);
       const body = await response.json();
-      expect(body.owed_window_start).toBe('2026-06-01');
-      expect(body.owed_window_end).toBe('2026-06-15');
-      expect(body.period_start).toBe(body.owed_window_start);
+      expect(body.owed_window_start).toBe('2026-05-01');
+      expect(body.owed_window_end).toBe('2026-05-31');
+      expect(body.projected_period_total).toBe(0);
     });
   });
 
@@ -653,7 +657,8 @@ describe('/api/contracts routes', () => {
       expect(dc.owed_window_start).toBe('2026-06-04');
       // 2026-06-04 Thu through 2026-06-15 Mon → 8 working days × £555
       expect(dc.accrued_to_date).toBe(8 * 555);
-      expect(fzco.owed_window_start).toBe('2026-06-01');
+      // lf-2026-may ended 2026-05-31; owed falls back to its end month (May).
+      expect(fzco.owed_window_start).toBe('2026-05-01');
     });
   });
 

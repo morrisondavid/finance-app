@@ -122,7 +122,7 @@ function clientKindLabel(contract: Contract): string {
 }
 
 function contractDateRange(contract: Contract): string {
-  const end = contract.end_date === null ? 'open-ended' : formatIsoDateUkLong(contract.end_date);
+  const end = formatIsoDateUkLong(contract.end_date);
   return `${formatIsoDateUkLong(contract.start_date)} → ${end}`;
 }
 
@@ -148,27 +148,22 @@ function owedWindowTooltip(accrual: AccrualResponse): string {
 
 /** A contract is "ended" once its end_date is strictly before today. */
 export function isEnded(contract: Contract, today: string = todayIsoLocal()): boolean {
-  if (contract.end_date === null) return false;
   return contract.end_date < today;
 }
 
 /**
  * Whole days from `today` to the contract's end_date. Positive for
  * future expiries, zero on the day itself, negative if already past.
- * Returns `null` for open-ended contracts (no end_date). Pure so the
- * frontend test can exercise every band.
  */
 export function daysUntilEnd(
   contract: Pick<Contract, 'end_date'>,
   today: string = todayIsoLocal(),
-): number | null {
-  if (contract.end_date === null) return null;
+): number {
   return daysBetween(contract.end_date, today);
 }
 
 /**
  * Partition contracts into `active` vs `ended` by end_date-before-today.
- * Open-ended contracts (`end_date === null`) always land in `active`.
  * The boundary is strict: a contract ending exactly on `today` is still
  * active, matching {@link isEnded}.
  */
@@ -576,7 +571,6 @@ function agencyMetaHtml(contract: Contract): string {
 function endingSoonBadgeHtml(contract: Contract, today: string): string {
   if (isEnded(contract, today)) return '';
   const daysLeft = daysUntilEnd(contract, today);
-  if (daysLeft === null) return '';
   if (daysLeft > contract.renewal_warning_days) return '';
   const className = daysLeft <= 14
     ? 'contracts-badge--ending-critical'
@@ -617,7 +611,6 @@ function renderTile(contract: Contract): string {
   const endingBadge = endingSoonBadgeHtml(contract, today);
   const tileClasses = [
     'contracts-tile',
-    contract.active ? '' : 'is-inactive',
     ended ? 'is-ended' : '',
   ]
     .filter(Boolean)
@@ -644,7 +637,6 @@ function renderTile(contract: Contract): string {
         <span class="contracts-badge contracts-badge--cadence">${cadenceLabel(contract)}</span>
         ${endingBadge}
         ${endedBadge}
-        ${contract.active ? '' : '<span class="contracts-badge contracts-badge--inactive">Inactive</span>'}
       </div>
       <div class="contracts-tile__subtitle">${escapeHtml(contractDateRange(contract))}</div>
     </header>
@@ -683,13 +675,13 @@ function renderTile(contract: Contract): string {
     <footer class="contracts-tile__footer">
       <div class="contracts-tile__footer-actions">
         <button type="button" class="btn btn-ghost" data-role="download" data-contract-id="${id}">Contract</button>
-        ${contract.active
+        ${!ended
           ? `<button type="button" class="btn btn-ghost" data-role="renew" data-contract-id="${id}">Renew</button>`
           : ''}
         ${contract.invoice_mechanism === 'supplier-issued'
           ? `<button type="button" class="btn btn-ghost" data-role="invoice" data-contract-id="${id}" data-invoice-mechanism="${escapeHtml(contract.invoice_mechanism)}">Invoice</button>`
           : ''}
-        ${contract.active
+        ${!ended
           ? `<button type="button" class="btn btn-primary" data-role="book" data-contract-id="${id}">Holiday</button>`
           : ''}
       </div>
@@ -842,11 +834,12 @@ function readForm(): { dates: string[]; type: LeaveType; notes: string | null } 
 function openRecordLeaveModal(preselectedContractId: string | null): void {
   const scopeEl = getEl(SCOPE_ID);
   if (scopeEl) {
-    const active = contracts.filter(c => c.active);
-    if (active.length === 0) {
-      scopeEl.innerHTML = '<div class="contracts-leave-empty">No active contracts to record leave against.</div>';
+    const today = todayIsoLocal();
+    const current = contracts.filter(c => !isEnded(c, today));
+    if (current.length === 0) {
+      scopeEl.innerHTML = '<div class="contracts-leave-empty">No current contracts to record leave against.</div>';
     } else {
-      scopeEl.innerHTML = active
+      scopeEl.innerHTML = current
         .map(c => {
           const checked = preselectedContractId === null || preselectedContractId === c.id;
           return `<label class="contracts-scope-row">

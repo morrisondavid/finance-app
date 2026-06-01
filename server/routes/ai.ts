@@ -7,8 +7,10 @@ import { Router, type Request, type Response } from 'express';
 import {
   NetWorthSnapshotCaptureBodySchema,
   AiTransactionDrillQuerySchema,
+  SurvivalPlanGetResponseSchema,
 } from '../../shared/api-contracts.js';
 import { getDb } from '../db/connection.js';
+import { getActiveSurvivalPlan } from '../db/survival-plan-csv.js';
 import { assembleRunway } from '../domain/forecast/index.js';
 import { runwayResponseFromAssembled } from '../domain/forecast/runway-api-response.js';
 import { buildConsolidatedWarningsResponse } from '../domain/warnings/consolidated-feed.js';
@@ -365,7 +367,7 @@ router.get('/available-funds', (req: Request, res: Response) => {
     }
     res.json(
       composeAiAvailableFunds({
-        horizonDays: parsed.data.days,
+        months: parsed.data.months,
         filterEntityId: parsed.data.entityId,
       }),
     );
@@ -431,6 +433,30 @@ router.get('/spend-allowance', (req: Request, res: Response) => {
     console.error('[AI] GET /spend-allowance error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     res.status(500).json({ error: `Failed to build AI spend-allowance: ${message}` });
+  }
+});
+
+router.get('/survival-plan', (_req: Request, res: Response) => {
+  try {
+    const plan = getActiveSurvivalPlan();
+    res.json(
+      SurvivalPlanGetResponseSchema.parse({
+        plan:
+          plan === null
+            ? null
+            : {
+                startDate: plan.startDate,
+                dailyAmount: plan.dailyAmount,
+                scope: plan.scope,
+                note: plan.note,
+                active: plan.active,
+              },
+      }),
+    );
+  } catch (error) {
+    console.error('[AI] GET /survival-plan error:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: `Failed to read survival plan: ${message}` });
   }
 });
 

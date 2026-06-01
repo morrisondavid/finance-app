@@ -283,16 +283,20 @@ describe('computeAccrual — weekly-cadence contract (lf-2026-mar) projection st
     expect(res.projected_period_total).toBe(22 * 500);
   });
 
-  it('today past contract end_date: everything zero', () => {
+  it('today past contract end_date, no payment: final unpaid month still owed, nothing remaining', () => {
+    // Bug fix: a contract that ended last month is still owed for its final
+    // worked month. The owed window falls back to the end-month start (March),
+    // not the current month, so the trailing receivable surfaces. The
+    // projection window (April) has no contract days, so remaining is zero.
     const res = computeAccrual({
       contract: lf,
       leaveRows: [],
       today: '2026-04-15',
       lastPaymentDate: null,
     });
-    expect(res.worked_days_to_date).toBe(0);
+    expect(res.worked_days_to_date).toBe(22);
     expect(res.worked_days_remaining).toBe(0);
-    expect(res.accrued_to_date).toBe(0);
+    expect(res.accrued_to_date).toBe(22 * 500);
     expect(res.projected_period_total).toBe(0);
   });
 });
@@ -363,18 +367,5 @@ describe('computeAccrual — total_contract_working_days / total_contract_value'
       (res.total_contract_working_days ?? 0) * 550,
       0,
     );
-  });
-
-  it('open-ended contract (no end_date): both fields are null', () => {
-    // Manufacture an open-ended variant of dc by nulling end_date.
-    const openEnded = { ...dc, end_date: null };
-    const res = computeAccrual({
-      contract: openEnded,
-      leaveRows: [],
-      today: '2026-04-01',
-      lastPaymentDate: null,
-    });
-    expect(res.total_contract_working_days).toBeNull();
-    expect(res.total_contract_value).toBeNull();
   });
 });

@@ -78,8 +78,6 @@ describe('composeExpectedReceipts', () => {
   });
 
   it('accrual receipts match collectAccrualEvents (parity)', () => {
-    const unpaidInvoices: Invoice[] = [];
-    const invoicedContractIds = new Set(unpaidInvoices.map(i => i.contract_id));
     const accrualEvents = collectAccrualEvents({
       contracts: [ltdContract],
       leaveRows: [],
@@ -90,7 +88,7 @@ describe('composeExpectedReceipts', () => {
       horizon: HORIZON,
       accountsByEntity,
       currencyByAccount,
-      invoicedContractIds,
+      unpaidInvoices: [],
     });
 
     const body = composeExpectedReceipts({
@@ -101,7 +99,7 @@ describe('composeExpectedReceipts', () => {
       publicHolidayDatesByEntity: new Map([
         ['autonize-it-ltd' as EntityId, new Set<string>()],
       ]),
-      unpaidInvoices,
+      unpaidInvoices: [],
       accountsByEntity,
       currencyByAccount,
       allowedAccountSet: new Set(ACCOUNTS),
@@ -120,7 +118,7 @@ describe('composeExpectedReceipts', () => {
     }
   });
 
-  it('includes invoice-receipt rows with invoiceId and skips accrual for that contract', () => {
+  it('includes invoice-receipt rows and skips accrual only through the unpaid invoice period', () => {
     const inv = makeInvoice({ id: 'DC-075' });
     const invoiceEvents = collectInvoiceReceiptEvents({
       unpaidInvoices: [inv],

@@ -222,7 +222,7 @@ export function recordInvoicePayments(
   const paymentsReg = getInvoicePaymentRegistry();
 
   const seenIds = new Set<InvoicePaymentId>();
-  const seenBankTxs = new Set<string>();
+  const seenInvoiceBankPairs = new Set<string>();
   const validated: InvoicePayment[] = [];
 
   for (const candidate of input.payments) {
@@ -239,10 +239,13 @@ export function recordInvoicePayments(
     if (paymentsReg.indexes.byId.has(row.id) || seenIds.has(row.id)) {
       return { ok: false, code: 'duplicate-id', invoicePaymentId: row.id };
     }
-    if (
-      paymentsReg.indexes.byBankTransactionId.has(row.bank_transaction_id) ||
-      seenBankTxs.has(row.bank_transaction_id)
-    ) {
+
+    const invoiceBankKey = `${row.invoice_id}|${row.bank_transaction_id}`;
+    const existingForPair = paymentsReg.indexes.byInvoiceId.get(row.invoice_id) ?? [];
+    const pairAlreadyPersisted = existingForPair.some(
+      p => p.bank_transaction_id === row.bank_transaction_id,
+    );
+    if (pairAlreadyPersisted || seenInvoiceBankPairs.has(invoiceBankKey)) {
       return {
         ok: false,
         code: 'duplicate-bank-tx',
@@ -251,7 +254,7 @@ export function recordInvoicePayments(
     }
 
     seenIds.add(row.id);
-    seenBankTxs.add(row.bank_transaction_id);
+    seenInvoiceBankPairs.add(invoiceBankKey);
     validated.push(row);
   }
 

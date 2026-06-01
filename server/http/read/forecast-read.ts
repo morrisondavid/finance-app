@@ -40,6 +40,7 @@ export function readForecastFromQuery(query: Record<string, unknown>): JsonReadR
       upcomingBuckets: inputs.upcomingBuckets,
       unpaidInvoices: inputs.unpaidInvoices,
       contracts: inputs.contracts,
+      accrualWindowStartByContractId: inputs.accrualWindowStartByContractId,
       leaveRows: inputs.leaveRows,
       publicHolidayDatesByEntity: inputs.publicHolidayDatesByEntity,
       includeInvoiceReceipts: true,

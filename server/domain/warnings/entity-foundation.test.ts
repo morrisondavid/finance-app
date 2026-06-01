@@ -394,7 +394,6 @@ describe('deriveEntityFoundationWarnings', () => {
         jurisdiction: 'England',
         signed_at: '2025-12-20',
         docusign_envelope: null,
-        active: true,
         updated_at: '2026-04-24',
       };
       return { ...base, ...overrides };
@@ -442,7 +441,7 @@ describe('deriveEntityFoundationWarnings', () => {
       expect(ending[0].detail).toContain('10 day');
     });
 
-    it('emits critical severity for overdue (active + end_date in the past)', () => {
+    it('does not emit for expired contracts (end_date in the past)', () => {
       const contract = buildContract({
         id: 'overdue',
         end_date: '2026-04-21', // 3 days ago
@@ -451,29 +450,14 @@ describe('deriveEntityFoundationWarnings', () => {
       const warnings = deriveEntityFoundationWarnings(
         input({ contracts: [contract], today }),
       );
-      const ending = warnings.filter(w => w.code === 'contract-ending-soon');
-      expect(ending).toHaveLength(1);
-      expect(ending[0].severity).toBe('critical');
-      expect(ending[0].detail).toContain('ended 3 days ago');
-    });
-
-    it('skips inactive contracts even when they would otherwise fire', () => {
-      const contract = buildContract({
-        id: 'inactive',
-        end_date: '2026-04-25', // tomorrow, would be critical
-        renewal_warning_days: 30,
-        active: false,
-      });
-      const warnings = deriveEntityFoundationWarnings(
-        input({ contracts: [contract], today }),
-      );
       expect(codes(warnings)).not.toContain('contract-ending-soon');
     });
 
-    it('skips open-ended contracts (end_date === null)', () => {
+    it('skips expired contracts even when end date is imminent', () => {
       const contract = buildContract({
-        id: 'open-ended',
-        end_date: null,
+        id: 'expired-imminent',
+        start_date: '2026-01-01',
+        end_date: '2026-04-23', // yesterday
         renewal_warning_days: 30,
       });
       const warnings = deriveEntityFoundationWarnings(

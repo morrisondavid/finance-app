@@ -431,7 +431,7 @@ export function runAnalyticsGetAvailableFundsMcpTool(args: unknown): McpJsonTool
   try {
     const structuredContent = AiAvailableFundsResponseSchema.parse(
       composeAiAvailableFunds({
-        horizonDays: parsed.data.days,
+        months: parsed.data.months,
         filterEntityId: parsed.data.entityId,
       }),
     );
@@ -874,7 +874,7 @@ export function createBankStatementsMcpServer(): McpServer {
     'analytics_get_available_funds',
     {
       description:
-        'Cash now + confirmed future income − committed outflows; includes next and **final** payment dates. **Use for future income, when income runs out, projected available, or "what is coming in".**',
+        'Cash now + after-tax future income, total funds, committed outflows, net after commitments; includes final contract payment date. **Use for future income, funds picture, or "what is coming in".**',
       inputSchema: AvailableFundsQuerySchema.shape,
       outputSchema: AiAvailableFundsResponseSchema.shape,
     },

@@ -31,7 +31,7 @@ import { buildContractRegistryFromData } from './registry.js';
 import { parseContractRow } from './csv-io.js';
 import {
   dcSowRow,
-  dcSowInactiveRow,
+  dcSowExpiredRow,
   lfContractRow,
   lfFzcoContractRow,
   makeStubClients,
@@ -58,7 +58,7 @@ describe('syncContractRenewalDeadlines (integration)', () => {
     if (harness.current) resetTestData(harness.current.db);
   });
 
-  function runSeeder() {
+  function runSeeder(todayIso = '2026-02-15') {
     const clients = makeStubClients();
     const contracts = buildContractRegistryFromData(
       [parseContractRow(dcSowRow), parseContractRow(lfContractRow)],
@@ -68,10 +68,10 @@ describe('syncContractRenewalDeadlines (integration)', () => {
         masters: makeStubMasters(),
       },
     );
-    return syncContractRenewalDeadlines({ contracts, clients });
+    return syncContractRenewalDeadlines({ contracts, clients, todayIso });
   }
 
-  it('first boot seeds one deadline per active contract with an end_date', () => {
+  it('first boot seeds one deadline per current contract', () => {
     const seeded = runSeeder();
     expect([...seeded].sort()).toEqual([
       'contract-renewal-dc-sow-2026',
@@ -127,18 +127,22 @@ describe('syncContractRenewalDeadlines (integration)', () => {
     );
   });
 
-  it('skips inactive contracts — no renewal deadline seeded', () => {
+  it('skips expired contracts — no renewal deadline seeded', () => {
     const clients = makeStubClients();
     const contracts = buildContractRegistryFromData(
-      [parseContractRow(dcSowInactiveRow), parseContractRow(lfContractRow)],
+      [parseContractRow(dcSowExpiredRow), parseContractRow(dcSowRow)],
       {
         clients,
         companies: makeStubCompanies(),
         masters: makeStubMasters(),
       },
     );
-    const seeded = syncContractRenewalDeadlines({ contracts, clients });
-    expect(seeded).toEqual(['contract-renewal-lf-2026-mar']);
+    const seeded = syncContractRenewalDeadlines({
+      contracts,
+      clients,
+      todayIso: '2026-04-15',
+    });
+    expect(seeded).toEqual(['contract-renewal-dc-sow-2026']);
 
     const byId = new Map(getAllDeadlines().map(d => [d.id, d]));
     expect(byId.has('contract-renewal-dc-sow-2025-prior')).toBe(false);
@@ -154,7 +158,11 @@ describe('syncContractRenewalDeadlines (integration)', () => {
         masters: makeStubMasters(),
       },
     );
-    const seeded = syncContractRenewalDeadlines({ contracts, clients });
+    const seeded = syncContractRenewalDeadlines({
+      contracts,
+      clients,
+      todayIso: '2026-03-15',
+    });
     expect([...seeded].sort()).toEqual([
       'contract-renewal-lf-2026-apr',
       'contract-renewal-lf-2026-mar',

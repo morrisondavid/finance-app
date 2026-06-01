@@ -73,7 +73,6 @@ export const CONTRACT_CSV_HEADERS = [
   'jurisdiction',
   'signed_at',
   'docusign_envelope',
-  'active',
   'updated_at',
 ] as const;
 
@@ -94,7 +93,7 @@ export function parseContractRow(row: Record<string, string>): Contract {
     reference: requireNonEmpty(row.reference, 'reference', rowId),
     placement_ref: nullIfEmpty(row.placement_ref),
     start_date: requireIsoDate(row.start_date, 'start_date', rowId),
-    end_date: decodeNullableIsoDate(row.end_date, 'end_date', rowId),
+    end_date: requireIsoDate(row.end_date, 'end_date', rowId),
     works_monday: decodeStrictBoolean(row.works_monday, 'works_monday', rowId),
     works_tuesday: decodeStrictBoolean(row.works_tuesday, 'works_tuesday', rowId),
     works_wednesday: decodeStrictBoolean(row.works_wednesday, 'works_wednesday', rowId),
@@ -119,7 +118,6 @@ export function parseContractRow(row: Record<string, string>): Contract {
     jurisdiction: requireNonEmpty(row.jurisdiction, 'jurisdiction', rowId),
     signed_at: requireIsoDate(row.signed_at, 'signed_at', rowId),
     docusign_envelope: nullIfEmpty(row.docusign_envelope),
-    active: decodeStrictBoolean(row.active, 'active', rowId),
     updated_at: decodeNullableIsoDate(row.updated_at, 'updated_at', rowId),
   });
 }
@@ -212,8 +210,6 @@ export function serializeContractRow(contract: Contract): string {
         return contract.signed_at;
       case 'docusign_envelope':
         return encodeOptional(contract.docusign_envelope);
-      case 'active':
-        return encodeBool(contract.active);
       case 'updated_at':
         return encodeOptional(contract.updated_at);
     }

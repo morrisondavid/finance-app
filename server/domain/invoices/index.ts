@@ -176,6 +176,15 @@ export {
   type ReconciliationNote,
 } from './reconcile-payments.js';
 
+export {
+  EMIRATES_ISLAMIC_ACCOUNT_NAMES,
+  laFosseDepositAccountNames,
+  loadLaFosseReconcileTransactions,
+  extractLaFosseSupplierRefs,
+  laFosseDepositAmountForMatch,
+  type LoadLaFosseIncomeRowsInput,
+} from './la-fosse-reconcile-accounts.js';
+
 export { outstandingInvoicesGbpSummary } from './outstanding.js';
 
 export {

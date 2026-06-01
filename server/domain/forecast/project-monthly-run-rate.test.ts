@@ -82,6 +82,7 @@ function preLoaded(over: Partial<LoadedForecastInputs> = {}): LoadedForecastInpu
     upcomingBuckets: emptyBuckets(),
     unpaidInvoices: [],
     contracts: [],
+    accrualWindowStartByContractId: new Map(),
     leaveRows: [],
     publicHolidayDatesByEntity: new Map(),
     currencyByAccount: CURRENCY_BY_ACCOUNT,
@@ -101,7 +102,7 @@ function makeContract(over: Partial<Contract> & Pick<Contract, 'id'>): Contract 
     reference: over.reference ?? `REF-${over.id}`,
     placement_ref: over.placement_ref ?? null,
     start_date: over.start_date ?? '2026-01-01',
-    end_date: over.end_date ?? null,
+    end_date: over.end_date ?? '2026-12-31',
     works_monday: over.works_monday ?? true,
     works_tuesday: over.works_tuesday ?? true,
     works_wednesday: over.works_wednesday ?? true,
@@ -126,7 +127,6 @@ function makeContract(over: Partial<Contract> & Pick<Contract, 'id'>): Contract 
     jurisdiction: over.jurisdiction ?? 'England',
     signed_at: over.signed_at ?? '2025-12-15',
     docusign_envelope: null,
-    active: over.active ?? true,
     updated_at: null,
   };
 }
@@ -239,8 +239,8 @@ describe('projectMonthlyRunRate — contract accrual', () => {
     expect(out.byBucket.size).toBe(0);
   });
 
-  it('inactive contract (active: false) is skipped', () => {
-    const contract = makeContract({ id: 'paused', active: false });
+  it('expired contract is skipped', () => {
+    const contract = makeContract({ id: 'paused', end_date: '2026-03-01' });
     loadForecastInputsMock.mockReturnValue(preLoaded({ contracts: [contract] }));
 
     const out = projectMonthlyRunRate({ today: '2026-04-27' });

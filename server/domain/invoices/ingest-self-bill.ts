@@ -45,6 +45,18 @@ export function selfBillPlacementMatchKey(contract: Contract): string {
   return contract.reference;
 }
 
+/** Self-bill period overlaps the contract engagement window. */
+export function selfBillPeriodMatchesContract(
+  contract: Contract,
+  parsed: ParsedSelfBill,
+): boolean {
+  return (
+    selfBillPlacementMatchKey(contract) === parsed.placementRef
+    && parsed.periodStart <= contract.end_date
+    && parsed.periodEnd >= contract.start_date
+  );
+}
+
 export interface IngestSelfBillInput {
   readonly rawText: string;
   readonly today: string;
@@ -124,11 +136,7 @@ export function ingestSelfBill(input: IngestSelfBillInput): IngestSelfBillResult
   }
 
   const contracts = listContractsByClient(clientId);
-  const matches = contracts.filter(
-    c =>
-      c.active &&
-      selfBillPlacementMatchKey(c) === parsed.placementRef,
-  );
+  const matches = contracts.filter(c => selfBillPeriodMatchesContract(c, parsed));
   if (matches.length === 0) {
     return {
       ok: false,

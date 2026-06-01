@@ -38,7 +38,6 @@ const base = {
   jurisdiction: 'England',
   signed_at: '2026-01-15',
   docusign_envelope: null,
-  active: true,
   updated_at: '2026-04-21',
 };
 
@@ -57,9 +56,8 @@ describe('ContractSchema', () => {
     expect(parsed.conduct_regs).toBeNull();
   });
 
-  it('allows end_date null (open-ended contract)', () => {
-    const parsed = ContractSchema.parse({ ...base, end_date: null });
-    expect(parsed.end_date).toBeNull();
+  it('requires end_date', () => {
+    expect(() => ContractSchema.parse({ ...base, end_date: null })).toThrow();
   });
 
   it('rejects negative day_rate', () => {

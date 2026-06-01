@@ -238,7 +238,8 @@ describe('recordInvoicePayments', () => {
     const reg = getInvoicePaymentRegistry();
     expect(reg.indexes.byId.get('ip-DC-001-tx-1')).toBeDefined();
     expect(reg.indexes.byInvoiceId.get('DC-001')?.length).toBe(1);
-    expect(reg.indexes.byBankTransactionId.get('tx-1')?.invoice_id).toBe('DC-001');
+    expect(reg.indexes.byBankTransactionId.get('tx-1')).toHaveLength(1);
+    expect(reg.indexes.byBankTransactionId.get('tx-1')?.[0]?.invoice_id).toBe('DC-001');
 
     const onDisk = readInvoicePaymentsCsvFile(getInvoicePaymentsCsvPath(tmpDir));
     expect(onDisk.map(p => p.id)).toEqual(['ip-DC-001-tx-1']);
@@ -276,7 +277,7 @@ describe('recordInvoicePayments', () => {
     expect(second.code).toBe('duplicate-id');
   });
 
-  it('rejects a duplicate bank_transaction_id', () => {
+  it('allows several invoices to share one bank_transaction_id (batched remittance)', () => {
     const first = makePayment({});
     const ok = recordInvoicePayments({ payments: [first], invoicesDir: tmpDir });
     expect(ok.ok).toBe(true);
@@ -292,6 +293,25 @@ describe('recordInvoicePayments', () => {
     });
 
     const result = recordInvoicePayments({ payments: [second], invoicesDir: tmpDir });
+    expect(result.ok).toBe(true);
+    const reg = buildInvoicePaymentRegistry(tmpDir);
+    expect(reg.indexes.byBankTransactionId.get('tx-1')).toHaveLength(2);
+  });
+
+  it('rejects the same invoice linked twice to one bank_transaction_id', () => {
+    const first = makePayment({});
+    const ok = recordInvoicePayments({ payments: [first], invoicesDir: tmpDir });
+    expect(ok.ok).toBe(true);
+
+    __resetInvoicePaymentRegistryForTests(buildInvoicePaymentRegistry(tmpDir));
+
+    const duplicate = makePayment({
+      id: 'ip-DC-001-tx-1-b',
+      invoice_id: 'DC-001',
+      bank_transaction_id: 'tx-1',
+    });
+
+    const result = recordInvoicePayments({ payments: [duplicate], invoicesDir: tmpDir });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.code).toBe('duplicate-bank-tx');

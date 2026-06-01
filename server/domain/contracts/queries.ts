@@ -16,6 +16,8 @@
 
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { isContractCurrent } from '../../../shared/contract-display.js';
+import { shiftIsoDate } from '../../../shared/iso-date.js';
 import type {
   Contract,
   ContractId,
@@ -64,11 +66,60 @@ export function listContractsByClient(
   return reg.indexes.byClient.get(clientId) ?? [];
 }
 
-/** Every active contract (`active === true`), in CSV order. */
+/** Every contract in effect on `today` (`start_date <= today <= end_date`), in CSV order. */
+export function listCurrentContracts(
+  today: string,
+  reg: ContractRegistry = getContractRegistry(),
+): readonly Contract[] {
+  return reg.all.filter(c => isContractCurrent(c, today));
+}
+
+/** @deprecated Use {@link listCurrentContracts} with an explicit `today`. */
 export function listActiveContracts(
   reg: ContractRegistry = getContractRegistry(),
 ): readonly Contract[] {
-  return reg.indexes.active;
+  const today = new Date().toISOString().slice(0, 10);
+  return listCurrentContracts(today, reg);
+}
+
+/**
+ * Slack added beyond a contract's payment terms before we stop expecting
+ * trailing receipts — covers a payment that lands a little late.
+ */
+export const FORECAST_TRAILING_BUFFER_DAYS = 7;
+
+/**
+ * The latest date a contract's final invoice could realistically be paid:
+ * `end_date` plus payment terms (weekly self-bill lags an extra ~7 days, the
+ * same offset {@link collectAccrualEvents} uses), plus a small buffer. After
+ * this date the engagement is fully settled and no longer relevant to the
+ * forecast.
+ */
+export function lastExpectedPaymentDate(contract: Contract): string {
+  const cadenceLag = contract.invoice_cadence === 'weekly' ? 7 : 0;
+  return shiftIsoDate(
+    contract.end_date,
+    contract.payment_terms_days + cadenceLag + FORECAST_TRAILING_BUFFER_DAYS,
+  );
+}
+
+/**
+ * Contracts relevant to forecasting on `today`: every current contract plus
+ * recently-ended ones whose final payment could still be outstanding (work was
+ * performed but the cash hasn't landed yet). Distinct from
+ * {@link listCurrentContracts} — warnings, deadlines and leave want only
+ * strictly-current rows, whereas the forecast must keep an ended engagement
+ * until its trailing receivable arrives.
+ */
+export function listContractsForForecast(
+  today: string,
+  reg: ContractRegistry = getContractRegistry(),
+): readonly Contract[] {
+  return reg.all.filter(
+    c =>
+      isContractCurrent(c, today) ||
+      (c.end_date < today && today <= lastExpectedPaymentDate(c)),
+  );
 }
 
 export interface FindContractForTransactionQuery {
@@ -81,7 +132,7 @@ export interface FindContractForTransactionQuery {
 /**
  * Find the contract in effect for `(clientId, issuingEntityId)` on a
  * given ISO date. A contract is "in effect" when
- * `start_date ≤ date ≤ (end_date ?? infinity)`. Returns the contract
+ * `start_date ≤ date ≤ end_date`. Returns the contract
  * with the latest `start_date` that still satisfies the range — so
  * overlapping follow-on rows (where a new contract's `start_date`
  * equals the prior contract's `end_date`) resolve to the newer row.
@@ -100,7 +151,7 @@ export function findContractForTransaction(
   let best: Contract | null = null;
   for (const c of series) {
     if (c.start_date > query.date) continue;
-    if (c.end_date !== null && query.date > c.end_date) continue;
+    if (query.date > c.end_date) continue;
     if (best === null || c.start_date > best.start_date) best = c;
   }
   return best;

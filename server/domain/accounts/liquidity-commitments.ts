@@ -21,6 +21,8 @@ export interface BuildLiquidityCommitmentsInput {
   /** YYYY-MM-DD */
   readonly todayIso: string;
   readonly totalCashGbp: number;
+  /** Rolling window length in calendar months. Default 12. */
+  readonly months?: number;
 }
 
 /** Month keys (YYYY-MM) from the month containing `startYmd` through the month containing `endYmd`, inclusive. */
@@ -43,11 +45,11 @@ export function monthKeysInInclusiveRange(startYmd: string, endYmd: string): str
   return keys;
 }
 
-function horizonLabel(endYmd: string): string {
+function horizonLabel(months: number, endYmd: string): string {
   const [yy, mm, dd] = endYmd.split('-').map(Number);
   const d = new Date(yy, mm - 1, dd);
   const pretty = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-  return `Next 12 months (to ${pretty})`;
+  return `Next ${months} months (to ${pretty})`;
 }
 
 export function obligationRemainingGbpForRow(ob: ObligationRow): number {
@@ -185,8 +187,9 @@ function linesFromObligations(
 }
 
 export function buildLiquidityCommitments(input: BuildLiquidityCommitmentsInput): LiquidityCommitmentsOverview {
+  const months = input.months ?? 12;
   const horizonStartDate = input.todayIso;
-  const horizonEndDate = isoDateAddCalendarMonths(input.todayIso, 12);
+  const horizonEndDate = isoDateAddCalendarMonths(input.todayIso, months);
   const overdueLookback = shiftIsoDate(input.todayIso, -365);
   const dbRows = getAllObligations({
     minDueDate: overdueLookback,
@@ -206,7 +209,7 @@ export function buildLiquidityCommitments(input: BuildLiquidityCommitmentsInput)
   return LiquidityCommitmentsOverviewSchema.parse({
     horizonStartDate,
     horizonEndDate,
-    horizonLabel: horizonLabel(horizonEndDate),
+    horizonLabel: horizonLabel(months, horizonEndDate),
     significantThresholdGbp: LIQUIDITY_SIGNIFICANT_COMMITMENT_GBP,
     totalCommittedGbp,
     cashAfterCommitmentsGbp,

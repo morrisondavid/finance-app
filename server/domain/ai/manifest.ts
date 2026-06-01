@@ -101,7 +101,7 @@ const STATIC: AiManifestResponse = {
     {
       method: 'GET',
       path: '/api/ai/available-funds',
-      queryParams: ['days', 'entityId'],
+      queryParams: ['months', 'entityId'],
       responseSchemaExport: 'AiAvailableFundsResponseSchema',
       mcpTool: 'analytics_get_available_funds',
     },

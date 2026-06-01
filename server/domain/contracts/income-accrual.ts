@@ -138,7 +138,7 @@ export function computeAccrual(input: ComputeAccrualInput): AccrualResponse {
   // Upper bound: today, clipped to contract end when the contract has
   // already ended. A contract that ended before today owes nothing
   // past its end date.
-  const contractEndCap = contract.end_date ?? today;
+  const contractEndCap = contract.end_date;
   const owedEndRaw = today < contractEndCap ? today : contractEndCap;
 
   // Projection accumulators. Zero when the projection window is empty.
@@ -196,21 +196,15 @@ export function computeAccrual(input: ComputeAccrualInput): AccrualResponse {
   const leave_days_in_period = owedValid ? owedWorkload.leaveDays : 0;
 
   // Total contract lifetime value (start_date → end_date).
-  // Only meaningful when the contract has a defined end_date;
-  // open-ended contracts have no ceiling so both fields are null.
-  let total_contract_working_days: number | null = null;
-  let total_contract_value: number | null = null;
-  if (contract.end_date !== null) {
-    const totalWorkload = calculateWorkload({
-      contract,
-      leaveRows,
-      start: contract.start_date,
-      end: contract.end_date,
-      publicHolidayDates,
-    });
-    total_contract_working_days = totalWorkload.workingDays;
-    total_contract_value = totalWorkload.subtotal;
-  }
+  const totalWorkload = calculateWorkload({
+    contract,
+    leaveRows,
+    start: contract.start_date,
+    end: contract.end_date,
+    publicHolidayDates,
+  });
+  const total_contract_working_days = totalWorkload.workingDays;
+  const total_contract_value = totalWorkload.subtotal;
 
   return {
     contract_id: contract.id,
