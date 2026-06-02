@@ -232,22 +232,13 @@ export interface CollectAccrualEventsInput {
   readonly accountsByEntity: ReadonlyMap<EntityId, readonly AccountName[]>;
   readonly currencyByAccount: ReadonlyMap<AccountName, CurrencyCode>;
   /**
-   * Issued-but-unpaid invoices. Accrual starts the day after the latest
-   * `period_end` among these rows for each contract so invoice receipts
-   * and trailing worked days do not double-count.
-   */
-  readonly unpaidInvoices?: readonly Invoice[];
-  /**
-   * @deprecated Use {@link unpaidInvoices} — accrual is no longer skipped
-   * wholesale for invoiced contracts.
-   */
-  readonly invoicedContractIds?: ReadonlySet<string>;
-  /**
-   * Per-contract owed-window start (`YYYY-MM-DD`). When supplied, the walk
-   * begins here instead of `today`, so already-worked-but-unpaid periods (the
-   * owed window since the last payment) are projected as trailing receipts.
-   * Missing entries fall back to `today` — the original forward-only
-   * behaviour, so callers that don't pass this map are unaffected.
+   * Per-contract owed-window start (`YYYY-MM-DD`), resolved upstream by
+   * {@link resolveAccrualWindowStart} from the series-aware settled-through
+   * anchor (latest invoiced `period_end + 1`, falling back to last payment
+   * or contract start). Because it already sits after the latest issued
+   * invoice, the accrual tail never double-counts the invoice-receipt path.
+   * Missing entries fall back to `today` — the forward-only default — so
+   * callers that don't pass this map are unaffected.
    */
   readonly accrualWindowStartByContractId?: ReadonlyMap<string, string>;
 }
@@ -270,7 +261,6 @@ function tryEmitAccrualForWindow(
   today: string,
   horizon: string,
   account: AccountName,
-  currencyByAccount: ReadonlyMap<AccountName, CurrencyCode>,
 ): ForecastEvent | null {
   if (periodStart > periodEnd) return null;
 
@@ -290,14 +280,15 @@ function tryEmitAccrualForWindow(
     : shiftIsoDate(arrivalMonthEnd, contract.payment_terms_days);
 
   // Owed-window backfill can produce a window whose payment was already due in
-  // the past; such cash either already landed (and is in the balance) or is
-  // overdue — either way we must not inject a past-dated inflow into a forward
-  // projection. Only emit receipts arriving on/after `today`.
-  if (arrivalDate < today) return null;
-  if (arrivalDate > horizon) return null;
+  // the past (overdue, worked-but-unpaid). Roll it forward to "expected now"
+  // (`today + 1`) — identical to how `collectInvoiceReceiptEvents` treats an
+  // overdue invoice — so the worked tail surfaces as a forward inflow instead
+  // of being silently dropped.
+  const effectiveArrival = arrivalDate < today ? shiftIsoDate(today, 1) : arrivalDate;
+  if (effectiveArrival > horizon) return null;
 
   return {
-    date: arrivalDate,
+    date: effectiveArrival,
     amount: workload.subtotal,
     account,
     currency: contract.invoice_currency,
@@ -307,26 +298,13 @@ function tryEmitAccrualForWindow(
   };
 }
 
-function latestUnpaidInvoicePeriodEnd(
-  contractId: string,
-  unpaidInvoices: readonly Invoice[] | undefined,
-): string | null {
-  if (unpaidInvoices === undefined) return null;
-  let latest: string | null = null;
-  for (const inv of unpaidInvoices) {
-    if (inv.contract_id !== contractId) continue;
-    if (latest === null || inv.period_end > latest) latest = inv.period_end;
-  }
-  return latest;
-}
-
 export function collectAccrualEvents(
   input: CollectAccrualEventsInput,
 ): ForecastEvent[] {
   const {
     contracts, leaveRows, publicHolidayDatesByEntity,
-    today, horizon, accountsByEntity, currencyByAccount,
-    unpaidInvoices, projectToContractEnd, accrualWindowStartByContractId,
+    today, horizon, accountsByEntity,
+    projectToContractEnd, accrualWindowStartByContractId,
   } = input;
   const events: ForecastEvent[] = [];
 
@@ -334,17 +312,9 @@ export function collectAccrualEvents(
     const account = primaryAccountForEntity(contract.issuing_entity_id, accountsByEntity);
     if (!account) continue;
 
-    const paymentOwedStart = accrualWindowStartByContractId?.get(contract.id) ?? today;
-    const latestUnpaidEnd = latestUnpaidInvoicePeriodEnd(contract.id, unpaidInvoices);
-    const owedStart = (() => {
-      if (latestUnpaidEnd === null) return paymentOwedStart;
-      const afterLatestInvoice = shiftIsoDate(latestUnpaidEnd, 1);
-      if (accrualWindowStartByContractId?.has(contract.id)) {
-        return maxIsoDate(afterLatestInvoice, paymentOwedStart);
-      }
-      return afterLatestInvoice;
-    })();
-
+    // Single owed-window anchor, resolved upstream (settled-through →
+    // last payment → contract start). No re-derivation here.
+    const owedStart = accrualWindowStartByContractId?.get(contract.id) ?? today;
     if (owedStart > contract.end_date) continue;
 
     // Single calendar month (the runway/forecast default) vs every month
@@ -369,7 +339,6 @@ export function collectAccrualEvents(
         today,
         horizon,
         account,
-        currencyByAccount,
       );
       if (ev) events.push(ev);
       const nextMonthFirst = shiftIsoDate(monthEnd, 1);

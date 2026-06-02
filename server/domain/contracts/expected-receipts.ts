@@ -65,7 +65,6 @@ export function composeExpectedReceipts(input: ComposeExpectedReceiptsInput): Ex
     horizon,
     accountsByEntity,
     currencyByAccount,
-    unpaidInvoices,
     projectToContractEnd,
     accrualWindowStartByContractId,
   });

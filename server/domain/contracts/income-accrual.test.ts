@@ -6,12 +6,14 @@
  *   - `lf-2026-mar`: weekly-cadence contract, Mon–Fri, £500/day.
  *
  * There are now TWO reporting windows per result:
- *   - Owed window (Window A) — starts the day after the last matched
- *     invoice payment (or the first of the calendar month when no
- *     payment has been matched), clamped to `contract.start_date`,
- *     ending at `today` (clipped to `end_date`). Drives
- *     `worked_days_to_date`, `accrued_to_date`, and
- *     `leave_days_in_period`.
+ *   - Owed window (Window A) — starts the day after the latest invoiced
+ *     period (`settledThroughPeriodEnd`), falling back to the last
+ *     matched payment and then the contract start, clamped to
+ *     `contract.start_date` and ending at `today` (clipped to
+ *     `end_date`). Drives `worked_days_to_date`, `accrued_to_date`, and
+ *     `leave_days_in_period`. The precedence itself is unit-tested in
+ *     `last-payment.test.ts`; here we feed the anchor directly and check
+ *     the window math.
  *   - Projection window (Window B) — always the calendar month
  *     containing `today`, clipped to the contract. Drives
  *     `worked_days_remaining` and `projected_period_total`.
@@ -50,13 +52,18 @@ const dc = parseContractRow(dcSowRow);
 const lf = parseContractRow(lfContractRow);
 const lfFzco = parseContractRow(lfFzcoContractRow);
 
-describe('computeAccrual — no matched payment (fallback to month-start)', () => {
-  it('no leave, mid-month: counts elapsed Mon–Fri up to today from month-start', () => {
+describe('computeAccrual — anchored after the last invoiced period (settled-through)', () => {
+  // dc was last invoiced through 2026-03-31, so the owed window opens
+  // 2026-04-01 — the realistic equivalent of the old month-start anchor.
+  const SETTLED_MARCH = '2026-03-31';
+
+  it('no leave, mid-month: counts elapsed Mon–Fri up to today from the owed start', () => {
     const res = computeAccrual({
       contract: dc,
       leaveRows: [],
       today: '2026-04-15',
       lastPaymentDate: null,
+      settledThroughPeriodEnd: SETTLED_MARCH,
     });
     expect(res.period_start).toBe('2026-04-01');
     expect(res.period_end).toBe('2026-04-30');
@@ -75,6 +82,7 @@ describe('computeAccrual — no matched payment (fallback to month-start)', () =
       leaveRows: [mkLeave('dc-sow-2026', '2026-04-06')],
       today: '2026-04-15',
       lastPaymentDate: null,
+      settledThroughPeriodEnd: SETTLED_MARCH,
     });
     expect(res.worked_days_to_date).toBe(10);
     expect(res.worked_days_remaining).toBe(11);
@@ -88,6 +96,7 @@ describe('computeAccrual — no matched payment (fallback to month-start)', () =
       leaveRows: [mkLeave('dc-sow-2026', '2026-04-27')],
       today: '2026-04-15',
       lastPaymentDate: null,
+      settledThroughPeriodEnd: SETTLED_MARCH,
     });
     expect(res.worked_days_to_date).toBe(11);
     expect(res.worked_days_remaining).toBe(10);
@@ -102,6 +111,7 @@ describe('computeAccrual — no matched payment (fallback to month-start)', () =
       leaveRows: [mkLeave('dc-sow-2026', '2026-04-11')],
       today: '2026-04-15',
       lastPaymentDate: null,
+      settledThroughPeriodEnd: SETTLED_MARCH,
     });
     expect(res.worked_days_to_date).toBe(11);
     expect(res.worked_days_remaining).toBe(11);
@@ -119,17 +129,19 @@ describe('computeAccrual — no matched payment (fallback to month-start)', () =
       leaveRows: [mkLeave('lf-2026-mar', '2026-04-06')],
       today: '2026-04-15',
       lastPaymentDate: null,
+      settledThroughPeriodEnd: SETTLED_MARCH,
     });
     expect(res.worked_days_to_date).toBe(11);
     expect(res.leave_days_in_period).toBe(0);
   });
 
-  it('contract starts mid-period: both window starts clip to month start (contract already active)', () => {
+  it('owed start clips to month start when the anchor lands earlier in the month', () => {
     const res = computeAccrual({
       contract: dc,
       leaveRows: [],
       today: '2026-03-15',
       lastPaymentDate: null,
+      settledThroughPeriodEnd: '2026-02-28',
     });
     expect(res.period_start).toBe('2026-03-01');
     expect(res.period_end).toBe('2026-03-31');
@@ -142,6 +154,7 @@ describe('computeAccrual — no matched payment (fallback to month-start)', () =
       leaveRows: [],
       today: '2025-12-15',
       lastPaymentDate: null,
+      settledThroughPeriodEnd: null,
     });
     expect(res.period_start).toBe('2025-12-01');
     expect(res.worked_days_to_date).toBe(0);
@@ -151,7 +164,7 @@ describe('computeAccrual — no matched payment (fallback to month-start)', () =
   });
 });
 
-describe('computeAccrual — with a matched last payment', () => {
+describe('computeAccrual — with a matched last payment (no invoice anchor)', () => {
   it('rebases worked/accrued onto the day AFTER last payment', () => {
     // DC paid on 2026-04-05 (a Sunday, last working day is Friday
     // 2026-04-03). Today 2026-04-15. Owed window = [2026-04-06, 2026-04-15]
@@ -161,6 +174,7 @@ describe('computeAccrual — with a matched last payment', () => {
       leaveRows: [],
       today: '2026-04-15',
       lastPaymentDate: '2026-04-05',
+      settledThroughPeriodEnd: null,
     });
     expect(res.owed_window_start).toBe('2026-04-06');
     expect(res.owed_window_end).toBe('2026-04-15');
@@ -170,29 +184,30 @@ describe('computeAccrual — with a matched last payment', () => {
     expect(res.projected_period_total).toBe(22 * 550);
   });
 
-  it('owed window CAN span multiple months when payment is old (FZCO-shaped case)', () => {
-    // FZCO contract starts 2026-03-02, no payment anywhere in history.
-    // Fallback is the first of the current calendar month (2026-04-01).
+  it('owed window CAN span multiple months when the anchor is old (FZCO-shaped case)', () => {
+    // FZCO contract starts 2026-03-02, last invoiced through 2026-03-31.
     // Today = 2026-04-15. Window = [2026-04-01, 2026-04-15] = 11 working days.
-    const noPayment = computeAccrual({
+    const settled = computeAccrual({
       contract: lfFzco,
       leaveRows: [],
       today: '2026-04-15',
       lastPaymentDate: null,
+      settledThroughPeriodEnd: '2026-03-31',
     });
-    expect(noPayment.owed_window_start).toBe('2026-04-01');
-    expect(noPayment.worked_days_to_date).toBe(11);
+    expect(settled.owed_window_start).toBe('2026-04-01');
+    expect(settled.worked_days_to_date).toBe(11);
 
-    // Now pretend the last payment was 2026-02-20 (pre-start) — clamp to
-    // contract start (2026-03-02). Window = [2026-03-02, 2026-04-15].
-    // March: 2..31 working days. Using Mon-Fri mask across
-    // 2026-03-02 (Mon) → 2026-03-31 (Tue) = 22 days.
+    // Now pretend the last payment was 2026-02-20 (pre-start) and there is
+    // no invoice anchor — clamp to contract start (2026-03-02). Window =
+    // [2026-03-02, 2026-04-15]. March: 2..31 working days. Using Mon-Fri
+    // mask across 2026-03-02 (Mon) → 2026-03-31 (Tue) = 22 days.
     // April 1..15 = 11 days. Total 33.
     const oldPayment = computeAccrual({
       contract: lfFzco,
       leaveRows: [],
       today: '2026-04-15',
       lastPaymentDate: '2026-02-20',
+      settledThroughPeriodEnd: null,
     });
     expect(oldPayment.owed_window_start).toBe('2026-03-02');
     expect(oldPayment.worked_days_to_date).toBe(22 + 11);
@@ -209,6 +224,7 @@ describe('computeAccrual — with a matched last payment', () => {
       leaveRows: [],
       today: '2026-04-15',
       lastPaymentDate: '2026-04-15',
+      settledThroughPeriodEnd: null,
     });
     expect(res.worked_days_to_date).toBe(0);
     expect(res.accrued_to_date).toBe(0);
@@ -224,6 +240,7 @@ describe('computeAccrual — with a matched last payment', () => {
       leaveRows: [mkLeave('dc-sow-2026', '2026-04-08')],
       today: '2026-04-15',
       lastPaymentDate: '2026-04-05',
+      settledThroughPeriodEnd: null,
     });
     expect(res.worked_days_to_date).toBe(7);
     expect(res.leave_days_in_period).toBe(1);
@@ -238,6 +255,7 @@ describe('computeAccrual — with a matched last payment', () => {
       leaveRows: [mkLeave('dc-sow-2026', '2026-04-27')],
       today: '2026-04-15',
       lastPaymentDate: '2026-04-14',
+      settledThroughPeriodEnd: null,
     });
     expect(res.leave_days_in_period).toBe(0);
     expect(res.projected_period_total).toBe(21 * 550);
@@ -245,12 +263,16 @@ describe('computeAccrual — with a matched last payment', () => {
 });
 
 describe('computeAccrual — weekly-cadence contract (lf-2026-mar) projection still calendar-month', () => {
+  // lf was last invoiced through 2026-02-28, so the owed window opens 2026-03-01.
+  const SETTLED_FEB = '2026-02-28';
+
   it('mid-month, no payment, no leave: owed from month-start, projection full March', () => {
     const res = computeAccrual({
       contract: lf,
       leaveRows: [],
       today: '2026-03-25',
       lastPaymentDate: null,
+      settledThroughPeriodEnd: SETTLED_FEB,
     });
     expect(res.period_start).toBe('2026-03-01');
     expect(res.period_end).toBe('2026-03-31');
@@ -265,6 +287,7 @@ describe('computeAccrual — weekly-cadence contract (lf-2026-mar) projection st
       leaveRows: [mkLeave('lf-2026-mar', '2026-03-27')],
       today: '2026-03-25',
       lastPaymentDate: null,
+      settledThroughPeriodEnd: SETTLED_FEB,
     });
     expect(res.worked_days_to_date).toBe(18);
     expect(res.worked_days_remaining).toBe(3);
@@ -277,22 +300,25 @@ describe('computeAccrual — weekly-cadence contract (lf-2026-mar) projection st
       leaveRows: [],
       today: '2026-03-31',
       lastPaymentDate: null,
+      settledThroughPeriodEnd: SETTLED_FEB,
     });
     expect(res.worked_days_to_date).toBe(22);
     expect(res.worked_days_remaining).toBe(0);
     expect(res.projected_period_total).toBe(22 * 500);
   });
 
-  it('today past contract end_date, no payment: final unpaid month still owed, nothing remaining', () => {
-    // Bug fix: a contract that ended last month is still owed for its final
-    // worked month. The owed window falls back to the end-month start (March),
-    // not the current month, so the trailing receivable surfaces. The
-    // projection window (April) has no contract days, so remaining is zero.
+  it('today past contract end_date: final unpaid month still owed, nothing remaining', () => {
+    // A contract that ended last month is still owed for its final worked
+    // month. With the last invoiced period through February, the owed window
+    // opens 2026-03-01 and ends at the contract end (2026-03-31), so the
+    // trailing receivable surfaces. The projection window (April) has no
+    // contract days, so remaining is zero.
     const res = computeAccrual({
       contract: lf,
       leaveRows: [],
       today: '2026-04-15',
       lastPaymentDate: null,
+      settledThroughPeriodEnd: SETTLED_FEB,
     });
     expect(res.worked_days_to_date).toBe(22);
     expect(res.worked_days_remaining).toBe(0);
@@ -308,6 +334,7 @@ describe('computeAccrual — passthrough fields', () => {
       leaveRows: [],
       today: '2026-04-15',
       lastPaymentDate: null,
+      settledThroughPeriodEnd: null,
     });
     expect(res.contract_id).toBe('dc-sow-2026');
     expect(res.day_rate).toBe(550);
@@ -320,6 +347,7 @@ describe('computeAccrual — passthrough fields', () => {
       leaveRows: [],
       today: '2026-03-25',
       lastPaymentDate: null,
+      settledThroughPeriodEnd: null,
     });
     expect(res.day_rate).toBe(500);
   });
@@ -341,6 +369,7 @@ describe('computeAccrual — passthrough fields', () => {
       leaveRows: [],
       today: '2026-03-25',
       lastPaymentDate: null,
+      settledThroughPeriodEnd: null,
     });
     expect(res.worked_days_to_date).toBe(0);
     expect(res.worked_days_remaining).toBe(0);
@@ -357,6 +386,7 @@ describe('computeAccrual — total_contract_working_days / total_contract_value'
       leaveRows: [],
       today: '2026-04-01',
       lastPaymentDate: null,
+      settledThroughPeriodEnd: null,
     });
     expect(res.total_contract_working_days).not.toBeNull();
     expect(res.total_contract_working_days).toBeGreaterThanOrEqual(75);

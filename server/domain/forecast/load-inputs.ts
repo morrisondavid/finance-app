@@ -47,6 +47,7 @@ import type { PipelineResult } from '../../utils/recurring-pipeline.js';
 import { listInvoicesByStatus } from '../invoices/index.js';
 import { listContractsForForecast } from '../contracts/queries.js';
 import { resolveLastPaymentsForContracts } from '../contracts/last-payment-resolver.js';
+import { resolveSettledThroughByContract } from '../contracts/settled-through-resolver.js';
 import { resolveAccrualWindowStart } from '../contracts/last-payment.js';
 import { allLeave } from '../leave/index.js';
 import { holidayDatesForEntity } from '../working-days/public-holidays.js';
@@ -170,14 +171,17 @@ export function loadForecastInputs(opts: LoadForecastInputsOpts = {}): LoadedFor
   const upcomingBuckets = buildUpcomingRecurring(pipeline, todayDate);
   const unpaidInvoices = listInvoicesByStatus('issued');
   const contracts = listContractsForForecast(today);
+  // Primary owed-window anchor: latest invoiced period per series. Last
+  // payment stays only as the invoice-less fallback signal.
+  const settledThroughByContractId = resolveSettledThroughByContract({ contracts });
   const lastPaymentByContractId = resolveLastPaymentsForContracts({ contracts, today });
   const accrualWindowStartByContractId = new Map<string, string>(
     contracts.map(contract => [
       contract.id,
       resolveAccrualWindowStart({
         contract,
+        settledThroughPeriodEnd: settledThroughByContractId.get(contract.id) ?? null,
         lastPaymentDate: lastPaymentByContractId.get(contract.id) ?? null,
-        today,
       }),
     ]),
   );

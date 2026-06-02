@@ -441,6 +441,29 @@ body {
   color: var(--color-text-muted);
 }
 
+.liquidity-dashboard__hero-tile .liquidity-dashboard__pane-kicker {
+  min-height: 2.4em;
+  line-height: 1.2;
+}
+
+.liquidity-dashboard__total--with-credit {
+  margin-top: 8px;
+  font-size: 1.35rem;
+}
+
+.liquidity-dashboard__insight-breakdown-heading {
+  margin: 10px 0 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #64748b);
+}
+
+.liquidity-dashboard__insight-breakdown-heading:first-of-type {
+  margin-top: 4px;
+}
+
 .liquidity-dashboard__split-summary {
   margin: 0 0 16px 0;
   font-size: 0.92rem;

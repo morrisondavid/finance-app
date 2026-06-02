@@ -21,6 +21,7 @@ import { allLeave } from '../leave/index.js';
 import { holidayDatesForEntity } from '../working-days/public-holidays.js';
 import { computeAccrual } from './income-accrual.js';
 import { resolveLastPaymentsForContracts } from './last-payment-resolver.js';
+import { resolveSettledThroughByContract } from './settled-through-resolver.js';
 import { allContracts, listContractsForForecast } from './queries.js';
 
 function rollupByEntity(rows: readonly AccrualResponse[]): AggregateAccrualEntityRollup[] {
@@ -127,6 +128,9 @@ export function buildAggregateAccrualResponse(
   // on the Contracts tab (and AI snapshot) until that payment could land.
   const forecastContracts = listContractsForForecast(today);
   const allLeaveRows = allLeave();
+  const settledThrough = resolveSettledThroughByContract({
+    contracts: forecastContracts,
+  });
   const lastPayments = resolveLastPaymentsForContracts({
     contracts: forecastContracts,
     today,
@@ -141,6 +145,7 @@ export function buildAggregateAccrualResponse(
         leaveRows: allLeaveRows,
         today,
         lastPaymentDate: lastPayments.get(contract.id) ?? null,
+        settledThroughPeriodEnd: settledThrough.get(contract.id) ?? null,
         publicHolidayDates,
       }),
     );

@@ -2718,19 +2718,19 @@ export const AiFutureIncomeMonthSchema = z.object({
 });
 export type AiFutureIncomeMonth = z.infer<typeof AiFutureIncomeMonthSchema>;
 
-export const AiFutureIncomeContractSchema = z.object({
-  contractId: z.string().nullable(),
+export const AiFutureIncomeClientSchema = z.object({
+  clientId: z.string().nullable(),
   label: z.string(),
-  reference: z.string(),
-  contractEndDate: IsoDateSchema.nullable(),
-  impliedWorkingDays: z.number().nullable(),
-  /** Gross (before VAT/CT) total in GBP for this contract in the window. */
+  /** Gross (before VAT/CT) total in GBP for this client in the window. */
   totalGbp: z.number(),
   /** After-tax retained total in GBP (matches the funds headline semantics). */
   retainedGbp: z.number(),
-  monthly: z.array(AiFutureIncomeMonthSchema),
 });
-export type AiFutureIncomeContract = z.infer<typeof AiFutureIncomeContractSchema>;
+export type AiFutureIncomeClient = z.infer<typeof AiFutureIncomeClientSchema>;
+
+/** @deprecated Use {@link AiFutureIncomeClientSchema} — breakdown is grouped by client, not contract. */
+export const AiFutureIncomeContractSchema = AiFutureIncomeClientSchema;
+export type AiFutureIncomeContract = AiFutureIncomeClient;
 
 export const AiLastContractPaymentSchema = z.object({
   date: IsoDateSchema,
@@ -2751,7 +2751,9 @@ export const AiAvailableFundsResponseSchema = z.object({
   futureIncomeCtReserveGbp: z.number(),
   futureIncome: z.array(ExpectedReceiptRowSchema),
   futureIncomeByMonth: z.array(AiFutureIncomeMonthSchema),
-  futureIncomeByContract: z.array(AiFutureIncomeContractSchema),
+  futureIncomeByClient: z.array(AiFutureIncomeClientSchema),
+  /** @deprecated Prefer {@link futureIncomeByClient}. */
+  futureIncomeByContract: z.array(AiFutureIncomeClientSchema),
   nextIncomeDate: z.string().nullable(),
   lastConfirmedIncomeDate: z.string().nullable(),
   committedOutflowsGbp: z.number(),

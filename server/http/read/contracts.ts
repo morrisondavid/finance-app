@@ -16,6 +16,7 @@ import { holidayDatesForEntity } from '../../domain/working-days/public-holidays
 import { buildExpectedReceipts } from '../../domain/contracts/expected-receipts.js';
 import { computeAccrual } from '../../domain/contracts/income-accrual.js';
 import { resolveLastPaymentsForContracts } from '../../domain/contracts/last-payment-resolver.js';
+import { resolveSettledThroughByContract } from '../../domain/contracts/settled-through-resolver.js';
 import { jsonReadFail, jsonReadOk, type JsonReadResult } from './types.js';
 
 function errorMessage(e: unknown): string {
@@ -104,6 +105,7 @@ export function readContractIncomeAccrual(idRaw: string): JsonReadResult {
   try {
     const today = todayIsoLocal();
     const leaveRows = leaveForContract(contract.id);
+    const settledThrough = resolveSettledThroughByContract({ contracts: [contract] });
     const lastPayments = resolveLastPaymentsForContracts({
       contracts: [contract],
       today,
@@ -117,6 +119,7 @@ export function readContractIncomeAccrual(idRaw: string): JsonReadResult {
         leaveRows,
         today,
         lastPaymentDate: lastPayments.get(contract.id) ?? null,
+        settledThroughPeriodEnd: settledThrough.get(contract.id) ?? null,
         publicHolidayDates,
       }),
     );

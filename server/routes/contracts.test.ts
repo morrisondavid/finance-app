@@ -65,6 +65,25 @@ vi.mock('../domain/contracts/last-payment-resolver.js', () => ({
   },
 }));
 
+// The settled-through resolver reads the global invoice registry. This test
+// only stands up the CSV-backed contract registry, so mock it to a caller-
+// controlled map (default null → no invoice anchor, owed window driven by the
+// last-payment override / contract start). Mirrors the last-payment mock above.
+const settledThroughOverrides = new Map<ContractId, string | null>();
+vi.mock('../domain/contracts/settled-through-resolver.js', () => ({
+  resolveSettledThroughByContract: ({
+    contracts,
+  }: {
+    contracts: ReadonlyArray<{ id: ContractId }>;
+  }): Map<ContractId, string | null> => {
+    const out = new Map<ContractId, string | null>();
+    for (const c of contracts) {
+      out.set(c.id, settledThroughOverrides.get(c.id) ?? null);
+    }
+    return out;
+  },
+}));
+
 function mkTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'contracts-routes-'));
 }
@@ -136,6 +155,7 @@ describe('/api/contracts routes', () => {
     writeEmptyLeaveCsv(tmpDir);
     invalidateLeaveRegistry();
     lastPaymentOverrides.clear();
+    settledThroughOverrides.clear();
   });
 
   describe('GET /api/contracts', () => {

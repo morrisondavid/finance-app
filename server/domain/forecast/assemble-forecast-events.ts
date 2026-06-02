@@ -226,7 +226,6 @@ export function assembleForecastEvents(params: AssembleForecastEventsParams): Fo
         horizon,
         accountsByEntity,
         currencyByAccount,
-        unpaidInvoices,
         projectToContractEnd: projectAccrualToContractEnd,
         accrualWindowStartByContractId,
       })

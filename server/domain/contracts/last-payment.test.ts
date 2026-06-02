@@ -288,53 +288,56 @@ describe('findLastInvoicePaymentDate — ledger payments (Phase 4)', () => {
 });
 
 describe('resolveAccrualWindowStart', () => {
-  it('returns the day after last payment when known and inside the contract', () => {
+  it('settled-through wins: window opens the day after the last invoiced period', () => {
+    // dc last invoiced through 2026-03-31 → owed window opens 2026-04-01,
+    // even when a (lagging) payment landed later.
     const got = resolveAccrualWindowStart({
       contract: dc,
+      settledThroughPeriodEnd: '2026-03-31',
+      lastPaymentDate: '2026-04-20',
+    });
+    expect(got).toBe('2026-04-01');
+  });
+
+  it('falls back to the day after last payment when there is no invoice anchor', () => {
+    const got = resolveAccrualWindowStart({
+      contract: dc,
+      settledThroughPeriodEnd: null,
       lastPaymentDate: '2026-04-05',
-      today: '2026-04-24',
     });
     expect(got).toBe('2026-04-06');
   });
 
-  it('falls back to month-start when lastPaymentDate is null', () => {
+  it('falls back to contract.start_date when neither anchor is known', () => {
+    // No invoice, no matched payment — a genuinely-new unpaid engagement
+    // owes from its first day (overdue work rolls forward in the forecast).
     const got = resolveAccrualWindowStart({
       contract: dc,
+      settledThroughPeriodEnd: null,
       lastPaymentDate: null,
-      today: '2026-04-24',
-    });
-    expect(got).toBe('2026-04-01');
-  });
-
-  it('clamps to contract.start_date when the derived start would precede it', () => {
-    // dc.start_date = 2026-01-01. Last payment 2025-12-15 → base 2025-12-16.
-    const got = resolveAccrualWindowStart({
-      contract: dc,
-      lastPaymentDate: '2025-12-15',
-      today: '2026-04-24',
     });
     expect(got).toBe('2026-01-01');
   });
 
-  it('clamps to contract.start_date when month-start precedes it (contract started mid-month)', () => {
-    // lf-2026-apr (FZCO) starts 2026-03-02. Today = 2026-03-10. Month start = 2026-03-01 → clamp to 03-02.
-    const got = resolveAccrualWindowStart({
-      contract: lfFzco,
-      lastPaymentDate: null,
-      today: '2026-03-10',
-    });
-    expect(got).toBe('2026-03-02');
-  });
-
-  it('falls back to the end-month start for an already-ended contract (no payment)', () => {
-    // dc ends 2026-04-30. Today is well past that. Without clamping the
-    // effective "now" to the contract end, the fallback would land on
-    // 2026-06-01 — after the contract — and hide the final unpaid month.
+  it('clamps to contract.start_date when the settled anchor precedes it', () => {
+    // dc.start_date = 2026-01-01. A prior-series period ending 2025-12-15
+    // would open the window 2025-12-16 → clamp up to the contract start.
     const got = resolveAccrualWindowStart({
       contract: dc,
+      settledThroughPeriodEnd: '2025-12-15',
       lastPaymentDate: null,
-      today: '2026-06-15',
     });
-    expect(got).toBe('2026-04-01');
+    expect(got).toBe('2026-01-01');
+  });
+
+  it('clamps to contract.start_date when the payment anchor precedes a mid-month start', () => {
+    // lf-2026-apr (FZCO) starts 2026-03-02. Payment 2026-02-28 → base
+    // 2026-03-01 → clamp up to 2026-03-02.
+    const got = resolveAccrualWindowStart({
+      contract: lfFzco,
+      settledThroughPeriodEnd: null,
+      lastPaymentDate: '2026-02-28',
+    });
+    expect(got).toBe('2026-03-02');
   });
 });

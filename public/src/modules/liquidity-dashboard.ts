@@ -6,7 +6,7 @@
 import type { AiFinancialSafetyResponse, AiLiquidityResponse, AiAvailableFundsResponse, AiSurvivalResponse } from '../../../shared/api-contracts.js';
 import { renderFinancialSafetyHero } from './financial-safety-hero.js';
 import { fetchLiquidity, fetchFinancialSafety, fetchAvailableFunds, fetchSurvival, fetchSurvivalPlan } from '../utils/api';
-import { formatCurrency, formatIsoDateUkLong } from '../utils/formatting';
+import { formatCurrency, formatIsoDateUkLong, formatMonthYear } from '../utils/formatting';
 import { escapeHtml } from '../utils/dom';
 import { state } from './state';
 
@@ -178,11 +178,14 @@ function renderHorizonToggle(activeMonths: number): string {
     </div>`;
 }
 
-function renderFundsRow(available: AiAvailableFundsResponse): string {
+function renderFundsRow(available: AiAvailableFundsResponse, totalCreditGbp: number): string {
   const mo = available.months;
   const netRaw = available.netAfterCommitmentsGbp;
   const netDisplay = Math.max(0, netRaw);
   const netStr = formatCurrency(netDisplay, 'GBP');
+  const creditStr = formatCurrency(totalCreditGbp, 'GBP');
+  const totalFundsCash = formatCurrency(available.totalFundsGbp, 'GBP');
+  const totalFundsWithCredit = formatCurrency(available.totalFundsGbp + totalCreditGbp, 'GBP');
   return `<div id="liquidity-funds-block">
     ${renderHorizonToggle(mo)}
     <div class="liquidity-dashboard__hero-grid liquidity-dashboard__hero-grid--funds">
@@ -196,10 +199,16 @@ function renderFundsRow(available: AiAvailableFundsResponse): string {
         <p class="liquidity-dashboard__insight-sub">After VAT and CT on uninvoiced accrual</p>
         <p class="liquidity-dashboard__insight-sub">Gross ${formatCurrency(available.confirmedFutureIncomeGrossGbp, 'GBP')}, less CT ${formatCurrency(available.futureIncomeCtReserveGbp, 'GBP')}</p>
       </section>
+      <section class="liquidity-dashboard__hero-tile liquidity-dashboard__hero-tile--credit" aria-label="Credit headroom in GBP">
+        <h3 class="liquidity-dashboard__pane-kicker">Credit available</h3>
+        <p class="liquidity-dashboard__total liquidity-dashboard__total--credit">${creditStr}</p>
+      </section>
       <section class="liquidity-dashboard__hero-tile liquidity-dashboard__hero-tile--insight" aria-label="Total funds">
         <h3 class="liquidity-dashboard__pane-kicker">Total funds</h3>
-        <p class="liquidity-dashboard__total">${formatCurrency(available.totalFundsGbp, 'GBP')}</p>
-        <p class="liquidity-dashboard__insight-sub">= cash + after-tax future</p>
+        <p class="liquidity-dashboard__total">${totalFundsCash}</p>
+        <p class="liquidity-dashboard__insight-sub">= cash + unpaid invoices</p>
+        <p class="liquidity-dashboard__total liquidity-dashboard__total--with-credit">${totalFundsWithCredit}</p>
+        <p class="liquidity-dashboard__insight-sub">= above + credit available</p>
       </section>
       <section class="liquidity-dashboard__hero-tile liquidity-dashboard__hero-tile--committed" aria-label="Committed outflows">
         <h3 class="liquidity-dashboard__pane-kicker">Committed (${String(mo)} mo)</h3>
@@ -223,7 +232,7 @@ function renderHeroMetrics(
   available: AiAvailableFundsResponse | null,
 ): string {
   if (available !== null) {
-    return `${renderFundsRow(available)}${splitSummary(totalCashGbp, totalCreditGbp, totalAvailableGbp)}`;
+    return `${renderFundsRow(available, totalCreditGbp)}${splitSummary(totalCashGbp, totalCreditGbp, totalAvailableGbp)}`;
   }
 
   const cashStr = formatCurrency(totalCashGbp, 'GBP');
@@ -283,22 +292,25 @@ function renderInsightPods(
   let blocks = '';
 
   if (available !== null) {
-    const contractLines = available.futureIncomeByContract
+    const clients = available.futureIncomeByClient.length > 0
+      ? available.futureIncomeByClient
+      : available.futureIncomeByContract;
+    const clientLines = clients
       .map(c => `<li>
           <span class="liquidity-dashboard__insight-breakdown-label">${escapeHtml(c.label)}</span>
-          <span class="liquidity-dashboard__insight-breakdown-amount">${formatCurrency(c.retainedGbp, 'GBP')} <span class="liquidity-dashboard__insight-breakdown-gross">(${formatCurrency(c.totalGbp, 'GBP')})</span></span>
+          <span class="liquidity-dashboard__insight-breakdown-amount">${formatCurrency(c.totalGbp, 'GBP')}</span>
         </li>`)
       .join('');
     const monthLines = available.futureIncomeByMonth
       .map(
-        m => `<li><span class="liquidity-dashboard__insight-breakdown-label">${escapeHtml(m.month)}</span><span class="liquidity-dashboard__insight-breakdown-amount">${formatCurrency(m.amountGbp, 'GBP')}</span></li>`,
+        m => `<li><span class="liquidity-dashboard__insight-breakdown-label">${escapeHtml(formatMonthYear(m.month))}</span><span class="liquidity-dashboard__insight-breakdown-amount">${formatCurrency(m.amountGbp, 'GBP')}</span></li>`,
       )
       .join('');
 
     blocks += `<section class="liquidity-dashboard__hero-tile liquidity-dashboard__hero-tile--insight" aria-label="Future income breakdown">
         <h3 class="liquidity-dashboard__pane-kicker">Future income breakdown</h3>
-        ${contractLines !== '' ? `<ul class="liquidity-dashboard__insight-breakdown">${contractLines}</ul>` : ''}
-        ${monthLines !== '' ? `<ul class="liquidity-dashboard__insight-breakdown">${monthLines}</ul>` : ''}
+        ${clientLines !== '' ? `<p class="liquidity-dashboard__insight-breakdown-heading">By client</p><ul class="liquidity-dashboard__insight-breakdown">${clientLines}</ul>` : ''}
+        ${monthLines !== '' ? `<p class="liquidity-dashboard__insight-breakdown-heading">By month (all clients combined)</p><ul class="liquidity-dashboard__insight-breakdown">${monthLines}</ul>` : ''}
       </section>`;
 
     if (available.lastContractPayment !== null) {
@@ -334,6 +346,7 @@ function renderInsightPods(
 
 let cachedAvailableFunds: AiAvailableFundsResponse | null = null;
 let cachedSurvival: AiSurvivalResponse | null = null;
+let cachedLiquidityCreditGbp = 0;
 
 function bindHorizonToggle(ac: AbortController, myGen: number): void {
   const buttons = document.querySelectorAll('.liquidity-dashboard__horizon-btn');
@@ -351,7 +364,7 @@ function bindHorizonToggle(ac: AbortController, myGen: number): void {
           cachedAvailableFunds = available;
           const fundsSlot = document.getElementById('liquidity-funds-block');
           if (fundsSlot !== null) {
-            fundsSlot.outerHTML = renderFundsRow(available);
+            fundsSlot.outerHTML = renderFundsRow(available, cachedLiquidityCreditGbp);
             bindHorizonToggle(ac, myGen);
           }
           const insightSlot = document.getElementById('liquidity-insight-pods');
@@ -504,6 +517,7 @@ export async function loadLiquidityDashboard(): Promise<void> {
 
     cachedAvailableFunds = availableFunds;
     cachedSurvival = survival;
+    cachedLiquidityCreditGbp = data.liquidityOverview.totalCreditGbp;
     const insightPodsHtml = renderInsightPods(availableFunds, survival);
 
     el.innerHTML = renderCard(

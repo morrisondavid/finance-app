@@ -5,9 +5,10 @@
 
 import type {
   AiAvailableFundsResponse,
-  AiFutureIncomeContract,
+  AiFutureIncomeClient,
   AiFutureIncomeMonth,
   AiLastContractPayment,
+  ClientId,
   Contract,
   EntityId,
   ExpectedReceiptRow,
@@ -21,6 +22,8 @@ import { getAllAccountBalances } from '../../db/repositories/balance.js';
 import { buildLiquidityOverview } from '../accounts/liquidity-overview.js';
 import { buildLiquidityCommitments } from '../accounts/liquidity-commitments.js';
 import { companyById } from '../company/queries.js';
+import { findClientById } from '../clients/queries.js';
+import { findContractById } from '../contracts/queries.js';
 import { buildExpectedReceipts } from '../contracts/expected-receipts.js';
 import { loadForecastInputs } from '../forecast/load-inputs.js';
 import { round2 } from '../../utils/math.js';
@@ -31,43 +34,81 @@ export interface ComposeAiAvailableFundsOpts {
   readonly filterEntityId?: EntityId;
 }
 
+const OTHER_CLIENT_KEY = '__none__';
+
+function resolveContract(
+  contractId: string,
+  contractById: Map<string, Contract>,
+): Contract | undefined {
+  const cached = contractById.get(contractId);
+  if (cached !== undefined) return cached;
+  const found = findContractById(contractId);
+  if (found === null) return undefined;
+  contractById.set(found.id, found);
+  return found;
+}
+
+/** Issued invoices are authoritative for entity when present. */
 function entityForReceipt(
   receipt: ExpectedReceiptRow,
-  contractById: ReadonlyMap<string, Contract>,
+  contractById: Map<string, Contract>,
   invoiceById: ReadonlyMap<string, Invoice>,
 ): EntityId | null {
-  if (receipt.contractId !== null) {
-    const contract = contractById.get(receipt.contractId);
-    return contract?.issuing_entity_id ?? null;
-  }
   if (receipt.invoiceId !== null) {
     const invoice = invoiceById.get(receipt.invoiceId);
-    return invoice?.issuing_entity_id ?? null;
+    if (invoice !== undefined) return invoice.issuing_entity_id;
+  }
+  if (receipt.contractId !== null) {
+    const contract = resolveContract(receipt.contractId, contractById);
+    return contract?.issuing_entity_id ?? null;
   }
   return null;
 }
 
-function receiptLabel(
+function clientIdForReceipt(
   receipt: ExpectedReceiptRow,
-  labelByContractId: ReadonlyMap<string, string>,
-): string {
-  if (receipt.contractId !== null) {
-    return labelByContractId.get(receipt.contractId) ?? receipt.contractId;
-  }
+  contractById: Map<string, Contract>,
+  invoiceById: ReadonlyMap<string, Invoice>,
+): ClientId | typeof OTHER_CLIENT_KEY {
   if (receipt.invoiceId !== null) {
-    return `Invoice ${receipt.invoiceId}`;
+    const invoice = invoiceById.get(receipt.invoiceId);
+    if (invoice !== undefined) return invoice.client_id;
   }
-  return 'Other income';
+  if (receipt.contractId !== null) {
+    const contract = resolveContract(receipt.contractId, contractById);
+    if (contract !== undefined) return contract.client_id;
+  }
+  return OTHER_CLIENT_KEY;
 }
 
-interface ContractAccum {
+function clientLabelForClientId(clientId: ClientId | typeof OTHER_CLIENT_KEY): string {
+  if (clientId === OTHER_CLIENT_KEY) return 'Other income';
+  const client = findClientById(clientId);
+  return client?.trading_name ?? clientId;
+}
+
+/**
+ * Issued invoice receipts are already priced — count expected cash in full.
+ * Uninvoiced accrual is net subtotal and still needs VAT/CT reserves applied.
+ */
+function retainedGbpForReceipt(
+  receipt: ExpectedReceiptRow,
+  cashGbp: number,
+  entityId: EntityId | null,
+): number {
+  if (receipt.source === 'invoice-receipt') {
+    return cashGbp;
+  }
+  if (entityId === null) return cashGbp;
+  const company = companyById(entityId);
+  if (company === null) return cashGbp;
+  return round2(calculateRetainedReserves(cashGbp, company).retained_period);
+}
+
+interface ClientAccum {
   label: string;
-  reference: string;
-  contractEndDate: string | null;
   totalGbp: number;
-  nativeSum: number;
-  nativeCurrency: ExpectedReceiptRow['currency'] | null;
-  monthly: Map<string, number>;
+  retainedGbp: number;
 }
 
 export function composeAiAvailableFunds(
@@ -92,10 +133,8 @@ export function composeAiAvailableFunds(
   });
 
   const contractById = new Map<string, Contract>();
-  const labelByContractId = new Map<string, string>();
   for (const contract of loaded.contracts) {
     contractById.set(contract.id, contract);
-    labelByContractId.set(contract.id, contract.reference);
   }
 
   const invoiceById = new Map<string, Invoice>();
@@ -107,74 +146,60 @@ export function composeAiAvailableFunds(
   const futureIncome = allFutureReceipts.filter(r => r.expectedDate <= projectionEndDate);
 
   let confirmedFutureIncomeGrossGbp = 0;
+  let invoiceCashGbp = 0;
   const monthTotals = new Map<string, number>();
-  const contractTotals = new Map<string, ContractAccum>();
-  const entityNetGbp = new Map<EntityId, number>();
+  const clientTotals = new Map<string, ClientAccum>();
+  const accrualEntityNetGbp = new Map<EntityId, number>();
 
   for (const r of futureIncome) {
     const gbp = convertAmountSync(r.amount, r.currency, 'GBP');
     confirmedFutureIncomeGrossGbp += gbp;
 
     const entityId = entityForReceipt(r, contractById, invoiceById);
-    if (entityId !== null) {
-      entityNetGbp.set(entityId, (entityNetGbp.get(entityId) ?? 0) + gbp);
+    if (r.source === 'invoice-receipt') {
+      invoiceCashGbp += gbp;
+    } else if (entityId !== null) {
+      accrualEntityNetGbp.set(entityId, (accrualEntityNetGbp.get(entityId) ?? 0) + gbp);
     }
 
     const monthKey = r.expectedDate.slice(0, 7);
     monthTotals.set(monthKey, (monthTotals.get(monthKey) ?? 0) + gbp);
 
-    const contractKey = r.contractId ?? '__none__';
-    const contract = r.contractId !== null ? contractById.get(r.contractId) : undefined;
-    const reference = contract?.reference ?? 'Other income';
-    const label = r.contractId !== null ? labelByContractId.get(r.contractId) ?? r.contractId : 'Other income';
-    const existing = contractTotals.get(contractKey);
+    const clientKey = clientIdForReceipt(r, contractById, invoiceById);
+    const label = clientLabelForClientId(clientKey);
+    const retainedSlice = retainedGbpForReceipt(r, gbp, entityId);
+    const existing = clientTotals.get(clientKey);
     if (existing === undefined) {
-      contractTotals.set(contractKey, {
+      clientTotals.set(clientKey, {
         label,
-        reference,
-        contractEndDate: contract?.end_date ?? null,
         totalGbp: gbp,
-        nativeSum: r.amount,
-        nativeCurrency: r.currency,
-        monthly: new Map([[monthKey, gbp]]),
+        retainedGbp: retainedSlice,
       });
     } else {
       existing.totalGbp += gbp;
-      if (existing.nativeCurrency === r.currency) {
-        existing.nativeSum += r.amount;
-      } else {
-        existing.nativeCurrency = null;
-        existing.nativeSum = 0;
-      }
-      existing.monthly.set(monthKey, (existing.monthly.get(monthKey) ?? 0) + gbp);
+      existing.retainedGbp += retainedSlice;
     }
   }
   confirmedFutureIncomeGrossGbp = round2(confirmedFutureIncomeGrossGbp);
+  invoiceCashGbp = round2(invoiceCashGbp);
 
-  let confirmedFutureIncomeRetainedGbp = 0;
+  let accrualRetainedGbp = 0;
   let futureIncomeVatReserveGbp = 0;
   let futureIncomeCtReserveGbp = 0;
 
-  for (const [entityId, netGbp] of entityNetGbp) {
+  for (const [entityId, netGbp] of accrualEntityNetGbp) {
     const company = companyById(entityId);
     if (company === null) {
-      confirmedFutureIncomeRetainedGbp += netGbp;
+      accrualRetainedGbp += netGbp;
       continue;
     }
     const claim = calculateRetainedReserves(netGbp, company);
-    confirmedFutureIncomeRetainedGbp += claim.retained_period;
+    accrualRetainedGbp += claim.retained_period;
     futureIncomeVatReserveGbp += claim.vat_reserve_period;
     futureIncomeCtReserveGbp += claim.ct_reserve_period;
   }
 
-  const unassignedGross = round2(
-    confirmedFutureIncomeGrossGbp - [...entityNetGbp.values()].reduce((s, v) => s + v, 0),
-  );
-  if (unassignedGross > 0) {
-    confirmedFutureIncomeRetainedGbp += unassignedGross;
-  }
-
-  confirmedFutureIncomeRetainedGbp = round2(confirmedFutureIncomeRetainedGbp);
+  const confirmedFutureIncomeRetainedGbp = round2(invoiceCashGbp + accrualRetainedGbp);
   futureIncomeVatReserveGbp = round2(futureIncomeVatReserveGbp);
   futureIncomeCtReserveGbp = round2(futureIncomeCtReserveGbp);
 
@@ -182,39 +207,13 @@ export function composeAiAvailableFunds(
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([month, amount]) => ({ month, amountGbp: round2(amount) }));
 
-  const futureIncomeByContract: AiFutureIncomeContract[] = [...contractTotals.entries()]
-    .map(([contractKey, v]) => {
-      const contract = contractKey !== '__none__' ? contractById.get(contractKey) : undefined;
-      let impliedWorkingDays: number | null = null;
-      if (
-        contract !== undefined
-        && contract.day_rate > 0
-        && v.nativeCurrency === contract.day_rate_currency
-        && v.nativeSum > 0
-      ) {
-        impliedWorkingDays = Math.round(v.nativeSum / contract.day_rate);
-      }
-      const grossGbp = round2(v.totalGbp);
-      let retainedGbp = grossGbp;
-      if (contract !== undefined) {
-        const company = companyById(contract.issuing_entity_id);
-        if (company !== null) {
-          retainedGbp = round2(calculateRetainedReserves(grossGbp, company).retained_period);
-        }
-      }
-      return {
-        contractId: contractKey === '__none__' ? null : contractKey,
-        label: v.label,
-        reference: v.reference,
-        contractEndDate: v.contractEndDate,
-        impliedWorkingDays,
-        totalGbp: grossGbp,
-        retainedGbp,
-        monthly: [...v.monthly.entries()]
-          .sort((a, b) => a[0].localeCompare(b[0]))
-          .map(([month, amount]) => ({ month, amountGbp: round2(amount) })),
-      };
-    })
+  const futureIncomeByClient: AiFutureIncomeClient[] = [...clientTotals.entries()]
+    .map(([clientKey, v]) => ({
+      clientId: clientKey === OTHER_CLIENT_KEY ? null : clientKey,
+      label: v.label,
+      totalGbp: round2(v.totalGbp),
+      retainedGbp: round2(v.retainedGbp),
+    }))
     .sort((a, b) => b.totalGbp - a.totalGbp);
 
   const futureDates = futureIncome.map(r => r.expectedDate);
@@ -222,14 +221,25 @@ export function composeAiAvailableFunds(
   const lastConfirmedIncomeDate =
     futureDates.length > 0 ? futureDates.reduce((a, b) => (a >= b ? a : b)) : null;
 
+  // The final contract payment is the single latest expected receipt: one
+  // date, one client, the value of that payment. Receipts landing on the same
+  // final date are summed (and only treated as one client when they agree).
   let lastContractPayment: AiLastContractPayment | null = null;
-  if (allFutureReceipts.length > 0) {
-    const last = allFutureReceipts.reduce((a, b) => (a.expectedDate >= b.expectedDate ? a : b));
-    lastContractPayment = {
-      date: last.expectedDate,
-      amountGbp: round2(convertAmountSync(last.amount, last.currency, 'GBP')),
-      label: receiptLabel(last, labelByContractId),
-    };
+  if (futureIncome.length > 0) {
+    const lastDate = futureIncome.reduce(
+      (a, b) => (a.expectedDate >= b.expectedDate ? a : b),
+    ).expectedDate;
+    const lastReceipts = futureIncome.filter(r => r.expectedDate === lastDate);
+    const amountGbp = round2(
+      lastReceipts.reduce((s, r) => s + convertAmountSync(r.amount, r.currency, 'GBP'), 0),
+    );
+    const clientKeys = new Set(
+      lastReceipts.map(r => clientIdForReceipt(r, contractById, invoiceById)),
+    );
+    const label = clientKeys.size === 1
+      ? clientLabelForClientId([...clientKeys][0])
+      : 'Multiple clients';
+    lastContractPayment = { date: lastDate, amountGbp, label };
   }
 
   const committedOutflows = buildLiquidityCommitments({
@@ -256,7 +266,8 @@ export function composeAiAvailableFunds(
     futureIncomeCtReserveGbp,
     futureIncome: futureIncomeRows,
     futureIncomeByMonth,
-    futureIncomeByContract,
+    futureIncomeByClient,
+    futureIncomeByContract: futureIncomeByClient,
     nextIncomeDate,
     lastConfirmedIncomeDate,
     committedOutflowsGbp,

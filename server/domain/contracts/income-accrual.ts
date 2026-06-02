@@ -5,12 +5,13 @@
  * different questions — see {@link AccrualResponseSchema} for the
  * canonical statement of what each field means.
  *
- *   - Window A (the "owed" window) starts the day after the most
- *     recent matched invoice payment and runs up to `today`. When no
- *     payment has been matched (new contracts, UAE FZCO before the
- *     first payment lands, etc.) it falls back to the first of the
- *     current calendar month. This window drives
- *     `worked_days_to_date`, `accrued_to_date`, and
+ *   - Window A (the "owed" window) starts the day after the latest
+ *     invoiced work period for the contract's series (its
+ *     settled-through anchor) and runs up to `today`. When no invoice
+ *     exists it falls back to the last matched payment, and failing
+ *     that to the contract's own `start_date` (see
+ *     {@link ./last-payment.ts#resolveAccrualWindowStart}). This window
+ *     drives `worked_days_to_date`, `accrued_to_date`, and
  *     `leave_days_in_period`. It is clamped to the contract's own
  *     `start_date` / `end_date` at both ends.
  *
@@ -57,6 +58,13 @@ export interface ComputeAccrualInput {
    * the first of the current calendar month.
    */
   readonly lastPaymentDate: string | null;
+  /**
+   * Series-aware latest invoiced `period_end` (paid OR issued) for this
+   * contract's `(client, entity)` series, or `null` when none exists. The
+   * primary owed-window anchor (see {@link ./settled-through-resolver.ts});
+   * `lastPaymentDate` is only the invoice-less fallback.
+   */
+  readonly settledThroughPeriodEnd: string | null;
   /**
    * Entity-scoped public-holiday dates. Forwarded to
    * `calculateWorkload` so bank holidays reduce working days without
@@ -111,7 +119,7 @@ export function computeProjectedPeriodTotal(input: ProjectedPeriodTotalInput): n
 }
 
 export function computeAccrual(input: ComputeAccrualInput): AccrualResponse {
-  const { contract, leaveRows, today, lastPaymentDate, publicHolidayDates } = input;
+  const { contract, leaveRows, today, lastPaymentDate, settledThroughPeriodEnd, publicHolidayDates } = input;
   const day_rate = contract.day_rate;
   const currency = contract.invoice_currency;
 
@@ -126,14 +134,14 @@ export function computeAccrual(input: ComputeAccrualInput): AccrualResponse {
     contract.end_date,
   );
 
-  // Window A — owed since last payment. Start defers to
-  // `resolveAccrualWindowStart` so the fallback policy (month-start on
-  // null payment, clamp to contract.start_date) is authored once and
-  // re-used by other consumers.
+  // Window A — owed since the last settled (invoiced) period. Start defers
+  // to `resolveAccrualWindowStart` so the precedence policy (settled-through
+  // → last payment → contract start, clamped) is authored once and re-used
+  // by the forecast pipeline.
   const owedStart = resolveAccrualWindowStart({
     contract,
+    settledThroughPeriodEnd,
     lastPaymentDate,
-    today,
   });
   // Upper bound: today, clipped to contract end when the contract has
   // already ended. A contract that ended before today owes nothing

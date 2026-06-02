@@ -42,12 +42,18 @@ vi.mock('../company/queries.js', async () => {
   };
 });
 
+vi.mock('../clients/queries.js', () => ({
+  findClientById: (clientId: string) =>
+    clientId === 'client-a' ? { trading_name: 'Client A' } : null,
+}));
+
 vi.mock('../forecast/load-inputs.js', () => ({
   loadForecastInputs: () => ({
     today: '2026-05-31',
     horizonDays: 1830,
     contracts: [{
       id: 'c1',
+      client_id: 'client-a',
       reference: 'Client A · 2026',
       issuing_entity_id: 'autonize-it-ltd',
       end_date: '2026-12-31',
@@ -123,26 +129,23 @@ describe('composeAiAvailableFunds', () => {
     );
   });
 
-  it('builds gross breakdown with contract enrich fields and final payment', () => {
+  it('builds gross breakdown grouped by client and final payment', () => {
     const result = composeAiAvailableFunds();
     const retained = calculateRetainedReserves(5000, ukCompany).retained_period;
 
-    expect(result.futureIncomeByContract).toEqual([
+    expect(result.futureIncomeByClient).toEqual([
       {
-        contractId: 'c1',
-        label: 'Client A · 2026',
-        reference: 'Client A · 2026',
-        contractEndDate: '2026-12-31',
-        impliedWorkingDays: 9,
+        clientId: 'client-a',
+        label: 'Client A',
         totalGbp: 5000,
         retainedGbp: retained,
-        monthly: [{ month: '2026-07', amountGbp: 5000 }],
       },
     ]);
+    expect(result.futureIncomeByContract).toEqual(result.futureIncomeByClient);
     expect(result.lastContractPayment).toEqual({
-      date: '2027-06-01',
-      amountGbp: 3000,
-      label: 'Client A · 2026',
+      date: '2026-07-30',
+      amountGbp: 5000,
+      label: 'Client A',
     });
     expect(result.futureIncome).toHaveLength(1);
   });

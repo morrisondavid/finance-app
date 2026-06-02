@@ -40,7 +40,7 @@ import type {
   InvoicePayment,
   Transaction,
 } from '../../../shared/api-contracts.js';
-import { monthRange, shiftIsoDate } from '../../../shared/iso-date.js';
+import { shiftIsoDate } from '../../../shared/iso-date.js';
 import {
   buildNarrativeTokens,
   narrativeMatches,
@@ -185,33 +185,37 @@ function pickLatestLedgerPayment(
 }
 
 /**
- * Canonical start of the "owed since last payment" window.
+ * Canonical start of the "owed" window — one rule, precedence-ordered:
  *
- * - When a payment date is known, the window starts the day AFTER the
- *   payment (the paid day is already settled).
- * - When no payment is known — new contracts, new entities, or just
- *   contracts whose invoices haven't been paid yet — the window falls
- *   back to the first of the calendar month containing the effective
- *   "now". For a contract that has already ended, that month is the
- *   month of `end_date` (not `today`), otherwise the fallback would
- *   start after the contract end and clip to an empty owed window,
- *   hiding the final unpaid month. The fallback deliberately doesn't
- *   reach back further: without a payment anchor, "since last payment"
- *   is indistinguishable from the calendar forecast the banner already
- *   shows, and reaching further back would silently inflate the
- *   accrued figure.
- * - Always clamped to `contract.start_date` — a contract can't owe
- *   for work predating its own start.
+ *   1. `settledThroughPeriodEnd + 1` (primary). The series-aware latest
+ *      invoiced `period_end` (see {@link ./settled-through-resolver.ts}).
+ *      Everything worked after the last invoiced period is owed, so the
+ *      window opens the day after it. This already sits after any
+ *      issued-but-unpaid invoice, so the accrual tail never overlaps the
+ *      invoice-receipt projection.
+ *   2. `lastPaymentDate + 1` (fallback). For invoice-less, cash-matched
+ *      engagements where we only know a payment landed — the paid day is
+ *      settled, so owe from the next day.
+ *   3. `contract.start_date` (no signal). A genuinely-new unpaid
+ *      engagement owes from its first day. This is safe even for an
+ *      old contract with neither invoices nor matched payments because
+ *      overdue accrual is rolled forward (not back-dated) by the
+ *      forecast, exactly like an overdue invoice.
+ *
+ * Always clamped to `contract.start_date` — a contract can't owe for
+ * work predating its own start.
  */
 export function resolveAccrualWindowStart(opts: {
   readonly contract: Contract;
+  readonly settledThroughPeriodEnd: string | null;
   readonly lastPaymentDate: string | null;
-  readonly today: string;
 }): string {
-  const { contract, lastPaymentDate, today } = opts;
-  const effectiveNow = today <= contract.end_date ? today : contract.end_date;
-  const base = lastPaymentDate !== null
-    ? shiftIsoDate(lastPaymentDate, 1)
-    : monthRange(effectiveNow).start;
+  const { contract, settledThroughPeriodEnd, lastPaymentDate } = opts;
+  const base =
+    settledThroughPeriodEnd !== null
+      ? shiftIsoDate(settledThroughPeriodEnd, 1)
+      : lastPaymentDate !== null
+        ? shiftIsoDate(lastPaymentDate, 1)
+        : contract.start_date;
   return base < contract.start_date ? contract.start_date : base;
 }

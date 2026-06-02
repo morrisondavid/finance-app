@@ -88,7 +88,6 @@ describe('composeExpectedReceipts', () => {
       horizon: HORIZON,
       accountsByEntity,
       currencyByAccount,
-      unpaidInvoices: [],
     });
 
     const body = composeExpectedReceipts({
@@ -118,7 +117,7 @@ describe('composeExpectedReceipts', () => {
     }
   });
 
-  it('includes invoice-receipt rows and skips accrual only through the unpaid invoice period', () => {
+  it('includes invoice-receipt rows and emits no accrual once the owed window opens past contract end', () => {
     const inv = makeInvoice({ id: 'DC-075' });
     const invoiceEvents = collectInvoiceReceiptEvents({
       unpaidInvoices: [inv],
@@ -140,6 +139,9 @@ describe('composeExpectedReceipts', () => {
       accountsByEntity,
       currencyByAccount,
       allowedAccountSet: new Set(ACCOUNTS),
+      // Invoice covers through 2026-04-30 (the contract end), so the owed
+      // window opens 2026-05-01 — past contract end → no accrual tail.
+      accrualWindowStartByContractId: new Map([['dc-sow-2026', '2026-05-01']]),
     });
 
     expect(body.receipts.filter(r => r.source === 'accrual')).toHaveLength(0);

@@ -4,7 +4,6 @@ import type {
   Contract,
   CurrencyCode,
   EntityId,
-  Invoice,
 } from '../../../shared/api-contracts.js';
 import { collectAccrualEvents } from './collect-events.js';
 import { parseContractRow } from '../contracts/csv-io.js';
@@ -41,8 +40,6 @@ describe('collectAccrualEvents projectToContractEnd', () => {
     horizon: HORIZON,
     accountsByEntity,
     currencyByAccount,
-    invoicedContractIds: new Set<string>(),
-    unpaidInvoices: [],
   };
 
   it('default emits one accrual for current month window only', () => {
@@ -72,8 +69,6 @@ describe('collectAccrualEvents owed-window backfill', () => {
     horizon: '2026-12-31',
     accountsByEntity,
     currencyByAccount,
-    invoicedContractIds: new Set<string>(),
-    unpaidInvoices: [],
     projectToContractEnd: true as const,
   };
 
@@ -95,20 +90,24 @@ describe('collectAccrualEvents owed-window backfill', () => {
     expect(events[0].contractId).toBe(endingContract.id);
   });
 
-  it('skips a trailing receipt whose arrival is already in the past', () => {
-    // The May invoice would have arrived 2026-06-30; today is past that, so
-    // the cash either landed (already in balance) or is overdue — not a
-    // forward inflow.
+  it('rolls an overdue trailing receipt forward to expected-now (today+1)', () => {
+    // The May work would have arrived 2026-06-30; today is past that, so the
+    // worked-but-unpaid tail is overdue. Like an overdue invoice, it rolls
+    // forward to today+1 rather than being dropped, so the cash still surfaces
+    // as a forward inflow.
     const events = collectAccrualEvents({
       ...base,
       today: '2026-07-15',
       accrualWindowStartByContractId: new Map([[endingContract.id, '2026-05-01']]),
     });
-    expect(events).toHaveLength(0);
+    expect(events).toHaveLength(1);
+    expect(events[0].date).toBe('2026-07-16');
+    expect(events[0].amount).toBeGreaterThan(0);
+    expect(events[0].contractId).toBe(endingContract.id);
   });
 });
 
-describe('collectAccrualEvents with unpaid invoices', () => {
+describe('collectAccrualEvents owed window after the latest invoiced period', () => {
   const weeklyLfMay: Contract = parseContractRow(
     rowFromHeaders({
       ...lfFzcoContractRow,
@@ -120,34 +119,10 @@ describe('collectAccrualEvents with unpaid invoices', () => {
     }),
   );
 
-  it('accrues worked days after the latest unpaid invoice period through contract end', () => {
-    const unpaid: Invoice = {
-      id: 'FZ-0011',
-      contract_id: weeklyLfMay.id,
-      client_id: 'la-fosse',
-      issuing_entity_id: 'autonize-it-fzco',
-      invoice_number: 'FZ-0011',
-      payment_reference: 'SB-298463',
-      invoice_date: '2026-05-28',
-      period_start: '2026-05-18',
-      period_end: '2026-05-24',
-      days_billed: 5,
-      description: 'test',
-      currency: 'GBP',
-      subtotal: 2500,
-      vat_rate: 0,
-      vat_amount: 0,
-      total: 2500,
-      fx_rate_at_issue: null,
-      fx_base_currency: null,
-      mechanism: 'self-bill',
-      pdf_path: null,
-      status: 'issued',
-      due_date: '2026-06-27',
-      created_at: '2026-05-28',
-      updated_at: null,
-    };
-
+  it('accrues only the worked days after the owed-window start through contract end', () => {
+    // Upstream resolved the owed window to 2026-05-25 (the day after the last
+    // invoiced period_end 2026-05-24). collectAccrualEvents is a dumb consumer
+    // of that anchor — it must not re-derive it from invoices.
     const events = collectAccrualEvents({
       contracts: [weeklyLfMay],
       leaveRows: [],
@@ -162,7 +137,7 @@ describe('collectAccrualEvents with unpaid invoices', () => {
       currencyByAccount: new Map([
         ['emirates-islamic-gbp' as AccountName, 'GBP'],
       ]),
-      unpaidInvoices: [unpaid],
+      accrualWindowStartByContractId: new Map([[weeklyLfMay.id, '2026-05-25']]),
       projectToContractEnd: true,
     });
 
@@ -170,6 +145,7 @@ describe('collectAccrualEvents with unpaid invoices', () => {
     expect(events.some(e => e.source === 'accrual' && e.contractId === weeklyLfMay.id)).toBe(true);
     const totalAccrued = events.reduce((sum, e) => sum + e.amount, 0);
     expect(totalAccrued).toBeGreaterThan(0);
+    // Only the 25–31 May tail, not the whole month.
     expect(totalAccrued).toBeLessThanOrEqual(2500);
   });
 });
