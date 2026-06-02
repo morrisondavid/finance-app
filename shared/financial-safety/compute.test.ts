@@ -7,6 +7,7 @@ function baseInput(over: Partial<FinancialSafetyInput> = {}): FinancialSafetyInp
     totalCashGbp: 80_000,
     totalCommittedGbp: 40_000,
     cashAfterCommitmentsGbp: 40_000,
+    earnedReceivablesGbp: 0,
     runwayMonthsFullRecurring: 18,
     verdictKind: 'safe',
     topClientShareOfActiveMonthly: 0.35,
@@ -110,6 +111,24 @@ describe('computeFinancialSafety', () => {
       code: 'runway-below-threshold',
       fingerprint: 'a'.repeat(32),
     });
+  });
+
+  it('earned receivables lift pillar A and resources-after-commitments', () => {
+    const without = computeFinancialSafety(
+      baseInput({ totalCommittedGbp: 100_000, cashAfterCommitmentsGbp: 0, earnedReceivablesGbp: 0 }),
+    );
+    const withEarned = computeFinancialSafety(
+      baseInput({ totalCommittedGbp: 100_000, cashAfterCommitmentsGbp: 0, earnedReceivablesGbp: 25_000 }),
+    );
+    expect(withEarned.pillars[0].contribution).toBeGreaterThan(without.pillars[0].contribution);
+    expect(withEarned.pillars[0].rawMetrics.resourcesAfterCommitmentsGbp).toBe(25_000);
+  });
+
+  it('earnedReceivablesGbp of 0 leaves pillar A on cash-only behaviour', () => {
+    const r = computeFinancialSafety(
+      baseInput({ totalCommittedGbp: 100_000, cashAfterCommitmentsGbp: 50_000, earnedReceivablesGbp: 0 }),
+    );
+    expect(r.pillars[0].contribution).toBeGreaterThanOrEqual(8);
   });
 
   it('exposes formulaVersion 1.0.0', () => {

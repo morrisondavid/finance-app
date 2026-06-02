@@ -7,8 +7,10 @@ import {
   LiquidityQuerySchema,
   RunwayQuerySchema,
   SnapshotQuerySchema,
+  AvailableFundsQuerySchema,
 } from '../domain/ai/ai-get-query-schemas.js';
 import {
+  composeAiAvailableFunds,
   composeAiFinancialSafety,
   composeAiFinancialSnapshot,
   composeAiLiquidity,
@@ -26,6 +28,7 @@ import {
   runGetAiRunwayMcpTool,
   runGetAiSnapshotMcpTool,
   runGetAiSpendByCurrencyMcpTool,
+  runAnalyticsGetAvailableFundsMcpTool,
 } from './bank-mcp-server.js';
 
 /** Drop top-level `generatedAt` so two sequential composer runs compare stably. */
@@ -104,6 +107,18 @@ describe('MCP analytics_get_* §2.0 tools match /api/ai composers (`get_ai_*` ar
       groupByEntity: q.groupByEntity,
     });
     const r = runGetAiFinancialSnapshotMcpTool({});
+    expect(r.isError).toBeUndefined();
+    const sc = r.structuredContent;
+    if (!sc || typeof sc !== 'object' || Array.isArray(sc)) {
+      expect.fail('structuredContent missing');
+    }
+    expect(withoutTopLevelGeneratedAt(expected)).toEqual(withoutTopLevelGeneratedAt(sc));
+  });
+
+  it('analytics_get_available_funds: {} matches composeAiAvailableFunds (AvailableFundsQuerySchema defaults)', () => {
+    const q = AvailableFundsQuerySchema.parse({});
+    const expected = composeAiAvailableFunds({ months: q.months, filterEntityId: q.entityId });
+    const r = runAnalyticsGetAvailableFundsMcpTool({});
     expect(r.isError).toBeUndefined();
     const sc = r.structuredContent;
     if (!sc || typeof sc !== 'object' || Array.isArray(sc)) {

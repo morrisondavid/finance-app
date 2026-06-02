@@ -149,3 +149,53 @@ describe('collectAccrualEvents owed window after the latest invoiced period', ()
     expect(totalAccrued).toBeLessThanOrEqual(2500);
   });
 });
+
+describe('Delta Capita — April/May/June (settled-through 2026-03-31)', () => {
+  // DC-010 settled through 2026-03-31 → owedStart 2026-04-01 for the whole series.
+  const aprilSow = parseContractRow(dcSowRow);
+  const followOn = parseContractRow(
+    rowFromHeaders({
+      ...dcSowRow,
+      id: 'dc-sow-jun-2026',
+      reference: 'Delta Capita · May 2026–Jul 2026',
+      start_date: '2026-05-01',
+      end_date: '2026-07-31',
+    }),
+  );
+  const owedStart = '2026-04-01';
+  const today = '2026-06-02';
+  const horizon = '2026-12-31';
+
+  it('projects April (rolled to expected-now), May, and June across renewals', () => {
+    const events = collectAccrualEvents({
+      contracts: [aprilSow, followOn],
+      leaveRows: [],
+      publicHolidayDatesByEntity: new Map([
+        ['autonize-it-ltd' as EntityId, new Set<string>()],
+      ]),
+      today,
+      horizon,
+      accountsByEntity,
+      currencyByAccount,
+      projectToContractEnd: true,
+      accrualWindowStartByContractId: new Map([
+        [aprilSow.id, owedStart],
+        [followOn.id, owedStart],
+      ]),
+    });
+
+    const aprilEvents = events.filter(e => e.contractId === aprilSow.id);
+    expect(aprilEvents).toHaveLength(1);
+    expect(aprilEvents[0].date).toBe('2026-06-03');
+    expect(aprilEvents[0].amount).toBe(22 * 550);
+
+    const followOnEvents = events.filter(e => e.contractId === followOn.id);
+    expect(followOnEvents.length).toBeGreaterThanOrEqual(2);
+    const followOnDates = followOnEvents.map(e => e.date).sort();
+    expect(followOnDates).toContain('2026-06-30');
+    expect(followOnDates).toContain('2026-07-30');
+
+    const total = events.reduce((sum, e) => sum + e.amount, 0);
+    expect(total).toBeGreaterThan(30_000);
+  });
+});

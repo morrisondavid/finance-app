@@ -2965,6 +2965,10 @@ export const AiFinancialSnapshotIncomeSchema = z.object({
     entityRollupCount: z.number().int().nonnegative(),
     totals: AggregateAccrualTotalsSchema.nullable(),
   }),
+  /** Worked-but-not-invoiced accrual (owed window, capped today), retained after VAT/CT, GBP. */
+  retainedAccruedToDateGbp: z.number(),
+  /** Earned-but-unbanked income: unpaid invoices (full) + retainedAccruedToDateGbp. GBP. */
+  earnedReceivablesGbp: z.number(),
 });
 
 export const AiFinancialSnapshotSpendVsBudgetSchema = z.object({
@@ -2998,6 +3002,8 @@ export const AiFinancialSnapshotVerdictSchema = z.discriminatedUnion('kind', [
     kind: z.literal('negative_after_commitments'),
     reasons: z.array(z.string()),
     cashAfter12MonthCommitmentsGbp: z.number(),
+    /** cashAfter12MonthCommitmentsGbp + earnedReceivablesGbp; still < 0 in this branch. */
+    resourcesAfterCommitmentsGbp: z.number(),
   }),
 ]);
 

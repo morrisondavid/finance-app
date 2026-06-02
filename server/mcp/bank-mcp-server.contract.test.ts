@@ -11,6 +11,7 @@ import {
   composeAiSnapshot,
   composeAiFinancialSnapshot,
   composeAiFinancialSafety,
+  composeAiAvailableFunds,
   buildAiManifest,
   composeAiIncomeComposition,
   composeAiDebtStrategyState,
@@ -86,9 +87,25 @@ describe('MCP resource payloads vs composers', () => {
     expect(fromMcp.runway).toEqual(expected.runway);
     expect(fromMcp.commitmentWindow).toEqual(expected.commitmentWindow);
     expect(fromMcp.income).toEqual(expected.income);
+    expect(typeof fromMcp.income.earnedReceivablesGbp).toBe('number');
+    expect(typeof fromMcp.income.retainedAccruedToDateGbp).toBe('number');
     expect(fromMcp.discretionary).toEqual(expected.discretionary);
     expect(fromMcp.spendVsBudget).toEqual(expected.spendVsBudget);
     expect(fromMcp.verdict).toEqual(expected.verdict);
+    expect(fromMcp.schemaVersion).toBe(expected.schemaVersion);
+  });
+
+  it('available-funds resource matches composeAiAvailableFunds with defaults (except generatedAt)', () => {
+    const fromMcp = JSON.parse(
+      readBankStatementsAiResource(BankStatementsAiResourceUris.availableFunds),
+    );
+    const expected = composeAiAvailableFunds();
+    expect(fromMcp.futureIncomeByMonth).toEqual(expected.futureIncomeByMonth);
+    expect(fromMcp.futureIncomeByClient).toEqual(expected.futureIncomeByClient);
+    expect(fromMcp.lastContractPayment).toEqual(expected.lastContractPayment);
+    expect(fromMcp.committedOutflows).toEqual(expected.committedOutflows);
+    expect(fromMcp.totalFundsGbp).toBe(expected.totalFundsGbp);
+    expect(fromMcp.confirmedFutureIncomeRetainedGbp).toBe(expected.confirmedFutureIncomeRetainedGbp);
     expect(fromMcp.schemaVersion).toBe(expected.schemaVersion);
   });
 

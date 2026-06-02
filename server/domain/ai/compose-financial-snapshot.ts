@@ -10,6 +10,8 @@ import type {
 import { AiFinancialSnapshotResponseSchema } from '../../../shared/api-contracts.js';
 import { shiftIsoDate } from '../../../shared/iso-date.js';
 import { convertAmountSync } from '../../config/exchange-rates.js';
+import { calculateRetainedReserves } from '../../config/tax-rates.js';
+import { companyById } from '../company/queries.js';
 import { getAvailableFinancialYears, getTransactions } from '../../db/index.js';
 import { listBudgets } from '../../db/repositories/budgets.js';
 import { normalizeFinancialYear } from '../../db/utils/financial-year.js';
@@ -100,6 +102,16 @@ export function composeAiFinancialSnapshot(
   const invs = allInvoices().filter(i => i.status === 'issued' || i.status === 'partial');
   const outstanding = outstandingInvoicesGbpSummary(invs, [...allInvoicePayments()]);
 
+  let retainedAccruedToDateGbp = 0;
+  for (const e of aggregateAccrual.entities) {
+    const company = companyById(e.issuing_entity_id);
+    const netGbp = convertAmountSync(e.accrued_to_date, e.currency, 'GBP');
+    retainedAccruedToDateGbp +=
+      company === null ? netGbp : calculateRetainedReserves(netGbp, company).retained_period;
+  }
+  retainedAccruedToDateGbp = round2(retainedAccruedToDateGbp);
+  const earnedReceivablesGbp = round2(outstanding.totalOutstandingGbp + retainedAccruedToDateGbp);
+
   const selectedAccount = validateAccount(opts.account);
   const financialYears = getAvailableFinancialYears();
   const selectedFY = opts.financialYear ?? (financialYears.length > 0 ? financialYears[0] : undefined);
@@ -136,6 +148,7 @@ export function composeAiFinancialSnapshot(
   const verdict = deriveFinancialVerdict({
     today: loaded.today,
     cashAfter12MonthCommitmentsGbp: cashAfter12,
+    earnedReceivablesGbp,
     holisticGbp: runway.holisticGbp,
     commitmentWindowEndDate: endDate,
   });
@@ -157,6 +170,8 @@ export function composeAiFinancialSnapshot(
         entityRollupCount: aggregateAccrual.entities.length,
         totals: aggregateAccrual.totals,
       },
+      retainedAccruedToDateGbp,
+      earnedReceivablesGbp,
     },
     discretionary: {
       totalCashGbp: totalCash,

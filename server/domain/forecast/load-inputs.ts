@@ -101,10 +101,11 @@ export interface LoadedForecastInputs {
   readonly unpaidInvoices: readonly Invoice[];
   readonly contracts: readonly Contract[];
   /**
-   * Per-contract owed-window start (`YYYY-MM-DD`): the day after the most
-   * recent matched payment, clamped into the contract window. Drives the
-   * accrual backfill so already-worked-but-unpaid periods are projected as
-   * trailing receipts. Empty when a contract has no resolvable history.
+   * Per-contract owed-window start (`YYYY-MM-DD`): resolved from the
+   * series-aware settled-through anchor (latest invoiced `period_end + 1`),
+   * falling back to last payment or contract start (see
+   * {@link resolveAccrualWindowStart}). Drives accrual backfill for
+   * worked-but-unpaid periods projected as trailing receipts.
    */
   readonly accrualWindowStartByContractId: ReadonlyMap<string, string>;
   readonly leaveRows: readonly LeaveRow[];

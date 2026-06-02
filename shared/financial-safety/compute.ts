@@ -22,15 +22,19 @@ function round1(x: number): number {
 }
 
 function pillarLiquidityVsCommitments(input: FinancialSafetyInput): FinancialSafetyPillarRow {
-  const { totalCashGbp, totalCommittedGbp, cashAfterCommitmentsGbp } = input;
+  const { totalCashGbp, totalCommittedGbp, cashAfterCommitmentsGbp, earnedReceivablesGbp } = input;
+  // Resources = cash already banked + money already earned but not yet paid
+  // (unpaid invoices + worked-but-not-invoiced, retained). Projected future
+  // work is never included upstream, so this stays an "earned" measure.
+  const resourcesAfterCommitmentsGbp = cashAfterCommitmentsGbp + earnedReceivablesGbp;
   let contribution = 10;
   if (totalCommittedGbp > 0) {
-    const r = cashAfterCommitmentsGbp / totalCommittedGbp;
+    const r = resourcesAfterCommitmentsGbp / totalCommittedGbp;
     if (r >= 0.2) contribution = 10;
     else if (r >= 0) contribution = 5 + (r / 0.2) * 5;
     else if (r >= -0.2) contribution = 5 * (1 + r / 0.2);
     else contribution = 0;
-  } else if (totalCashGbp <= 0) {
+  } else if (totalCashGbp + earnedReceivablesGbp <= 0) {
     contribution = 0;
   }
   contribution = round1(clamp01(contribution / 10) * 10);
@@ -41,9 +45,12 @@ function pillarLiquidityVsCommitments(input: FinancialSafetyInput): FinancialSaf
     weight: WEIGHT_A,
     rawMetrics: {
       totalCashGbp,
+      earnedReceivablesGbp,
       totalCommittedGbp,
       cashAfterCommitmentsGbp,
-      coverageVsCommitted: totalCommittedGbp > 0 ? cashAfterCommitmentsGbp / totalCommittedGbp : null,
+      resourcesAfterCommitmentsGbp,
+      coverageVsCommitted:
+        totalCommittedGbp > 0 ? resourcesAfterCommitmentsGbp / totalCommittedGbp : null,
     },
   };
 }

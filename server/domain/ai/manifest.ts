@@ -55,7 +55,7 @@ const STATIC: AiManifestResponse = {
         'commitmentDays',
       ],
       responseSchemaExport: 'AiFinancialSnapshotResponseSchema',
-      mcpTool: 'get_ai_financial_snapshot',
+      mcpTool: 'analytics_get_financial_snapshot',
     },
     {
       method: 'GET',
@@ -70,7 +70,7 @@ const STATIC: AiManifestResponse = {
         'commitmentDays',
       ],
       responseSchemaExport: 'AiFinancialSafetyResponseSchema',
-      mcpTool: 'get_ai_financial_safety',
+      mcpTool: 'analytics_get_financial_safety',
     },
     {
       method: 'GET',

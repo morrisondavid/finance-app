@@ -14,12 +14,14 @@ describe('deriveFinancialVerdict', () => {
     const v = deriveFinancialVerdict({
       today: '2026-05-01',
       cashAfter12MonthCommitmentsGbp: -100,
+      earnedReceivablesGbp: 0,
       holisticGbp: stressFree,
       commitmentWindowEndDate: '2026-07-30',
     });
     expect(v.kind).toBe('negative_after_commitments');
     if (v.kind === 'negative_after_commitments') {
       expect(v.cashAfter12MonthCommitmentsGbp).toBe(-100);
+      expect(v.resourcesAfterCommitmentsGbp).toBe(-100);
     }
   });
 
@@ -27,6 +29,7 @@ describe('deriveFinancialVerdict', () => {
     const v = deriveFinancialVerdict({
       today: '2026-05-01',
       cashAfter12MonthCommitmentsGbp: 5_000,
+      earnedReceivablesGbp: 0,
       holisticGbp: stressFree,
       commitmentWindowEndDate: '2026-07-30',
     });
@@ -37,6 +40,7 @@ describe('deriveFinancialVerdict', () => {
     const v = deriveFinancialVerdict({
       today: '2026-05-01',
       cashAfter12MonthCommitmentsGbp: 5_000,
+      earnedReceivablesGbp: 0,
       holisticGbp: {
         ...stressFree,
         firstStressDateFullRecurring: '2026-06-10',
@@ -55,6 +59,7 @@ describe('deriveFinancialVerdict', () => {
     const v = deriveFinancialVerdict({
       today: '2026-05-01',
       cashAfter12MonthCommitmentsGbp: 5_000,
+      earnedReceivablesGbp: 0,
       holisticGbp: {
         ...stressFree,
         firstStressDateFullRecurring: '2027-02-01',
@@ -67,5 +72,31 @@ describe('deriveFinancialVerdict', () => {
       expect(v.firstStressDateFullRecurring).toBe('2027-02-01');
       expect(v.deficitInDays).toBe(276);
     }
+  });
+
+  it('stays negative when earned receivables do not cover the commitment gap', () => {
+    const v = deriveFinancialVerdict({
+      today: '2026-05-01',
+      cashAfter12MonthCommitmentsGbp: -100_000,
+      earnedReceivablesGbp: 30_000,
+      holisticGbp: stressFree,
+      commitmentWindowEndDate: '2026-07-30',
+    });
+    expect(v.kind).toBe('negative_after_commitments');
+    if (v.kind === 'negative_after_commitments') {
+      expect(v.cashAfter12MonthCommitmentsGbp).toBe(-100_000);
+      expect(v.resourcesAfterCommitmentsGbp).toBe(-70_000);
+    }
+  });
+
+  it('flips off negative once earned receivables cover the commitment gap', () => {
+    const v = deriveFinancialVerdict({
+      today: '2026-05-01',
+      cashAfter12MonthCommitmentsGbp: -20_000,
+      earnedReceivablesGbp: 25_000,
+      holisticGbp: stressFree,
+      commitmentWindowEndDate: '2026-07-30',
+    });
+    expect(v.kind).toBe('safe');
   });
 });

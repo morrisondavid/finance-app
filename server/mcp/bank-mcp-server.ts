@@ -100,6 +100,7 @@ export const BankStatementsAiResourceUris = {
   spendContext: `${BANK_STATEMENTS_AI_RESOURCE_BASE}/spend-context`,
   netWorthHistory: `${BANK_STATEMENTS_AI_RESOURCE_BASE}/net-worth-history`,
   spendByCurrency: `${BANK_STATEMENTS_AI_RESOURCE_BASE}/spend-by-currency`,
+  availableFunds: `${BANK_STATEMENTS_AI_RESOURCE_BASE}/available-funds`,
   entityLiquidityFx: `${BANK_STATEMENTS_AI_RESOURCE_BASE}/entity-liquidity-fx`,
 } as const;
 
@@ -116,6 +117,7 @@ const MCPParameterizedToolForResourceKey: Partial<
   'financial-snapshot': 'analytics_get_financial_snapshot',
   'financial-safety': 'analytics_get_financial_safety',
   spendByCurrency: 'analytics_get_spend_by_currency',
+  availableFunds: 'analytics_get_available_funds',
 };
 
 type McpJsonToolReturn = {
@@ -549,6 +551,8 @@ export function readBankStatementsAiResource(uri: string): string {
       return JSON.stringify(composeAiSnapshot());
     case BankStatementsAiResourceUris['financial-snapshot']:
       return JSON.stringify(composeAiFinancialSnapshot());
+    case BankStatementsAiResourceUris.availableFunds:
+      return JSON.stringify(composeAiAvailableFunds());
     case BankStatementsAiResourceUris['financial-safety']:
       return JSON.stringify(composeAiFinancialSafety());
     case BankStatementsAiResourceUris.manifest:

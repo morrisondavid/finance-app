@@ -24,6 +24,13 @@ export interface FinancialSafetyInput {
   readonly totalCashGbp: number;
   readonly totalCommittedGbp: number;
   readonly cashAfterCommitmentsGbp: number;
+  /**
+   * Pillar A — money already earned but not yet banked: unpaid issued invoices
+   * (full) + worked-but-not-invoiced accrual (retained, after VAT/CT). Added to
+   * the liquidity side so the score credits work already done. Never includes
+   * projected future work. `0` when there are no earned receivables.
+   */
+  readonly earnedReceivablesGbp: number;
   /** Pillar B — holistic runway (months); null when not stressed in horizon. */
   readonly runwayMonthsFullRecurring: number | null;
   readonly verdictKind: FinancialSafetyVerdictKind;
