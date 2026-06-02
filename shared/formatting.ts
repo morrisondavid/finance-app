@@ -15,6 +15,7 @@ export function ordinal(n: number): string {
 const CURRENCY_LOCALE: Record<CurrencyCode, string> = {
   GBP: 'en-GB',
   AED: 'en-AE',
+  USD: 'en-US',
 };
 
 /**
@@ -31,7 +32,7 @@ export function formatCurrency(amount: number, currency: CurrencyCode = 'GBP'): 
  * Return the narrow symbol for a supported currency code.
  */
 export function currencySymbol(currency: CurrencyCode = 'GBP'): string {
-  const symbols: Record<CurrencyCode, string> = { GBP: '£', AED: 'AED' };
+  const symbols: Record<CurrencyCode, string> = { GBP: '£', AED: 'AED', USD: '$' };
   return symbols[currency] ?? currency;
 }
 

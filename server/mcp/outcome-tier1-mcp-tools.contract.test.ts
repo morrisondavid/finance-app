@@ -144,6 +144,8 @@ describe('outcome MCP — income composition + posture + accountant readiness', 
     });
     expect(r.isError).toBeUndefined();
     const sc = r.structuredContent;
+    expect(sc).toBeDefined();
+    if (!sc) return;
     expect(sc).toHaveProperty('present');
     expect(sc).toHaveProperty('missing');
     expect(sc).toHaveProperty('recommended_next_steps');

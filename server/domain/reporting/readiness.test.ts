@@ -4,7 +4,7 @@ import { computeReportingReadiness } from './readiness.js';
 
 function allMonthsForUkLtdVatQ2(): (account: string, docType: 'pdf' | 'csv') => Set<string> {
   const keys = new Set(['2025-02', '2025-03', '2025-04']);
-  return (_account, docType) => keys;
+  return () => keys;
 }
 
 describe('computeReportingReadiness', () => {
@@ -92,7 +92,7 @@ describe('computeReportingReadiness', () => {
       fx_base_currency: null,
       mechanism: 'supplier-issued',
       pdf_path: 'invoices/generated/DC-011.pdf',
-      status: 'sent',
+      status: 'issued',
       due_date: '2025-04-15',
       created_at: '2025-03-01',
       updated_at: null,

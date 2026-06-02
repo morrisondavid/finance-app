@@ -8,9 +8,15 @@
  */
 
 import type Database from 'better-sqlite3';
+import type { AccountName } from '../../types.js';
+import { ACCOUNTS } from '../../types.js';
 import { accountsForEntity, getAccountConfig } from '../accounts/index.js';
 import { convertAmountSync } from '../../config/exchange-rates.js';
 import { toIsoDate, shiftIsoDate } from '../../../shared/iso-date.js';
+
+function isLedgerAccount(account: string): account is AccountName {
+  return (ACCOUNTS as readonly string[]).includes(account);
+}
 
 /**
  * Sum of `income` amounts on FZCO-linked accounts over the 365-day
@@ -40,6 +46,7 @@ export function sumFzcoTrailing12mIncomeAed(
 
   let totalAed = 0;
   for (const row of rows) {
+    if (!isLedgerAccount(row.account)) continue;
     const currency = getAccountConfig(row.account).currency;
     totalAed += convertAmountSync(row.total, currency, 'AED');
   }

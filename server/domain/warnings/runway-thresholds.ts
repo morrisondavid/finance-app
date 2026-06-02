@@ -51,7 +51,8 @@ function emitRunwayLow(
 ): EntityFoundationWarning | null {
   const severity = severityForFullRunway(months);
   if (severity === null) return null;
-  const block = household[currency];
+  const block =
+    currency === 'GBP' ? household.GBP : currency === 'AED' ? household.AED : undefined;
   return {
     id: `runway-low:${currency}`,
     code: 'runway-low',
@@ -85,7 +86,8 @@ function emitRunwayMandatoryLow(
 ): EntityFoundationWarning | null {
   const severity = severityForMandatoryRunway(months);
   if (severity === null) return null;
-  const block = household[currency];
+  const block =
+    currency === 'GBP' ? household.GBP : currency === 'AED' ? household.AED : undefined;
   return {
     id: `runway-mandatory-low:${currency}`,
     code: 'runway-mandatory-low',
@@ -160,7 +162,8 @@ export function deriveRunwayThresholdWarnings(
 ): EntityFoundationWarning[] {
   const out: EntityFoundationWarning[] = [];
 
-  for (const [currency, block] of Object.entries(assembled.household) as [CurrencyCode, typeof assembled.household.GBP][]) {
+  for (const currency of ['GBP', 'AED'] as const) {
+    const block = assembled.household[currency];
     if (block === undefined) continue;
     if (block.runwayMonthsFullRecurring !== null && block.firstStressDateFullRecurring !== null) {
       const w = emitRunwayLow(
