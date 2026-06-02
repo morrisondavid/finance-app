@@ -1,23 +1,30 @@
 import path from 'node:path';
 import { ACCOUNTS } from '../../types.js';
-import type { CheckQuarterResponse } from '../../../shared/api-contracts.js';
+import type { CheckQuarterResponse, ReportingReadinessItem } from '../../../shared/api-contracts.js';
 import {
   StatementsResponseSchema,
   StatementYearsResponseSchema,
   AccountStatementResponseSchema,
   StatementInvoiceUploadsListResponseSchema,
 } from '../../../shared/api-contracts.js';
-import { getAccountConfig, businessAccounts } from '../../domain/accounts/index.js';
+import { computeReportingReadiness } from '../../domain/reporting/index.js';
 import {
   STATEMENTS_DIR,
   listFilesInDir,
   invoiceUploadFilesList,
   statementYearsAscending,
   statementsGroupedByAccount,
-  getQuarterMonths,
   type StatementsListQueryInput,
 } from '../../domain/statements/statement-files-catalog.js';
 import { jsonReadFail, jsonReadOk, type JsonReadResult } from './types.js';
+
+function missingReadinessItemToCheckQuarterString(item: ReportingReadinessItem): string {
+  const [yearStr, monthStr] = item.monthKey.split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const monthName = new Date(year, month - 1).toLocaleString('en-GB', { month: 'long' });
+  return `${item.accountLabel}: No ${item.docType.toUpperCase()} for ${monthName} ${year}`;
+}
 
 function ledgerAccount(account: string): account is typeof ACCOUNTS[number] {
   return (ACCOUNTS as readonly string[]).includes(account);
@@ -56,36 +63,13 @@ export function readStatementsQuarterCheck(quarterUnknown: unknown): JsonReadRes
   }
   const quarter = quarterUnknown.trim();
 
-  const businessAccts = businessAccounts();
-  const expectedMonths = getQuarterMonths(quarter);
-  const missingFiles: string[] = [];
+  const readiness = computeReportingReadiness({
+    entityId: 'autonize-it-ltd',
+    regime: 'vat',
+    periodLabel: quarter,
+  });
 
-  for (const account of businessAccts) {
-    const accountConfig = getAccountConfig(account);
-    const accountDir = path.join(STATEMENTS_DIR, account);
-    const pdfDir = path.join(accountDir, 'pdf');
-    const csvDir = path.join(accountDir, 'csv');
-
-    const pdfs = listFilesInDir(pdfDir);
-    const csvs = listFilesInDir(csvDir);
-
-    for (const { year, month } of expectedMonths) {
-      const monthStr = month.toString().padStart(2, '0');
-      const expectedDate = `${year}-${monthStr}`;
-
-      const hasPdf = pdfs.some(f => f.displayDate === expectedDate);
-      if (!hasPdf) {
-        const monthName = new Date(year, month - 1).toLocaleString('en-GB', { month: 'long' });
-        missingFiles.push(`${accountConfig.label}: No PDF for ${monthName} ${year}`);
-      }
-
-      const hasCsv = csvs.some(f => f.displayDate === expectedDate);
-      if (!hasCsv) {
-        const monthName = new Date(year, month - 1).toLocaleString('en-GB', { month: 'long' });
-        missingFiles.push(`${accountConfig.label}: No CSV for ${monthName} ${year}`);
-      }
-    }
-  }
+  const missingFiles = readiness.missing.map(missingReadinessItemToCheckQuarterString);
 
   const body: CheckQuarterResponse = { missingFiles };
   return jsonReadOk(body);

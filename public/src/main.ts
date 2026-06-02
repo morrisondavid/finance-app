@@ -12,6 +12,7 @@ import { initTabs } from './modules/tabs';
 import { initDashboard, loadDashboard, populateAccountSelectors, refreshFeedToolbarState, FEED_UI_RECONNECT_SESSION_PREFIX } from './modules/dashboard';
 import { loadLiquidityDashboard } from './modules/liquidity-dashboard';
 import { initStatements, loadStatements } from './modules/statements';
+import { initReportingReadiness } from './modules/reporting-readiness';
 import { initUpload } from './modules/upload';
 import { initFixedExpensesSheet, loadFixedExpensesSheet } from './modules/fixed-expenses-sheet';
 import { initAdHocExpenses, loadAdHocExpenses } from './modules/ad-hoc-expenses';
@@ -182,6 +183,7 @@ async function initializeApp(): Promise<void> {
   void initDebtStrategy();
   initWarnings();
   initStatements();
+  initReportingReadiness();
   initUpload({
     onUploadSuccess: () => {
       void loadLiquidityDashboard();

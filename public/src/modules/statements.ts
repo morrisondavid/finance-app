@@ -7,11 +7,19 @@ import { state, setState } from './state';
 import {
   fetchStatements,
   fetchStatementYears,
-  checkQuarterFiles,
-  downloadForAccountant,
-  downloadSelectedFiles
+  downloadSelectedFiles,
 } from '../utils/api';
 import { formatAccountName, formatMonthYear } from '../utils/formatting';
+import { buildVatQuarterOptionsHtml } from '../utils/vat-quarters';
+
+function clientFallbackYears(): string[] {
+  const end = new Date().getFullYear();
+  const years: string[] = [];
+  for (let y = end; y >= 2019; y -= 1) {
+    years.push(String(y));
+  }
+  return years;
+}
 
 // VAT Quarter definitions (Stagger 2)
 const VAT_QUARTERS = {
@@ -68,6 +76,7 @@ async function loadAvailableYears(): Promise<void> {
     populateYearFilter(years);
   } catch (error) {
     console.error('Error loading years:', error);
+    populateYearFilter([]);
   }
 }
 
@@ -302,14 +311,17 @@ function populateYearFilter(years: string[]): void {
   // Preserve current selection before rebuilding
   const currentValue = yearFilter.value;
   
-  const sortedYears = Array.isArray(years) ? years : [];
+  const merged = [
+    ...new Set([...(Array.isArray(years) ? years : []), ...clientFallbackYears()]),
+  ].sort((a, b) => b.localeCompare(a));
   
   // Rebuild with "Select Year" as first option
-  yearFilter.innerHTML = '<option value="">Select Year</option>' +
-    sortedYears.map(y => `<option value="${y}">${y}</option>`).join('');
+  yearFilter.innerHTML =
+    '<option value="">Select Year</option>' +
+    merged.map(y => `<option value="${y}">${y}</option>`).join('');
   
   // Restore previous selection if it still exists in the options
-  if (currentValue && sortedYears.includes(currentValue)) {
+  if (currentValue && merged.includes(currentValue)) {
     yearFilter.value = currentValue;
   } else {
     yearFilter.value = '';
@@ -338,17 +350,8 @@ function updateQuarterOptions(): void {
   }
   
   (quarterFilter as HTMLSelectElement).disabled = false;
-  const year = parseInt(selectedYear);
-  const prevYear = year - 1;
-  
-  // Generate quarters for the selected year (Stagger 2)
-  quarterFilter.innerHTML = `
-    <option value="">VAT Quarter</option>
-    <option value="Q1-${year}">Q1 Nov-Jan ${prevYear}/${year.toString().slice(-2)}</option>
-    <option value="Q2-${year}">Q2 Feb-Apr ${year}</option>
-    <option value="Q3-${year}">Q3 May-Jul ${year}</option>
-    <option value="Q4-${year}">Q4 Aug-Oct ${year}</option>
-  `;
+  const year = parseInt(selectedYear, 10);
+  quarterFilter.innerHTML = buildVatQuarterOptionsHtml(year, true);
   
   // Restore selection if it matches the year
   if (currentQuarter && currentQuarter.endsWith(`-${year}`)) {
@@ -407,54 +410,6 @@ export function downloadFile(account: string, type: string, filename: string): v
 }
 
 /**
- * Update accountant button state based on quarter selection
- */
-function updateAccountantButton(): void {
-  const quarterFilter = document.getElementById('quarter-filter') as HTMLSelectElement;
-  const yearFilter = document.getElementById('year-filter') as HTMLSelectElement;
-  const downloadAccountantBtn = document.getElementById('download-accountant-btn') as HTMLButtonElement;
-  const accountantStatus = document.getElementById('accountant-status');
-  const missingFilesWarning = document.getElementById('missing-files-warning') as HTMLElement;
-  
-  if (!downloadAccountantBtn || !accountantStatus) return;
-  
-  const quarterSelected = quarterFilter?.value !== '';
-  (downloadAccountantBtn as HTMLButtonElement).disabled = !quarterSelected;
-  
-  if (quarterSelected) {
-    // Parse quarter value like "Q1-2025" to get friendly name
-    const match = quarterFilter.value.match(/^(Q[1-4])-(\d{4})$/);
-    if (match) {
-      const quarterNames: Record<string, string> = {
-        Q1: 'Nov-Jan',
-        Q2: 'Feb-Apr',
-        Q3: 'May-Jul',
-        Q4: 'Aug-Oct'
-      };
-      const qNum = match[1];
-      const year = parseInt(match[2]);
-      const prevYear = year - 1;
-      const quarterName = quarterNames[qNum];
-      
-      if (qNum === 'Q1') {
-        accountantStatus.textContent = `Ready to export ${qNum} (${quarterName} ${prevYear}/${year.toString().slice(-2)}) for all business accounts`;
-      } else {
-        accountantStatus.textContent = `Ready to export ${qNum} (${quarterName} ${year}) for all business accounts`;
-      }
-    }
-  } else if (yearFilter?.value) {
-    accountantStatus.textContent = 'Select a VAT quarter to download';
-  } else {
-    accountantStatus.textContent = 'Select a year and VAT quarter above';
-  }
-  
-  // Hide missing files warning when selection changes
-  if (missingFilesWarning) {
-    missingFilesWarning.style.display = 'none';
-  }
-}
-
-/**
  * Initialize statements page with all event listeners
  */
 export function initStatements(): void {
@@ -464,8 +419,6 @@ export function initStatements(): void {
   const monthFilter = document.getElementById('month-filter') as HTMLSelectElement;
   const quarterFilter = document.getElementById('quarter-filter') as HTMLSelectElement;
   const downloadAllBtn = document.getElementById('download-all-btn');
-  const downloadAccountantBtn = document.getElementById('download-accountant-btn');
-  const missingFilesWarning = document.getElementById('missing-files-warning');
   const selectAllBtn = document.getElementById('select-all-btn');
   const clearSelectionBtn = document.getElementById('clear-selection-btn');
   const downloadSelectedBtn = document.getElementById('download-selected-btn');
@@ -502,8 +455,6 @@ export function initStatements(): void {
       monthFilter.value = '';
       yearFilter.value = '';
     }
-    
-    updateAccountantButton();
   };
   
   // Search event listeners
@@ -517,13 +468,11 @@ export function initStatements(): void {
     quarterFilter.value = '';
     updateQuarterOptions();
     if (monthFilter) (monthFilter as HTMLSelectElement).disabled = false;
-    updateAccountantButton();
     doSearch();
   });
   
   monthFilter.addEventListener('change', () => {
     quarterFilter.value = '';
-    updateAccountantButton();
     doSearch();
   });
   
@@ -550,53 +499,6 @@ export function initStatements(): void {
         setTimeout(() => {
           (downloadAllBtn as HTMLButtonElement).disabled = false;
           downloadAllBtn.textContent = 'Download All';
-        }, 2000);
-      }
-    });
-  }
-  
-  // Download for Accountant button handler
-  if (downloadAccountantBtn && quarterFilter) {
-    downloadAccountantBtn.addEventListener('click', async () => {
-      if (!quarterFilter?.value) return;
-      
-      (downloadAccountantBtn as HTMLButtonElement).disabled = true;
-      downloadAccountantBtn.textContent = 'Preparing ZIP...';
-      downloadAccountantBtn.classList.add('loading');
-      
-      try {
-        // Check for missing files
-        const checkData = await checkQuarterFiles(quarterFilter.value);
-        
-        // Show missing files warning if any
-        if (missingFilesWarning) {
-          if (checkData.missingFiles && checkData.missingFiles.length > 0) {
-            missingFilesWarning.innerHTML = `
-              <strong>Some files may be missing:</strong>
-              <ul>
-                ${checkData.missingFiles.map(m => `<li>${m}</li>`).join('')}
-              </ul>
-            `;
-            missingFilesWarning.style.display = 'block';
-          } else {
-            missingFilesWarning.style.display = 'none';
-          }
-        }
-        
-        // Proceed with download
-        downloadForAccountant(quarterFilter.value);
-      } catch (error) {
-        console.error('Error preparing accountant package:', error);
-        const accountantStatus = document.getElementById('accountant-status');
-        if (accountantStatus) {
-          accountantStatus.textContent = 'Error preparing package. Please try again.';
-        }
-      } finally {
-        setTimeout(() => {
-          (downloadAccountantBtn as HTMLButtonElement).disabled = false;
-          downloadAccountantBtn.textContent = 'Download for Accountant';
-          downloadAccountantBtn.classList.remove('loading');
-          updateAccountantButton();
         }, 2000);
       }
     });

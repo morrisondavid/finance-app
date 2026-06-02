@@ -1158,11 +1158,24 @@
       <div class="accountant-export-bar">
         <div class="accountant-export-info">
           <span class="accountant-label">Accountant Package</span>
-          <span id="accountant-status" class="accountant-status">Select a year and VAT quarter above</span>
+          <span id="accountant-status" class="accountant-status">Select entity, regime, and period</span>
         </div>
-        <button id="download-accountant-btn" class="btn btn-primary btn-accountant" disabled>
-          Download for Accountant
-        </button>
+        <div class="accountant-export-controls">
+          <select id="reporting-entity">
+            <option value="autonize-it-ltd">Autonize IT Ltd (UK)</option>
+            <option value="autonize-it-fzco">Autonize IT FZCO (UAE)</option>
+          </select>
+          <select id="reporting-regime">
+            <option value="vat">VAT (quarter)</option>
+            <option value="corporation_tax">Corporation Tax (full year)</option>
+          </select>
+          <select id="reporting-period">
+            <option value="">Select period</option>
+          </select>
+          <button id="download-accountant-btn" class="btn btn-primary btn-accountant" disabled>
+            Download for Accountant
+          </button>
+        </div>
       </div>
       
       <!-- Selection Controls -->
@@ -1178,6 +1191,13 @@
       </div>
       
       <div id="missing-files-warning" class="missing-files-warning" style="display: none;"></div>
+
+      <div class="reporting-readiness-bar">
+        <h3 class="reporting-readiness-title">Reporting readiness</h3>
+        <div id="reporting-readiness-panel" class="reporting-readiness-panel">
+          <p class="reporting-readiness-hint">Select entity, regime, and period above to check readiness.</p>
+        </div>
+      </div>
 
       <div id="statements-list" class="statements-container"></div>
     </section>

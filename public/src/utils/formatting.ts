@@ -16,6 +16,8 @@ export {
   formatMonthYear,
   formatIsoDateUk,
   formatIsoDateUkLong,
+  formatQuarterName,
+  formatReportingMissingDocLabel,
 } from '../../../shared/formatting.js';
 
 /** Round to 2 decimal places (banker-safe). */
@@ -32,28 +34,6 @@ export function formatAccountName(account: string): string {
     .split('-')
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
-}
-
-/**
- * Format a quarter string for display in ZIP filenames.
- * @example "Q1-2025" => "VAT-Q1-Nov-Jan-2024-25"
- */
-export function formatQuarterName(quarter: string): string {
-  const match = quarter.match(/^(Q[1-4])-(\d{4})$/);
-  if (!match) return quarter;
-
-  const qNum = match[1];
-  const year = parseInt(match[2]);
-  const prevYear = year - 1;
-
-  const quarterNames: Record<string, string> = {
-    Q1: `Nov-Jan-${prevYear}-${year.toString().slice(-2)}`,
-    Q2: `Feb-Apr-${year}`,
-    Q3: `May-Jul-${year}`,
-    Q4: `Aug-Oct-${year}`
-  };
-
-  return `VAT-${qNum}-${quarterNames[qNum] || year}`;
 }
 
 export function formatBillingDay(

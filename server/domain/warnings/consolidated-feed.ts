@@ -38,6 +38,13 @@ import { deriveInvoiceDaysMismatchWarnings } from './invoice-days-mismatch.js';
 import { deriveRunwayThresholdWarnings } from './runway-thresholds.js';
 import { formatRiskSignalAsWarning } from './risk-signal-to-warning.js';
 import { deriveTaxReserveWarnings } from './tax-reserve.js';
+import { deriveAccountantPackIncompleteWarnings } from './accountant-pack-incomplete.js';
+import {
+  computeReportingReadiness,
+  getReportingManifest,
+  mostRecentlyEndedFyLabel,
+  mostRecentlyEndedVatQuarterLabel,
+} from '../reporting/index.js';
 import { deriveAdHocSpendWarnings } from './ad-hoc-spend.js';
 import { deriveMortgageRateResetWarnings } from './mortgage-rate-reset.js';
 import { deriveDebtUnregisteredWarnings } from './debt-unregistered.js';
@@ -264,6 +271,38 @@ export function buildConsolidatedWarningsResponse(
     movementMatches,
   });
 
+  const ukLtdEntity: 'autonize-it-ltd' = 'autonize-it-ltd';
+  const vatPeriodLabel = mostRecentlyEndedVatQuarterLabel(new Date(`${todayIso}T12:00:00`));
+  const ctPeriodLabel = mostRecentlyEndedFyLabel(new Date(`${todayIso}T12:00:00`));
+  const vatReadiness = computeReportingReadiness({
+    entityId: ukLtdEntity,
+    regime: 'vat',
+    periodLabel: vatPeriodLabel,
+  });
+  const ctReadiness = computeReportingReadiness({
+    entityId: ukLtdEntity,
+    regime: 'corporation_tax',
+    periodLabel: ctPeriodLabel,
+  });
+  const accountantPackWarnings = deriveAccountantPackIncompleteWarnings([
+    {
+      entityId: ukLtdEntity,
+      regime: 'vat',
+      periodLabel: vatPeriodLabel,
+      readiness: vatReadiness,
+      graceDays: getReportingManifest(ukLtdEntity, 'vat').graceDays,
+      today: todayIso,
+    },
+    {
+      entityId: ukLtdEntity,
+      regime: 'corporation_tax',
+      periodLabel: ctPeriodLabel,
+      readiness: ctReadiness,
+      graceDays: getReportingManifest(ukLtdEntity, 'corporation_tax').graceDays,
+      today: todayIso,
+    },
+  ]);
+
   const baseWarnings: EntityFoundationWarning[] = [
     ...foundationWarnings,
     ...paymentWindowWarnings,
@@ -280,6 +319,7 @@ export function buildConsolidatedWarningsResponse(
     ...feasibilityWarnings,
     ...targetReachedWarnings,
     ...planTransferWarnings,
+    ...accountantPackWarnings,
   ];
 
   const previousAt = findPreviousSnapshotAt(db, nowIso);

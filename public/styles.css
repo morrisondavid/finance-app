@@ -1330,11 +1330,29 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
   padding: 16px 20px;
   background: linear-gradient(135deg, var(--color-primary) 0%, #1e40af 100%);
   border-radius: var(--radius);
   margin-bottom: 20px;
   box-shadow: var(--shadow-md);
+}
+
+.accountant-export-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.accountant-export-controls select {
+  min-width: 10rem;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.95);
+  font-size: 0.875rem;
 }
 
 .accountant-export-info {
@@ -1430,6 +1448,245 @@ body {
 
 .missing-files-warning li {
   margin: 4px 0;
+}
+
+/* Reporting readiness (Statements tab) */
+.reporting-readiness-bar {
+  padding: 16px 20px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.reporting-readiness-title {
+  margin: 0 0 12px 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.reporting-readiness-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.reporting-readiness-controls select {
+  min-width: 10rem;
+  flex: 1 1 auto;
+  max-width: 16rem;
+}
+
+.reporting-readiness-panel {
+  margin-top: 4px;
+}
+
+.reporting-readiness-hint,
+.reporting-readiness-error {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--color-text-muted);
+}
+
+.reporting-readiness-error {
+  color: #991b1b;
+}
+
+.reporting-readiness-result {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.reporting-readiness-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.reporting-status-badge {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.reporting-status-badge.ready {
+  background: rgba(34, 197, 94, 0.15);
+  color: #166534;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.reporting-status-badge.not-ready {
+  background: rgba(245, 158, 11, 0.15);
+  color: #92400e;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.reporting-readiness-summary {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.reporting-readiness-entity {
+  margin: 0 0 4px 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.reporting-readiness-period {
+  margin: 0 0 6px 0;
+  font-size: 0.9375rem;
+  color: var(--color-text);
+}
+
+.reporting-readiness-stats {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.reporting-readiness-ok {
+  margin: 0;
+  padding: 12px 14px;
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: var(--radius);
+  font-size: 0.9375rem;
+  color: #166534;
+}
+
+.reporting-section {
+  padding-top: 4px;
+}
+
+.reporting-section-title {
+  margin: 0 0 10px 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.reporting-section-hint {
+  margin: -6px 0 10px 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.reporting-accounts-overview {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reporting-account-overview-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.reporting-account-overview-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.reporting-account-status {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.reporting-account-status.ready {
+  background: rgba(34, 197, 94, 0.12);
+  color: #166534;
+}
+
+.reporting-account-status.not-ready {
+  background: rgba(245, 158, 11, 0.15);
+  color: #92400e;
+}
+
+.reporting-account-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reporting-account-card {
+  padding: 12px 14px;
+  background: rgba(245, 158, 11, 0.06);
+  border: 1px solid rgba(245, 158, 11, 0.22);
+  border-radius: var(--radius);
+}
+
+.reporting-account-name {
+  margin: 0 0 10px 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.reporting-doc-group {
+  margin-bottom: 10px;
+}
+
+.reporting-doc-group:last-child {
+  margin-bottom: 0;
+}
+
+.reporting-doc-type {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #92400e;
+}
+
+.reporting-month-list,
+.reporting-invoice-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+
+.reporting-month-list li,
+.reporting-invoice-list li {
+  margin: 0;
+  padding: 4px 10px;
+  font-size: 0.8125rem;
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text);
+}
+
+.reporting-invoice-list {
+  padding-left: 0;
 }
 
 .missing-file-notice {

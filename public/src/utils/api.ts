@@ -24,6 +24,7 @@ import {
   AdHocExpensesResponseSchema,
   AdHocMerchantSeriesResponseSchema,
   RecurringExpensesResponseSchema,
+  ReportingReadinessResponseSchema,
   BudgetsListResponseSchema,
   BudgetUpsertBodySchema,
   BudgetRowSchema,
@@ -62,6 +63,7 @@ import {
   type AdHocExpensesResponse,
   type AdHocMerchantSeriesResponse,
   type RecurringExpensesResponse,
+  type ReportingReadinessResponse,
   type BudgetsListResponse,
   type BudgetUpsertBody,
   type BudgetRow,
@@ -430,6 +432,20 @@ export async function checkQuarterFiles(quarter: string): Promise<CheckQuarterRe
   return validateResponse(response, CheckQuarterResponseSchema);
 }
 
+export async function fetchReportingReadiness(p: {
+  entityId: string;
+  regime: string;
+  period: string;
+}): Promise<ReportingReadinessResponse> {
+  const q = new URLSearchParams({
+    entityId: p.entityId,
+    regime: p.regime,
+    period: p.period,
+  });
+  const response = await fetch(`/api/reporting/readiness?${q}`);
+  return validateResponse(response, ReportingReadinessResponseSchema);
+}
+
 /**
  * Fetch spending category breakdown for an account
  */
@@ -515,8 +531,14 @@ export async function fetchRecurringExpenses(params: {
 /**
  * Download all files for accountant (triggers browser download)
  */
-export function downloadForAccountant(quarter: string): void {
-  window.location.href = `/api/statements/download-for-accountant?quarter=${quarter}`;
+export function downloadForAccountant(p: {
+  entityId?: string;
+  regime: string;
+  period: string;
+}): void {
+  const q = new URLSearchParams({ regime: p.regime, period: p.period });
+  if (p.entityId) q.set('entityId', p.entityId);
+  window.location.href = `/api/statements/download-for-accountant?${q}`;
 }
 
 /**

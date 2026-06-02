@@ -6,8 +6,10 @@
   "type": "module",
   "scripts": {
     "start": "lsof -ti:3000 | xargs kill -9 2>/dev/null; tsx server/index.ts",
-    "dev": "lsof -ti:3000 -ti:5173 | xargs kill -9 2>/dev/null; concurrently \"npm run server\" \"sleep 3 && npm run vite\" --names \"backend,frontend\" --prefix-colors \"blue,green\"",
-    "server": "lsof -ti:3000 | xargs kill -9 2>/dev/null; tsx watch server/index.ts",
+    "dev": "lsof -ti:3000 -ti:5173 | xargs kill -9 2>/dev/null; concurrently --handle-input -k \"npm run server:watch\" \"sleep 3 && npm run vite\" --names \"backend,frontend\" --prefix-colors \"blue,green\"",
+    "stop": "lsof -ti:3000 -ti:5173 | xargs kill -9 2>/dev/null; pkill -9 -f 'tsx watch server/index' 2>/dev/null; pkill -9 -f 'node --import tsx --watch server/index' 2>/dev/null; pkill -9 -f 'concurrently' 2>/dev/null; pkill -9 -f 'vite' 2>/dev/null; true",
+    "server": "lsof -ti:3000 | xargs kill -9 2>/dev/null; tsx server/index.ts",
+    "server:watch": "node --import tsx --watch server/index.ts",
     "vite": "lsof -ti:5173 | xargs kill -9 2>/dev/null; vite",
     "build": "tsc && vite build && tsx scripts/write-source-hash.ts",
     "preview": "vite preview",

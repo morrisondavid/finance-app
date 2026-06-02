@@ -6,6 +6,9 @@ import {
   formatMonthYear,
   formatIsoDateUk,
   formatIsoDateUkLong,
+  formatQuarterName,
+  formatFinancialYearPackName,
+  formatReportingMissingDocLabel,
 } from './formatting.js';
 
 describe('ordinal', () => {
@@ -87,6 +90,41 @@ describe('formatIsoDateUk', () => {
     expect(formatIsoDateUk('')).toBe('');
     expect(formatIsoDateUk('2025-02-30')).toBe('2025-02-30');
     expect(formatIsoDateUk('n/a')).toBe('n/a');
+  });
+});
+
+describe('formatReportingMissingDocLabel', () => {
+  it('formats PDF and CSV with readable months', () => {
+    expect(formatReportingMissingDocLabel('pdf', '2025-03')).toBe('PDF statement — Mar 2025');
+    expect(formatReportingMissingDocLabel('csv', '2025-02')).toBe('Transaction CSV — Feb 2025');
+  });
+});
+
+describe('formatQuarterName', () => {
+  it('formats Q1-2025 with cross-year label', () => {
+    expect(formatQuarterName('Q1-2025')).toBe('VAT-Q1-Nov-Jan-2024-25');
+  });
+
+  it('formats Q2-2025', () => {
+    expect(formatQuarterName('Q2-2025')).toBe('VAT-Q2-Feb-Apr-2025');
+  });
+
+  it('returns input unchanged for invalid quarter', () => {
+    expect(formatQuarterName('bad')).toBe('bad');
+  });
+});
+
+describe('formatFinancialYearPackName', () => {
+  it('formats 2025/26', () => {
+    expect(formatFinancialYearPackName('2025/26')).toBe('CorporationTax-FY-2025-26');
+  });
+
+  it('accepts hyphenated FY label', () => {
+    expect(formatFinancialYearPackName('2024-25')).toBe('CorporationTax-FY-2024-25');
+  });
+
+  it('returns passthrough for invalid label', () => {
+    expect(formatFinancialYearPackName('bad')).toBe('CorporationTax-FY-bad');
   });
 });
 

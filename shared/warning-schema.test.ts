@@ -95,6 +95,8 @@ describe('EntityFoundationWarningSchema (1.8 additive)', () => {
       'plan-standing-order-can-be-stopped',
       'plan-infeasible',
       'plan-target-reached',
+      'accountant-pack-incomplete-vat',
+      'accountant-pack-incomplete-ct',
     ] as const;
     for (const code of newCodes) {
       const parsed = EntityFoundationWarningSchema.parse({ ...legacyRow, code });

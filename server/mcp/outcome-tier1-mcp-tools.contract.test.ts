@@ -122,7 +122,7 @@ describe('outcome MCP — income composition + posture + accountant readiness', 
     25_000,
   );
 
-  it('accountant_readiness_snapshot returns structured stub readiness envelope', () => {
+  it('accountant_readiness_snapshot returns not-configured for unsupported regime', () => {
     const r = runAccountantReadinessSnapshotMcpTool({
       period_label: 'FY2026',
       regime: 'all',
@@ -134,5 +134,21 @@ describe('outcome MCP — income composition + posture + accountant readiness', 
       code: 'accountant-readiness-not-configured',
       period_label: 'FY2026',
     });
+  });
+
+  it('accountant_readiness_snapshot returns real present/missing for VAT', () => {
+    const r = runAccountantReadinessSnapshotMcpTool({
+      period_label: 'Q2-2025',
+      regime: 'vat',
+      entityId: 'autonize-it-ltd',
+    });
+    expect(r.isError).toBeUndefined();
+    const sc = r.structuredContent;
+    expect(sc).toHaveProperty('present');
+    expect(sc).toHaveProperty('missing');
+    expect(sc).toHaveProperty('recommended_next_steps');
+    expect(Array.isArray(sc.present)).toBe(true);
+    expect(Array.isArray(sc.missing)).toBe(true);
+    expect('code' in sc && sc.code === 'accountant-readiness-not-configured').toBe(false);
   });
 });

@@ -41,7 +41,16 @@ export function currencySymbol(currency: CurrencyCode = 'GBP'): string {
 export function formatMonthYear(dateStr: string): string {
   const [year, month] = dateStr.split('-');
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return `${monthNames[parseInt(month) - 1]} ${year}`;
+  return `${monthNames[parseInt(month, 10) - 1]} ${year}`;
+}
+
+/** Human label for a missing reporting document slot (warnings, MCP, UI). */
+export function formatReportingMissingDocLabel(
+  docType: 'pdf' | 'csv',
+  monthKey: string,
+): string {
+  const month = formatMonthYear(monthKey);
+  return docType === 'pdf' ? `PDF statement — ${month}` : `Transaction CSV — ${month}`;
 }
 
 /**
@@ -67,6 +76,35 @@ export function formatIsoDateUk(isoDate: string): string {
  * the small width cost (month abbreviation eliminates the `DD/MM` vs
  * `MM/DD` ambiguity US-raised readers bring to a numeric date).
  */
+/**
+ * Format a quarter string for accountant ZIP filenames.
+ * @example "Q1-2025" => "VAT-Q1-Nov-Jan-2024-25"
+ */
+export function formatQuarterName(quarter: string): string {
+  const match = quarter.match(/^(Q[1-4])-(\d{4})$/);
+  if (!match) return quarter;
+
+  const qNum = match[1];
+  const year = parseInt(match[2], 10);
+  const prevYear = year - 1;
+
+  const quarterNames: Record<string, string> = {
+    Q1: `Nov-Jan-${prevYear}-${year.toString().slice(-2)}`,
+    Q2: `Feb-Apr-${year}`,
+    Q3: `May-Jul-${year}`,
+    Q4: `Aug-Oct-${year}`,
+  };
+
+  return `VAT-${qNum}-${quarterNames[qNum] ?? year}`;
+}
+
+/** Corporation-tax pack ZIP name. @example "2025/26" => "CorporationTax-FY-2025-26" */
+export function formatFinancialYearPackName(fyLabel: string): string {
+  const m = fyLabel.trim().match(/^(\d{4})[/-](\d{2})$/);
+  if (!m) return `CorporationTax-FY-${fyLabel}`;
+  return `CorporationTax-FY-${m[1]}-${m[2]}`;
+}
+
 export function formatIsoDateUkLong(isoDate: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
   if (!m) return isoDate;

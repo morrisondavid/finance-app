@@ -3199,6 +3199,49 @@ export type SupplierMonthGapsResponse = z.infer<
 export const WarningSeveritySchema = z.enum(['info', 'warn', 'critical']);
 export type WarningSeverity = z.infer<typeof WarningSeveritySchema>;
 
+export const ReportingRegimeSchema = z.enum(['vat', 'corporation_tax']);
+export type ReportingRegime = z.infer<typeof ReportingRegimeSchema>;
+
+export const ReportingDocTypeSchema = z.enum(['pdf', 'csv']);
+export type ReportingDocType = z.infer<typeof ReportingDocTypeSchema>;
+
+/** One missing/present document slot in a reporting readiness report. */
+export const ReportingReadinessItemSchema = z.object({
+  account: AccountNameSchema,
+  accountLabel: z.string().min(1),
+  monthKey: z.string().regex(/^\d{4}-\d{2}$/),
+  docType: ReportingDocTypeSchema,
+});
+export type ReportingReadinessItem = z.infer<typeof ReportingReadinessItemSchema>;
+
+/** Per-account rollup for dashboards (includes complete accounts, not only gaps). */
+export const ReportingAccountOverviewSchema = z.object({
+  account: AccountNameSchema,
+  accountLabel: z.string().min(1),
+  ready: z.boolean(),
+  missingDocCount: z.number().int().nonnegative(),
+});
+export type ReportingAccountOverview = z.infer<typeof ReportingAccountOverviewSchema>;
+
+export const ReportingReadinessResponseSchema = z.object({
+  entityId: EntityIdSchema,
+  regime: ReportingRegimeSchema,
+  periodLabel: z.string().min(1),
+  periodStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  periodEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  ready: z.boolean(),
+  accountsOverview: z.array(ReportingAccountOverviewSchema),
+  present: z.array(ReportingReadinessItemSchema),
+  missing: z.array(ReportingReadinessItemSchema),
+  invoices: z.object({
+    requiredCount: z.number().int().nonnegative(),
+    presentCount: z.number().int().nonnegative(),
+    missingInvoiceNumbers: z.array(z.string()),
+  }),
+  generatedAt: z.string(),
+});
+export type ReportingReadinessResponse = z.infer<typeof ReportingReadinessResponseSchema>;
+
 export const EntityFoundationWarningCodeSchema = z.enum([
   // §1.1 + earlier
   'company-tbc-fields',
@@ -3246,6 +3289,9 @@ export const EntityFoundationWarningCodeSchema = z.enum([
   'plan-standing-order-can-be-stopped',
   'plan-infeasible',
   'plan-target-reached',
+  // reporting readiness packs
+  'accountant-pack-incomplete-vat',
+  'accountant-pack-incomplete-ct',
 ]);
 export type EntityFoundationWarningCode = z.infer<typeof EntityFoundationWarningCodeSchema>;
 

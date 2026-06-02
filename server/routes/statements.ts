@@ -4,9 +4,15 @@ import path from 'path';
 import archiver from 'archiver';
 import type { AccountName } from '../types.js';
 import { ACCOUNTS } from '../types.js';
-import { getAccountConfig, businessAccounts } from '../domain/accounts/index.js';
+import { accountsForEntity, getAccountConfig, businessAccounts } from '../domain/accounts/index.js';
+import { listInvoicesByIssuingEntityId } from '../domain/invoices/index.js';
+import { resolveReportingPeriod } from '../domain/reporting/index.js';
+import { EntityIdSchema, ReportingRegimeSchema } from '../../shared/api-contracts.js';
+import type { ReportingRegime } from '../../shared/api-contracts.js';
+import { formatFinancialYearPackName, formatQuarterName } from '../../shared/formatting.js';
 import {
   INVOICES_UPLOAD_DIR as INVOICES_DIR,
+  REPO_ROOT,
   STATEMENTS_DIR,
   matchesQuarter,
   listFilesInDir,
@@ -153,90 +159,128 @@ function getBusinessAccounts(): readonly AccountName[] {
   return businessAccounts();
 }
 
-// Helper to format quarter name for ZIP filename
-function formatQuarterName(quarter: string): string {
-  const match = quarter.match(/^(Q[1-4])-(\d{4})$/);
-  if (!match) return quarter;
-  
-  const qNum = match[1];
-  const year = parseInt(match[2]);
-  const prevYear = year - 1;
-  
-  const quarterNames: Record<string, string> = {
-    Q1: `Nov-Jan-${prevYear}-${year.toString().slice(-2)}`,
-    Q2: `Feb-Apr-${year}`,
-    Q3: `May-Jul-${year}`,
-    Q4: `Aug-Oct-${year}`
-  };
-  
-  return `VAT-${qNum}-${quarterNames[qNum] || year}`;
-}
-
-interface QuarterQuery {
-  quarter: string;
+interface AccountantPackQuery {
+  quarter?: string;
+  period?: string;
+  regime?: string;
+  entityId?: string;
 }
 
 // GET /api/statements/check-quarter - Check for missing files in a quarter
-router.get('/check-quarter', (req: Request<object, CheckQuarterResponse, object, QuarterQuery>, res: Response) => {
-  sendJsonRead(res, readStatementsQuarterCheck(req.query.quarter));
-});
-
-// GET /api/statements/download-for-accountant - Download all business account files for a quarter
-router.get('/download-for-accountant', (req: Request<object, unknown, object, QuarterQuery>, res: Response) => {
-  const { quarter } = req.query;
-  
-  if (!quarter) {
+router.get('/check-quarter', (req: Request<object, CheckQuarterResponse, object, AccountantPackQuery>, res: Response) => {
+  const quarter = req.query.quarter;
+  if (typeof quarter !== 'string' || quarter.trim() === '') {
     res.status(400).json({ error: 'Quarter parameter required' });
     return;
   }
-  
-  const businessAccounts = getBusinessAccounts();
-  
+  sendJsonRead(res, readStatementsQuarterCheck(quarter));
+});
+
+// GET /api/statements/download-for-accountant - VAT quarter or CT financial year pack
+router.get('/download-for-accountant', (req: Request<object, unknown, object, AccountantPackQuery>, res: Response) => {
+  const regimeRaw = typeof req.query.regime === 'string' ? req.query.regime : 'vat';
+  const regimeParsed = ReportingRegimeSchema.safeParse(regimeRaw);
+  if (!regimeParsed.success) {
+    res.status(400).json({ error: 'Invalid regime' });
+    return;
+  }
+  const regime: ReportingRegime = regimeParsed.data;
+
+  const periodLabel =
+    (typeof req.query.period === 'string' && req.query.period.trim() !== ''
+      ? req.query.period.trim()
+      : undefined) ??
+    (typeof req.query.quarter === 'string' && req.query.quarter.trim() !== ''
+      ? req.query.quarter.trim()
+      : undefined);
+
+  if (!periodLabel) {
+    res.status(400).json({ error: 'Period parameter required' });
+    return;
+  }
+
+  let resolved;
+  try {
+    resolved = resolveReportingPeriod(regime, periodLabel);
+  } catch {
+    res.status(400).json({ error: 'Invalid period' });
+    return;
+  }
+
+  const entityParsed = EntityIdSchema.safeParse(req.query.entityId);
+  const packAccounts =
+    entityParsed.success ? accountsForEntity(entityParsed.data) : getBusinessAccounts();
+
+  const monthKeySet = new Set(resolved.monthKeys);
+
   interface FileToZip {
     path: string;
     name: string;
   }
   const filesToZip: FileToZip[] = [];
-  
-  for (const account of businessAccounts) {
+
+  for (const account of packAccounts) {
     const accountConfig = getAccountConfig(account);
     const accountDir = path.join(STATEMENTS_DIR, account);
     const pdfDir = path.join(accountDir, 'pdf');
     const csvDir = path.join(accountDir, 'csv');
-    
+
     let pdfs = listFilesInDir(pdfDir);
     let csvs = listFilesInDir(csvDir);
-    
-    // Filter to quarter (with overlap for mid-month billing accounts)
+
     const overlap = accountConfig.quarterOverlapMonths ?? 0;
-    pdfs = pdfs.filter(f => matchesQuarter(f.displayDate, quarter, overlap));
-    csvs = csvs.filter(f => matchesQuarter(f.displayDate, quarter, overlap));
-    
-    // Use the friendly label for folder names in the ZIP
+    const fileInPeriod = (displayDate: string): boolean =>
+      regime === 'vat'
+        ? matchesQuarter(displayDate, periodLabel, overlap)
+        : monthKeySet.has(displayDate);
+
+    pdfs = pdfs.filter(f => fileInPeriod(f.displayDate));
+    csvs = csvs.filter(f => fileInPeriod(f.displayDate));
+
     const folderName = accountConfig.label.toLowerCase().replace(/\s+/g, '-');
-    
+
     pdfs.forEach(f => {
       filesToZip.push({
         path: path.join(pdfDir, f.filename),
-        name: `${folderName}/pdf/${f.filename}`
+        name: `${folderName}/pdf/${f.filename}`,
       });
     });
-    
+
     csvs.forEach(f => {
       filesToZip.push({
         path: path.join(csvDir, f.filename),
-        name: `${folderName}/csv/${f.filename}`
+        name: `${folderName}/csv/${f.filename}`,
       });
     });
   }
-  
+
+  if (entityParsed.success && entityParsed.data === 'autonize-it-ltd') {
+    for (const inv of listInvoicesByIssuingEntityId('autonize-it-ltd')) {
+      if (
+        inv.pdf_path !== null &&
+        inv.invoice_date >= resolved.startDate &&
+        inv.invoice_date <= resolved.endDate
+      ) {
+        const invoicePath = path.join(REPO_ROOT, inv.pdf_path);
+        if (fs.existsSync(invoicePath)) {
+          filesToZip.push({
+            path: invoicePath,
+            name: `invoices/${path.basename(inv.pdf_path)}`,
+          });
+        }
+      }
+    }
+  }
+
   if (filesToZip.length === 0) {
-    res.status(404).json({ error: 'No files found for the selected quarter' });
+    res.status(404).json({ error: 'No files found for the selected period' });
     return;
   }
-  
-  // Generate accountant-friendly ZIP filename
-  const zipName = `${formatQuarterName(quarter)}.zip`;
+
+  const zipName =
+    regime === 'vat'
+      ? `${formatQuarterName(periodLabel)}.zip`
+      : `${formatFinancialYearPackName(periodLabel)}.zip`;
   
   // Set response headers for ZIP download
   res.setHeader('Content-Type', 'application/zip');

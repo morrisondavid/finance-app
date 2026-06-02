@@ -7,6 +7,7 @@ import type { Server as HttpServer } from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import statementsRouter from './routes/statements.js';
+import reportingRouter from './routes/reporting.js';
 import dashboardRouter from './routes/dashboard.js';
 import uploadRouter from './routes/upload.js';
 import taxRouter from './routes/tax.js';
@@ -60,6 +61,7 @@ if (isProduction) {
 app.use('/api/auth', siteAuthRouter);
 app.use('/api/version', versionRouter);
 app.use('/api/statements', statementsRouter);
+app.use('/api/reporting', reportingRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/tax', taxRouter);
@@ -103,32 +105,53 @@ function registerProductionSpaFallback(): void {
 let httpServer: HttpServer | undefined;
 let shutdownStarted = false;
 
-async function gracefulShutdown(signal: string): Promise<void> {
+/** If active connections (Vite proxy, MCP) keep `server.close()` pending, exit anyway. */
+const SHUTDOWN_FORCE_MS = 800;
+
+type HttpServerWithTeardown = HttpServer & {
+  closeAllConnections?: () => void;
+  closeIdleConnections?: () => void;
+};
+
+function teardownHttpConnections(srv: HttpServerWithTeardown): void {
+  if (typeof srv.closeAllConnections === 'function') {
+    srv.closeAllConnections();
+  } else if (typeof srv.closeIdleConnections === 'function') {
+    srv.closeIdleConnections();
+  }
+}
+
+function gracefulShutdown(signal: string): void {
   if (shutdownStarted) {
-    closeDatabase();
     process.exit(1);
     return;
   }
   shutdownStarted = true;
   console.log(`\n${signal} received — closing HTTP server and database...`);
 
-  const finalize = async (): Promise<void> => {
+  const finalize = (): void => {
     closeDatabase();
     process.exit(0);
   };
 
+  const forceExitTimer = setTimeout(() => {
+    console.warn(
+      `[shutdown] Forced exit after ${String(SHUTDOWN_FORCE_MS)}ms (active HTTP connections still open).`,
+    );
+    finalize();
+  }, SHUTDOWN_FORCE_MS);
+
   if (!httpServer) {
-    await finalize();
+    clearTimeout(forceExitTimer);
+    finalize();
     return;
   }
 
-  const srv = httpServer as HttpServer & { closeIdleConnections?: () => void };
-  if (typeof srv.closeIdleConnections === 'function') {
-    srv.closeIdleConnections();
-  }
+  teardownHttpConnections(httpServer);
 
   httpServer.close(() => {
-    void finalize();
+    clearTimeout(forceExitTimer);
+    finalize();
   });
 }
 
@@ -170,10 +193,10 @@ async function start(): Promise<void> {
   });
 
   process.once('SIGINT', () => {
-    void gracefulShutdown('SIGINT');
+    gracefulShutdown('SIGINT');
   });
   process.once('SIGTERM', () => {
-    void gracefulShutdown('SIGTERM');
+    gracefulShutdown('SIGTERM');
   });
 }
 
