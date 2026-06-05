@@ -10,7 +10,7 @@
  * The orchestrator (`ingest-self-bill.ts`) is responsible for:
  *   - contract lookup (via `placement_ref` vs `contract.reference`);
  *   - duplicate detection (via `payment_reference`);
- *   - canonical id assignment (via `nextInvoiceIdForEntity`).
+ *   - canonical id assignment (via `nextLaFosseInvoiceId`).
  *
  * All the parser does is translate the PDF's human-shaped text into
  * the machine-shaped `ParsedSelfBill` that the orchestrator consumes.

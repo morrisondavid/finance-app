@@ -71,6 +71,7 @@ describe('EntityFoundationWarningSchema (1.8 additive)', () => {
       'leveraged-passive-income',
       'tax-reserve-underfunded',
       'tax-reserve-trajectory-missing',
+      'tax-reserve-pool-underfunded',
       'ad-hoc-spend-escalating',
       'warning-improved',
       'warning-cleared',

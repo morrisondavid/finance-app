@@ -5,7 +5,7 @@
  * steps that the pure `parseLaFosseSelfBill` cannot do on its own:
  *
  *   detect  → parse  → contract lookup  → duplicate check  →
- *     nextInvoiceIdForEntity  → canonical `Invoice` row
+ *     nextLaFosseInvoiceId  → canonical `Invoice` row
  *
  * Every failure mode is a variant of `IngestSelfBillResult` so the
  * route layer (`POST /api/invoices/ingest-self-bill`) can map each one
@@ -25,7 +25,7 @@ import type {
 } from '../../../shared/api-contracts.js';
 import { shiftIsoDate } from '../../../shared/iso-date.js';
 import { allInvoices } from './queries.js';
-import { nextInvoiceIdForEntity } from './next-invoice-id.js';
+import { nextLaFosseInvoiceId } from './client-invoice-number.js';
 import { getCompanyRegistry } from '../company/registry.js';
 import { companyById } from '../company/queries.js';
 import { findClientById } from '../clients/queries.js';
@@ -184,11 +184,7 @@ export function ingestSelfBill(input: IngestSelfBillInput): IngestSelfBillResult
     };
   }
 
-  const id = nextInvoiceIdForEntity(
-    contract.issuing_entity_id,
-    company,
-    existingInvoices,
-  );
+  const id = nextLaFosseInvoiceId(existingInvoices);
 
   const invoice: Invoice = {
     id,

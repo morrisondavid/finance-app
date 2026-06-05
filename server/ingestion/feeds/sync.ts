@@ -166,21 +166,33 @@ export interface ResolveWindowResult {
  *
  * Rules:
  *   - `dateTo` defaults to `today` when omitted.
- *   - When `latestCsvDate >= dateFrom` we advance the window's start to
- *     `latestCsvDate + 1` so we only fetch genuinely new days.
- *   - If the resulting `dateFrom` is after `dateTo`, the window is empty
- *     and `skipped: true` short-circuits the AISP call.
+ *   - **Incremental** (no `lookbackDays`): when `latestCsvDate >= dateFrom`
+ *     advance start to `latestCsvDate + 1`.
+ *   - **Lookback** (`lookbackDays` set): `effectiveDateFrom = max(dateFrom,
+ *     dateTo - (lookbackDays - 1))` inclusive; do not bump past latest CSV.
+ *   - If the resulting `dateFrom` is after `dateTo`, `skipped: true`.
  */
+export interface ResolveWindowOpts {
+  readonly dateFrom: string;
+  readonly dateTo?: string;
+  readonly lookbackDays?: number;
+}
+
 export function resolveWindow(
-  opts: { readonly dateFrom: string; readonly dateTo?: string },
+  opts: ResolveWindowOpts,
   latestCsvDate: string | null,
   today: string = todayIsoLocal(),
 ): ResolveWindowResult {
   const dateTo = opts.dateTo ?? today;
   let effectiveDateFrom = opts.dateFrom;
-  if (latestCsvDate !== null && latestCsvDate >= opts.dateFrom) {
+
+  if (opts.lookbackDays !== undefined && opts.lookbackDays >= 1) {
+    const refreshFrom = shiftIsoDate(dateTo, -(opts.lookbackDays - 1));
+    effectiveDateFrom = effectiveDateFrom > refreshFrom ? effectiveDateFrom : refreshFrom;
+  } else if (latestCsvDate !== null && latestCsvDate >= opts.dateFrom) {
     effectiveDateFrom = shiftIsoDate(latestCsvDate, 1);
   }
+
   if (effectiveDateFrom > dateTo) {
     return {
       dateFrom: effectiveDateFrom,
@@ -246,6 +258,7 @@ export interface RunFeedSyncOptions {
   readonly dateFrom: string;
   readonly dateTo?: string;
   readonly force?: boolean;
+  readonly lookbackDays?: number;
 }
 
 export interface RunFeedSyncDeps {
@@ -291,7 +304,11 @@ export async function runFeedSync(
 
   const latestCsvDate = findLatest(account, linked.parser);
   const window = resolveWindow(
-    { dateFrom: opts.dateFrom, dateTo: opts.dateTo },
+    {
+      dateFrom: opts.dateFrom,
+      dateTo: opts.dateTo,
+      lookbackDays: opts.lookbackDays,
+    },
     latestCsvDate,
     today,
   );

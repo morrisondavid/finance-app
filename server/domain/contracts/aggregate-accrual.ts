@@ -18,7 +18,7 @@ import { todayIsoLocal } from '../../../shared/iso-date.js';
 import { calculateRetainedReserves } from '../../config/tax-rates.js';
 import { companyById } from '../company/queries.js';
 import { allLeave } from '../leave/index.js';
-import { holidayDatesForEntity } from '../working-days/public-holidays.js';
+import { holidayDatesForContract } from '../working-days/public-holidays.js';
 import { computeAccrual } from './income-accrual.js';
 import { resolveLastPaymentsForContracts } from './last-payment-resolver.js';
 import { resolveSettledThroughByContract } from './settled-through-resolver.js';
@@ -138,7 +138,7 @@ export function buildAggregateAccrualResponse(
   const yearStart = `${today.slice(0, 4)}-01-01`;
   const yearEnd = `${today.slice(0, 4)}-12-31`;
   const perContract = forecastContracts.map(contract => {
-    const publicHolidayDates = holidayDatesForEntity(contract.issuing_entity_id, yearStart, yearEnd);
+    const publicHolidayDates = holidayDatesForContract(contract, yearStart, yearEnd);
     return AccrualResponseSchema.parse(
       computeAccrual({
         contract,

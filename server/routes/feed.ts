@@ -93,6 +93,7 @@ router.post('/sync', async (req: Request, res: Response<FeedSyncResponse | Error
       dateFrom: parsed.data.dateFrom,
       dateTo: parsed.data.dateTo,
       force: parsed.data.force,
+      lookbackDays: parsed.data.lookbackDays,
     });
     // Re-parse on the way out so the wire shape is locked to the schema —
     // matches the pattern used by the net-worth snapshot route.

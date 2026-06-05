@@ -24,6 +24,11 @@ vi.mock('../connection.js', () => ({
   OBLIGATIONS_DIR: harness.obligationsDir,
 }));
 
+/** Payment-attribution tests use bank-based amounts (cash scheme). */
+vi.mock('../../domain/company/index.js', () => ({
+  ukLtdCompanyOrNull: () => ({ vat_scheme: 'cash', historical_effective_vat_rate: null }),
+}));
+
 let hashSeq = 0;
 function insertIncome(account: string, date: string, amount: number, description = 'Client payment'): void {
   hashSeq++;

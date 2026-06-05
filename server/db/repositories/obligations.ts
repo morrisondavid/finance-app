@@ -249,6 +249,23 @@ export function getUpcomingObligations(days: number): ObligationDbRow[] {
   `).all(todayStr, futureStr, ...COMPLETED_STATUSES) as ObligationDbRow[];
 }
 
+/**
+ * Obligations for tax-reserve warnings: upcoming within `maxLookaheadDays`
+ * plus overdue unpaid rows (reserve shortfall persists after the due date).
+ */
+export function obligationsForTaxReserveWarnings(maxLookaheadDays: number): ObligationDbRow[] {
+  const upcoming = getUpcomingObligations(maxLookaheadDays);
+  const overdueUnpaid = getOverdueObligations().filter(row => row.status === 'unpaid');
+  const seen = new Set<string>();
+  const merged: ObligationDbRow[] = [];
+  for (const row of [...overdueUnpaid, ...upcoming]) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    merged.push(row);
+  }
+  return merged;
+}
+
 export function getObligationById(id: string): ObligationDbRow | undefined {
   const db = getDb();
   return db.prepare('SELECT * FROM financial_obligations WHERE id = ?').get(id) as ObligationDbRow | undefined;

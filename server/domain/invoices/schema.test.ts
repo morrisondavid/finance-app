@@ -59,6 +59,11 @@ describe('InvoiceIdSchema', () => {
     expect(InvoiceIdSchema.parse('DC-100')).toBe('DC-100');
   });
 
+  it('accepts EG-#### (La Fosse / Edwin Group series)', () => {
+    expect(InvoiceIdSchema.parse('EG-0001')).toBe('EG-0001');
+    expect(InvoiceIdSchema.parse('EG-0052')).toBe('EG-0052');
+  });
+
   it('rejects unknown entity prefix', () => {
     expect(() => InvoiceIdSchema.parse('XX-0001')).toThrow();
   });

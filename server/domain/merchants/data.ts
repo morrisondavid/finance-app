@@ -60,7 +60,7 @@ export const STATIC_MERCHANT_DATA: readonly MerchantEntry[] = [
 
   // ─── Housing ────────────────────────────────────────────────────────────────
   { pattern: /HALIFAX/i, category: 'Housing', displayName: 'Halifax Mortgage' },
-  { pattern: /COVENTRY BUILDING/i, category: 'Housing', displayName: 'Coventry Building Society' },
+  { pattern: /COVENTRY\s+B/i, category: 'Housing', displayName: 'Coventry Building Society' },
   // Card lines often end with NATWEST GBR; classify the merchant before the generic bank token.
   { pattern: /UBER\s*\*?\s*EATS?\b/i, category: 'Eating Out', displayName: 'Uber Eats' },
   { pattern: /UBER(?!\s*\*?\s*EAT)/i, category: 'Transport', displayName: 'Uber' },
@@ -256,8 +256,8 @@ export const STATIC_MERCHANT_DATA: readonly MerchantEntry[] = [
   { pattern: /SERVICE STA\w*/i, category: 'Transport', displayName: null },
 
   // ─── Accommodation (lodging / OTAs — before Travel) ───────────────────────
-  { pattern: /AIRBNB/i, category: 'Accommodation', displayName: 'Airbnb' },
-  { pattern: /BOOKING\.COM/i, category: 'Accommodation', displayName: 'Booking.com' },
+  { pattern: /AIR\s*BNB|AIRBNB/i, category: 'Accommodation', displayName: 'Airbnb' },
+  { pattern: /BOOKING\s*\.?\s*COM/i, category: 'Accommodation', displayName: 'Booking.com' },
   { pattern: /PREMIER INN/i, category: 'Accommodation', displayName: 'Premier Inn' },
   { pattern: /TRAVELODGE/i, category: 'Accommodation', displayName: null },
   { pattern: /HOLIDAY INN/i, category: 'Accommodation', displayName: null },

@@ -10,6 +10,7 @@ const fx: readonly Reserve[] = [
     reserve_account: 'barclays-savings',
     notes: null,
     updated_at: '2026-01-01',
+    lookahead_days: 90,
   },
 ];
 

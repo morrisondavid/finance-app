@@ -51,9 +51,10 @@ import {
   UAE_VAT_VOLUNTARY_AED,
   UAE_VAT_MANDATORY_AED,
 } from '../../config/tax-rules.js';
-import { daysBetween, toIsoDate } from '../../../shared/iso-date.js';
+import { daysBetween, monthRange, toIsoDate } from '../../../shared/iso-date.js';
 import { contractDisplayName, isContractCurrent } from '../../../shared/contract-display.js';
 import { formatIsoDateUkLong } from '../../../shared/formatting.js';
+import { holidayDatesForContract } from '../working-days/public-holidays.js';
 
 const IFZA_RENEWAL_WINDOW_DAYS = 60;
 const MS_PER_DAY = 86_400_000;
@@ -143,7 +144,6 @@ export function deriveEntityFoundationWarnings(
     input.clients,
     input.companies,
     input.leaveRows,
-    input.publicHolidayDatesByEntity,
     input.today,
   )) {
     warnings.push(warning);
@@ -276,10 +276,9 @@ function sumActiveProjectedNetForEntity(
   entityId: EntityId,
   contracts: readonly Contract[],
   leaveRows: readonly LeaveRow[],
-  publicHolidayDatesByEntity: ReadonlyMap<EntityId, ReadonlySet<string>>,
   todayIso: string,
 ): number {
-  const hol = publicHolidayDatesByEntity.get(entityId);
+  const { start, end } = monthRange(todayIso);
   let sum = 0;
   for (const c of contracts) {
     if (!isContractCurrent(c, todayIso) || c.issuing_entity_id !== entityId) continue;
@@ -287,7 +286,7 @@ function sumActiveProjectedNetForEntity(
       contract: c,
       leaveRows,
       today: todayIso,
-      publicHolidayDates: hol,
+      publicHolidayDates: holidayDatesForContract(c, start, end),
     });
   }
   return round2(sum);
@@ -298,7 +297,6 @@ function collectContractEndingSoon(
   clients: readonly Client[],
   companies: readonly Company[],
   leaveRows: readonly LeaveRow[],
-  publicHolidayDatesByEntity: ReadonlyMap<EntityId, ReadonlySet<string>>,
   today: Date,
 ): EntityFoundationWarning[] {
   const todayIso = toIsoDate(today);
@@ -331,7 +329,8 @@ function collectContractEndingSoon(
       : `Confirm renewal intent with ${clientLabel} and sign the successor contract before ${endDateLabel}.`;
 
     const company = companyById.get(contract.issuing_entity_id);
-    const hol = publicHolidayDatesByEntity.get(contract.issuing_entity_id);
+    const { start: holStart, end: holEnd } = monthRange(todayIso);
+    const hol = holidayDatesForContract(contract, holStart, holEnd);
 
     const baseContext: Record<string, string | number | boolean | null> = {
       contract_id: contract.id,
@@ -351,7 +350,6 @@ function collectContractEndingSoon(
         contract.issuing_entity_id,
         contracts,
         leaveRows,
-        publicHolidayDatesByEntity,
         todayIso,
       );
       const pctRevenue =

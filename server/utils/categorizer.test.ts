@@ -60,6 +60,15 @@ describe('categorizer', () => {
       expect(categorizeTransaction('Coventry Building Society')).toBe('Housing');
     });
 
+    it('Coventry Bs (abbreviated bank payee)', () => {
+      expect(categorizeTransaction('COVENTRY BS')).toBe('Housing');
+      expect(categorizeTransaction('COVENTRY BS DDR')).toBe('Housing');
+    });
+
+    it('bare Coventry without B stays Other', () => {
+      expect(categorizeTransaction('Coventry')).toBe('Other');
+    });
+
     it('Council Tax', () => {
       expect(categorizeTransaction('HAVERING COUNCIL')).toBe('Housing');
       expect(categorizeTransaction('LONDON BOROUGH')).toBe('Housing');
@@ -182,6 +191,12 @@ describe('categorizer', () => {
 
     it('NatWest-style commas normalise before match (lodging)', () => {
       expect(categorizeTransaction('5120 08APR26 , AIRBNB , GUEST')).toBe('Accommodation');
+    });
+
+    it('Barclays and spaced variants map to Accommodation', () => {
+      expect(categorizeTransaction('AIRBNB * HMRCH3NEK ON 03 MAY BDC')).toBe('Accommodation');
+      expect(categorizeTransaction('AIR BNB * HM123')).toBe('Accommodation');
+      expect(categorizeTransaction('BOOKING COM AMSTERDAM')).toBe('Accommodation');
     });
   });
 

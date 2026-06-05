@@ -35,10 +35,8 @@ import type {
 } from '../domain/invoices/mutations.js';
 import type { WriteInvoicePdfResult } from '../domain/invoices/pdf/write.js';
 import type { PersistIngestedSelfBillFromBufferResult } from '../domain/invoices/ingest-persist.js';
-import type {
-  PlanReconciliationInput,
-  ReconciliationPlan,
-} from '../domain/invoices/reconcile-payments.js';
+import type { ReconciliationPlan } from '../domain/invoices/reconcile-payments.js';
+import type { BuildReconciliationPlanInput } from '../domain/invoices/build-reconciliation-plan.js';
 import type { RecordInvoicePaymentsResult } from '../domain/invoices/mutations.js';
 
 // ─── Domain mocks ───────────────────────────────────────────────────────────
@@ -50,7 +48,9 @@ const findInvoiceByIdMock = vi.fn<(id: string) => Invoice | null>();
 const persistIngestedSelfBillFromBufferMock = vi.fn<
   (buffer: Buffer, today: string) => Promise<PersistIngestedSelfBillFromBufferResult>
 >();
-const planReconciliationMock = vi.fn<(input: PlanReconciliationInput) => ReconciliationPlan>();
+const buildReconciliationPlanMock = vi.fn<
+  (input: BuildReconciliationPlanInput) => ReconciliationPlan
+>();
 const recordInvoicePaymentsMock = vi.fn<(input: unknown) => RecordInvoicePaymentsResult>();
 
 vi.mock('../domain/invoices/index.js', async () => {
@@ -66,8 +66,8 @@ vi.mock('../domain/invoices/index.js', async () => {
     findInvoiceById: (id: string) => findInvoiceByIdMock(id),
     persistIngestedSelfBillFromBuffer: (buffer: Buffer, today: string) =>
       persistIngestedSelfBillFromBufferMock(buffer, today),
-    planReconciliation: (input: PlanReconciliationInput) =>
-      planReconciliationMock(input),
+    buildReconciliationPlan: (input: BuildReconciliationPlanInput) =>
+      buildReconciliationPlanMock(input),
     recordInvoicePayments: (input: unknown) => recordInvoicePaymentsMock(input),
   };
 });
@@ -111,7 +111,7 @@ beforeEach(() => {
   writeInvoicePdfMock.mockReset();
   findInvoiceByIdMock.mockReset();
   persistIngestedSelfBillFromBufferMock.mockReset();
-  planReconciliationMock.mockReset();
+  buildReconciliationPlanMock.mockReset();
   recordInvoicePaymentsMock.mockReset();
   // Default: no invoice found — GET /:id/pdf tests that want a hit
   // override explicitly in the test body.
@@ -649,11 +649,13 @@ describe('POST /api/invoices/reconcile', () => {
   it('returns the dry-run plan by default and does not persist', async () => {
     const plan: ReconciliationPlan = {
       proposedPayments: [{ ...RECONCILED_PAYMENT }],
+      paymentConfidence: new Map([[RECONCILED_PAYMENT.id, 'amount-only']]),
+      referenceCitedIssues: [],
       unmatchedInvoices: [],
       unmatchedTransactions: [],
       notes: [],
     };
-    planReconciliationMock.mockReturnValue(plan);
+    buildReconciliationPlanMock.mockReturnValue(plan);
 
     const res = await fetch(`${baseUrl}/api/invoices/reconcile`, {
       method: 'POST',
@@ -669,18 +671,20 @@ describe('POST /api/invoices/reconcile', () => {
     expect(body.dryRun).toBe(true);
     expect(body.persisted).toBeNull();
     expect(body.plan.proposedPayments).toHaveLength(1);
-    expect(planReconciliationMock).toHaveBeenCalledOnce();
+    expect(buildReconciliationPlanMock).toHaveBeenCalledOnce();
     expect(recordInvoicePaymentsMock).not.toHaveBeenCalled();
   });
 
   it('persists when dryRun=false and surfaces the recorded payments', async () => {
     const plan: ReconciliationPlan = {
       proposedPayments: [{ ...RECONCILED_PAYMENT }],
+      paymentConfidence: new Map([[RECONCILED_PAYMENT.id, 'amount-only']]),
+      referenceCitedIssues: [],
       unmatchedInvoices: [],
       unmatchedTransactions: [],
       notes: [],
     };
-    planReconciliationMock.mockReturnValue(plan);
+    buildReconciliationPlanMock.mockReturnValue(plan);
     recordInvoicePaymentsMock.mockReturnValue({
       ok: true,
       payments: [{ ...RECONCILED_PAYMENT }],
@@ -703,8 +707,10 @@ describe('POST /api/invoices/reconcile', () => {
   });
 
   it('maps duplicate-bank-tx onto 409', async () => {
-    planReconciliationMock.mockReturnValue({
+    buildReconciliationPlanMock.mockReturnValue({
       proposedPayments: [{ ...RECONCILED_PAYMENT }],
+      paymentConfidence: new Map([[RECONCILED_PAYMENT.id, 'amount-only']]),
+      referenceCitedIssues: [],
       unmatchedInvoices: [],
       unmatchedTransactions: [],
       notes: [],
@@ -733,6 +739,6 @@ describe('POST /api/invoices/reconcile', () => {
       body: JSON.stringify({ entityId: 'not-a-real-entity' }),
     });
     expect(res.status).toBe(400);
-    expect(planReconciliationMock).not.toHaveBeenCalled();
+    expect(buildReconciliationPlanMock).not.toHaveBeenCalled();
   });
 });

@@ -81,6 +81,7 @@ describe('fingerprintWarning', () => {
       'leveraged-passive-income',
       'tax-reserve-underfunded',
       'tax-reserve-trajectory-missing',
+      'tax-reserve-pool-underfunded',
       'ad-hoc-spend-escalating',
     ] as const;
     const seen = new Set<string>();

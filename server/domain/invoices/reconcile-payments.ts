@@ -51,10 +51,24 @@ import {
   normaliseForMatch,
 } from '../clients/narrative-match.js';
 import { pairBestMatches } from '../../utils/payment-matcher.js';
+import {
+  amountWithinTolerance,
+  resolveExpandedInvoiceGroup,
+} from './expand-invoice-group.js';
+import {
+  buildReferenceIndex,
+  findReferencedInvoices,
+  referenceIndexKeys,
+} from './reference-match.js';
 
 /** Bank-side row, projected into the minimum the matcher needs. */
 export interface ReconcileTransaction {
-  /** Stable id so the persisted `InvoicePayment` can FK back to the bank ledger. */
+  /**
+   * Stable identity of the bank transaction — the content `hash` from the
+   * ledger, NOT the volatile autoincrement `transactions.id`. The hash is
+   * what gets persisted as `InvoicePayment.bank_transaction_id`, so links
+   * survive a feed re-sync (which reassigns autoincrement ids).
+   */
   readonly id: string;
   /** ISO `YYYY-MM-DD`. */
   readonly date: string;
@@ -75,6 +89,8 @@ export interface ReconcileTransaction {
   readonly entityId: EntityId;
 }
 
+export type MatchConfidence = 'reference-exact' | 'amount-only';
+
 export interface ReconcileOptions {
   /** Max |tx.date - invoice.due_date| in days. Default 90. */
   readonly maxProximityDays?: number;
@@ -85,6 +101,11 @@ export interface ReconcileOptions {
    * `todayIsoLocal()`. Tests pin this to keep snapshots stable.
    */
   readonly now?: string;
+  /**
+   * Deposit amount used for tolerance checks (e.g. GBP leg quoted in an
+   * AED narrative). Defaults to `tx.amount`.
+   */
+  readonly resolveDepositAmount?: (tx: ReconcileTransaction) => number;
 }
 
 export interface ReconciliationNote {
@@ -94,12 +115,23 @@ export interface ReconciliationNote {
     | 'unresolved-fx'
     | 'amount-out-of-tolerance'
     | 'date-out-of-window'
-    | 'no-candidate';
+    | 'no-candidate'
+    | 'reference-amount-mismatch'
+    | 'reference-ambiguous';
+  readonly detail: string;
+}
+
+export interface ReferenceCitedDepositIssue {
+  readonly transaction: ReconcileTransaction;
+  readonly code: 'reference-amount-mismatch' | 'reference-ambiguous';
+  readonly citedInvoiceIds: readonly string[];
   readonly detail: string;
 }
 
 export interface ReconciliationPlan {
   readonly proposedPayments: readonly InvoicePayment[];
+  readonly paymentConfidence: ReadonlyMap<string, MatchConfidence>;
+  readonly referenceCitedIssues: readonly ReferenceCitedDepositIssue[];
   readonly unmatchedInvoices: readonly Invoice[];
   readonly unmatchedTransactions: readonly ReconcileTransaction[];
   readonly notes: readonly ReconciliationNote[];
@@ -117,6 +149,8 @@ export interface PlanReconciliationInput {
 
 const DEFAULT_MAX_PROXIMITY_DAYS = 90;
 const DEFAULT_AMOUNT_TOLERANCE = 0.05;
+/** Tight tolerance for reference-anchored batch/single matches (auto-persist). */
+const REFERENCE_EXACT_TOLERANCE = 0.01;
 /** Days-of-drift weight relative to amount — keeps amount the dominant signal. */
 const DATE_WEIGHT = 1 / 30;
 /** Bonus subtracted from a pair's score when the bank narrative names the client. */
@@ -135,6 +169,8 @@ export function planReconciliation(
   const amountTolerance =
     input.options?.amountTolerance ?? DEFAULT_AMOUNT_TOLERANCE;
   const createdAt = input.options?.now ?? todayIsoLocal();
+  const resolveDepositAmount =
+    input.options?.resolveDepositAmount ?? (tx => tx.amount);
 
   const residualByInvoice = computeResidualByInvoice(
     input.invoices,
@@ -144,19 +180,54 @@ export function planReconciliation(
     inv => (residualByInvoice.get(inv.id) ?? 0) > 0,
   );
 
-  const claimedTxIds = new Set(
+  const existingPairs = new Set(
+    input.existingPayments.map(p => `${p.invoice_id}|${p.bank_transaction_id}`),
+  );
+
+  const settledBankTxIds = new Set(
     input.existingPayments.map(p => p.bank_transaction_id),
   );
-  const matchableTransactions = input.transactions.filter(
-    tx => !claimedTxIds.has(tx.id),
+  const matchableTransactions = input.transactions.filter(tx =>
+    isInvoiceReconcilableDeposit(tx, settledBankTxIds),
   );
 
   const notes: ReconciliationNote[] = [];
+  const paymentConfidence = new Map<string, MatchConfidence>();
+  const referenceCitedIssues: ReferenceCitedDepositIssue[] = [];
+
+  const referenceIndex = buildReferenceIndex(matchableInvoices);
+  const sortedIndexKeys = referenceIndexKeys(referenceIndex);
+
+  const batchResult = planReferenceBatchMatches({
+    matchableInvoices,
+    transactions: matchableTransactions,
+    residualByInvoice,
+    existingPairs,
+    referenceIndex,
+    sortedIndexKeys,
+    maxProximityDays,
+    amountTolerance,
+    resolveDepositAmount,
+    createdAt,
+    notes,
+    referenceCitedIssues,
+    paymentConfidence,
+  });
+
+  const remainingInvoices = matchableInvoices.filter(
+    inv => !batchResult.matchedInvoiceIds.has(inv.id),
+  );
+  const remainingTransactions = matchableTransactions.filter(
+    tx => !batchResult.matchedTxIds.has(tx.id),
+  );
 
   const matches = pairBestMatches<Invoice, ReconcileTransaction>({
-    slots: matchableInvoices,
-    payments: matchableTransactions,
+    slots: remainingInvoices,
+    payments: remainingTransactions,
     score: (invoice, tx) => {
+      if (existingPairs.has(`${invoice.id}|${tx.id}`)) {
+        return null;
+      }
       const reason = scorePair(invoice, tx, {
         residual: residualByInvoice.get(invoice.id) ?? 0,
         amountTolerance,
@@ -178,11 +249,11 @@ export function planReconciliation(
     slotKey: invoice => invoice.id,
   });
 
-  const proposedPayments: InvoicePayment[] = [];
-  const matchedTxIds = new Set<string>();
-  const matchedInvoiceIds = new Set<string>();
+  const proposedPayments: InvoicePayment[] = [...batchResult.payments];
+  const matchedTxIds = new Set<string>(batchResult.matchedTxIds);
+  const matchedInvoiceIds = new Set<string>(batchResult.matchedInvoiceIds);
 
-  for (const invoice of matchableInvoices) {
+  for (const invoice of remainingInvoices) {
     const tx = matches.get(invoice.id);
     if (tx === null || tx === undefined) {
       notes.push({
@@ -208,16 +279,16 @@ export function planReconciliation(
       continue;
     }
 
-    proposedPayments.push(
-      buildPayment({
-        invoice,
-        tx,
-        amountInInvoiceCurrency: conversion.amountInInvoiceCurrency,
-        fxRateAtPayment: conversion.fxRateAtPayment,
-        residualBefore: residual,
-        createdAt,
-      }),
-    );
+    const payment = buildPayment({
+      invoice,
+      tx,
+      amountInInvoiceCurrency: conversion.amountInInvoiceCurrency,
+      fxRateAtPayment: conversion.fxRateAtPayment,
+      residualBefore: residual,
+      createdAt,
+    });
+    proposedPayments.push(payment);
+    paymentConfidence.set(payment.id, 'amount-only');
   }
 
   const unmatchedInvoices = matchableInvoices.filter(
@@ -229,10 +300,206 @@ export function planReconciliation(
 
   return {
     proposedPayments,
+    paymentConfidence,
+    referenceCitedIssues,
     unmatchedInvoices,
     unmatchedTransactions,
     notes,
   };
+}
+
+interface ReferenceBatchMatchInput {
+  readonly matchableInvoices: readonly Invoice[];
+  readonly transactions: readonly ReconcileTransaction[];
+  readonly residualByInvoice: ReadonlyMap<string, number>;
+  readonly existingPairs: Set<string>;
+  readonly referenceIndex: ReadonlyMap<string, readonly Invoice[]>;
+  readonly sortedIndexKeys: readonly string[];
+  readonly maxProximityDays: number;
+  readonly amountTolerance: number;
+  readonly resolveDepositAmount: (tx: ReconcileTransaction) => number;
+  readonly createdAt: string;
+  readonly notes: ReconciliationNote[];
+  readonly referenceCitedIssues: ReferenceCitedDepositIssue[];
+  readonly paymentConfidence: Map<string, MatchConfidence>;
+}
+
+interface ReferenceBatchMatchResult {
+  readonly payments: readonly InvoicePayment[];
+  readonly matchedInvoiceIds: ReadonlySet<string>;
+  readonly matchedTxIds: ReadonlySet<string>;
+}
+
+function residualAmount(
+  invoice: Invoice,
+  residualByInvoice: ReadonlyMap<string, number>,
+): number {
+  return residualByInvoice.get(invoice.id) ?? invoice.total;
+}
+
+function invoiceWithinDateWindow(
+  invoice: Invoice,
+  tx: ReconcileTransaction,
+  maxProximityDays: number,
+): boolean {
+  return Math.abs(daysBetween(tx.date, invoice.due_date)) <= maxProximityDays;
+}
+
+function planReferenceBatchMatches(
+  input: ReferenceBatchMatchInput,
+): ReferenceBatchMatchResult {
+  const payments: InvoicePayment[] = [];
+  const matchedInvoiceIds = new Set<string>();
+  const matchedTxIds = new Set<string>();
+
+  for (const tx of input.transactions) {
+    const lookup = findReferencedInvoices(
+      tx.description,
+      input.referenceIndex,
+      input.sortedIndexKeys,
+    );
+
+    if (lookup.kind === 'ambiguous') {
+      input.referenceCitedIssues.push({
+        transaction: tx,
+        code: 'reference-ambiguous',
+        citedInvoiceIds: [],
+        detail: lookup.detail,
+      });
+      input.notes.push({
+        invoiceId: '*',
+        transactionId: tx.id,
+        code: 'reference-ambiguous',
+        detail: lookup.detail,
+      });
+      continue;
+    }
+
+    if (lookup.kind === 'none') {
+      continue;
+    }
+
+    const depositAmount = input.resolveDepositAmount(tx);
+    const seed = lookup.invoices.filter(inv => {
+      if (inv.issuing_entity_id !== tx.entityId) return false;
+      if (residualAmount(inv, input.residualByInvoice) <= 0) return false;
+      if (input.existingPairs.has(`${inv.id}|${tx.id}`)) return false;
+      if (!invoiceWithinDateWindow(inv, tx, input.maxProximityDays)) return false;
+      return true;
+    });
+
+    if (seed.length === 0) {
+      continue;
+    }
+
+    const clientId = seed[0]!.client_id;
+    const pool = input.matchableInvoices.filter(inv => {
+      if (inv.client_id !== clientId) return false;
+      if (inv.issuing_entity_id !== tx.entityId) return false;
+      if (residualAmount(inv, input.residualByInvoice) <= 0) return false;
+      if (input.existingPairs.has(`${inv.id}|${tx.id}`)) return false;
+      if (!invoiceWithinDateWindow(inv, tx, input.maxProximityDays)) return false;
+      if (matchedInvoiceIds.has(inv.id)) return false;
+      return true;
+    });
+
+    const amountFor = (invoice: Invoice) =>
+      residualAmount(invoice, input.residualByInvoice);
+
+    const expanded = resolveExpandedInvoiceGroup({
+      seed,
+      pool,
+      targetAmount: depositAmount,
+      toleranceFraction: input.amountTolerance,
+      amountFor,
+    });
+
+    if (expanded.kind === 'ambiguous') {
+      input.referenceCitedIssues.push({
+        transaction: tx,
+        code: 'reference-ambiguous',
+        citedInvoiceIds: seed.map(inv => inv.id),
+        detail: expanded.detail,
+      });
+      input.notes.push({
+        invoiceId: seed.map(inv => inv.id).join(','),
+        transactionId: tx.id,
+        code: 'reference-ambiguous',
+        detail: expanded.detail,
+      });
+      continue;
+    }
+
+    if (expanded.kind === 'no-match') {
+      const expected = seed.reduce((sum, inv) => sum + amountFor(inv), 0);
+      const detail =
+        `Deposit cites ${seed.map(inv => inv.payment_reference).join(', ')} `
+        + `but residual sum ${expected.toFixed(2)} does not match deposit `
+        + `${depositAmount.toFixed(2)}.`;
+      input.referenceCitedIssues.push({
+        transaction: tx,
+        code: 'reference-amount-mismatch',
+        citedInvoiceIds: seed.map(inv => inv.id),
+        detail,
+      });
+      for (const inv of seed) {
+        input.notes.push({
+          invoiceId: inv.id,
+          transactionId: tx.id,
+          code: 'reference-amount-mismatch',
+          detail,
+        });
+      }
+      continue;
+    }
+
+    const group = expanded.invoices;
+    const groupResidual = group.reduce((sum, inv) => sum + amountFor(inv), 0);
+    const exactTolerance = Math.min(input.amountTolerance, REFERENCE_EXACT_TOLERANCE);
+    const confidence: MatchConfidence = amountWithinTolerance(
+      depositAmount,
+      groupResidual,
+      exactTolerance,
+    )
+      ? 'reference-exact'
+      : 'amount-only';
+
+    for (const invoice of group) {
+      const residualBefore = amountFor(invoice);
+      const share = groupResidual > 0 ? residualBefore / groupResidual : 0;
+      const amountPaid = depositAmount * share;
+      const conversion = convertToInvoiceCurrency(invoice, {
+        ...tx,
+        amount: amountPaid,
+      });
+      if (conversion === null) {
+        input.notes.push({
+          invoiceId: invoice.id,
+          transactionId: tx.id,
+          code: 'unresolved-fx',
+          detail: `Reference batch for ${tx.id} cannot convert ${invoice.id}.`,
+        });
+        continue;
+      }
+
+      const payment = buildPayment({
+        invoice,
+        tx,
+        amountInInvoiceCurrency: residualBefore,
+        fxRateAtPayment: conversion.fxRateAtPayment,
+        residualBefore,
+        createdAt: input.createdAt,
+        amountPaidOverride: round2(amountPaid),
+      });
+      payments.push(payment);
+      input.paymentConfidence.set(payment.id, confidence);
+      matchedInvoiceIds.add(invoice.id);
+      input.existingPairs.add(`${invoice.id}|${tx.id}`);
+    }
+    matchedTxIds.add(tx.id);
+  }
+
+  return { payments, matchedInvoiceIds, matchedTxIds };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -386,10 +653,19 @@ interface BuildPaymentInput {
   readonly fxRateAtPayment: number | null;
   readonly residualBefore: number;
   readonly createdAt: string;
+  readonly amountPaidOverride?: number;
 }
 
 function buildPayment(input: BuildPaymentInput): InvoicePayment {
-  const { invoice, tx, amountInInvoiceCurrency, fxRateAtPayment, residualBefore, createdAt } = input;
+  const {
+    invoice,
+    tx,
+    amountInInvoiceCurrency,
+    fxRateAtPayment,
+    residualBefore,
+    createdAt,
+    amountPaidOverride,
+  } = input;
   const fxGainLoss =
     fxRateAtPayment === null || invoice.fx_rate_at_issue === null
       ? 0
@@ -406,7 +682,7 @@ function buildPayment(input: BuildPaymentInput): InvoicePayment {
     invoice_id: invoice.id,
     bank_transaction_id: tx.id,
     payment_date: tx.date,
-    amount_paid: round2(tx.amount),
+    amount_paid: amountPaidOverride ?? round2(tx.amount),
     deposit_currency: depositCurrency,
     fx_rate_at_payment: fxRateAtPayment,
     amount_in_invoice_currency: amountInInvoiceCurrency,
@@ -415,6 +691,16 @@ function buildPayment(input: BuildPaymentInput): InvoicePayment {
     created_at: createdAt,
     updated_at: null,
   };
+}
+
+function isInvoiceReconcilableDeposit(
+  tx: ReconcileTransaction,
+  settledBankTxIds: ReadonlySet<string>,
+): boolean {
+  if (tx.amount <= 0) return false;
+  if (settledBankTxIds.has(tx.id)) return false;
+  if (/\bREFUND\b/i.test(tx.description)) return false;
+  return true;
 }
 
 function computeResidualByInvoice(

@@ -11,12 +11,16 @@ import {
   type EntityFoundationWarning,
   type WarningSeverity,
 } from '../../../shared/api-contracts.js';
-import { todayIsoLocal } from '../../../shared/iso-date.js';
+import { shiftIsoDate, todayIsoLocal } from '../../../shared/iso-date.js';
 import { listWarningUserStateMap } from '../../db/repositories/warning-user-state.js';
 import { allCompanies } from '../company/index.js';
 import { allClients } from '../clients/index.js';
 import { allContracts } from '../contracts/queries.js';
-import { allInvoices } from '../invoices/index.js';
+import {
+  allInvoices,
+  buildEntityReconciliationPlan,
+  RECONCILE_LOOKBACK_DAYS,
+} from '../invoices/index.js';
 import { allLeave } from '../leave/index.js';
 import { assembleRunway } from '../forecast/index.js';
 import { assembleIncomeComposition } from '../income-composition/index.js';
@@ -33,11 +37,14 @@ import { deriveEntityFoundationWarnings } from './entity-foundation.js';
 import { sumFzcoTrailing12mIncomeAed } from './fzco-income.js';
 import { countUnclassifiedInterCompanyPairs } from './inter-company-count.js';
 import { derivePaymentOutsideContractWindowWarnings } from './payment-outside-contract-window.js';
-import { deriveInvoiceRowWarnings } from './invoice-reconciler.js';
+import {
+  deriveInvoiceRowWarnings,
+  deriveUnmatchedDepositWarnings,
+} from './invoice-reconciler.js';
 import { deriveInvoiceDaysMismatchWarnings } from './invoice-days-mismatch.js';
 import { deriveRunwayThresholdWarnings } from './runway-thresholds.js';
 import { formatRiskSignalAsWarning } from './risk-signal-to-warning.js';
-import { deriveTaxReserveWarnings } from './tax-reserve.js';
+import { deriveTaxReserveWarnings, maxReserveLookaheadDays } from './tax-reserve.js';
 import { deriveAccountantPackIncompleteWarnings } from './accountant-pack-incomplete.js';
 import {
   computeReportingReadiness,
@@ -47,6 +54,7 @@ import {
 } from '../reporting/index.js';
 import { deriveAdHocSpendWarnings } from './ad-hoc-spend.js';
 import { deriveMortgageRateResetWarnings } from './mortgage-rate-reset.js';
+import { deriveFeedSyncScheduledWarnings } from './feed-sync-scheduled.js';
 import { deriveDebtUnregisteredWarnings } from './debt-unregistered.js';
 import { deriveAccountCreditCardConfigMissingWarnings } from './account-credit-card-config-missing.js';
 import { derivePlanBlockedIncompleteBudgetsWarnings } from './plan-blocked-incomplete-budgets.js';
@@ -67,7 +75,7 @@ import {
 import { enrichWarningsForAgents, warningPassesListingFilter } from './enrich-for-agents.js';
 import { runExpensesOverviewPipeline, transactionRowToRaw } from '../../utils/expenses-overview-pipeline.js';
 import { ROLLING_MONTHS, rollingCutoffIsoDate } from '../../utils/math.js';
-import { getUpcomingObligations, toApiObligation } from '../../db/repositories/obligations.js';
+import { obligationsForTaxReserveWarnings, toApiObligation } from '../../db/repositories/obligations.js';
 import { getAllAccountBalances } from '../../db/repositories/balance.js';
 import { getTransactions } from '../../db/repositories/transactions.js';
 import { listBudgets } from '../../db/repositories/budgets.js';
@@ -162,13 +170,12 @@ export function buildConsolidatedWarningsResponse(
 
   const contractsById = new Map(contracts.map(c => [c.id, c] as const));
   const invoices = allInvoices();
-  const invoiceRowWarnings = deriveInvoiceRowWarnings({ invoices, contractsById });
+  const invoiceRowWarnings = deriveInvoiceRowWarnings({ invoices, todayIso });
 
   const daysMismatchWarnings = deriveInvoiceDaysMismatchWarnings({
     invoices,
     contractsById,
     leaveRows: allLeave(),
-    publicHolidayDatesByEntity,
   });
 
   const incomeComposition = assembleIncomeComposition();
@@ -177,11 +184,14 @@ export function buildConsolidatedWarningsResponse(
   const assembledRunway = assembleRunway();
   const runwayWarnings = deriveRunwayThresholdWarnings(assembledRunway);
 
-  const upcomingObligations = getUpcomingObligations(120).map(toApiObligation);
+  const reserves = allReserves();
+  const taxReserveObligations = obligationsForTaxReserveWarnings(
+    maxReserveLookaheadDays(reserves),
+  ).map(toApiObligation);
   const taxReserveWarnings = deriveTaxReserveWarnings({
     today: todayIso,
-    reserves: allReserves(),
-    obligations: upcomingObligations,
+    reserves,
+    obligations: taxReserveObligations,
     balanceByAccount: buildBalanceByAccount(),
     monthlyContributionByAccount: buildMonthlyContributionByAccount(todayIso),
   });
@@ -189,14 +199,14 @@ export function buildConsolidatedWarningsResponse(
   const pipeline = runExpensesOverviewPipeline();
   const expenseTxns = expenseTransactionsForConsolidatedWarnings();
   const budgetedCategories = new Set(listBudgets({}).map(b => b.category));
+  const debts = listDebts({ includeArchived: false });
   const adHocSpendWarnings = deriveAdHocSpendWarnings({
     today: todayIso,
     expenseTransactions: expenseTxns,
     pipeline,
     budgetedCategories,
+    activeDebts: debts,
   });
-
-  const debts = listDebts({ includeArchived: false });
   const accounts: readonly AccountConfig[] = Object.values(ACCOUNT_CONFIG_DATA);
 
   const mortgageRateResetWarnings = deriveMortgageRateResetWarnings({
@@ -284,6 +294,17 @@ export function buildConsolidatedWarningsResponse(
     regime: 'corporation_tax',
     periodLabel: ctPeriodLabel,
   });
+  const ukLtdReconcilePlan = buildEntityReconciliationPlan({
+    entityId: ukLtdEntity,
+    windowStart: shiftIsoDate(todayIso, -RECONCILE_LOOKBACK_DAYS),
+    windowEnd: todayIso,
+    now: todayIso,
+  });
+  const unmatchedDepositWarnings = deriveUnmatchedDepositWarnings({
+    plan: ukLtdReconcilePlan,
+    entityId: ukLtdEntity,
+  });
+
   const accountantPackWarnings = deriveAccountantPackIncompleteWarnings([
     {
       entityId: ukLtdEntity,
@@ -307,6 +328,7 @@ export function buildConsolidatedWarningsResponse(
     ...foundationWarnings,
     ...paymentWindowWarnings,
     ...invoiceRowWarnings,
+    ...unmatchedDepositWarnings,
     ...daysMismatchWarnings,
     ...riskSignalWarnings,
     ...runwayWarnings,
@@ -320,6 +342,7 @@ export function buildConsolidatedWarningsResponse(
     ...targetReachedWarnings,
     ...planTransferWarnings,
     ...accountantPackWarnings,
+    ...deriveFeedSyncScheduledWarnings(),
   ];
 
   const previousAt = findPreviousSnapshotAt(db, nowIso);
@@ -333,9 +356,17 @@ export function buildConsolidatedWarningsResponse(
 
   const warnings = [...baseWarnings, ...improvementWarnings];
 
+  const TAX_RESERVE_SORT_BOOST: Partial<Record<string, number>> = {
+    'tax-reserve-underfunded': 0,
+    'tax-reserve-trajectory-missing': 1,
+  };
+
   warnings.sort((a, b) => {
     const sev = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
     if (sev !== 0) return sev;
+    const boostA = TAX_RESERVE_SORT_BOOST[a.code] ?? 10;
+    const boostB = TAX_RESERVE_SORT_BOOST[b.code] ?? 10;
+    if (boostA !== boostB) return boostA - boostB;
     return a.code.localeCompare(b.code);
   });
 

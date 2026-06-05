@@ -1665,6 +1665,12 @@ export const FeedSyncBodySchema = z.object({
   dateFrom: FeedSyncIsoDateSchema,
   dateTo: FeedSyncIsoDateSchema.optional(),
   force: z.boolean().optional(),
+  /**
+   * Re-fetch the last N calendar days ending `dateTo` (inclusive), without
+   * advancing past `latestCsvDate + 1`. Used by scheduled sync; manual UI
+   * leaves this unset for incremental pulls.
+   */
+  lookbackDays: z.number().int().min(1).max(14).optional(),
 });
 export type FeedSyncBody = z.infer<typeof FeedSyncBodySchema>;
 
@@ -1717,6 +1723,39 @@ export const FeedSyncResponseSchema = z.object({
   initDatabaseRan: z.boolean(),
 });
 export type FeedSyncResponse = z.infer<typeof FeedSyncResponseSchema>;
+
+/** Relative path under repo root — last scheduled `feed:sync-all` run. */
+export const FEED_SYNC_SCHEDULED_STATUS_REL_PATH = 'data/feed-sync-scheduled-status.json';
+
+export const FeedSyncScheduledAccountResultSchema = z.discriminatedUnion('status', [
+  z.object({
+    account: AccountNameSchema,
+    status: z.literal('ok'),
+    rowsFetched: z.number().int().nonnegative(),
+    skipped: z.boolean(),
+    ingestOutcome: FeedSyncIngestOutcomeSchema.optional(),
+  }),
+  z.object({
+    account: AccountNameSchema,
+    status: z.literal('skipped'),
+    reason: z.string(),
+  }),
+  z.object({
+    account: AccountNameSchema,
+    status: z.literal('failed'),
+    error: z.string(),
+    code: z.string().optional(),
+  }),
+]);
+export type FeedSyncScheduledAccountResult = z.infer<typeof FeedSyncScheduledAccountResultSchema>;
+
+export const FeedSyncScheduledStatusSchema = z.object({
+  lastRunAt: z.string().datetime(),
+  lastRunKind: z.literal('scheduled'),
+  lookbackDays: z.number().int().min(1).max(14),
+  accounts: z.array(FeedSyncScheduledAccountResultSchema),
+});
+export type FeedSyncScheduledStatus = z.infer<typeof FeedSyncScheduledStatusSchema>;
 
 /** Error payload from `POST /api/feed/sync` on non-2xx (see `server/routes/feed.ts`). */
 export const FeedSyncHttpErrorBodySchema = z.object({
@@ -1815,6 +1854,13 @@ const CompanyCommonFields = {
    * pending accountant review.
    */
   vat_registered: BooleanOrTbcSchema,
+  /**
+   * How output VAT obligations are derived for this entity.
+   * `standard` — accrual: sum issued-invoice `vat_amount` by tax point
+   * (`invoice_date`). `cash` — sum bank income × VAT fraction by receipt
+   * date (legacy proxy).
+   */
+  vat_scheme: z.enum(['standard', 'cash']).default('standard'),
   /**
    * Rolling average effective CT rate from filed years (0–1). When set,
    * auto CT obligations use it for `expectedAmount` while keeping the
@@ -3065,13 +3111,13 @@ export type AiSpendContextResponse = z.infer<typeof AiSpendContextResponseSchema
 // ROADMAP.md §1.3.
 
 /**
- * Invoice primary key. FZCO self-bills use `FZ-####`. Delta Capita
- * supplier invoices use the client series `DC-###` (same value as
- * `invoice_number`). Other UK Ltd clients may still use `UK-####`.
+ * Invoice primary key. La Fosse self-bills use `EG-####` (Edwin Group
+ * end client). Delta Capita supplier invoices use `DC-###`. FZCO-only
+ * flows may use `FZ-####`; other UK Ltd clients may use `UK-####`.
  */
 export const InvoiceIdSchema = z
   .string()
-  .regex(/^(?:(?:UK|FZ)-\d{4}|DC-\d{3})$/);
+  .regex(/^(?:(?:UK|FZ|EG)-\d{4}|DC-\d{3})$/);
 export type InvoiceId = z.infer<typeof InvoiceIdSchema>;
 
 /**
@@ -3143,7 +3189,11 @@ export type InvoicePaymentId = z.infer<typeof InvoicePaymentIdSchema>;
 export const InvoicePaymentSchema = z.object({
   id: InvoicePaymentIdSchema,
   invoice_id: InvoiceIdSchema,
-  /** FK to `transactions.id` in the bank-side ledger. */
+  /**
+   * FK to the bank-side ledger via the stable content `transactions.hash`
+   * (not the volatile autoincrement `transactions.id`, which is reassigned
+   * on every feed re-sync).
+   */
   bank_transaction_id: z.string().min(1),
   payment_date: IsoDateSchema,
   /** In `deposit_currency` (may differ from `invoice.currency`). */
@@ -3254,9 +3304,11 @@ export const EntityFoundationWarningCodeSchema = z.enum([
   'inter-company-movement-unclassified',
   'payment-outside-contract-window',
   'invoice-stale-payment-reference',
-  'invoice-due-date-implausible',
+  'invoice-overdue',
   'invoice-period-invalid',
   'invoice-unmatched-deposit',
+  'invoice-reference-amount-mismatch',
+  'invoice-reference-ambiguous',
   'invoice-days-mismatch',
   // §1.6 (runway thresholds)
   'runway-low',
@@ -3273,6 +3325,7 @@ export const EntityFoundationWarningCodeSchema = z.enum([
   // §1.8 new
   'tax-reserve-underfunded',
   'tax-reserve-trajectory-missing',
+  'tax-reserve-pool-underfunded',
   'ad-hoc-spend-escalating',
   'warning-improved',
   'warning-cleared',
@@ -3292,6 +3345,8 @@ export const EntityFoundationWarningCodeSchema = z.enum([
   // reporting readiness packs
   'accountant-pack-incomplete-vat',
   'accountant-pack-incomplete-ct',
+  // scheduled AISP feed sync (cron CLI)
+  'feed-sync-scheduled-failed',
 ]);
 export type EntityFoundationWarningCode = z.infer<typeof EntityFoundationWarningCodeSchema>;
 

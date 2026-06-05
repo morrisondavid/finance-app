@@ -70,6 +70,7 @@ export function deriveDebtUnregisteredWarnings(
     expenseTransactions: input.expenseTransactions,
     pipeline: input.pipeline,
     budgetedCategories: input.budgetedCategories,
+    activeDebts: input.debts,
     options: { minTotal: 0, maxRows: 100 },
   });
 

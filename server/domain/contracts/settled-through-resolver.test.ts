@@ -87,10 +87,10 @@ function mkInvoiceReg(seeds: readonly InvoiceSeed[]): InvoiceRegistry {
 describe('resolveSettledThroughByContract', () => {
   it('takes the max non-draft period_end across the whole series (renewal inherits it)', () => {
     const invoiceReg = mkInvoiceReg([
-      { id: 'UK-0001', contractId: 'lf-2026-mar', entityId: 'autonize-it-ltd', periodEnd: '2026-02-28', status: 'paid' },
-      { id: 'UK-0002', contractId: 'lf-extension-1', entityId: 'autonize-it-ltd', periodEnd: '2026-04-30', status: 'issued' },
+      { id: 'EG-0001', contractId: 'lf-2026-mar', entityId: 'autonize-it-ltd', periodEnd: '2026-02-28', status: 'paid' },
+      { id: 'EG-0002', contractId: 'lf-extension-1', entityId: 'autonize-it-ltd', periodEnd: '2026-04-30', status: 'issued' },
       // Draft with a far-future period must be ignored.
-      { id: 'UK-0003', contractId: 'lf-2026-mar', entityId: 'autonize-it-ltd', periodEnd: '2026-12-31', status: 'draft' },
+      { id: 'EG-0003', contractId: 'lf-2026-mar', entityId: 'autonize-it-ltd', periodEnd: '2026-12-31', status: 'draft' },
     ]);
 
     const map = resolveSettledThroughByContract(
@@ -121,7 +121,7 @@ describe('resolveSettledThroughByContract', () => {
   it('does not leak invoices across distinct (client, entity) series', () => {
     const invoiceReg = mkInvoiceReg([
       // Only the FZCO series has an invoice.
-      { id: 'FZ-0001', contractId: 'lf-2026-apr', entityId: 'autonize-it-fzco', periodEnd: '2026-03-31', status: 'issued' },
+      { id: 'EG-0053', contractId: 'lf-2026-apr', entityId: 'autonize-it-fzco', periodEnd: '2026-03-31', status: 'issued' },
     ]);
 
     const map = resolveSettledThroughByContract(

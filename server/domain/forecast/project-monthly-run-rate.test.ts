@@ -195,7 +195,7 @@ describe('projectMonthlyRunRate — contract accrual', () => {
       makeLeaveDay('dc-2026', '2026-04-29'),
       makeLeaveDay('dc-2026', '2026-04-30'),
       makeLeaveDay('dc-2026', '2026-05-01'),
-      makeLeaveDay('dc-2026', '2026-05-04'),
+      makeLeaveDay('dc-2026', '2026-05-06'),
       makeLeaveDay('dc-2026', '2026-05-05'),
     ];
     loadForecastInputsMock.mockReturnValueOnce(preLoaded({ contracts: [contract] }));

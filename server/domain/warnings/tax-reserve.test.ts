@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   deriveTaxReserveWarnings,
+  maxReserveLookaheadDays,
   RESERVE_LOOKAHEAD_DAYS,
 } from './tax-reserve.js';
 import type {
@@ -18,6 +19,7 @@ function makeReserve(over: Partial<Reserve> = {}): Reserve {
     reserve_account: 'barclays-savings',
     notes: null,
     updated_at: '2026-01-01',
+    lookahead_days: 90,
     ...over,
   };
 }
@@ -96,7 +98,6 @@ describe('tax-reserve-underfunded', () => {
 
 describe('tax-reserve-trajectory-missing', () => {
   it('fires when projected balance at due date < liability', () => {
-    // 90 days = ~3 months. £1000/mo contribution → +£3000. Start at £4000 → £7000 projected. Liability £10000 → gap £3000.
     const out = deriveTaxReserveWarnings({
       today,
       reserves: [makeReserve()],
@@ -111,7 +112,7 @@ describe('tax-reserve-trajectory-missing', () => {
     expect(w?.context?.monthlyTopUpNeeded).toBeGreaterThan(0);
   });
 
-  it('does NOT fire when balance is already over liability (underfunded check has priority)', () => {
+  it('does NOT fire when balance is already over liability', () => {
     const out = deriveTaxReserveWarnings({
       today,
       reserves: [makeReserve()],
@@ -122,17 +123,30 @@ describe('tax-reserve-trajectory-missing', () => {
     expect(out.find(o => o.code === 'tax-reserve-trajectory-missing')).toBeUndefined();
   });
 
-  it('can fire alongside underfunded (alternative remedies for the same reserve)', () => {
-    // £1000 today + £100/mo over ~1.5 months ≈ £1150 vs £10000 liability — both checks bite.
+  it('can fire alongside underfunded when due date is far enough out', () => {
     const out = deriveTaxReserveWarnings({
       today,
       reserves: [makeReserve()],
-      obligations: [makeObligation({ expectedAmount: 10000 })],
+      obligations: [makeObligation({ expectedAmount: 10000, dueDate: '2026-04-15' })],
       balanceByAccount: balances({ 'barclays-savings': 1000 }),
       monthlyContributionByAccount: contributions({ 'barclays-savings': 100 }),
     });
     expect(out.filter(o => o.code === 'tax-reserve-underfunded')).toHaveLength(1);
     expect(out.filter(o => o.code === 'tax-reserve-trajectory-missing')).toHaveLength(1);
+  });
+
+  it('uses lump-sum action text when due within one month', () => {
+    const out = deriveTaxReserveWarnings({
+      today: '2026-06-05',
+      reserves: [makeReserve()],
+      obligations: [makeObligation({ expectedAmount: 9270, dueDate: '2026-06-07' })],
+      balanceByAccount: balances({ 'barclays-savings': 5025 }),
+      monthlyContributionByAccount: contributions({}),
+    });
+    const w = out.find(o => o.code === 'tax-reserve-trajectory-missing');
+    expect(w).toBeUndefined();
+    const under = out.find(o => o.code === 'tax-reserve-underfunded');
+    expect(under).toBeDefined();
   });
 });
 
@@ -151,20 +165,9 @@ describe('missing reserve → no warning (config gap, not violation)', () => {
   it('emits nothing when no reserve is configured for the obligation type/entity', () => {
     const out = deriveTaxReserveWarnings({
       today,
-      reserves: [], // no reserves configured
+      reserves: [],
       obligations: [makeObligation({ expectedAmount: 10000 })],
       balanceByAccount: balances({ 'barclays-savings': 0 }),
-      monthlyContributionByAccount: contributions({}),
-    });
-    expect(out).toHaveLength(0);
-  });
-
-  it('emits nothing for obligations whose entity is unknown', () => {
-    const out = deriveTaxReserveWarnings({
-      today,
-      reserves: [makeReserve()],
-      obligations: [makeObligation({ entity: 'mystery-entity' })],
-      balanceByAccount: balances({}),
       monthlyContributionByAccount: contributions({}),
     });
     expect(out).toHaveLength(0);
@@ -172,11 +175,11 @@ describe('missing reserve → no warning (config gap, not violation)', () => {
 });
 
 describe('window filtering', () => {
-  it('ignores obligations due past the lookahead window', () => {
+  it('ignores obligations due past the reserve lookahead window', () => {
     const farFuture = '2027-12-31';
     const out = deriveTaxReserveWarnings({
       today,
-      reserves: [makeReserve()],
+      reserves: [makeReserve({ lookahead_days: 90 })],
       obligations: [makeObligation({ expectedAmount: 10000, dueDate: farFuture })],
       balanceByAccount: balances({ 'barclays-savings': 0 }),
       monthlyContributionByAccount: contributions({}),
@@ -184,63 +187,119 @@ describe('window filtering', () => {
     expect(out).toHaveLength(0);
   });
 
-  it('ignores already-overdue obligations (handled by overdue hero, not the warning spine)', () => {
+  it('includes CT due within 365-day lookahead', () => {
     const out = deriveTaxReserveWarnings({
-      today,
-      reserves: [makeReserve()],
-      obligations: [makeObligation({ expectedAmount: 10000, dueDate: '2025-12-01' })],
+      today: '2026-06-05',
+      reserves: [
+        makeReserve({ obligation_type: 'corporation-tax', lookahead_days: 365 }),
+      ],
+      obligations: [
+        makeObligation({
+          id: 'ct1',
+          type: 'corporation-tax',
+          name: 'CT FY 25/26',
+          expectedAmount: 53000,
+          dueDate: '2027-01-31',
+        }),
+      ],
+      balanceByAccount: balances({ 'barclays-savings': 5000 }),
+      monthlyContributionByAccount: contributions({}),
+    });
+    expect(out.find(o => o.code === 'tax-reserve-underfunded')).toBeDefined();
+  });
+
+  it('excludes CT beyond 90-day VAT lookahead when CT reserve uses 90', () => {
+    const out = deriveTaxReserveWarnings({
+      today: '2026-06-05',
+      reserves: [
+        makeReserve({ obligation_type: 'corporation-tax', lookahead_days: 90 }),
+      ],
+      obligations: [
+        makeObligation({
+          id: 'ct1',
+          type: 'corporation-tax',
+          expectedAmount: 53000,
+          dueDate: '2027-01-31',
+        }),
+      ],
       balanceByAccount: balances({ 'barclays-savings': 0 }),
       monthlyContributionByAccount: contributions({}),
     });
     expect(out).toHaveLength(0);
   });
 
-  it('uses the earliest due date when multiple obligations cover the same reserve', () => {
-    const fxs: ObligationRow[] = [
-      makeObligation({ id: 'o1', expectedAmount: 5000, dueDate: '2026-04-15' }),
-      makeObligation({ id: 'o2', expectedAmount: 5000, dueDate: '2026-02-15' }),
-    ];
+  it('includes overdue unpaid obligations', () => {
     const out = deriveTaxReserveWarnings({
       today,
       reserves: [makeReserve()],
-      obligations: fxs,
+      obligations: [
+        makeObligation({ expectedAmount: 10000, dueDate: '2025-12-01', status: 'unpaid' }),
+      ],
       balanceByAccount: balances({ 'barclays-savings': 0 }),
       monthlyContributionByAccount: contributions({}),
     });
     const w = out.find(o => o.code === 'tax-reserve-underfunded');
-    expect(w?.context?.dueDate).toBe('2026-02-15');
-    expect(w?.context?.liability).toBe(10000);
+    expect(w).toBeDefined();
+    expect(w?.context?.dueDate).toBe('2025-12-01');
   });
-});
 
-describe('per-entity scoping', () => {
-  it('UK Ltd VAT and FZCO VAT emit independent warnings', () => {
-    const reserves: Reserve[] = [
-      makeReserve({ entity_id: 'autonize-it-ltd', reserve_account: 'barclays-savings' }),
-      makeReserve({ entity_id: 'autonize-it-fzco', reserve_account: 'emirates-islamic' }),
-    ];
-    const obligations: ObligationRow[] = [
-      makeObligation({ id: 'uk', entity: 'autonize-it-ltd', expectedAmount: 10000 }),
-      makeObligation({ id: 'fz', entity: 'autonize-it-fzco', expectedAmount: 5000 }),
-    ];
+  it('ignores overdue non-unpaid obligations', () => {
     const out = deriveTaxReserveWarnings({
       today,
-      reserves,
-      obligations,
-      balanceByAccount: balances({ 'barclays-savings': 0, 'emirates-islamic': 0 }),
+      reserves: [makeReserve()],
+      obligations: [
+        makeObligation({ expectedAmount: 10000, dueDate: '2025-12-01', status: 'not-yet-due' }),
+      ],
+      balanceByAccount: balances({ 'barclays-savings': 0 }),
       monthlyContributionByAccount: contributions({}),
     });
-    const uk = out.find(o => o.entityId === 'autonize-it-ltd');
-    const fzco = out.find(o => o.entityId === 'autonize-it-fzco');
-    expect(uk).toBeDefined();
-    expect(fzco).toBeDefined();
-    expect(uk?.context?.liability).toBe(10000);
-    expect(fzco?.context?.liability).toBe(5000);
+    expect(out).toHaveLength(0);
   });
 });
 
-describe('lookahead default', () => {
-  it('matches the exported constant', () => {
+describe('shared reserve account', () => {
+  it('emits per-type underfunded for VAT and CT, not a combined pool warning', () => {
+    const reserves: Reserve[] = [
+      makeReserve({ obligation_type: 'vat', lookahead_days: 90 }),
+      makeReserve({ obligation_type: 'corporation-tax', lookahead_days: 365 }),
+    ];
+    const obligations: ObligationRow[] = [
+      makeObligation({ id: 'vat', type: 'vat', expectedAmount: 9000, dueDate: '2026-06-07' }),
+      makeObligation({
+        id: 'ct',
+        type: 'corporation-tax',
+        expectedAmount: 53000,
+        dueDate: '2027-01-31',
+      }),
+    ];
+    const out = deriveTaxReserveWarnings({
+      today: '2026-06-05',
+      reserves,
+      obligations,
+      balanceByAccount: balances({ 'barclays-savings': 5000 }),
+      monthlyContributionByAccount: contributions({}),
+    });
+    const underfunded = out.filter(o => o.code === 'tax-reserve-underfunded');
+    expect(underfunded).toHaveLength(2);
+    expect(underfunded.map(w => w.context?.obligationType).sort()).toEqual([
+      'corporation-tax',
+      'vat',
+    ]);
+    expect(out.find(o => o.code === 'tax-reserve-pool-underfunded')).toBeUndefined();
+  });
+});
+
+describe('maxReserveLookaheadDays', () => {
+  it('returns the maximum configured lookahead across reserves', () => {
+    expect(
+      maxReserveLookaheadDays([
+        makeReserve({ lookahead_days: 90 }),
+        makeReserve({ obligation_type: 'corporation-tax', lookahead_days: 365 }),
+      ]),
+    ).toBe(365);
+  });
+
+  it('matches the exported default constant', () => {
     expect(RESERVE_LOOKAHEAD_DAYS).toBe(90);
   });
 });

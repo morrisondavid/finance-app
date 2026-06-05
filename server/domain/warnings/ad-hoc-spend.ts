@@ -17,6 +17,7 @@
  */
 
 import type { EntityFoundationWarning, WarningSeverity } from '../../../shared/api-contracts.js';
+import type { Debt } from '../../db/repositories/debts.js';
 import { computeBudgetNudges, type BudgetNudgeRow } from '../../utils/budget-nudges.js';
 import type { PipelineResult, RawTransaction } from '../../utils/recurring-pipeline.js';
 import {
@@ -36,6 +37,7 @@ export interface DeriveAdHocSpendWarningsInput {
   readonly expenseTransactions: readonly RawTransaction[];
   readonly pipeline: PipelineResult;
   readonly budgetedCategories: ReadonlySet<string>;
+  readonly activeDebts?: readonly Debt[];
 }
 
 interface MerchantTotals {
@@ -152,6 +154,7 @@ export function deriveAdHocSpendWarnings(
     expenseTransactions: input.expenseTransactions,
     pipeline: input.pipeline,
     budgetedCategories: input.budgetedCategories,
+    activeDebts: input.activeDebts,
     options: { minTotal: 0, maxRows: 50 },
   });
 

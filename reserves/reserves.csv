@@ -1,6 +1,6 @@
-obligation_type,entity_id,reserve_account,notes,updated_at
-vat,autonize-it-ltd,barclays-savings,UK Ltd VAT funds set aside in Barclays savings,2026-04-25
-corporation-tax,autonize-it-ltd,barclays-savings,UK Ltd CT funds set aside in Barclays savings,2026-04-25
-self-assessment,autonize-it-ltd,natwest,SA funds set aside in NatWest personal,2026-04-25
-vat,autonize-it-fzco,emirates-islamic,FZCO VAT (only meaningful when registered),2026-04-25
-corporation-tax,autonize-it-fzco,emirates-islamic,FZCO CT (only meaningful when QFZP status confirmed),2026-04-25
+obligation_type,entity_id,reserve_account,notes,updated_at,lookahead_days
+vat,autonize-it-ltd,barclays-savings,UK Ltd VAT funds set aside in Barclays savings,2026-04-25,90
+corporation-tax,autonize-it-ltd,barclays-savings,UK Ltd CT funds set aside in Barclays savings,2026-04-25,365
+self-assessment,autonize-it-ltd,natwest,SA funds set aside in NatWest personal,2026-04-25,90
+vat,autonize-it-fzco,emirates-islamic,FZCO VAT (only meaningful when registered),2026-04-25,90
+corporation-tax,autonize-it-fzco,emirates-islamic,FZCO CT (only meaningful when QFZP status confirmed),2026-04-25,365

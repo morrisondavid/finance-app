@@ -1039,6 +1039,7 @@ export async function runSyncBankFeedMcpTool(
       dateFrom: args.dateFrom,
       dateTo: args.dateTo,
       force: args.force,
+      lookbackDays: args.lookbackDays,
     });
     const structuredContent = FeedSyncResponseSchema.parse(result);
     return {

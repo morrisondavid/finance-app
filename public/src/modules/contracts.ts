@@ -1105,11 +1105,14 @@ async function downloadContract(contractId: string): Promise<void> {
       return;
     }
     if (!res.ok) throw new Error(`GET ${url} failed: ${res.status}`);
+    const disposition = res.headers.get('Content-Disposition') ?? '';
+    const filenameMatch = /filename="([^"]+)"/.exec(disposition);
+    const downloadName = filenameMatch?.[1] ?? `${contractId}.pdf`;
     const blob = await res.blob();
     const objectUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = objectUrl;
-    a.download = `${contractId}.pdf`;
+    a.download = downloadName;
     document.body.appendChild(a);
     a.click();
     a.remove();

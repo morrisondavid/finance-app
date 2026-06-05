@@ -20,7 +20,7 @@ import {
   violationForMonthlySupplierInvoiceGenerate,
 } from '../../domain/invoices/index.js';
 import { findContractById, allContracts } from '../../domain/contracts/index.js';
-import { holidayDatesForEntity } from '../../domain/working-days/public-holidays.js';
+import { holidayDatesForContract } from '../../domain/working-days/public-holidays.js';
 import { leaveForContract } from '../../domain/leave/index.js';
 
 import { deliverInvoiceIssuedNotice } from '../../domain/outbound/invoice-delivery-adapter.js';
@@ -108,7 +108,12 @@ export function mutateMonthlyInvoicePreview(body: unknown): JsonReadResult {
 
   const { yearStart, yearEnd } = holidayYearWindow(today, composed.invoice.period_start);
 
-  const workload = draftWorkloadConsistencyForInvoice(composed.invoice, contract, leaveForContract(contract.id), holidayDatesForEntity(contract.issuing_entity_id, yearStart, yearEnd));
+  const workload = draftWorkloadConsistencyForInvoice(
+    composed.invoice,
+    contract,
+    leaveForContract(contract.id),
+    holidayDatesForContract(contract, yearStart, yearEnd),
+  );
 
   const billingKeyStart = normaliseBillingMonthStart(composed.invoice.period_start);
   const occupants = existingInvoicesOccupyingContractBillingMonth(contractId, billingKeyStart, allInvoices());

@@ -1,6 +1,7 @@
 import { escapeHtml, openModal as openModalEl, closeModal as closeModalEl } from '../utils/dom';
 import { formatCurrency, formatIsoDateUkLong } from '../utils/formatting';
 import { daysUntil, daysLabel, todayIsoLocal } from '../../../shared/iso-date.js';
+import type { EntityFoundationWarning } from '../../../shared/api-contracts';
 
 type PersonId = 'david' | 'heena';
 
@@ -105,6 +106,66 @@ function supportsStateOverride(o: ObligationItem): boolean {
 
 function isPaidStatus(status: string): boolean {
   return status === 'paid' || status === 'confirmed';
+}
+
+const TAX_RESERVE_WARNING_CODES = new Set([
+  'tax-reserve-underfunded',
+  'tax-reserve-trajectory-missing',
+]);
+
+function taxReserveDueDate(w: EntityFoundationWarning): string {
+  const due = w.context?.dueDate;
+  return typeof due === 'string' ? due : '9999-12-31';
+}
+
+function taxReserveSeverityRank(severity: EntityFoundationWarning['severity']): number {
+  switch (severity) {
+    case 'critical': return 3;
+    case 'warn': return 2;
+    case 'info': return 1;
+  }
+}
+
+function taxReserveWarningsForLtd(
+  warnings: readonly EntityFoundationWarning[],
+): EntityFoundationWarning[] {
+  return warnings.filter(
+    w => TAX_RESERVE_WARNING_CODES.has(w.code) && w.entityId === 'autonize-it-ltd',
+  );
+}
+
+function renderTaxReservePanel(warnings: readonly EntityFoundationWarning[]): void {
+  const panel = document.getElementById('obligations-tax-reserve-panel');
+  const list = document.getElementById('obligations-tax-reserve-list');
+  if (!panel || !list) return;
+
+  const taxWarnings = taxReserveWarningsForLtd(warnings);
+  if (taxWarnings.length === 0) {
+    panel.style.display = 'none';
+    panel.hidden = true;
+    list.innerHTML = '';
+    return;
+  }
+
+  const sorted = [...taxWarnings].sort((a, b) => {
+    const dueCmp = taxReserveDueDate(a).localeCompare(taxReserveDueDate(b));
+    if (dueCmp !== 0) return dueCmp;
+    const sev = taxReserveSeverityRank(b.severity) - taxReserveSeverityRank(a.severity);
+    if (sev !== 0) return sev;
+    if (a.code === 'tax-reserve-underfunded' && b.code !== 'tax-reserve-underfunded') return -1;
+    if (b.code === 'tax-reserve-underfunded' && a.code !== 'tax-reserve-underfunded') return 1;
+    return 0;
+  });
+
+  panel.style.display = '';
+  panel.hidden = false;
+  list.innerHTML = sorted.map(w => `
+    <div class="obligations-tax-reserve-item" data-severity="${escapeHtml(w.severity)}">
+      <strong>${escapeHtml(w.title)}</strong>
+      <p>${escapeHtml(w.detail)}</p>
+      <p class="obligations-tax-reserve-action"><em>Recommended:</em> ${escapeHtml(w.recommended_action)}</p>
+    </div>
+  `).join('');
 }
 
 function renderOverdue(obligations: ObligationItem[]): void {
@@ -663,11 +724,12 @@ async function loadRegistry(): Promise<void> {
 
 export async function loadObligations(): Promise<void> {
   try {
-    const [overdueResp, upcomingResp, registryResp, dismissals] = await Promise.all([
+    const [overdueResp, upcomingResp, registryResp, dismissals, warningsResp] = await Promise.all([
       fetch('/api/obligations/overdue'),
       fetch('/api/obligations/upcoming-payments?days=365'),
       fetch(buildRegistryUrl()),
       fetchDismissalsIfToggled(),
+      fetch('/api/warnings/entity-foundation'),
     ]);
 
     if (overdueResp.ok) {
@@ -681,6 +743,12 @@ export async function loadObligations(): Promise<void> {
     if (registryResp.ok) {
       const registryDataJson = await registryResp.json() as { obligations: ObligationItem[] };
       renderRegistry(registryDataJson.obligations, dismissals);
+    }
+    if (warningsResp.ok) {
+      const warningsData = await warningsResp.json() as { warnings: EntityFoundationWarning[] };
+      renderTaxReservePanel(warningsData.warnings);
+    } else {
+      renderTaxReservePanel([]);
     }
   } catch (error) {
     console.error('[Obligations] Error loading data:', error);

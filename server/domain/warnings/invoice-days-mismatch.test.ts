@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import type { Contract, Invoice, LeaveRow } from '../../../shared/api-contracts.js';
-import { getPublicHolidays } from '../working-days/public-holidays.js';
 import { deriveInvoiceDaysMismatchWarnings } from './invoice-days-mismatch.js';
 
 const DC_CONTRACT: Contract = {
@@ -40,22 +39,6 @@ const DC_CONTRACT: Contract = {
 };
 
 const contractsById = new Map([[DC_CONTRACT.id, DC_CONTRACT]]);
-
-function ukHolidayDates(start: string, end: string): ReadonlySet<string> {
-  const startYear = Number(start.slice(0, 4));
-  const endYear = Number(end.slice(0, 4));
-  const dates = new Set<string>();
-  for (let y = startYear; y <= endYear; y++) {
-    for (const h of getPublicHolidays('UK', y)) {
-      if (h.date >= start && h.date <= end) dates.add(h.date);
-    }
-  }
-  return dates;
-}
-
-const publicHolidayDatesByEntity = new Map([
-  ['autonize-it-ltd', ukHolidayDates('2025-01-01', '2027-12-31')],
-]);
 
 function makeInvoice(overrides: Partial<Invoice> & { id: string; period_start: string; days_billed: number }): Invoice {
   return {
@@ -110,7 +93,6 @@ describe('deriveInvoiceDaysMismatchWarnings', () => {
       invoices: [invoice],
       contractsById,
       leaveRows: leave,
-      publicHolidayDatesByEntity,
     });
     expect(result).toHaveLength(0);
   });
@@ -126,7 +108,6 @@ describe('deriveInvoiceDaysMismatchWarnings', () => {
       invoices: [invoice],
       contractsById,
       leaveRows: [],
-      publicHolidayDatesByEntity,
     });
     expect(result).toHaveLength(1);
     expect(result[0].code).toBe('invoice-days-mismatch');
@@ -146,7 +127,6 @@ describe('deriveInvoiceDaysMismatchWarnings', () => {
       invoices: [invoice],
       contractsById,
       leaveRows: [],
-      publicHolidayDatesByEntity,
     });
     expect(result).toHaveLength(0);
   });
@@ -163,7 +143,58 @@ describe('deriveInvoiceDaysMismatchWarnings', () => {
       invoices: [invoice],
       contractsById,
       leaveRows: [],
-      publicHolidayDatesByEntity,
+    });
+    expect(result).toHaveLength(0);
+  });
+
+  it('emits no warning for partial first-month invoice (DC-001 style)', () => {
+    const invoice = makeInvoice({
+      id: 'DC-001',
+      period_start: '2025-06-23',
+      period_end: '2025-06-30',
+      days_billed: 6,
+      contract_id: 'dc-sow-2025-jun',
+    });
+    const contract: Contract = {
+      ...DC_CONTRACT,
+      id: 'dc-sow-2025-jun',
+      reference: 'Delta Capita · 23 Jun 2025–31 Dec 2025',
+      start_date: '2025-06-23',
+      end_date: '2025-12-31',
+    };
+    const result = deriveInvoiceDaysMismatchWarnings({
+      invoices: [invoice],
+      contractsById: new Map([[contract.id, contract]]),
+      leaveRows: [],
+    });
+    expect(result).toHaveLength(0);
+  });
+
+  it('emits no warning for weekly La Fosse invoice spanning a month boundary', () => {
+    const lfContract: Contract = {
+      ...DC_CONTRACT,
+      id: 'lf-bh25537',
+      client_id: 'la-fosse',
+      reference: 'La Fosse · 18 Feb 2025–28 Sep 2025',
+      start_date: '2025-02-18',
+      end_date: '2025-09-28',
+      invoice_cadence: 'weekly',
+      invoice_mechanism: 'self-bill',
+      day_rate: 600,
+    };
+    const invoice = makeInvoice({
+      id: 'EG-0007',
+      client_id: 'la-fosse',
+      contract_id: 'lf-bh25537',
+      mechanism: 'self-bill',
+      period_start: '2025-03-31',
+      period_end: '2025-04-06',
+      days_billed: 5,
+    });
+    const result = deriveInvoiceDaysMismatchWarnings({
+      invoices: [invoice],
+      contractsById: new Map([[lfContract.id, lfContract]]),
+      leaveRows: [],
     });
     expect(result).toHaveLength(0);
   });
@@ -184,7 +215,38 @@ describe('deriveInvoiceDaysMismatchWarnings', () => {
       invoices: cleanInvoices,
       contractsById,
       leaveRows: seedLeave,
-      publicHolidayDatesByEntity,
+    });
+    expect(result).toHaveLength(0);
+  });
+
+  it('uses UK holidays for FZCO-issued England contracts (not UAE Eid)', () => {
+    const fzContract: Contract = {
+      ...DC_CONTRACT,
+      id: 'lf-2026-apr',
+      client_id: 'la-fosse',
+      issuing_entity_id: 'autonize-it-fzco',
+      reference: 'La Fosse · 02 Mar 2026–30 Apr 2026',
+      start_date: '2026-03-02',
+      end_date: '2026-04-30',
+      invoice_cadence: 'weekly',
+      invoice_mechanism: 'self-bill',
+      day_rate: 500,
+      jurisdiction: 'England',
+    };
+    const invoice = makeInvoice({
+      id: 'EG-0054',
+      client_id: 'la-fosse',
+      contract_id: 'lf-2026-apr',
+      issuing_entity_id: 'autonize-it-fzco',
+      mechanism: 'self-bill',
+      period_start: '2026-03-16',
+      period_end: '2026-03-22',
+      days_billed: 5,
+    });
+    const result = deriveInvoiceDaysMismatchWarnings({
+      invoices: [invoice],
+      contractsById: new Map([[fzContract.id, fzContract]]),
+      leaveRows: [],
     });
     expect(result).toHaveLength(0);
   });

@@ -5,6 +5,7 @@ import type {
   ReportingRegime,
 } from '../../../shared/api-contracts.js';
 import { formatMissingReadinessSummary } from '../reporting/reporting-format.js';
+import { entityDisplayLabel } from './display-labels.js';
 
 export interface AccountantPackReadinessInput {
   entityId: EntityId;
@@ -20,11 +21,6 @@ function addGraceDays(periodEndDate: string, graceDays: number): string {
   d.setDate(d.getDate() + graceDays);
   return d.toISOString().slice(0, 10);
 }
-
-const ENTITY_DISPLAY: Record<EntityId, string> = {
-  'autonize-it-ltd': 'Autonize IT Ltd',
-  'autonize-it-fzco': 'Autonize IT FZCO',
-};
 
 const REGIME_DISPLAY: Record<ReportingRegime, string> = {
   vat: 'VAT',
@@ -45,7 +41,7 @@ export function deriveAccountantPackIncompleteWarnings(
 
     const code =
       regime === 'vat' ? 'accountant-pack-incomplete-vat' : 'accountant-pack-incomplete-ct';
-    const entityName = ENTITY_DISPLAY[entityId];
+    const entityName = entityDisplayLabel(entityId);
     const regimeName = REGIME_DISPLAY[regime];
     const missingSummary = formatMissingReadinessSummary(
       readiness.missing,

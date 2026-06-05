@@ -19,7 +19,13 @@ import {
   agencyRow as agencyClientRow,
 } from '../clients/test-helpers.js';
 import { parseInvoiceRow } from './csv-io.js';
-import { dcInvoice001, dcInvoice002, fzcoInvoice001 } from './test-helpers.js';
+import {
+  dcInvoice001,
+  dcInvoice002,
+  fzcoInvoice001,
+  rowFromHeaders,
+} from './test-helpers.js';
+import { laFosseDepositAmountForMatch } from './la-fosse-reconcile-accounts.js';
 import {
   planReconciliation,
   type ReconcileTransaction,
@@ -38,6 +44,42 @@ function clientsByIdFromRows(...rows: readonly Record<string, string>[]): Readon
 
 const dcClientsById = clientsByIdFromRows(directClientRow);
 const laFosseClientsById = clientsByIdFromRows(agencyClientRow);
+
+function laFosseEgInvoice(
+  id: string,
+  paymentReference: string,
+  total: string,
+  periodStart: string,
+): ReturnType<typeof parseInvoiceRow> {
+  const totalNum = Number(total);
+  const subtotal = totalNum / 1.2;
+  const vat = totalNum - subtotal;
+  return parseInvoiceRow(
+    rowFromHeaders({
+      id,
+      contract_id: 'lf-bh28240',
+      client_id: 'la-fosse',
+      issuing_entity_id: 'autonize-it-ltd',
+      invoice_number: id,
+      payment_reference: paymentReference,
+      invoice_date: '2025-11-26',
+      period_start: periodStart,
+      period_end: periodStart,
+      days_billed: '3',
+      description: 'David Morrison - Consultant Services, Full Stack Engineer',
+      currency: 'GBP',
+      subtotal: String(subtotal),
+      vat_rate: '0.2',
+      vat_amount: String(vat),
+      total,
+      mechanism: 'self-bill',
+      status: 'issued',
+      due_date: '2025-12-26',
+      created_at: '2025-11-26',
+      updated_at: '2025-11-26',
+    }),
+  );
+}
 
 function tx(overrides: Partial<ReconcileTransaction>): ReconcileTransaction {
   return {
@@ -134,6 +176,60 @@ describe('planReconciliation — same-currency happy path', () => {
 
     expect(plan.proposedPayments).toHaveLength(0);
     expect(plan.unmatchedInvoices).toHaveLength(0);
+    expect(plan.unmatchedTransactions).toHaveLength(0);
+  });
+
+  it('excludes settled bank txs from unmatchedTransactions when invoices are out of scope', () => {
+    const settledDeposit = tx({
+      id: '211',
+      date: '2025-12-24',
+      amount: 7800,
+      description: 'LA FOSSE LTD SB-280052 SB-28005 BG',
+    });
+    const existing: InvoicePayment = {
+      id: 'ip-EG-0038-211',
+      invoice_id: 'EG-0038',
+      bank_transaction_id: '211',
+      payment_date: '2025-12-24',
+      amount_paid: 1800,
+      deposit_currency: 'GBP',
+      fx_rate_at_payment: null,
+      amount_in_invoice_currency: 1800,
+      fx_gain_loss: 0,
+      residual: 0,
+      created_at: TODAY,
+      updated_at: null,
+    };
+
+    const plan = planReconciliation({
+      invoices: [],
+      transactions: [settledDeposit],
+      clientsById: laFosseClientsById,
+      existingPayments: [existing],
+      options: { now: TODAY },
+    });
+
+    expect(plan.proposedPayments).toHaveLength(0);
+    expect(plan.unmatchedTransactions).toHaveLength(0);
+  });
+
+  it('excludes positive REFUND narratives from unmatchedTransactions', () => {
+    const refundDeposit = tx({
+      id: 'tx-refund',
+      date: '2026-03-09',
+      amount: 48.3,
+      description: 'EMIRATES 000220634 ON 07 MAR REFUND',
+    });
+
+    const plan = planReconciliation({
+      invoices: [],
+      transactions: [refundDeposit],
+      clientsById: dcClientsById,
+      existingPayments: [],
+      options: { now: TODAY },
+    });
+
+    expect(plan.proposedPayments).toHaveLength(0);
     expect(plan.unmatchedTransactions).toHaveLength(0);
   });
 });
@@ -319,6 +415,150 @@ describe('planReconciliation — cross-currency with fx_rate_at_issue', () => {
 
     expect(plan.proposedPayments).toHaveLength(0);
     expect(plan.notes.some(n => n.code === 'unresolved-fx')).toBe(true);
+  });
+});
+
+describe('planReconciliation — reference-anchored batch matching', () => {
+  const eg38 = laFosseEgInvoice('EG-0038', 'SB-280052', '1800', '2025-11-10');
+  const eg39 = laFosseEgInvoice('EG-0039', 'SB-280053', '3000', '2025-11-03');
+  const eg40 = laFosseEgInvoice('EG-0040', 'SB-280054', '3000', '2025-11-17');
+
+  it('matches a £7,800 batch deposit citing all three SB references', () => {
+    const deposit = tx({
+      id: 'tx-batch-full',
+      date: '2025-12-24',
+      amount: 7800,
+      description: 'LA FOSSE LTD SB-280052 SB-280053 SB-280054 BG',
+    });
+
+    const plan = planReconciliation({
+      invoices: [eg38, eg39, eg40],
+      transactions: [deposit],
+      clientsById: laFosseClientsById,
+      existingPayments: [],
+      options: { now: TODAY, amountTolerance: 0.02, maxProximityDays: 120 },
+    });
+
+    expect(plan.proposedPayments).toHaveLength(3);
+    expect(plan.proposedPayments.every(p => p.bank_transaction_id === 'tx-batch-full')).toBe(true);
+    expect(plan.proposedPayments.every(
+      p => plan.paymentConfidence.get(p.id) === 'reference-exact',
+    )).toBe(true);
+    expect(plan.unmatchedTransactions).toHaveLength(0);
+    expect(plan.unmatchedInvoices).toHaveLength(0);
+  });
+
+  it('expands a truncated narrative (SB-280052 only) to the full £7,800 batch', () => {
+    const deposit = tx({
+      id: 'tx-batch-trunc',
+      date: '2025-12-24',
+      amount: 7800,
+      description: 'LA FOSSE LTD SB-280052 SB-28005 BG',
+    });
+
+    const plan = planReconciliation({
+      invoices: [eg38, eg39, eg40],
+      transactions: [deposit],
+      clientsById: laFosseClientsById,
+      existingPayments: [],
+      options: { now: TODAY, amountTolerance: 0.02, maxProximityDays: 120 },
+    });
+
+    expect(plan.proposedPayments).toHaveLength(3);
+    expect(new Set(plan.proposedPayments.map(p => p.invoice_id))).toEqual(
+      new Set(['EG-0038', 'EG-0039', 'EG-0040']),
+    );
+    expect(plan.paymentConfidence.get(plan.proposedPayments[0]!.id)).toBe('reference-exact');
+  });
+
+  it('matches a single cited reference when the deposit equals one invoice', () => {
+    const deposit = tx({
+      id: 'tx-single',
+      date: '2025-12-24',
+      amount: 1800,
+      description: 'LA FOSSE LTD SB-280052',
+    });
+
+    const plan = planReconciliation({
+      invoices: [eg38, eg39, eg40],
+      transactions: [deposit],
+      clientsById: laFosseClientsById,
+      existingPayments: [],
+      options: { now: TODAY, amountTolerance: 0.02, maxProximityDays: 120 },
+    });
+
+    expect(plan.proposedPayments).toHaveLength(1);
+    expect(plan.proposedPayments[0]!.invoice_id).toBe('EG-0038');
+    expect(plan.paymentConfidence.get(plan.proposedPayments[0]!.id)).toBe('reference-exact');
+  });
+
+  it('emits reference-amount-mismatch when cited references do not sum to the deposit', () => {
+    const deposit = tx({
+      id: 'tx-mismatch',
+      date: '2025-12-24',
+      amount: 5000,
+      description: 'LA FOSSE LTD SB-280052',
+    });
+
+    const plan = planReconciliation({
+      invoices: [eg38, eg39, eg40],
+      transactions: [deposit],
+      clientsById: laFosseClientsById,
+      existingPayments: [],
+      options: { now: TODAY, amountTolerance: 0.02, maxProximityDays: 120 },
+    });
+
+    expect(plan.proposedPayments).toHaveLength(0);
+    expect(plan.referenceCitedIssues).toHaveLength(1);
+    expect(plan.referenceCitedIssues[0]!.code).toBe('reference-amount-mismatch');
+    expect(plan.referenceCitedIssues[0]!.citedInvoiceIds).toEqual(['EG-0038']);
+    expect(plan.unmatchedTransactions.map(t => t.id)).toEqual(['tx-mismatch']);
+  });
+
+  it('uses resolveDepositAmount for batch total checks', () => {
+    const deposit = tx({
+      id: 'tx-resolver',
+      date: '2025-12-24',
+      amount: 9000,
+      description: 'LA FOSSE LTD SB-280052 SB-280053 SB-280054',
+    });
+
+    const planWithoutResolver = planReconciliation({
+      invoices: [eg38, eg39, eg40],
+      transactions: [deposit],
+      clientsById: laFosseClientsById,
+      existingPayments: [],
+      options: { now: TODAY, amountTolerance: 0.02, maxProximityDays: 120 },
+    });
+    expect(planWithoutResolver.proposedPayments).toHaveLength(0);
+
+    const plan = planReconciliation({
+      invoices: [eg38, eg39, eg40],
+      transactions: [deposit],
+      clientsById: laFosseClientsById,
+      existingPayments: [],
+      options: {
+        now: TODAY,
+        amountTolerance: 0.02,
+        maxProximityDays: 120,
+        resolveDepositAmount: () => 7800,
+      },
+    });
+
+    expect(plan.proposedPayments).toHaveLength(3);
+    expect(plan.proposedPayments.every(
+      p => plan.paymentConfidence.get(p.id) === 'reference-exact',
+    )).toBe(true);
+  });
+
+  it('extracts the GBP narrative leg for La Fosse AED deposits', () => {
+    expect(
+      laFosseDepositAmountForMatch({
+        amount: 9000,
+        currency: 'AED',
+        description: 'LA FOSSE TRANSFER GBP 7800 SB-280052',
+      }),
+    ).toBe(7800);
   });
 });
 

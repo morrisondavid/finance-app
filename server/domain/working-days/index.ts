@@ -16,7 +16,10 @@ export { countWorkingDays } from './count.js';
 
 export {
   getPublicHolidays,
+  contractWorkingDayJurisdiction,
+  holidayDatesForContract,
   holidayDatesForEntity,
+  holidayDatesForJurisdiction,
   __resetPublicHolidayCacheForTests,
   type PublicHoliday,
 } from './public-holidays.js';

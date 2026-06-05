@@ -132,6 +132,33 @@ describe('resolveWindow', () => {
     expect(result.dateFrom).toBe('2026-04-15');
     expect(result.skipped).toBe(false);
   });
+
+  it('with lookbackDays re-opens window when latestCsvDate is today', () => {
+    const result = resolveWindow(
+      { dateFrom: '2026-04-15', lookbackDays: 3 },
+      '2026-04-20',
+      '2026-04-20',
+    );
+    expect(result.skipped).toBe(false);
+    expect(result.dateFrom).toBe('2026-04-18');
+    expect(result.dateTo).toBe('2026-04-20');
+  });
+
+  it('with lookbackDays uses max(dateFrom, refreshFrom)', () => {
+    const result = resolveWindow(
+      { dateFrom: '2026-04-19', lookbackDays: 3 },
+      '2026-04-20',
+      '2026-04-20',
+    );
+    expect(result.dateFrom).toBe('2026-04-19');
+    expect(result.skipped).toBe(false);
+  });
+
+  it('incremental path unchanged when lookbackDays unset', () => {
+    const result = resolveWindow({ dateFrom: '2026-04-15', dateTo: '2026-04-17' }, '2026-04-17', '2026-04-20');
+    expect(result.skipped).toBe(true);
+    expect(result.reason).toBe('already_up_to_date');
+  });
 });
 
 describe('findLatestCsvDate', () => {

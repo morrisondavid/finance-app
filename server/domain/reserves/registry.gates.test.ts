@@ -9,6 +9,7 @@ const fx: readonly Reserve[] = [
     reserve_account: 'barclays-savings',
     notes: null,
     updated_at: '2026-01-01',
+    lookahead_days: 90,
   },
   {
     obligation_type: 'vat',
@@ -16,6 +17,7 @@ const fx: readonly Reserve[] = [
     reserve_account: 'emirates-islamic',
     notes: null,
     updated_at: '2026-02-01',
+    lookahead_days: 90,
   },
 ];
 

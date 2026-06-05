@@ -14,6 +14,7 @@ import { calculateRetainedReserves } from '../../config/tax-rates.js';
 import { companyById } from '../company/queries.js';
 import { getAvailableFinancialYears, getTransactions } from '../../db/index.js';
 import { listBudgets } from '../../db/repositories/budgets.js';
+import { listDebts } from '../../db/repositories/debts.js';
 import { normalizeFinancialYear } from '../../db/utils/financial-year.js';
 import { round2 } from '../../utils/math.js';
 import {
@@ -134,6 +135,7 @@ export function composeAiFinancialSnapshot(
       expenseTransactions,
       pipeline: expensePipeline,
       budgetedCategories,
+      activeDebts: listDebts({ includeArchived: false }),
     });
     budgetNudgeCount = nudges.length;
     topNudges = nudges.slice(0, 6);

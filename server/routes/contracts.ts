@@ -25,9 +25,12 @@
  */
 
 import express, { Request, Response } from 'express';
-import fs from 'fs';
-import path from 'path';
+import archiver from 'archiver';
 import type { Contract } from '../../shared/api-contracts.js';
+import {
+  contractDocumentNotFoundDetail,
+  resolveContractDocumentBundle,
+} from '../domain/contracts/document-bundle.js';
 import { findContractById } from '../domain/contracts/queries.js';
 
 import { sendJsonRead } from '../http/read/send-json-read.js';
@@ -103,28 +106,45 @@ router.post('/:id/leave-preview', (req: Request<{ id: string }>, res: Response) 
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/contracts/:id/document — signed contract PDF download.
+// GET /api/contracts/:id/document — signed contract document download.
 //
-// Convention-based: looks for `clients/contracts/<id>.pdf` relative to the
-// repo root (`process.cwd()` at the time the server was booted). If the
-// file isn't there, returns 404 with a message the UI can surface — no
-// other storage layer yet, this is the simplest thing that works.
+// Single PDF: `clients/contracts/<id>.pdf`
+// Multi PDF:   `clients/contracts/<id>/*.pdf` streamed as a zip archive.
 // ---------------------------------------------------------------------------
-
-const CONTRACTS_DOCS_DIR = path.resolve(process.cwd(), 'clients', 'contracts');
 
 router.get('/:id/document', (req: Request<{ id: string }>, res: Response) => {
   const contract = contractOr404(req.params.id, res);
   if (contract === null) return;
-  const docPath = path.join(CONTRACTS_DOCS_DIR, `${contract.id}.pdf`);
-  if (!fs.existsSync(docPath)) {
+
+  const bundle = resolveContractDocumentBundle(contract.id);
+  if (bundle === null) {
     res.status(404).json({
       error: 'ContractDocumentNotFound',
-      detail: `No signed PDF found for ${contract.id}. Expected at clients/contracts/${contract.id}.pdf.`,
+      detail: contractDocumentNotFoundDetail(contract.id),
     });
     return;
   }
-  res.download(docPath, `${contract.id}.pdf`);
+
+  if (bundle.kind === 'single') {
+    res.download(bundle.filePath, bundle.filename);
+    return;
+  }
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${bundle.zipFilename}"`);
+
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  archive.on('error', (err: Error) => {
+    console.error('[contracts] archive error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to create contract document archive' });
+    }
+  });
+  archive.pipe(res);
+  for (const entry of bundle.entries) {
+    archive.file(entry.filePath, { name: entry.archiveName });
+  }
+  void archive.finalize();
 });
 
 // ---------------------------------------------------------------------------

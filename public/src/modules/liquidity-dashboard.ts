@@ -4,8 +4,17 @@
  */
 
 import type { AiFinancialSafetyResponse, AiLiquidityResponse, AiAvailableFundsResponse, AiSurvivalResponse } from '../../../shared/api-contracts.js';
-import { renderFinancialSafetyHero } from './financial-safety-hero.js';
-import { fetchLiquidity, fetchFinancialSafety, fetchAvailableFunds, fetchSurvival, fetchSurvivalPlan } from '../utils/api';
+import { renderFinancialSafetyHero, renderTaxReserveNudges } from './financial-safety-hero.js';
+import {
+  fetchLiquidity,
+  fetchFinancialSafety,
+  fetchAvailableFunds,
+  fetchSurvival,
+  fetchSurvivalPlan,
+  fetchEntityFoundationWarnings,
+} from '../utils/api';
+import { activateTabByName } from './tabs.js';
+import { loadObligations } from './obligations.js';
 import { formatCurrency, formatIsoDateUkLong, formatMonthYear } from '../utils/formatting';
 import { escapeHtml } from '../utils/dom';
 import { state } from './state';
@@ -25,12 +34,22 @@ function renderFinancialSafetyLazyStripLoading(): string {
 
 function renderFinancialSafetyLazyStripDone(
   fs: AiFinancialSafetyResponse,
+  taxReserveNudgesHtml = '',
 ): string {
   const inner = renderFinancialSafetyHero(fs);
-  if (inner === '') {
+  if (inner === '' && taxReserveNudgesHtml === '') {
     return '<div id="liquidity-fs-hero-slot" class="liquidity-fs-hero-slot"></div>';
   }
-  return `<div id="liquidity-fs-hero-slot" class="liquidity-fs-hero-slot">${inner}</div>`;
+  return `<div id="liquidity-fs-hero-slot" class="liquidity-fs-hero-slot">${inner}${taxReserveNudgesHtml}</div>`;
+}
+
+function bindTaxReserveNudgeClicks(container: ParentNode): void {
+  container.querySelectorAll<HTMLButtonElement>('[data-tab-jump="obligations"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activateTabByName('obligations');
+      void loadObligations();
+    });
+  });
 }
 
 function renderFinancialSafetyLazyStripError(message: string): string {
@@ -531,15 +550,20 @@ export async function loadLiquidityDashboard(): Promise<void> {
     bindSurvivalControl(ac, myGen);
 
     try {
-      const fs = await fetchFinancialSafety({
-        account: state.selectedAccount,
-        financialYear: state.selectedFinancialYear || undefined,
-        signal: ac.signal,
-      });
+      const [fs, warningsResp] = await Promise.all([
+        fetchFinancialSafety({
+          account: state.selectedAccount,
+          financialYear: state.selectedFinancialYear || undefined,
+          signal: ac.signal,
+        }),
+        fetchEntityFoundationWarnings().catch(() => ({ warnings: [] })),
+      ]);
       if (myGen !== liquidityDashboardLoadGeneration) return;
       const slot = el.querySelector('#liquidity-fs-hero-slot');
+      const taxReserveNudgesHtml = renderTaxReserveNudges(warningsResp.warnings);
       if (slot) {
-        slot.outerHTML = renderFinancialSafetyLazyStripDone(fs).trim();
+        slot.outerHTML = renderFinancialSafetyLazyStripDone(fs, taxReserveNudgesHtml).trim();
+        bindTaxReserveNudgeClicks(el);
       }
     } catch (fsErr) {
       if (myGen !== liquidityDashboardLoadGeneration) return;

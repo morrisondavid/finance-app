@@ -177,7 +177,7 @@ export const DEFAULT_DEBT_ROWS: readonly DebtCsvRow[] = [
   {
     id: 'mortgage-heath-park-road',
     name: '53 Heath Park Road Mortgage',
-    merchantPattern: 'Coventry Building',
+    merchantPattern: 'Coventry B',
     sourceAccounts: ['monzo-joint'],
     originalLoanAmount: 449000,
     originalLoanDate: null,

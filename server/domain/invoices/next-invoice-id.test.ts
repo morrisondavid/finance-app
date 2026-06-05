@@ -88,15 +88,25 @@ describe('nextSupplierInvoiceId', () => {
     ).toBe('DC-003');
   });
 
-  it('returns UK-0001 for a non–Delta Capita client on UK Ltd', () => {
+  it('returns EG-0001 for La Fosse on UK Ltd', () => {
     expect(
       nextSupplierInvoiceId(laFosse, ukCompany, 'autonize-it-ltd', []),
-    ).toBe('UK-0001');
+    ).toBe('EG-0001');
   });
 
-  it('returns FZ-0001 for La Fosse on FZCO', () => {
+  it('returns EG-0001 for La Fosse on FZCO (shared client series)', () => {
     expect(
       nextSupplierInvoiceId(laFosse, fzcoCompany, 'autonize-it-fzco', []),
-    ).toBe('FZ-0001');
+    ).toBe('EG-0001');
+  });
+
+  it('returns EG-0003 when two La Fosse EG rows exist', () => {
+    const rows = [
+      ukRowFromDcFixture(dcInvoice001, 'EG-0001'),
+      ukRowFromDcFixture(dcInvoice002, 'EG-0002'),
+    ].map(r => ({ ...r, client_id: 'la-fosse' as const }));
+    expect(
+      nextSupplierInvoiceId(laFosse, ukCompany, 'autonize-it-ltd', rows),
+    ).toBe('EG-0003');
   });
 });

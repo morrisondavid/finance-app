@@ -38,7 +38,7 @@ export interface WorkloadInput {
    * Entity-scoped public-holiday dates to exclude from working days.
    * These are **not** counted as personal leave (`leaveDays` stays
    * leave-only) but **are** subtracted from `workingDays` / `subtotal`.
-   * Callers obtain this set via `holidayDatesForEntity`.
+   * Callers obtain this set via `holidayDatesForContract`.
    */
   readonly publicHolidayDates?: ReadonlySet<string>;
 }

@@ -2,9 +2,47 @@
  * §2.2 Financial Safety hero — Dashboard tab strip above household liquidity.
  */
 
-import type { AiFinancialSafetyResponse } from '../../../shared/api-contracts.js';
+import type {
+  AiFinancialSafetyResponse,
+  EntityFoundationWarning,
+} from '../../../shared/api-contracts.js';
 import { scoreToSafetyTheme } from '../../../shared/financial-safety/theme.js';
 import { escapeHtml } from '../utils/dom';
+
+function taxReserveDueDate(w: EntityFoundationWarning): string {
+  const due = w.context?.dueDate;
+  return typeof due === 'string' ? due : '9999-12-31';
+}
+
+/** Top UK Ltd underfunded tax-reserve warnings for the Dashboard strip (soonest due first). */
+export function pickTopTaxReserveWarnings(
+  warnings: readonly EntityFoundationWarning[],
+  limit = 2,
+): EntityFoundationWarning[] {
+  return warnings
+    .filter(w => w.code === 'tax-reserve-underfunded' && w.entityId === 'autonize-it-ltd')
+    .sort((a, b) => taxReserveDueDate(a).localeCompare(taxReserveDueDate(b)))
+    .slice(0, limit);
+}
+
+export function renderTaxReserveNudges(warnings: readonly EntityFoundationWarning[]): string {
+  const top = pickTopTaxReserveWarnings(warnings);
+  if (top.length === 0) return '';
+
+  const items = top.map(w => `
+    <li class="financial-safety-tax-reserve-nudge__item" data-severity="${escapeHtml(w.severity)}">
+      <button type="button" class="financial-safety-tax-reserve-nudge__link" data-tab-jump="obligations">
+        ${escapeHtml(w.title)}
+      </button>
+    </li>
+  `).join('');
+
+  return `
+    <aside class="financial-safety-tax-reserve-nudge" aria-label="Tax reserve shortfalls">
+      <p class="financial-safety-tax-reserve-nudge__kicker">Tax reserves</p>
+      <ul class="financial-safety-tax-reserve-nudge__list">${items}</ul>
+    </aside>`;
+}
 
 function safetyLabel(score: number): string {
   if (score >= 7) return 'Comfortable headroom';

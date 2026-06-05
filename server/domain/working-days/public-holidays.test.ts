@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
+  contractWorkingDayJurisdiction,
   getPublicHolidays,
+  holidayDatesForContract,
   holidayDatesForEntity,
   __resetPublicHolidayCacheForTests,
 } from './public-holidays.js';
+import type { Contract } from '../../../shared/api-contracts.js';
 
 beforeEach(() => {
   __resetPublicHolidayCacheForTests();
@@ -57,6 +60,22 @@ describe('getPublicHolidays', () => {
     const first = getPublicHolidays('UK', 2025);
     const second = getPublicHolidays('UK', 2025);
     expect(first).toBe(second);
+  });
+});
+
+describe('contractWorkingDayJurisdiction', () => {
+  const englandContract = {
+    jurisdiction: 'England',
+    issuing_entity_id: 'autonize-it-fzco',
+  } satisfies Pick<Contract, 'jurisdiction' | 'issuing_entity_id'>;
+
+  it('uses UK holidays when contract governing law is England', () => {
+    expect(contractWorkingDayJurisdiction(englandContract)).toBe('UK');
+  });
+
+  it('does not subtract UAE Eid for an England contract billed via FZCO', () => {
+    const dates = holidayDatesForContract(englandContract, '2026-03-16', '2026-03-22');
+    expect(dates.has('2026-03-20')).toBe(false);
   });
 });
 

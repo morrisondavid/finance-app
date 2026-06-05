@@ -23,6 +23,7 @@ export const RESERVE_CSV_HEADERS = [
   'reserve_account',
   'notes',
   'updated_at',
+  'lookahead_days',
 ] as const;
 
 export function getReservesCsvPath(reservesDir: string): string {
@@ -37,7 +38,18 @@ export function parseReserveRow(row: Record<string, string>): Reserve {
     reserve_account: requireNonEmpty(row.reserve_account, 'reserve_account', rowId),
     notes: nullIfEmpty(row.notes),
     updated_at: decodeIsoDate(row.updated_at, 'updated_at', rowId),
+    lookahead_days: decodeLookaheadDays(row.lookahead_days, rowId),
   });
+}
+
+function decodeLookaheadDays(raw: string | undefined, rowId: string): number {
+  const trimmed = nullIfEmpty(raw);
+  if (trimmed === null) return 90;
+  const n = Number(trimmed);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(`Reserve row ${rowId}: lookahead_days must be a positive integer, got "${raw}"`);
+  }
+  return n;
 }
 
 export function readReservesCsvFile(csvPath: string): Reserve[] {

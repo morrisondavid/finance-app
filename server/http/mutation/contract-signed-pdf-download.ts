@@ -1,13 +1,17 @@
 /**
- * Signed contract PDF on disk (`clients/contracts/<id>.pdf`) — GET + MCP base64 parity.
+ * Signed contract documents on disk — GET + MCP base64 parity.
+ *
+ * Single file: `clients/contracts/<id>.pdf`
+ * Multi file:  `clients/contracts/<id>/*.pdf` (MCP returns first PDF; HTTP streams zip)
  */
 
 import fs from 'fs';
-import path from 'path';
 import { findContractById } from '../../domain/contracts/index.js';
+import {
+  contractDocumentNotFoundDetail,
+  resolveContractDocumentBundle,
+} from '../../domain/contracts/document-bundle.js';
 import { parseContractId } from '../read/contracts.js';
-
-const CONTRACTS_DOCS_DIR = path.resolve(process.cwd(), 'clients', 'contracts');
 
 export type ContractSignedPdfDownloadResult =
   | { readonly kind: 'pdf'; readonly filename: string; readonly buffer: Buffer }
@@ -23,18 +27,27 @@ export function mutateContractSignedPdfDownload(rawContractId: string): Contract
     return { kind: 'json', status: 404, body: { error: 'Contract not found' } };
   }
 
-  const docPath = path.join(CONTRACTS_DOCS_DIR, `${contract.id}.pdf`);
-  if (!fs.existsSync(docPath)) {
+  const bundle = resolveContractDocumentBundle(contract.id);
+  if (bundle === null) {
     return {
       kind: 'json',
       status: 404,
       body: {
         error: 'ContractDocumentNotFound',
-        detail: `No signed PDF found for ${contract.id}. Expected at clients/contracts/${contract.id}.pdf.`,
+        detail: contractDocumentNotFoundDetail(contract.id),
       },
     };
   }
 
-  const buffer = fs.readFileSync(docPath);
-  return { kind: 'pdf', filename: `${contract.id}.pdf`, buffer };
+  if (bundle.kind === 'single') {
+    const buffer = fs.readFileSync(bundle.filePath);
+    return { kind: 'pdf', filename: bundle.filename, buffer };
+  }
+
+  const buffer = fs.readFileSync(bundle.entries[0].filePath);
+  return {
+    kind: 'pdf',
+    filename: bundle.entries[0].archiveName,
+    buffer,
+  };
 }

@@ -11,6 +11,8 @@ import { accumulationFromTxn, classifyTransactionSide, recurringKey } from './re
 import { expenseTxnMatchesMerchantModal } from './merchant-drill-search.js';
 import { round2 } from './math.js';
 import { getMerchantLogoUrl } from './merchant-logos.js';
+import type { Debt } from '../db/repositories/debts.js';
+import { transactionMatchesAnyActiveDebt } from '../domain/debts/match-transaction.js';
 
 export interface BudgetNudgeRow {
   merchant: string;
@@ -25,6 +27,8 @@ export interface BudgetNudgesInput {
   expenseTransactions: readonly RawTransaction[];
   pipeline: PipelineResult;
   budgetedCategories: ReadonlySet<string>;
+  /** When set, expense debits that match an active debt are excluded (registered repayments). */
+  activeDebts?: readonly Debt[];
   options?: {
     minTotal?: number;
     maxRows?: number;
@@ -43,7 +47,7 @@ interface MerchantBucket {
 }
 
 export function computeBudgetNudges(input: BudgetNudgesInput): BudgetNudgeRow[] {
-  const { expenseTransactions, pipeline, budgetedCategories, options } = input;
+  const { expenseTransactions, pipeline, budgetedCategories, activeDebts, options } = input;
   const minTotal = options?.minTotal ?? DEFAULT_MIN_TOTAL;
   const maxRows = options?.maxRows ?? DEFAULT_MAX_ROWS;
 
@@ -60,6 +64,13 @@ export function computeBudgetNudges(input: BudgetNudgesInput): BudgetNudgeRow[] 
   for (const txn of expenseTransactions) {
     const side = classifyTransactionSide(txn);
     if (side !== 'expense') continue;
+    if (
+      activeDebts !== undefined &&
+      activeDebts.length > 0 &&
+      transactionMatchesAnyActiveDebt(txn, activeDebts)
+    ) {
+      continue;
+    }
 
     const acc = accumulationFromTxn(txn, 'expense');
     if (!acc) continue;

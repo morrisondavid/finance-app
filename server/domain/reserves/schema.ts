@@ -36,7 +36,15 @@ export const ReserveSchema = z.object({
   notes: z.string().nullable(),
   /** ISO date this row was last edited. */
   updated_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /**
+   * How far ahead (days from today) to sum obligations for this reserve.
+   * Quarterly VAT defaults to 90; annual CT typically needs 365.
+   */
+  lookahead_days: z.number().int().positive().default(90),
 }).readonly();
+
+/** Default look-ahead when a reserve row omits `lookahead_days`. */
+export const DEFAULT_RESERVE_LOOKAHEAD_DAYS = 90;
 
 export type Reserve = z.infer<typeof ReserveSchema>;
 

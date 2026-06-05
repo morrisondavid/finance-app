@@ -57,6 +57,7 @@ export const COMPANY_CSV_HEADERS = [
   'ct_registered',
   'qfzp_elected',
   'vat_registered',
+  'vat_scheme',
   'historical_effective_ct_rate',
   'historical_effective_vat_rate',
   'active',
@@ -139,6 +140,19 @@ function decodeOptionalEffectiveRate(
   return n;
 }
 
+/** Empty cell → `standard`; else `standard` | `cash`. */
+function decodeVatScheme(
+  value: string | undefined,
+  rowId: string,
+): 'standard' | 'cash' {
+  const raw = nullIfEmpty(value);
+  if (raw === null) return 'standard';
+  if (raw === 'standard' || raw === 'cash') return raw;
+  throw new Error(
+    `Company ${rowId}: vat_scheme must be 'standard' | 'cash' or empty (defaults to standard), got '${raw}'`,
+  );
+}
+
 /**
  * Rehydrate a flat CSV row into the correct discriminated-union variant
  * (UK | UAE) and validate with Zod. Throws with a precise message
@@ -160,6 +174,7 @@ export function parseCompanyRow(row: Record<string, string>): Company {
     accountant_name: decodeNullableStringOrTbc(row.accountant_name),
     accountant_email: decodeNullableStringOrTbc(row.accountant_email),
     vat_registered: decodeBooleanOrTbc(row.vat_registered, 'vat_registered', rowId),
+    vat_scheme: decodeVatScheme(row.vat_scheme, rowId),
     historical_effective_ct_rate: decodeOptionalEffectiveRate(
       row.historical_effective_ct_rate,
       'historical_effective_ct_rate',
@@ -304,6 +319,8 @@ export function serializeCompanyRow(company: Company): string {
           : '';
       case 'vat_registered':
         return encodeBooleanOrTbc(company.vat_registered);
+      case 'vat_scheme':
+        return company.vat_scheme === 'standard' ? '' : company.vat_scheme;
       case 'historical_effective_ct_rate':
         return company.historical_effective_ct_rate == null ? '' : String(company.historical_effective_ct_rate);
       case 'historical_effective_vat_rate':

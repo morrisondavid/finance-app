@@ -10,29 +10,15 @@
 import fs from 'fs';
 import path from 'path';
 import { initDatabase } from '../server/db/index.js';
-import { getDb } from '../server/db/connection.js';
 import { todayIsoLocal } from '../shared/iso-date.js';
 import type { Contract, EntityId } from '../shared/api-contracts.js';
 import { upsertContract } from '../server/domain/contracts/queries.js';
 import { syncContractRenewalDeadlines } from '../server/domain/contracts/deadline-seeder.js';
 import { persistIngestedSelfBillFromBuffer } from '../server/domain/invoices/ingest-persist.js';
 import {
-  allInvoicePayments,
   allInvoices,
-  listInvoicesByStatus,
-  updateInvoice,
-  extractLaFosseSupplierRefs,
-  laFosseDepositAmountForMatch,
-  loadLaFosseReconcileTransactions,
-  planReconciliation,
-  recordInvoicePayments,
-  type Invoice,
-  type InvoicePayment,
-  type ReconcileTransaction,
+  autoReconcileHighConfidence,
 } from '../server/domain/invoices/index.js';
-import { normaliseForMatch } from '../server/domain/clients/narrative-match.js';
-import { allClients } from '../server/domain/clients/queries.js';
-import { CurrencyCodeSchema } from '../shared/api-contracts.js';
 
 const PDF_DIR = process.argv[2] ?? '/tmp/lf-invoices';
 const TODAY = todayIsoLocal();
@@ -131,235 +117,28 @@ async function ingestPdfDirectory(dir: string): Promise<{ ingested: number; fail
   return { ingested, failed };
 }
 
-function loadLaFosseIncomeTransactions(
-  invoiceEntityId: EntityId,
-  windowStart: string,
-  windowEnd: string,
-): readonly ReconcileTransaction[] {
-  return loadLaFosseReconcileTransactions({
-    invoiceEntityId,
-    windowStart,
-    windowEnd,
-    queryRows: (accounts, start, end) =>
-      getDb()
-        .prepare(
-          `SELECT id, date, description, amount, account
-             FROM transactions
-             WHERE type = 'income'
-               AND account IN (${accounts.map(() => '?').join(', ')})
-               AND date >= ? AND date <= ?
-             ORDER BY date ASC`,
-        )
-        .all(...accounts, start, end) as readonly {
-        id: number;
-        date: string;
-        description: string;
-        amount: number;
-        account: string;
-      }[],
-  });
-}
-
-function compactSupplierRef(raw: string): string {
-  return normaliseForMatch(raw).replace(/\s+/g, '');
-}
-
-function extractSupplierRefs(description: string): readonly string[] {
-  return extractLaFosseSupplierRefs(description);
-}
-
-function supplierRefMatchesInvoice(ref: string, paymentReference: string): boolean {
-  const r = compactSupplierRef(ref);
-  const p = compactSupplierRef(paymentReference);
-  if (r.length === 0 || p.length === 0) return false;
-  if (p.startsWith(r) || r.startsWith(p)) return true;
-
-  const refDigits = r.replace(/^SB/i, '');
-  const payDigits = p.replace(/^SB/i, '');
-  if (refDigits.length >= 4 && payDigits.length >= refDigits.length) {
-    return payDigits.startsWith(refDigits);
-  }
-  return false;
-}
-
-function expandCandidatesForDeposit(
-  seed: readonly Invoice[],
-  pool: readonly Invoice[],
-  depositAmount: number,
-): readonly Invoice[] {
-  if (seed.length === 0) return seed;
-  const chosen = new Map(seed.map(inv => [inv.id, inv] as const));
-  let total = [...chosen.values()].reduce((sum, inv) => sum + inv.total, 0);
-  if (Math.abs(total - depositAmount) / depositAmount <= 0.02) {
-    return [...chosen.values()];
-  }
-
-  const remaining = pool
-    .filter(inv => !chosen.has(inv.id))
-    .sort((a, b) => a.period_start.localeCompare(b.period_start));
-
-  for (const inv of remaining) {
-    const nextTotal = total + inv.total;
-    if (nextTotal - depositAmount > depositAmount * 0.02) continue;
-    chosen.set(inv.id, inv);
-    total = nextTotal;
-    if (Math.abs(total - depositAmount) / depositAmount <= 0.02) {
-      return [...chosen.values()];
-    }
-  }
-
-  return seed;
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
-function buildSbPayment(
-  invoice: Invoice,
-  tx: ReconcileTransaction,
-  amountInInvoiceCurrency: number,
-  amountPaid: number,
-  createdAt: string,
-): InvoicePayment {
-  return {
-    id: `ip-${invoice.id}-${tx.id}`,
-    invoice_id: invoice.id,
-    bank_transaction_id: tx.id,
-    payment_date: tx.date,
-    amount_paid: round2(amountPaid),
-    deposit_currency: CurrencyCodeSchema.parse(tx.currency),
-    fx_rate_at_payment: null,
-    amount_in_invoice_currency: round2(amountInInvoiceCurrency),
-    fx_gain_loss: 0,
-    residual: round2(invoice.total - amountInInvoiceCurrency),
-    created_at: createdAt,
-    updated_at: null,
-  };
-}
-
-/** La Fosse often batches several SB numbers on one deposit — match by narrative first. */
-function reconcileBySupplierReference(
-  entityId: EntityId,
-  windowStart: string,
-  windowEnd: string,
-): number {
-  const issued = listInvoicesByStatus('issued').filter(inv => inv.issuing_entity_id === entityId);
-  if (issued.length === 0) return 0;
-
-  const paidInvoiceIds = new Set(allInvoicePayments().map(p => p.invoice_id));
-  const unpaid = issued.filter(inv => !paidInvoiceIds.has(inv.id));
-  if (unpaid.length === 0) return 0;
-
-  const transactions = loadLaFosseIncomeTransactions(entityId, windowStart, windowEnd);
-  const proposed: InvoicePayment[] = [];
-  const claimedInvoiceIds = new Set<string>();
-
-  for (const tx of transactions) {
-    const refs = extractSupplierRefs(tx.description);
-    if (refs.length === 0) continue;
-
-    let candidates = unpaid.filter(
-      inv =>
-        !claimedInvoiceIds.has(inv.id)
-        && refs.some(ref => supplierRefMatchesInvoice(ref, inv.payment_reference)),
-    );
-    if (candidates.length === 0) continue;
-
-    const depositAmount = laFosseDepositAmountForMatch(tx);
-    candidates = expandCandidatesForDeposit(candidates, unpaid, depositAmount);
-    if (candidates.length === 0) continue;
-
-    const groupTotal = candidates.reduce((sum, inv) => sum + inv.total, 0);
-    const amountDelta = Math.abs(depositAmount - groupTotal) / groupTotal;
-    if (amountDelta > 0.02) continue;
-
-    for (const inv of candidates) {
-      const share = inv.total / groupTotal;
-      const amountPaid = tx.currency === inv.currency
-        ? depositAmount * share
-        : tx.amount * share;
-      proposed.push(
-        buildSbPayment(inv, tx, inv.total, amountPaid, TODAY),
-      );
-      claimedInvoiceIds.add(inv.id);
-    }
-  }
-
-  if (proposed.length === 0) return 0;
-
-  const persisted = recordInvoicePayments({ payments: proposed });
-  if (!persisted.ok) {
-    throw new Error(`SB reconcile persist failed: ${persisted.code}`);
-  }
-
-  for (const payment of proposed) {
-    if (payment.residual > 0.01) continue;
-    updateInvoice({ invoiceId: payment.invoice_id, patch: { status: 'paid' } });
-  }
-
-  return proposed.length;
-}
-
 function reconcileEntity(entityId: EntityId): {
-  sbMatched: number;
-  amountMatched: number;
+  referenceMatched: number;
+  amountOnlyProposed: number;
   unmatchedInvoices: number;
   unmatchedTransactions: number;
 } {
-  const issued = listInvoicesByStatus('issued').filter(inv => inv.issuing_entity_id === entityId);
-  if (issued.length === 0) {
-    return { sbMatched: 0, amountMatched: 0, unmatchedInvoices: 0, unmatchedTransactions: 0 };
-  }
-
-  const earliestDue = issued.reduce((min, inv) => (inv.due_date < min ? inv.due_date : min), issued[0]!.due_date);
-  const windowStart = earliestDue < '2025-01-01' ? '2025-01-01' : earliestDue;
-  const windowEnd = TODAY;
-
-  const sbMatched = reconcileBySupplierReference(entityId, '2025-01-01', windowEnd);
-
-  const issuedAfterSb = listInvoicesByStatus('issued').filter(inv => inv.issuing_entity_id === entityId);
-  if (issuedAfterSb.length === 0) {
-    return { sbMatched, amountMatched: 0, unmatchedInvoices: 0, unmatchedTransactions: 0 };
-  }
-
-  const transactions = loadLaFosseIncomeTransactions(entityId, windowStart, windowEnd);
-  const clientsById = new Map(allClients().map(c => [c.id, c] as const));
-
-  const plan = planReconciliation({
-    invoices: issuedAfterSb,
-    transactions,
-    clientsById,
-    existingPayments: allInvoicePayments(),
-    options: {
-      now: TODAY,
-      maxProximityDays: 120,
-      amountTolerance: 0.02,
-    },
+  const auto = autoReconcileHighConfidence({
+    entityId,
+    windowStart: '2025-01-01',
+    windowEnd: TODAY,
+    now: TODAY,
   });
 
-  if (plan.proposedPayments.length > 0) {
-    const persisted = recordInvoicePayments({ payments: plan.proposedPayments });
-    if (!persisted.ok) {
-      throw new Error(`recordInvoicePayments failed: ${persisted.code}`);
-    }
-
-    for (const payment of plan.proposedPayments) {
-      const inv = issued.find(i => i.id === payment.invoice_id);
-      if (inv === undefined) continue;
-      if (payment.residual > 0.01) continue;
-      updateInvoice({
-        invoiceId: inv.id,
-        patch: { status: 'paid' },
-      });
-    }
-  }
+  const amountOnlyProposed = auto.plan.proposedPayments.filter(
+    payment => auto.plan.paymentConfidence.get(payment.id) === 'amount-only',
+  ).length;
 
   return {
-    sbMatched,
-    amountMatched: plan.proposedPayments.length,
-    unmatchedInvoices: plan.unmatchedInvoices.length,
-    unmatchedTransactions: plan.unmatchedTransactions.length,
+    referenceMatched: auto.persisted.length,
+    amountOnlyProposed,
+    unmatchedInvoices: auto.plan.unmatchedInvoices.length,
+    unmatchedTransactions: auto.plan.unmatchedTransactions.length,
   };
 }
 

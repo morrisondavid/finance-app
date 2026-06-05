@@ -85,6 +85,39 @@ Requires buckets from `./01-s3-buckets.sh` and AWS CLI credentials (same profile
 
 Optional legacy cron: **`11-s3-sync-push.sh`** only synced `data/` + `statements/` to legacy bucket layouts; **`09`** + targeted SDK uploads mirror the **full durable tree** under **`BANK_S3_DURABLE_PREFIX`** for new installs.
 
+### Scheduled bank feed sync (16:00 + 23:00 Europe/London)
+
+Automated TrueLayer/Enable sync runs on the **EC2 host** (not inside the Dockerfile). Cron calls a bash wrapper that **`docker exec`s** the same CLI as manual ops — **not** `curl` to `/api/feed/sync`.
+
+| Piece | Location |
+|-------|----------|
+| Wrapper | [`cron/feed-sync-all.sh`](cron/feed-sync-all.sh) → `docker exec bank npx tsx /app/scripts/feed-sync-all.ts` |
+| One-time install | [`cron/install-feed-sync-cron.sh`](cron/install-feed-sync-cron.sh) — **not** run by **`09`** |
+| App CLI | `scripts/feed-sync-all.ts` (shipped in the image) |
+| Status / warnings | `data/feed-sync-scheduled-status.json` → Warnings tab (`feed-sync-scheduled-failed`) |
+| Logs | `/var/log/bank-feed-sync.log` on the host |
+
+**Prerequisite:** Amazon Linux 2023 often ships without cron. [`install-feed-sync-cron.sh`](cron/install-feed-sync-cron.sh) installs **`cronie`** and starts **`crond`** when `crontab` is missing. Manual fix: `sudo dnf install -y cronie && sudo systemctl enable --now crond`.
+
+**After first deploy** (or when `deploy/aws/cron/` changes: `copy-deploy-to-ec2.sh`, then on EC2):
+
+```bash
+cd ~/bank-deploy-aws
+chmod +x cron/feed-sync-all.sh cron/install-feed-sync-cron.sh
+./cron/install-feed-sync-cron.sh
+```
+
+**Manual test** (same as cron):
+
+```bash
+docker exec bank npx tsx /app/scripts/feed-sync-all.ts
+# or: ~/bank-deploy-aws/cron/feed-sync-all.sh
+```
+
+**App code updates:** rebuild with **`07`**, run **`09`** — cron lines stay the same; the new image is picked up on the next `docker exec`. Re-run **`install-feed-sync-cron.sh`** only if the schedule or wrapper path changes.
+
+**Windows Task Scheduler analogy:** crontab = task triggers; `feed-sync-all.sh` = action that starts the program; Docker image = the program that changes when you deploy.
+
 ### Multi-instance Enable Banking (future)
 
 For autoscaled containers or Lambda, **do not** rely on a shared **`enable-sessions.json`** on a network filesystem without compare-and-swap semantics—two writers can clobber refresh tokens. Plan on **`EnableSessionStore`** backed by **one** consistent store (S3 object ETag CAS, DynamoDB conditional update, etc.) keyed by tenant, and keep private keys in Secrets Manager / SSM—not in the durable CSV bucket.

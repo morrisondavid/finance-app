@@ -56,16 +56,16 @@ async function fetchLeaveForContracts(contracts: Contract[]): Promise<LeaveRow[]
 }
 
 async function fetchPublicHolidays(
-  entityIds: readonly string[],
+  contractIds: readonly string[],
   start: string,
   end: string,
 ): Promise<EventInput[]> {
   const seen = new Set<string>();
   const events: EventInput[] = [];
-  const uniqueEntities = [...new Set(entityIds)];
-  for (const entityId of uniqueEntities) {
+  const uniqueContracts = [...new Set(contractIds)];
+  for (const contractId of uniqueContracts) {
     const data = await fetchJson<PublicHolidaysResponse>(
-      `/api/public-holidays?entityId=${entityId}&start=${start}&end=${end}`,
+      `/api/public-holidays?contractId=${encodeURIComponent(contractId)}&start=${start}&end=${end}`,
     );
     for (const h of data.holidays) {
       if (seen.has(h.date)) continue;
@@ -138,8 +138,8 @@ async function refreshCalendarData(): Promise<void> {
 }
 
 async function loadPublicHolidays(start: string, end: string): Promise<void> {
-  const entityIds = activeContracts.map(c => c.issuing_entity_id);
-  publicHolidayEvents = await fetchPublicHolidays(entityIds, start, end);
+  const contractIds = activeContracts.map(c => c.id);
+  publicHolidayEvents = await fetchPublicHolidays(contractIds, start, end);
 }
 
 function ensureCalendar(): Calendar {

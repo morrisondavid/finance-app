@@ -34,6 +34,7 @@ import { categoryColour } from '../../utils/categorizer.js';
 import { transactionCategoryWithPayroll } from '../../domain/payroll/index.js';
 import { getCategoryExpenseBreakdown } from '../../utils/category-expense-totals.js';
 import { getBudgetComparisonsForFy, listBudgets } from '../../db/repositories/budgets.js';
+import { listDebts } from '../../db/repositories/debts.js';
 import { normalizeFinancialYear } from '../../db/utils/financial-year.js';
 import { round2 } from '../../utils/math.js';
 import { buildExpensePipelineForAccount, transactionRowToRaw } from '../../utils/expenses-overview-pipeline.js';
@@ -92,6 +93,7 @@ export function readDashboardSummaryFromQuery(
         expenseTransactions,
         pipeline,
         budgetedCategories,
+        activeDebts: listDebts({ includeArchived: false }),
       });
     }
 

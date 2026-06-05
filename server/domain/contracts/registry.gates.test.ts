@@ -16,6 +16,7 @@ import {
   makeStubMasters,
   seedCsv,
   dcSowRow,
+  dcSow2025JunRow,
   lfContractRow,
   lfExtensionRow,
   lfFzcoContractRow,
@@ -138,9 +139,12 @@ describe('contracts registry gates', () => {
 
   describe('indexes.byClient', () => {
     it('groups contracts by client_id', () => {
-      seedCsv(tmpDir, [dcSowRow, lfContractRow, lfExtensionRow]);
+      seedCsv(tmpDir, [dcSow2025JunRow, dcSowRow, lfContractRow, lfExtensionRow]);
       const reg = buildWithStubs(tmpDir);
-      expect(reg.indexes.byClient.get('delta-capita')?.map(c => c.id)).toEqual(['dc-sow-2026']);
+      expect(reg.indexes.byClient.get('delta-capita')?.map(c => c.id)).toEqual([
+        'dc-sow-2025-jun',
+        'dc-sow-2026',
+      ]);
       expect(reg.indexes.byClient.get('la-fosse')?.map(c => c.id)).toEqual([
         'lf-2026-mar',
         'lf-extension-1',
@@ -190,9 +194,12 @@ describe('contracts registry gates', () => {
 
   describe('indexes.byMaster', () => {
     it('contains only contracts with a non-null master_id', () => {
-      seedCsv(tmpDir, [dcSowRow, lfContractRow]);
+      seedCsv(tmpDir, [dcSow2025JunRow, dcSowRow, lfContractRow]);
       const reg = buildWithStubs(tmpDir);
-      expect(reg.indexes.byMaster.get('dc-master-2025')?.map(c => c.id)).toEqual(['dc-sow-2026']);
+      expect(reg.indexes.byMaster.get('dc-master-2025')?.map(c => c.id)).toEqual([
+        'dc-sow-2025-jun',
+        'dc-sow-2026',
+      ]);
       expect(reg.indexes.byMaster.size).toBe(1);
     });
 

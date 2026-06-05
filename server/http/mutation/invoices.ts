@@ -4,33 +4,26 @@
 
 import { z } from 'zod';
 import {
-  allInvoicePayments,
   allInvoices,
+  applyInvoiceStatusAfterPayments,
+  autoReconcileHighConfidence,
+  buildReconciliationPlan,
   createInvoice,
   findInvoiceById,
   InvoiceSchema,
-  listInvoicesByStatus,
-  listInvoicesByIssuingEntityId,
-  loadLaFosseReconcileTransactions,
-  planReconciliation,
   recordInvoicePayments,
+  RECONCILE_LOOKBACK_DAYS,
   updateInvoice,
   writeInvoicePdf,
   type Invoice,
-  type ReconcileTransaction,
-  type ReconciliationPlan,
 } from '../../domain/invoices/index.js';
 import { violationForMonthlySupplierInvoiceGenerate } from '../../domain/invoices/invoice-generate-monthly-guards.js';
 import { findContractById } from '../../domain/contracts/index.js';
-import { allClients, findClientById } from '../../domain/clients/index.js';
+import { findClientById } from '../../domain/clients/index.js';
 import { companyById } from '../../domain/company/index.js';
 import { shiftIsoDate, todayIsoLocal } from '../../../shared/iso-date.js';
-import { EntityIdSchema, type Client, type ClientId, type EntityId } from '../../../shared/api-contracts.js';
-import { accountsForEntity, getAccountConfig } from '../../domain/accounts/queries.js';
-import { getDb } from '../../db/connection.js';
+import { EntityIdSchema, type EntityId } from '../../../shared/api-contracts.js';
 import type { JsonMutationResult } from './types.js';
-
-const RECONCILE_LOOKBACK_DAYS = 180;
 
 /** POST `/generate` — same `{ invoice }` envelope as `/api/invoices/generate`. */
 export const InvoiceGenerateBodySchema = z.object({
@@ -41,6 +34,8 @@ export const InvoiceGenerateBodySchema = z.object({
 
 export const InvoiceReconcileBodySchema = z.object({
   dryRun: z.boolean().optional(),
+  /** When true, auto-persist reference-exact matches only. */
+  mode: z.enum(['dry-run', 'auto', 'persist-all']).optional(),
   entityId: EntityIdSchema.optional(),
 });
 
@@ -152,72 +147,6 @@ export async function mutateInvoiceGenerate(body: unknown): Promise<JsonMutation
   }
 }
 
-function loadReconcileTransactions(
-  invoices: readonly Invoice[],
-  windowStart: string,
-  windowEnd: string,
-): readonly ReconcileTransaction[] {
-  if (invoices.length === 0) return [];
-
-  const queryRows = (
-    accounts: readonly string[],
-    start: string,
-    end: string,
-  ) =>
-    getDb()
-      .prepare(
-        `SELECT id, date, description, amount, account
-           FROM transactions
-           WHERE type = 'income'
-             AND account IN (${accounts.map(() => '?').join(', ')})
-             AND date >= ? AND date <= ?
-           ORDER BY date ASC`,
-      )
-      .all(...accounts, start, end) as readonly {
-      id: number;
-      date: string;
-      description: string;
-      amount: number;
-      account: string;
-    }[];
-
-  const entities = [...new Set(invoices.map(i => i.issuing_entity_id))];
-  const allLaFosse =
-    invoices.length > 0 && invoices.every(inv => inv.client_id === 'la-fosse');
-
-  if (allLaFosse && entities.length === 1) {
-    return loadLaFosseReconcileTransactions({
-      invoiceEntityId: entities[0]!,
-      windowStart,
-      windowEnd,
-      queryRows,
-    });
-  }
-
-  const accounts: string[] = [];
-  for (const entityId of entities) {
-    accounts.push(...accountsForEntity(entityId));
-  }
-  if (accounts.length === 0) return [];
-
-  const rows = queryRows(accounts, windowStart, windowEnd);
-  const out: ReconcileTransaction[] = [];
-  for (const r of rows) {
-    const cfg = getAccountConfig(r.account as Parameters<typeof getAccountConfig>[0]);
-    if (cfg.category !== 'business') continue;
-    out.push({
-      id: String(r.id),
-      date: r.date,
-      description: r.description,
-      amount: r.amount,
-      currency: cfg.currency,
-      account: r.account,
-      entityId: cfg.entityId,
-    });
-  }
-  return out;
-}
-
 /**
  * POST `/api/invoices/reconcile`.
  * **`dryRun` defaults true** — set `dryRun: false` to persist proposed payments (**writes DB**).
@@ -231,36 +160,45 @@ export function mutateInvoiceReconcile(body: unknown): JsonMutationResult {
     };
   }
 
-  /** MCP parity: omitting dryRun matches HTTP (`?? true`). */
-  const dryRun = parsed.data.dryRun ?? true;
-  const entityId: EntityId | null = parsed.data.entityId ?? null;
-
-  const issued = listInvoicesByStatus('issued');
-  const scopedInvoices =
-    entityId === null ? issued : issued.filter(inv => inv.issuing_entity_id === entityId);
-
+  const entityId: EntityId | undefined = parsed.data.entityId;
   const today = todayIsoLocal();
   const windowStart = shiftIsoDate(today, -RECONCILE_LOOKBACK_DAYS);
 
-  const transactions = loadReconcileTransactions(scopedInvoices, windowStart, today);
+  const mode =
+    parsed.data.mode
+    ?? (parsed.data.dryRun === false ? 'persist-all' : 'dry-run');
 
-  const clientsById = new Map<ClientId, Client>(allClients().map(c => [c.id, c] as const));
-  if (entityId !== null) {
-    void listInvoicesByIssuingEntityId(entityId);
-  }
-
-  const plan: ReconciliationPlan = planReconciliation({
-    invoices: scopedInvoices,
-    transactions,
-    clientsById,
-    existingPayments: allInvoicePayments(),
-    options: { now: today },
-  });
-
-  if (dryRun) {
+  if (mode === 'auto') {
+    const auto = autoReconcileHighConfidence({
+      entityId,
+      windowStart,
+      windowEnd: today,
+      now: today,
+    });
     return {
       status: 200,
       body: {
+        mode: 'auto',
+        dryRun: false,
+        plan: auto.plan,
+        persisted: auto.persisted,
+        statusUpdates: auto.statusUpdates,
+      },
+    };
+  }
+
+  const plan = buildReconciliationPlan({
+    entityId,
+    windowStart,
+    windowEnd: today,
+    now: today,
+  });
+
+  if (mode === 'dry-run') {
+    return {
+      status: 200,
+      body: {
+        mode: 'dry-run',
         dryRun: true,
         plan,
         persisted: null,
@@ -303,12 +241,16 @@ export function mutateInvoiceReconcile(body: unknown): JsonMutationResult {
     };
   }
 
+  const statusUpdates = applyInvoiceStatusAfterPayments(result.payments);
+
   return {
     status: 200,
     body: {
+      mode: 'persist-all',
       dryRun: false,
       plan,
       persisted: result.payments,
+      statusUpdates,
     },
   };
 }

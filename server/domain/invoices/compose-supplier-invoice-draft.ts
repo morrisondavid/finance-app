@@ -9,7 +9,7 @@ import { findContractById } from '../contracts/index.js';
 import { findClientById } from '../clients/index.js';
 import { companyById } from '../company/index.js';
 import { leaveForContract } from '../leave/index.js';
-import { holidayDatesForEntity } from '../working-days/public-holidays.js';
+import { holidayDatesForContract } from '../working-days/public-holidays.js';
 
 export type ComposeSupplierInvoiceDraftResult =
   | { readonly ok: true; readonly invoice: Invoice }
@@ -86,7 +86,7 @@ export function composeSupplierInvoiceDraftForContract(opts: {
     existingInvoices: allInvoices(),
     today,
     billing_month: billingMonthNormalized,
-    publicHolidayDates: holidayDatesForEntity(contract.issuing_entity_id, yearStart, yearEnd),
+    publicHolidayDates: holidayDatesForContract(contract, yearStart, yearEnd),
   });
 
   return { ok: true, invoice };

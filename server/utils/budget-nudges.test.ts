@@ -3,6 +3,7 @@ import { expenseTxnMatchesMerchantModal, transactionDescriptionMatchesDrillSearc
 import { computeBudgetNudges, type BudgetNudgesInput } from './budget-nudges.js';
 import type { RawTransaction, PipelineResult } from './recurring-pipeline.js';
 import type { RecurringExpense } from '../../shared/api-contracts.js';
+import type { Debt } from '../db/repositories/debts.js';
 
 function txn(overrides: Partial<RawTransaction> & { id: number; description: string; amount: number }): RawTransaction {
   return {
@@ -112,6 +113,65 @@ describe('computeBudgetNudges', () => {
     };
 
     const result = computeBudgetNudges(input);
+    expect(result).toHaveLength(0);
+  });
+
+  it('excludes Housing merchants such as Coventry BS (non-budgetable)', () => {
+    const transactions = [
+      txn({
+        id: 1,
+        description: 'COVENTRY BS DDR',
+        amount: -2221.63,
+        account: 'monzo-joint',
+      }),
+    ];
+
+    const result = computeBudgetNudges({
+      expenseTransactions: transactions,
+      pipeline: emptyPipeline(),
+      budgetedCategories: new Set(),
+      options: { minTotal: 0 },
+    });
+    expect(result).toHaveLength(0);
+  });
+
+  it('excludes activeDebts payments even when category is Other', () => {
+    const transactions = [
+      txn({
+        id: 1,
+        description: 'MYSTERY LENDER REPAYMENT',
+        amount: -390.71,
+        account: 'natwest',
+      }),
+    ];
+    const activeDebts: Debt[] = [{
+      id: 'test-debt',
+      name: 'Test',
+      merchantPattern: 'MYSTERY LENDER',
+      sourceAccounts: ['natwest'],
+      originalLoanAmount: 10000,
+      originalLoanDate: null,
+      openingBalance: 5000,
+      openingBalanceDate: '2024-01-01',
+      archived: false,
+      matchAmounts: [390.71],
+      matchTolerancePct: 0,
+      kind: 'consumer',
+      interestRate: null,
+      fixedRateEndDate: null,
+      repaymentType: null,
+      propertyValueEstimate: null,
+      propertyId: null,
+      updatedAt: '2026-01-01',
+    }];
+
+    const result = computeBudgetNudges({
+      expenseTransactions: transactions,
+      pipeline: emptyPipeline(),
+      budgetedCategories: new Set(),
+      activeDebts,
+      options: { minTotal: 0 },
+    });
     expect(result).toHaveLength(0);
   });
 

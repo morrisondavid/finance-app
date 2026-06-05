@@ -6,9 +6,12 @@
  *   - GB.EAW (England & Wales) is supplemented with the Summer bank
  *     holiday (last Monday of August) which the upstream data omits.
  *
- * Mapping: company jurisdiction → ISO 3166 country code:
+ * Mapping to ISO 3166 country codes:
  *   - UK  → `GB` subdivision `EAW` (England and Wales)
  *   - UAE → `AE`
+ *
+ * Contract workloads use {@link contractWorkingDayJurisdiction} (governing
+ * law / place of work), not the issuing entity's company jurisdiction.
  *
  * Holidays are filtered to `type === 'public'` (excludes observances
  * like Mother's Day). Results are memoised by `(jurisdiction, year)`
@@ -20,8 +23,26 @@
  */
 
 import Holidays from 'date-holidays';
-import type { EntityId, Jurisdiction } from '../../../shared/api-contracts.js';
+import type { Contract, EntityId, Jurisdiction } from '../../../shared/api-contracts.js';
 import { companyById } from '../company/index.js';
+
+const UK_CONTRACT_JURISDICTION_MARKERS = [
+  'england',
+  'wales',
+  'scotland',
+  'northern ireland',
+  'united kingdom',
+  'uk',
+  'gb',
+  'eaw',
+] as const;
+
+const UAE_CONTRACT_JURISDICTION_MARKERS = [
+  'uae',
+  'dubai',
+  'emirates',
+  'abu dhabi',
+] as const;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -88,20 +109,31 @@ export function getPublicHolidays(jurisdiction: Jurisdiction, year: number): rea
 }
 
 /**
- * Set of ISO date strings for public holidays that fall within
- * `[start, end]` (inclusive) for the entity's jurisdiction.
- *
- * Resolves `entityId → company.jurisdiction` via the company registry.
+ * Public holidays for contract workload follow **where the work happens**
+ * (`contract.jurisdiction` / governing law), not the issuing entity's
+ * company jurisdiction. A UK client engagement billed via FZCO still
+ * uses UK bank holidays for days-billed reconciliation.
  */
-export function holidayDatesForEntity(
-  entityId: EntityId,
+export function contractWorkingDayJurisdiction(
+  contract: Pick<Contract, 'jurisdiction' | 'issuing_entity_id'>,
+): Jurisdiction {
+  const normalized = contract.jurisdiction.trim().toLowerCase();
+  if (UK_CONTRACT_JURISDICTION_MARKERS.some(marker => normalized.includes(marker))) {
+    return 'UK';
+  }
+  if (UAE_CONTRACT_JURISDICTION_MARKERS.some(marker => normalized.includes(marker))) {
+    return 'UAE';
+  }
+  const company = companyById(contract.issuing_entity_id);
+  if (company) return company.jurisdiction;
+  return 'UK';
+}
+
+export function holidayDatesForJurisdiction(
+  jurisdiction: Jurisdiction,
   start: string,
   end: string,
 ): ReadonlySet<string> {
-  const company = companyById(entityId);
-  if (!company) return new Set<string>();
-  const jurisdiction = company.jurisdiction;
-
   const startYear = Number(start.slice(0, 4));
   const endYear = Number(end.slice(0, 4));
   const dates = new Set<string>();
@@ -113,6 +145,35 @@ export function holidayDatesForEntity(
     }
   }
   return dates;
+}
+
+export function holidayDatesForContract(
+  contract: Pick<Contract, 'jurisdiction' | 'issuing_entity_id'>,
+  start: string,
+  end: string,
+): ReadonlySet<string> {
+  return holidayDatesForJurisdiction(
+    contractWorkingDayJurisdiction(contract),
+    start,
+    end,
+  );
+}
+
+/**
+ * Set of ISO date strings for public holidays that fall within
+ * `[start, end]` (inclusive) for the entity's jurisdiction.
+ *
+ * Resolves `entityId → company.jurisdiction` via the company registry.
+ * Prefer {@link holidayDatesForContract} for invoice / leave workloads.
+ */
+export function holidayDatesForEntity(
+  entityId: EntityId,
+  start: string,
+  end: string,
+): ReadonlySet<string> {
+  const company = companyById(entityId);
+  if (!company) return new Set<string>();
+  return holidayDatesForJurisdiction(company.jurisdiction, start, end);
 }
 
 /**

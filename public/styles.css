@@ -205,6 +205,47 @@ body {
   letter-spacing: -0.03em;
 }
 
+.financial-safety-tax-reserve-nudge {
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: rgba(3, 105, 161, 0.12);
+  border: 1px solid rgba(3, 105, 161, 0.35);
+  border-radius: 8px;
+}
+.financial-safety-tax-reserve-nudge__kicker {
+  margin: 0 0 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #0369a1;
+}
+.financial-safety-tax-reserve-nudge__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.financial-safety-tax-reserve-nudge__item + .financial-safety-tax-reserve-nudge__item {
+  margin-top: 0.35rem;
+}
+.financial-safety-tax-reserve-nudge__link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.92rem;
+  color: #0c4a6e;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.financial-safety-tax-reserve-nudge__link:hover {
+  color: #0369a1;
+}
+
 .financial-safety-hero__out-of {
   margin-left: 4px;
   font-size: 1.1rem;
@@ -4710,6 +4751,47 @@ body {
 .obligations-auto-label { font-size: 0.7rem; color: #94a3b8; font-style: italic; }
 
 /* Overdue hero banner — loud, dominates the page when present */
+.obligations-tax-reserve-panel {
+  background: linear-gradient(135deg, #0369a1 0%, #0c4a6e 100%);
+  color: #fff;
+  border: none;
+  box-shadow: 0 10px 30px rgba(3, 105, 161, 0.25);
+  margin-bottom: 1.5rem;
+}
+.obligations-tax-reserve-title {
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  margin: 0 0 0.5rem 0;
+  color: #fff;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+.obligations-tax-reserve-intro {
+  margin: 0 0 0.75rem 0;
+  opacity: 0.9;
+  font-size: 0.95rem;
+}
+.obligations-tax-reserve-item {
+  padding: 0.85rem 1rem;
+  margin: 0.5rem 0;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  border-left: 6px solid #fff;
+}
+.obligations-tax-reserve-item strong {
+  display: block;
+  font-size: 1.05rem;
+  margin-bottom: 0.35rem;
+}
+.obligations-tax-reserve-item p {
+  margin: 0.35rem 0 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+.obligations-tax-reserve-action {
+  opacity: 0.95;
+}
+
 .obligations-overdue-hero {
   background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
   color: #fff;
@@ -5989,6 +6071,94 @@ body {
   gap: 20px;
 }
 
+/* Invoices tab — client accordions */
+.invoices-accordion {
+  margin-bottom: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.invoices-accordion__summary {
+  cursor: pointer;
+  padding: 12px 16px;
+  font-size: 1rem;
+  font-weight: 600;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-bg);
+  border-bottom: 1px solid transparent;
+}
+
+.invoices-accordion[open] > .invoices-accordion__summary {
+  border-bottom-color: var(--color-border);
+}
+
+.invoices-accordion__summary::-webkit-details-marker {
+  display: none;
+}
+
+.invoices-accordion__summary::before {
+  content: '▸';
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.invoices-accordion[open] > .invoices-accordion__summary::before {
+  transform: rotate(90deg);
+}
+
+.invoices-accordion__title {
+  flex: 1;
+  min-width: 0;
+}
+
+.invoices-accordion__body {
+  padding: 12px 16px 16px;
+}
+
+.invoices-client-filter-label {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.invoices-client-filter-caption {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.invoices-client-filter {
+  width: 100%;
+  max-width: 320px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 6px);
+  font-size: 0.9rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.invoices-client-filter:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.invoices-filter-empty {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
 /* Invoices tab — denser grid (2–3 columns on desktop) */
 .invoices-tile-grid {
   display: grid;
@@ -6013,6 +6183,10 @@ body {
   flex-direction: column;
   gap: 6px;
   min-height: 0;
+}
+
+.invoice-card[hidden] {
+  display: none !important;
 }
 
 .invoice-card:hover {

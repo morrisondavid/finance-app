@@ -47,6 +47,7 @@ function cleanUk(): UkCompany {
     ct_registered: true,
     qfzp_elected: null,
     vat_registered: true,
+    vat_scheme: 'standard',
     active: true,
     updated_at: '2026-04-22',
   };
@@ -78,6 +79,7 @@ function cleanFzco(): UaeCompany {
     ct_registered: true,
     qfzp_elected: false,
     vat_registered: false,
+    vat_scheme: 'standard',
     active: true,
     updated_at: '2026-04-22',
   };

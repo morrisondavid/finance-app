@@ -2,10 +2,11 @@ import { getDb } from '../connection.js';
 import {
   VAT,
   getVatQuarterForDate,
-  vatObligationAmounts,
   type VatQuarterRange,
 } from '../../config/tax-rates.js';
 import { ukLtdCompanyOrNull } from '../../domain/company/index.js';
+import { allInvoices, resolveVatObligationAmounts } from '../../domain/invoices/index.js';
+import type { ResolvedVatObligationAmounts } from '../../domain/invoices/output-vat.js';
 import { HMRC_PATTERNS } from '../../domain/payees/index.js';
 import { businessPaymentAccounts, vatApplicableAccounts } from '../../domain/accounts/index.js';
 import { findHmrcPayments, type HmrcPaymentMatch } from './tax.js';
@@ -57,6 +58,7 @@ export interface VatReconciliationRow {
   quarter: VatQuarterRange;
   income: number;
   reconciliation: VatQuarterReconciliation;
+  resolved: ResolvedVatObligationAmounts;
 }
 
 /**
@@ -128,6 +130,10 @@ export function buildVatReconciliationSet(
     ? (firstVatPaymentDate > fyCutoff ? firstVatPaymentDate : fyCutoff)
     : null;
 
+  const ukCo = ukLtdCompanyOrNull();
+  const vatScheme = ukCo?.vat_scheme ?? 'standard';
+  const invoices = allInvoices();
+
   return candidateQuarters.map(q => {
     const income = sumIncomeForQuarter(q, vatFilter);
     const match = paymentByQuarter.get(vatQuarterKey(q)) ?? null;
@@ -143,7 +149,21 @@ export function buildVatReconciliationSet(
         paidFromAccount: null,
       };
     }
-    return { quarter: q, income, reconciliation };
+
+    const resolved = resolveVatObligationAmounts({
+      quarter: q,
+      quarterIncomeGross: income,
+      entityId: 'autonize-it-ltd',
+      vatScheme,
+      invoices,
+      company: ukCo,
+    });
+    reconciliation = {
+      ...reconciliation,
+      expectedAmount: resolved.expectedAmount,
+    };
+
+    return { quarter: q, income, reconciliation, resolved };
   });
 }
 
@@ -200,14 +220,12 @@ export function deriveAndInsertAutoObligations(): void {
   db.prepare("DELETE FROM financial_obligations WHERE source = 'auto'").run();
 
   const rows = buildVatReconciliationSet();
-  const ukCo = ukLtdCompanyOrNull();
   let count = 0;
 
-  for (const { quarter: q, income, reconciliation: recon } of rows) {
+  for (const { quarter: q, reconciliation: recon, resolved } of rows) {
     if (!INSERTABLE_STATUSES.has(recon.status)) continue;
 
-    const amounts = vatObligationAmounts(income, ukCo);
-    const expectedForRow = amounts?.expectedAmount ?? recon.expectedAmount;
+    const expectedForRow = resolved.expectedAmount;
 
     // A zero-£ obligation cannot meaningfully be "unpaid" — there is nothing
     // to pay. Surfacing these as overdue creates the nonsense "£0 overdue VAT"
@@ -227,9 +245,9 @@ export function deriveAndInsertAutoObligations(): void {
       entity: 'autonize-it-ltd',
       frequency: 'quarterly',
       expectedAmount: expectedForRow,
-      naiveAmount: amounts?.naiveAmount ?? null,
-      adjustmentBasis: amounts?.adjustmentBasis ?? null,
-      adjustmentSource: amounts?.adjustmentSource ?? null,
+      naiveAmount: resolved.naiveAmount,
+      adjustmentBasis: resolved.adjustmentBasis,
+      adjustmentSource: resolved.adjustmentSource,
       dueDate: q.dueDate,
       status: recon.status,
       paidAmount: recon.paidAmount > 0 ? recon.paidAmount : null,

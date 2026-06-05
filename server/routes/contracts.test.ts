@@ -522,12 +522,12 @@ describe('/api/contracts routes', () => {
   describe('GET /api/contracts/:id/document', () => {
     it('404s with a helpful message when no PDF is committed', async () => {
       const response = await fetch(
-        `${baseUrl}/api/contracts/dc-sow-jun-2026/document`,
+        `${baseUrl}/api/contracts/lf-2026-mar/document`,
       );
       expect(response.status).toBe(404);
       const body = await response.json();
       expect(body.error).toBe('ContractDocumentNotFound');
-      expect(body.detail).toContain('clients/contracts/dc-sow-jun-2026.pdf');
+      expect(body.detail).toContain('clients/contracts/lf-2026-mar');
     });
 
     it('404s on unknown contract id', async () => {

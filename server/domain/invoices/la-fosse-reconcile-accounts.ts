@@ -62,6 +62,7 @@ export interface LoadLaFosseIncomeRowsInput {
     windowEnd: string,
   ) => readonly {
     id: number;
+    hash: string;
     date: string;
     description: string;
     amount: number;
@@ -87,7 +88,7 @@ export function loadLaFosseReconcileTransactions(
     const cfg = getAccountConfig(row.account as AccountName);
     if (cfg.category !== 'business') continue;
     out.push({
-      id: String(row.id),
+      id: row.hash,
       date: row.date,
       description: row.description,
       amount: row.amount,

@@ -54,27 +54,39 @@ afterEach(() => {
 
 describe('ingestSelfBill', () => {
   it('returns no-contract-match when the placement ref does not match any contract', async () => {
-    const text = await readFixtureText('la-fosse-SB-277615.pdf');
-    const result = ingestSelfBill({ rawText: text, today: '2026-06-15' });
+    const realText = await readFixtureText('la-fosse-SB-277615.pdf');
+    const text = realText.replace(
+      'Placement Ref: BH-28240',
+      'Placement Ref: BH-99999',
+    );
+    const result = ingestSelfBill({
+      rawText: text,
+      today: '2026-06-15',
+      existingInvoices: [],
+    });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.code).toBe('no-contract-match');
     if (result.code !== 'no-contract-match') return;
     expect(result.clientId).toBe('la-fosse');
-    expect(result.placementRef).toBe('BH-28240');
+    expect(result.placementRef).toBe('BH-99999');
   });
 
   it('composes a canonical Invoice when the placement ref matches a contract in period', async () => {
     const realText = await readFixtureText('la-fosse-SB-277615.pdf');
     const text = realText
-      .replace('Placement Ref: BH-28240', 'Placement Ref: LAF-TEG-002')
+      .replace('Placement Ref: BH-28240', 'Placement Ref: BH-30484')
       .replace(/02\/11\/2025/g, '31/05/2026')
       .replace('02/11/25', '31/05/26')
       .replace('05/11/2025', '05/06/2026')
       .replace(/30\/10\/2025/g, '28/05/2026')
       .replace(/31\/10\/2025/g, '29/05/2026');
 
-    const result = ingestSelfBill({ rawText: text, today: '2026-06-15' });
+    const result = ingestSelfBill({
+      rawText: text,
+      today: '2026-06-15',
+      existingInvoices: [],
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
@@ -85,7 +97,7 @@ describe('ingestSelfBill', () => {
     expect(inv.mechanism).toBe('self-bill');
     expect(inv.payment_reference).toBe('SB-277615');
     expect(inv.invoice_number).toBe(inv.id);
-    expect(inv.id).toMatch(/^FZ-\d{4}$/);
+    expect(inv.id).toBe('EG-0001');
     expect(inv.subtotal).toBe(1000);
     expect(inv.vat_amount).toBe(200);
     expect(inv.total).toBe(1200);
@@ -100,14 +112,18 @@ describe('ingestSelfBill', () => {
   it('detects duplicate supplier invoice numbers', async () => {
     const realText = await readFixtureText('la-fosse-SB-277615.pdf');
     const text = realText
-      .replace('Placement Ref: BH-28240', 'Placement Ref: LAF-TEG-002')
+      .replace('Placement Ref: BH-28240', 'Placement Ref: BH-30484')
       .replace(/02\/11\/2025/g, '31/05/2026')
       .replace('02/11/25', '31/05/26')
       .replace('05/11/2025', '05/06/2026')
       .replace(/30\/10\/2025/g, '28/05/2026')
       .replace(/31\/10\/2025/g, '29/05/2026');
 
-    const first = ingestSelfBill({ rawText: text, today: '2026-06-15' });
+    const first = ingestSelfBill({
+      rawText: text,
+      today: '2026-06-15',
+      existingInvoices: [],
+    });
     expect(first.ok).toBe(true);
     if (!first.ok) return;
 

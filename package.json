@@ -19,6 +19,7 @@
     "mcp": "tsx server/mcp/main.ts",
     "enable-banking": "tsx scripts/enable-banking-link.ts",
     "feed:truelayer-status": "tsx scripts/feed-truelayer-status.ts",
+    "feed:sync-all": "tsx scripts/feed-sync-all.ts",
     "reconcile:monzo": "tsx scripts/reconcile-monzo-balance.ts",
     "recompute-manifest": "tsx scripts/recompute-manifest.ts"
   },

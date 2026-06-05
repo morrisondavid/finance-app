@@ -10,12 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import type {
-  Contract,
-  Invoice,
-} from '../../../shared/api-contracts.js';
-import { parseContractRow } from '../contracts/csv-io.js';
-import { dcSowRow } from '../contracts/test-helpers.js';
+import type { Invoice } from '../../../shared/api-contracts.js';
 import { parseInvoiceRow } from '../invoices/csv-io.js';
 import { dcInvoice001 } from '../invoices/test-helpers.js';
 import type {
@@ -27,14 +22,45 @@ import {
   deriveUnmatchedDepositWarnings,
 } from './invoice-reconciler.js';
 
-const dcContract: Contract = parseContractRow(dcSowRow);
-const contractsById = new Map<string, Contract>([[dcContract.id, dcContract]]);
+const TODAY = '2026-06-06';
+
+function emptyPlan(
+  overrides: Partial<ReconciliationPlan> = {},
+): ReconciliationPlan {
+  return {
+    proposedPayments: [],
+    paymentConfidence: new Map(),
+    referenceCitedIssues: [],
+    unmatchedInvoices: [],
+    unmatchedTransactions: [],
+    notes: [],
+    ...overrides,
+  };
+}
 
 function makeInvoice(overrides: Partial<Invoice>): Invoice {
   return { ...parseInvoiceRow(dcInvoice001), ...overrides };
 }
 
 describe('deriveInvoiceRowWarnings', () => {
+  it('does not flag self-bill rows when payment_reference is the supplier SB number', () => {
+    const inv = makeInvoice({
+      id: 'EG-0001',
+      invoice_number: 'EG-0001',
+      payment_reference: 'SB-250016',
+      mechanism: 'self-bill',
+      client_id: 'la-fosse',
+      contract_id: 'lf-bh25537',
+    });
+
+    const warnings = deriveInvoiceRowWarnings({
+      invoices: [inv],
+      todayIso: TODAY,
+    });
+
+    expect(warnings.map(w => w.code)).not.toContain('invoice-stale-payment-reference');
+  });
+
   it('flags stale payment_reference when it differs from invoice_number', () => {
     const inv = makeInvoice({
       id: 'DC-005',
@@ -47,7 +73,7 @@ describe('deriveInvoiceRowWarnings', () => {
 
     const warnings = deriveInvoiceRowWarnings({
       invoices: [inv],
-      contractsById,
+      todayIso: TODAY,
     });
 
     expect(warnings.map(w => w.code)).toContain('invoice-stale-payment-reference');
@@ -56,40 +82,63 @@ describe('deriveInvoiceRowWarnings', () => {
     expect(stale?.detail).toContain('DC-004');
   });
 
-  it('flags due_date implausibility when due precedes invoice_date', () => {
-    const inv = makeInvoice({
-      id: 'DC-006',
-      invoice_number: 'DC-006',
-      payment_reference: 'DC-006',
-      invoice_date: '2025-12-05',
-      due_date: '2025-01-05',
-      contract_id: 'dc-sow-2026',
-    });
-
-    const warnings = deriveInvoiceRowWarnings({
-      invoices: [inv],
-      contractsById,
-    });
-
-    expect(warnings.map(w => w.code)).toContain('invoice-due-date-implausible');
-  });
-
-  it('flags due_date drift beyond the contract terms tolerance', () => {
+  it('flags issued invoices past due_date as overdue', () => {
     const inv = makeInvoice({
       id: 'DC-010',
       invoice_number: 'DC-010',
       payment_reference: 'DC-010',
+      status: 'issued',
       invoice_date: '2026-04-01',
-      due_date: '2031-05-01',
+      due_date: '2026-05-01',
       contract_id: 'dc-sow-2026',
     });
 
     const warnings = deriveInvoiceRowWarnings({
       invoices: [inv],
-      contractsById,
+      todayIso: TODAY,
     });
 
-    expect(warnings.map(w => w.code)).toContain('invoice-due-date-implausible');
+    expect(warnings.map(w => w.code)).toContain('invoice-overdue');
+    const overdue = warnings.find(w => w.code === 'invoice-overdue');
+    expect(overdue?.detail).toContain('36 days overdue');
+  });
+
+  it('does not flag paid invoices even when due_date is in the past', () => {
+    const inv = makeInvoice({
+      id: 'DC-003',
+      invoice_number: 'DC-003',
+      payment_reference: 'DC-003',
+      status: 'paid',
+      invoice_date: '2025-09-24',
+      due_date: '2025-10-01',
+      contract_id: 'dc-sow-2025-jun',
+    });
+
+    const warnings = deriveInvoiceRowWarnings({
+      invoices: [inv],
+      todayIso: TODAY,
+    });
+
+    expect(warnings.map(w => w.code)).not.toContain('invoice-overdue');
+  });
+
+  it('does not flag issued invoices that are not yet due', () => {
+    const inv = makeInvoice({
+      id: 'DC-011',
+      invoice_number: 'DC-011',
+      payment_reference: 'DC-011',
+      status: 'issued',
+      invoice_date: '2026-06-01',
+      due_date: '2026-07-01',
+      contract_id: 'dc-sow-jun-2026',
+    });
+
+    const warnings = deriveInvoiceRowWarnings({
+      invoices: [inv],
+      todayIso: TODAY,
+    });
+
+    expect(warnings.map(w => w.code)).not.toContain('invoice-overdue');
   });
 
   it('flags period_end before period_start', () => {
@@ -106,7 +155,7 @@ describe('deriveInvoiceRowWarnings', () => {
 
     const warnings = deriveInvoiceRowWarnings({
       invoices: [inv],
-      contractsById,
+      todayIso: TODAY,
     });
 
     expect(warnings.map(w => w.code)).toContain('invoice-period-invalid');
@@ -116,7 +165,7 @@ describe('deriveInvoiceRowWarnings', () => {
     const inv = makeInvoice({});
     const warnings = deriveInvoiceRowWarnings({
       invoices: [inv],
-      contractsById,
+      todayIso: TODAY,
     });
     expect(warnings).toEqual([]);
   });
@@ -133,14 +182,9 @@ describe('deriveUnmatchedDepositWarnings', () => {
       description: 'DELTA CAPITA - INVOICE PAYMENT',
       entityId: 'autonize-it-ltd',
     };
-    const plan: ReconciliationPlan = {
-      proposedPayments: [],
-      unmatchedInvoices: [],
-      unmatchedTransactions: [tx],
-      notes: [],
-    };
-
-    const warnings = deriveUnmatchedDepositWarnings({ plan });
+    const warnings = deriveUnmatchedDepositWarnings({
+      plan: emptyPlan({ unmatchedTransactions: [tx] }),
+    });
     expect(warnings).toHaveLength(1);
     expect(warnings[0].code).toBe('invoice-unmatched-deposit');
     expect(warnings[0].detail).toContain('barclays-current');
@@ -148,12 +192,78 @@ describe('deriveUnmatchedDepositWarnings', () => {
   });
 
   it('emits no warnings when the plan has no leftovers', () => {
-    const plan: ReconciliationPlan = {
-      proposedPayments: [],
-      unmatchedInvoices: [],
-      unmatchedTransactions: [],
-      notes: [],
+    expect(deriveUnmatchedDepositWarnings({ plan: emptyPlan() })).toEqual([]);
+  });
+
+  it('skips non-positive amounts and non-VAT-applicable accounts when entity scoped', () => {
+    const warnings = deriveUnmatchedDepositWarnings({
+      plan: emptyPlan({
+        unmatchedTransactions: [
+          {
+            id: 'tx-refund',
+            date: '2026-04-07',
+            amount: -50,
+            currency: 'GBP',
+            account: 'barclays-current',
+            description: 'REFUND',
+            entityId: 'autonize-it-ltd',
+          },
+          {
+            id: 'tx-savings',
+            date: '2026-04-08',
+            amount: 500,
+            currency: 'GBP',
+            account: 'barclays-savings',
+            description: 'TRANSFER IN',
+            entityId: 'autonize-it-ltd',
+          },
+          {
+            id: 'tx-vat',
+            date: '2026-04-15',
+            amount: 13200,
+            currency: 'GBP',
+            account: 'barclays-current',
+            description: 'DELTA CAPITA',
+            entityId: 'autonize-it-ltd',
+          },
+        ],
+      }),
+      entityId: 'autonize-it-ltd',
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].code).toBe('invoice-unmatched-deposit');
+    expect(warnings[0].entityId).toBe('autonize-it-ltd');
+    expect(warnings[0].context?.amount).toBe(13200);
+    expect(warnings[0].context?.account).toBe('barclays-current');
+  });
+
+  it('emits a precise reference-amount-mismatch warning instead of generic unmatched', () => {
+    const tx: ReconcileTransaction = {
+      id: 'tx-mismatch',
+      date: '2025-12-24',
+      amount: 5000,
+      currency: 'GBP',
+      account: 'barclays-current',
+      description: 'LA FOSSE LTD SB-280052',
+      entityId: 'autonize-it-ltd',
     };
-    expect(deriveUnmatchedDepositWarnings({ plan })).toEqual([]);
+
+    const warnings = deriveUnmatchedDepositWarnings({
+      plan: emptyPlan({
+        unmatchedTransactions: [tx],
+        referenceCitedIssues: [{
+          transaction: tx,
+          code: 'reference-amount-mismatch',
+          citedInvoiceIds: ['EG-0038'],
+          detail: 'Deposit cites SB-280052 but residual sum 1800.00 does not match deposit 5000.00.',
+        }],
+      }),
+      entityId: 'autonize-it-ltd',
+    });
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].code).toBe('invoice-reference-amount-mismatch');
+    expect(warnings[0].detail).toContain('SB-280052');
+    expect(warnings[0].sources).toContain('invoice:EG-0038');
   });
 });

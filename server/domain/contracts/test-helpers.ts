@@ -205,6 +205,16 @@ export const lfFzcoContractRow = rowFromHeaders({
   updated_at: '2026-04-24',
 });
 
+export const dcSow2025JunRow = rowFromHeaders({
+  ...dcSowRow,
+  id: 'dc-sow-2025-jun',
+  reference: 'Delta Capita · 23 Jun 2025–31 Dec 2025',
+  start_date: '2025-06-23',
+  end_date: '2025-12-31',
+  signed_at: '2025-06-23',
+  updated_at: '2026-06-06',
+});
+
 export const dcSowExpiredRow = rowFromHeaders({
   ...dcSowRow,
   id: 'dc-sow-2025-prior',

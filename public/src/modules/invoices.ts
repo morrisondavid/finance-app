@@ -1,7 +1,9 @@
 /**
  * Invoices tab (Roadmap 1.3 — Phases 2 & 3).
  *
- * Renders every row in `invoices.csv` grouped by issuing entity, plus
+ * Renders every row in `invoices.csv` in collapsible accordions per client
+ * (sorted by invoice date within each group), each with a local filter for
+ * invoice id or amount, plus
  * two composition flows:
  *
  *   - **Generate invoice** — pick a **supplier-issued** contract,
@@ -24,7 +26,7 @@ import type {
   Invoice,
   CurrencyCode,
 } from '../../../shared/api-contracts.js';
-import { escapeHtml, openModal, closeModal } from '../utils/dom';
+import { escapeAttribute, escapeHtml, openModal, closeModal } from '../utils/dom';
 import { formatCurrency, formatIsoDateUk } from '../utils/formatting';
 import { previousCompleteBillingMonthYYYYMM, todayIsoLocal } from '../../../shared/iso-date.js';
 import { isContractCurrent } from '../../../shared/contract-display.js';
@@ -79,6 +81,7 @@ interface MonthlyInvoicePreviewOk {
 let currentDraft: Invoice | null = null;
 let monthlyPreviewFingerprint: string | null = null;
 let lastMonthlyPreview: MonthlyInvoicePreviewOk | null = null;
+let invoiceGroupFiltersBound = false;
 
 function defaultBillingPickerMonth(contract: Contract | null): string {
   const today = todayIsoLocal();
@@ -257,6 +260,7 @@ export async function loadInvoices(): Promise<void> {
       clientsRes.clients,
       companiesRes.companies,
     );
+    bindInvoiceGroupFilters(groups);
     populateContractSelect(contractsRes.contracts, clientsRes.clients);
   } catch (err) {
     groups.innerHTML = `<div class="clients-form-error">Failed to load invoices: ${escapeHtml(
@@ -280,32 +284,125 @@ function renderGroups(
   const clientById = new Map<string, Client>(clients.map(c => [c.id, c]));
   const companyById = new Map<string, Company>(companies.map(c => [c.id, c]));
 
-  const byEntity = new Map<string, Invoice[]>();
+  const byClient = new Map<string, Invoice[]>();
   for (const inv of invoices) {
-    const list = byEntity.get(inv.issuing_entity_id) ?? [];
+    const list = byClient.get(inv.client_id) ?? [];
     list.push(inv);
-    byEntity.set(inv.issuing_entity_id, list);
+    byClient.set(inv.client_id, list);
   }
 
+  const clientIds = [...byClient.keys()].sort((a, b) => {
+    const nameA = clientById.get(a)?.trading_name ?? a;
+    const nameB = clientById.get(b)?.trading_name ?? b;
+    return nameA.localeCompare(nameB);
+  });
+
   const sections: string[] = [];
-  for (const [entityId, rows] of byEntity) {
-    const company = companyById.get(entityId);
-    const heading = company?.trading_name ?? entityId;
-    const sorted = [...rows].sort((a, b) =>
-      a.invoice_date < b.invoice_date ? 1 : a.invoice_date > b.invoice_date ? -1 : 0,
-    );
+  for (let i = 0; i < clientIds.length; i++) {
+    const clientId = clientIds[i];
+    const rows = byClient.get(clientId) ?? [];
+    const client = clientById.get(clientId);
+    const heading = client?.trading_name ?? clientId;
+    const sorted = [...rows].sort((a, b) => {
+      if (a.invoice_date !== b.invoice_date) {
+        return a.invoice_date < b.invoice_date ? -1 : 1;
+      }
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
     const tiles = sorted
-      .map(inv => renderTile(inv, clientById.get(inv.client_id) ?? null))
+      .map(inv => renderTile(inv, companyById.get(inv.issuing_entity_id) ?? null))
       .join('');
+    const openAttr = i === 0 ? ' open' : '';
     sections.push(`
-      <div class="contracts-section-divider">
-        <h3 class="contracts-section-heading">${escapeHtml(heading)} <span class="contracts-muted">(${sorted.length})</span></h3>
-      </div>
-      <div class="invoices-tile-grid">${tiles}</div>
+      <details class="invoices-accordion"${openAttr} data-client-id="${escapeAttribute(clientId)}">
+        <summary class="invoices-accordion__summary">
+          <span class="invoices-accordion__title">${escapeHtml(heading)}</span>
+          <span class="contracts-muted">(${sorted.length})</span>
+        </summary>
+        <div class="invoices-accordion__body">
+          <label class="invoices-client-filter-label">
+            <span class="invoices-client-filter-caption">Filter invoices</span>
+            <input
+              type="search"
+              class="invoices-client-filter"
+              data-client-id="${escapeAttribute(clientId)}"
+              placeholder="Invoice id or amount"
+              autocomplete="off"
+            />
+          </label>
+          <div class="invoices-tile-grid">${tiles}</div>
+          <p class="invoices-filter-empty" hidden>No invoices match this filter.</p>
+        </div>
+      </details>
     `);
   }
 
   host.innerHTML = sections.join('');
+}
+
+function invoiceSearchBlob(invoice: Invoice): string {
+  const formatted = formatCurrency(invoice.total, invoice.currency);
+  return [invoice.invoice_number, invoice.id, formatted, String(invoice.total)].join(' ');
+}
+
+function normalizeInvoiceSearchText(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function matchesInvoiceSearch(haystack: string, query: string): boolean {
+  const q = query.trim();
+  if (q === '') return true;
+
+  const hayLower = haystack.toLowerCase();
+  const qLower = q.toLowerCase();
+  if (hayLower.includes(qLower)) return true;
+
+  const hayNorm = normalizeInvoiceSearchText(haystack);
+  const qNorm = normalizeInvoiceSearchText(q);
+  if (qNorm.length > 0 && hayNorm.includes(qNorm)) return true;
+
+  const qDigits = q.replace(/[^0-9.]/g, '');
+  if (qDigits.length > 0) {
+    const hDigits = haystack.replace(/[^0-9.]/g, '');
+    if (hDigits.includes(qDigits)) return true;
+  }
+  return false;
+}
+
+function applyClientSectionFilter(input: HTMLInputElement): void {
+  const accordion = input.closest('.invoices-accordion');
+  if (accordion === null) return;
+  const grid = accordion.querySelector('.invoices-tile-grid');
+  const emptyMsg = accordion.querySelector('.invoices-filter-empty');
+  if (grid === null) return;
+
+  const query = input.value;
+  const cards = grid.querySelectorAll('.invoice-card');
+  let visible = 0;
+  for (const card of cards) {
+    if (!(card instanceof HTMLElement)) continue;
+    const search = card.dataset.search ?? '';
+    const match = matchesInvoiceSearch(search, query);
+    card.hidden = !match;
+    if (match) visible += 1;
+  }
+  if (emptyMsg instanceof HTMLElement) {
+    emptyMsg.hidden = visible > 0 || query.trim() === '';
+  }
+}
+
+function onInvoiceClientFilterEvent(ev: Event): void {
+  const target = ev.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  if (!target.classList.contains('invoices-client-filter')) return;
+  applyClientSectionFilter(target);
+}
+
+function bindInvoiceGroupFilters(host: HTMLElement): void {
+  if (invoiceGroupFiltersBound) return;
+  invoiceGroupFiltersBound = true;
+  host.addEventListener('input', onInvoiceClientFilterEvent);
+  host.addEventListener('search', onInvoiceClientFilterEvent);
 }
 
 /** Paid date / due line — paid invoices use a green tick + date (no duplicate status chip in meta). */
@@ -323,10 +420,14 @@ function invoicePaidOrDueRow(inv: Invoice): string {
   return `<p class="invoice-card__paid">${escapeHtml(`Due ${formatIsoDateUk(inv.due_date)}`)}</p>`;
 }
 
-function renderTile(invoice: Invoice, client: Client | null): string {
+function renderTile(
+  invoice: Invoice,
+  issuingCompany: Company | null,
+): string {
   const total = formatCurrency(invoice.total, invoice.currency);
-  const clientName = client?.trading_name ?? invoice.client_id;
+  const entityLabel = issuingCompany?.trading_name ?? invoice.issuing_entity_id;
   const period = `${formatIsoDateUk(invoice.period_start)}–${formatIsoDateUk(invoice.period_end)}`;
+  const issued = formatIsoDateUk(invoice.invoice_date);
   const pdfHref = `/api/invoices/${encodeURIComponent(invoice.id)}/pdf`;
   const pdfTitle =
     invoice.pdf_path === null
@@ -342,8 +443,9 @@ function renderTile(invoice: Invoice, client: Client | null): string {
       ? `<p class="invoice-card__ledger">${escapeHtml(invoice.id)}</p>`
       : '';
 
+  const searchBlob = invoiceSearchBlob(invoice);
   return `
-    <article class="invoice-card">
+    <article class="invoice-card" data-search="${escapeAttribute(searchBlob)}">
       <div class="invoice-card__row invoice-card__row--top">
         <div class="invoice-card__id-block">
           <p class="invoice-card__number">${escapeHtml(invoice.invoice_number)}</p>
@@ -353,7 +455,7 @@ function renderTile(invoice: Invoice, client: Client | null): string {
       </div>
       <p class="invoice-card__amount">${escapeHtml(total)}</p>
       ${invoicePaidOrDueRow(invoice)}
-      <p class="invoice-card__meta">${[escapeHtml(period), escapeHtml(clientName), statusChip, escapeHtml(mechShort)].filter(Boolean).join(' · ')}</p>
+      <p class="invoice-card__meta">${[escapeHtml(issued), escapeHtml(period), escapeHtml(entityLabel), statusChip, escapeHtml(mechShort)].filter(Boolean).join(' · ')}</p>
     </article>
   `;
 }

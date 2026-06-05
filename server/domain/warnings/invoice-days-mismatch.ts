@@ -18,20 +18,27 @@ import type {
   Invoice,
   LeaveRow,
 } from '../../../shared/api-contracts.js';
-import { monthRange } from '../../../shared/iso-date.js';
 import { calculateWorkload } from '../contracts/workload.js';
+import { holidayDatesForContract } from '../working-days/public-holidays.js';
+
+function latestIso(...dates: string[]): string {
+  return dates.reduce((a, b) => (a > b ? a : b));
+}
+
+function earliestIso(...dates: string[]): string {
+  return dates.reduce((a, b) => (a < b ? a : b));
+}
 
 export interface DeriveInvoiceDaysMismatchInput {
   readonly invoices: readonly Invoice[];
   readonly contractsById: ReadonlyMap<string, Contract>;
   readonly leaveRows: readonly LeaveRow[];
-  readonly publicHolidayDatesByEntity: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 export function deriveInvoiceDaysMismatchWarnings(
   input: DeriveInvoiceDaysMismatchInput,
 ): readonly EntityFoundationWarning[] {
-  const { invoices, contractsById, leaveRows, publicHolidayDatesByEntity } = input;
+  const { invoices, contractsById, leaveRows } = input;
   const out: EntityFoundationWarning[] = [];
 
   for (const inv of invoices) {
@@ -40,15 +47,18 @@ export function deriveInvoiceDaysMismatchWarnings(
     const contract = contractsById.get(inv.contract_id);
     if (!contract) continue;
 
-    const { start: monthStart, end: monthEnd } = monthRange(inv.period_start);
+    const ledgerStart = latestIso(inv.period_start, contract.start_date);
+    const ledgerEnd = earliestIso(inv.period_end, contract.end_date);
 
-    const publicHolidayDates = publicHolidayDatesByEntity.get(inv.issuing_entity_id);
+    if (ledgerStart > ledgerEnd) continue;
+
+    const publicHolidayDates = holidayDatesForContract(contract, ledgerStart, ledgerEnd);
 
     const workload = calculateWorkload({
       contract,
       leaveRows,
-      start: monthStart,
-      end: monthEnd,
+      start: ledgerStart,
+      end: ledgerEnd,
       publicHolidayDates,
     });
 
@@ -59,7 +69,7 @@ export function deriveInvoiceDaysMismatchWarnings(
       code: 'invoice-days-mismatch',
       severity: 'warn',
       title: `Invoice ${inv.id} days_billed (${inv.days_billed}) differs from ledger (${workload.workingDays})`,
-      detail: `Invoice ${inv.id} for ${inv.period_start.slice(0, 7)}: days_billed = ${inv.days_billed}, but the working-days ledger (weekday mask − leave − public holidays for the calendar month ${monthStart}..${monthEnd}) gives ${workload.workingDays}. Difference: ${Math.abs(workload.workingDays - inv.days_billed)} day(s).`,
+      detail: `Invoice ${inv.id} for ${inv.period_start.slice(0, 7)}: days_billed = ${inv.days_billed}, but the working-days ledger (weekday mask − leave − public holidays for ${ledgerStart}..${ledgerEnd}) gives ${workload.workingDays}. Difference: ${Math.abs(workload.workingDays - inv.days_billed)} day(s).`,
       recommended_action:
         workload.workingDays > inv.days_billed
           ? `Check whether additional leave was taken but not recorded; or confirm the invoice period / days_billed are correct.`

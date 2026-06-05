@@ -4,6 +4,8 @@ import { dcInvoice001, dcInvoice002 } from './test-helpers.js';
 import {
   nextDeltaCapitaInvoiceId,
   nextDeltaCapitaInvoiceNumber,
+  nextLaFosseInvoiceId,
+  nextLaFosseInvoiceNumber,
 } from './client-invoice-number.js';
 
 describe('nextDeltaCapitaInvoiceNumber', () => {
@@ -32,5 +34,33 @@ describe('nextDeltaCapitaInvoiceNumber', () => {
 describe('nextDeltaCapitaInvoiceId', () => {
   it('returns the same string as the number helper', () => {
     expect(nextDeltaCapitaInvoiceId([])).toBe('DC-001');
+  });
+});
+
+describe('nextLaFosseInvoiceNumber', () => {
+  it('returns EG-0001 when no La Fosse rows exist', () => {
+    expect(nextLaFosseInvoiceNumber([])).toBe('EG-0001');
+  });
+
+  it('returns max EG + 1 from la-fosse rows', () => {
+    const dc = parseInvoiceRow(dcInvoice001);
+    const lf = {
+      ...dc,
+      client_id: 'la-fosse' as const,
+      id: 'EG-0064' as const,
+      invoice_number: 'EG-0064',
+    };
+    expect(nextLaFosseInvoiceNumber([lf])).toBe('EG-0065');
+  });
+
+  it('ignores Delta Capita rows', () => {
+    const dc = parseInvoiceRow(dcInvoice001);
+    expect(nextLaFosseInvoiceNumber([dc])).toBe('EG-0001');
+  });
+});
+
+describe('nextLaFosseInvoiceId', () => {
+  it('returns the same string as the number helper', () => {
+    expect(nextLaFosseInvoiceId([])).toBe('EG-0001');
   });
 });

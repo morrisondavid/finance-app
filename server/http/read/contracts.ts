@@ -12,7 +12,7 @@ import { buildAggregateAccrualResponse } from '../../domain/contracts/aggregate-
 import { allContracts, findContractById } from '../../domain/contracts/queries.js';
 import { leaveForContract } from '../../domain/leave/index.js';
 import { todayIsoLocal } from '../../../shared/iso-date.js';
-import { holidayDatesForEntity } from '../../domain/working-days/public-holidays.js';
+import { holidayDatesForContract } from '../../domain/working-days/public-holidays.js';
 import { buildExpectedReceipts } from '../../domain/contracts/expected-receipts.js';
 import { computeAccrual } from '../../domain/contracts/income-accrual.js';
 import { resolveLastPaymentsForContracts } from '../../domain/contracts/last-payment-resolver.js';
@@ -112,7 +112,7 @@ export function readContractIncomeAccrual(idRaw: string): JsonReadResult {
     });
     const yearStart = `${today.slice(0, 4)}-01-01`;
     const yearEnd = `${today.slice(0, 4)}-12-31`;
-    const publicHolidayDates = holidayDatesForEntity(contract.issuing_entity_id, yearStart, yearEnd);
+    const publicHolidayDates = holidayDatesForContract(contract, yearStart, yearEnd);
     const body = AccrualResponseSchema.parse(
       computeAccrual({
         contract,

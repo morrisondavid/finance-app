@@ -74,6 +74,8 @@ export {
 export {
   nextDeltaCapitaInvoiceId,
   nextDeltaCapitaInvoiceNumber,
+  nextLaFosseInvoiceId,
+  nextLaFosseInvoiceNumber,
 } from './client-invoice-number.js';
 
 export {
@@ -174,7 +176,43 @@ export {
   type ReconcileOptions,
   type ReconciliationPlan,
   type ReconciliationNote,
+  type MatchConfidence,
+  type ReferenceCitedDepositIssue,
 } from './reconcile-payments.js';
+
+export {
+  compactReference,
+  buildReferenceIndex,
+  extractNarrativeReferenceKeys,
+  findReferencedInvoices,
+  referenceIndexKeys,
+  type ReferenceLookupResult,
+} from './reference-match.js';
+
+export { listReconcilableInvoices } from './list-reconcilable-invoices.js';
+
+export {
+  autoReconcileHighConfidence,
+  applyInvoiceStatusAfterPayments,
+  type AutoReconcileHighConfidenceInput,
+  type AutoReconcileHighConfidenceResult,
+} from './auto-reconcile.js';
+
+export {
+  buildReconciliationPlan,
+  buildEntityReconciliationPlan,
+  RECONCILE_LOOKBACK_DAYS,
+  type BuildReconciliationPlanInput,
+  type BuildEntityReconciliationPlanInput,
+} from './build-reconciliation-plan.js';
+
+export {
+  sumInvoiceOutputVatForQuarter,
+  resolveVatObligationAmounts,
+  type SumInvoiceOutputVatForQuarterInput,
+  type ResolveVatObligationAmountsInput,
+  type ResolvedVatObligationAmounts,
+} from './output-vat.js';
 
 export {
   EMIRATES_ISLAMIC_ACCOUNT_NAMES,

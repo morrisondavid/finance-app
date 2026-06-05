@@ -1,12 +1,10 @@
 /**
  * Invoice id generation for supplier-issued and self-bill flows.
  *
- * - `nextSupplierInvoiceId` — Delta Capita drafts use `DC-###`
- *   (client series); other clients use `UK-####` / `FZ-####` from the
- *   issuing entity (`nextInvoiceIdForEntity`).
+ * - `nextSupplierInvoiceId` — Delta Capita uses `DC-###`; La Fosse uses
+ *   `EG-####`; other clients use per-entity `UK-####` / `FZ-####`.
  * - `nextInvoiceIdForEntity` — strict per-entity `UK-####` / `FZ-####`
- *   sequences (self-bill ingest, and any UK client that is not Delta
- *   Capita).
+ *   sequences for non–client-series flows.
  *
  * Sequences are not global: FZ and UK (and DC) stay logically separate
  * as described on `InvoiceIdSchema`.
@@ -14,7 +12,7 @@
 
 import type { Client, Company, EntityId } from '../../../shared/api-contracts.js';
 import type { Invoice, InvoiceId } from './schema.js';
-import { nextDeltaCapitaInvoiceId } from './client-invoice-number.js';
+import { nextDeltaCapitaInvoiceId, nextLaFosseInvoiceId } from './client-invoice-number.js';
 
 /**
  * Invoice-id prefix for an entity. Derived from the company's
@@ -60,8 +58,8 @@ export function nextInvoiceIdForEntity(
 }
 
 /**
- * Next supplier-issued invoice id: Delta Capita uses the `DC-###`
- * series; every other client keeps per-entity `UK-####` / `FZ-####`.
+ * Next supplier-issued invoice id: Delta Capita `DC-###`, La Fosse
+ * `EG-####`; other clients per-entity `UK-####` / `FZ-####`.
  */
 export function nextSupplierInvoiceId(
   client: Client,
@@ -71,6 +69,9 @@ export function nextSupplierInvoiceId(
 ): InvoiceId {
   if (client.id === 'delta-capita') {
     return nextDeltaCapitaInvoiceId(invoices);
+  }
+  if (client.id === 'la-fosse') {
+    return nextLaFosseInvoiceId(invoices);
   }
   return nextInvoiceIdForEntity(entityId, company, invoices);
 }

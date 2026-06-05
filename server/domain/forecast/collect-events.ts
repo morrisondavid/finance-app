@@ -22,6 +22,7 @@ import type {
 } from '../../../shared/api-contracts.js';
 import { shiftIsoDate, monthRange } from '../../../shared/iso-date.js';
 import { calculateWorkload } from '../contracts/workload.js';
+import { holidayDatesForContract } from '../working-days/public-holidays.js';
 import type { ForecastEvent } from './events.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -257,14 +258,13 @@ function tryEmitAccrualForWindow(
   periodEnd: string,
   arrivalMonthEnd: string,
   leaveRows: readonly import('../../../shared/api-contracts.js').LeaveRow[],
-  publicHolidayDatesByEntity: ReadonlyMap<EntityId, ReadonlySet<string>>,
   today: string,
   horizon: string,
   account: AccountName,
 ): ForecastEvent | null {
   if (periodStart > periodEnd) return null;
 
-  const publicHolidayDates = publicHolidayDatesByEntity.get(contract.issuing_entity_id);
+  const publicHolidayDates = holidayDatesForContract(contract, periodStart, periodEnd);
   const workload = calculateWorkload({
     contract,
     leaveRows,
@@ -302,9 +302,13 @@ export function collectAccrualEvents(
   input: CollectAccrualEventsInput,
 ): ForecastEvent[] {
   const {
-    contracts, leaveRows, publicHolidayDatesByEntity,
-    today, horizon, accountsByEntity,
-    projectToContractEnd, accrualWindowStartByContractId,
+    contracts,
+    leaveRows,
+    today,
+    horizon,
+    accountsByEntity,
+    projectToContractEnd,
+    accrualWindowStartByContractId,
   } = input;
   const events: ForecastEvent[] = [];
 
@@ -335,7 +339,6 @@ export function collectAccrualEvents(
         periodEnd,
         monthEnd,
         leaveRows,
-        publicHolidayDatesByEntity,
         today,
         horizon,
         account,

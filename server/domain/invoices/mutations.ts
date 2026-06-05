@@ -32,6 +32,7 @@ import {
 } from './csv-io.js';
 import {
   DEFAULT_INVOICES_DIR,
+  buildInvoiceRegistry,
   getInvoiceRegistry,
   invalidateInvoiceRegistry,
   type InvoiceRegistry,
@@ -128,7 +129,9 @@ export type UpdateInvoiceResult =
  */
 export function updateInvoice(input: UpdateInvoiceInput): UpdateInvoiceResult {
   const invoicesDir = input.invoicesDir ?? DEFAULT_INVOICES_DIR;
-  const registry = getInvoiceRegistry();
+  const registry = input.invoicesDir !== undefined
+    ? buildInvoiceRegistry(invoicesDir)
+    : getInvoiceRegistry();
 
   const existing = registry.indexes.byId.get(input.invoiceId);
   if (existing === undefined) {
@@ -207,7 +210,8 @@ export type RecordInvoicePaymentsResult =
  *      validity is enforced here so an upstream bug can't smuggle an
  *      orphan payment row past the trust boundary.
  *   3. Reject duplicate `id` (re-running a dry-run twice) and duplicate
- *      `bank_transaction_id` (a deposit can only settle one invoice).
+ *      `(invoice_id, bank_transaction_id)` pairs (one deposit may settle
+ *      many invoices in a batch remittance).
  *   4. Atomic-rewrite `invoices/invoice_payments.csv`.
  *   5. Invalidate the payments registry so the next read rebuilds.
  *

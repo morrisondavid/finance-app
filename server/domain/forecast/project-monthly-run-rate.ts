@@ -33,6 +33,7 @@ import {
   type RecurringExpense,
 } from '../../../shared/api-contracts.js';
 import { calculateWorkload } from '../contracts/workload.js';
+import { holidayDatesForContract } from '../working-days/public-holidays.js';
 import { primaryAccountForEntity } from './collect-events.js';
 import { ACCOUNT_CONFIG_DATA } from '../accounts/data.js';
 import { recurringKey } from '../../utils/recurring-pipeline.js';
@@ -215,7 +216,7 @@ export function projectMonthlyRunRate(
     const currency = inputs.currencyByAccount.get(account);
     if (currency === undefined) continue;
 
-    const publicHolidayDates = inputs.publicHolidayDatesByEntity.get(contract.issuing_entity_id);
+    const publicHolidayDates = holidayDatesForContract(contract, today, windowEnd);
     const workload = calculateWorkload({
       contract,
       leaveRows: inputs.leaveRows,

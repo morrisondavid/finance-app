@@ -187,7 +187,8 @@ describe('Delta Capita — April/May/June (settled-through 2026-03-31)', () => {
     const aprilEvents = events.filter(e => e.contractId === aprilSow.id);
     expect(aprilEvents).toHaveLength(1);
     expect(aprilEvents[0].date).toBe('2026-06-03');
-    expect(aprilEvents[0].amount).toBe(22 * 550);
+    // April 2026 UK: 22 weekdays minus Good Friday (3rd) and Easter Monday (6th).
+    expect(aprilEvents[0].amount).toBe(20 * 550);
 
     const followOnEvents = events.filter(e => e.contractId === followOn.id);
     expect(followOnEvents.length).toBeGreaterThanOrEqual(2);
