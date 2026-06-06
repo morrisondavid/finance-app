@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  corporationTaxDueDateForFy,
+  listVatQuarterLabelsInFinancialYear,
   mostRecentlyEndedFyLabel,
   mostRecentlyEndedVatQuarterLabel,
   resolveReportingPeriod,
@@ -51,5 +53,22 @@ describe('mostRecentlyEnded period helpers', () => {
   it('mostRecentlyEndedFyLabel returns a YYYY/YY string', () => {
     const label = mostRecentlyEndedFyLabel(new Date('2026-06-03'));
     expect(label).toMatch(/^\d{4}\/\d{2}$/);
+  });
+});
+
+describe('listVatQuarterLabelsInFinancialYear', () => {
+  it('returns the four Stagger-2 quarters overlapping FY 2025/26', () => {
+    expect(listVatQuarterLabelsInFinancialYear('2025/26')).toEqual([
+      'Q3-2025',
+      'Q4-2025',
+      'Q1-2026',
+      'Q2-2026',
+    ]);
+  });
+});
+
+describe('corporationTaxDueDateForFy', () => {
+  it('is FY end + 9 months + 1 day', () => {
+    expect(corporationTaxDueDateForFy('2025/26')).toBe('2027-01-31');
   });
 });

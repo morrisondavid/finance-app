@@ -7,8 +7,10 @@ import { state, setState } from './state';
 import {
   fetchStatements,
   fetchStatementYears,
+  fetchReportingReadiness,
   downloadSelectedFiles,
 } from '../utils/api';
+import type { ReportingReadinessItem } from '../../../shared/api-contracts.js';
 import { formatAccountName, formatMonthYear } from '../utils/formatting';
 import { buildVatQuarterOptionsHtml } from '../utils/vat-quarters';
 
@@ -20,14 +22,6 @@ function clientFallbackYears(): string[] {
   }
   return years;
 }
-
-// VAT Quarter definitions (Stagger 2)
-const VAT_QUARTERS = {
-  Q1: { name: 'Q1 (Nov-Jan)', months: [11, 12, 1], crossYear: true },
-  Q2: { name: 'Q2 (Feb-Apr)', months: [2, 3, 4], crossYear: false },
-  Q3: { name: 'Q3 (May-Jul)', months: [5, 6, 7], crossYear: false },
-  Q4: { name: 'Q4 (Aug-Oct)', months: [8, 9, 10], crossYear: false }
-};
 
 let hasAppliedFilter = false;
 
@@ -53,9 +47,23 @@ export async function loadStatements(
     }
     
     const data = await fetchStatements({ search, year, month, quarter });
+
+    let readinessMissing: readonly ReportingReadinessItem[] | null = null;
+    if (quarter) {
+      try {
+        const readiness = await fetchReportingReadiness({
+          entityId: 'autonize-it-ltd',
+          regime: 'vat',
+          period: quarter,
+        });
+        readinessMissing = readiness.missing;
+      } catch (err) {
+        console.error('Error loading reporting readiness for quarter:', err);
+      }
+    }
+
     setState('statementsData', data);
-    
-    renderStatements(data);
+    renderStatements(data, readinessMissing);
     updateFileCount(data);
     updateDownloadButton();
   } catch (error) {
@@ -103,7 +111,22 @@ function renderStatementsPrompt(): void {
 /**
  * Render statements with checkboxes and missing file warnings
  */
-function renderStatements(data: AllStatements): void {
+function missingMonthsForAccount(
+  account: string,
+  docType: 'pdf' | 'csv',
+  readinessMissing: readonly ReportingReadinessItem[] | null,
+): string[] {
+  if (readinessMissing === null) return [];
+  return readinessMissing
+    .filter(item => item.account === account && item.docType === docType)
+    .map(item => item.monthKey)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function renderStatements(
+  data: AllStatements,
+  readinessMissing: readonly ReportingReadinessItem[] | null = null,
+): void {
   const container = document.getElementById('statements-list');
   const selectionControls = document.querySelector<HTMLElement>('.selection-controls');
   
@@ -131,10 +154,6 @@ function renderStatements(data: AllStatements): void {
   // Show selection controls when files are displayed
   if (selectionControls) selectionControls.style.display = 'flex';
   
-  // Get expected months if quarter is selected
-  const quarterFilter = document.getElementById('quarter-filter') as HTMLSelectElement;
-  const expectedMonths = quarterFilter?.value ? getExpectedMonthsForQuarter(quarterFilter.value) : null;
-  
   const html = accounts.map(([account, files]) => {
     const pdfFiles = files.pdf
       .map((f: import('../types').FileInfo) => ({ ...f, type: 'pdf' as const }))
@@ -144,18 +163,9 @@ function renderStatements(data: AllStatements): void {
       .map((f: import('../types').FileInfo) => ({ ...f, type: 'csv' as const }))
       .sort((a, b) => b.displayDate.localeCompare(a.displayDate));
     
-    // Check for missing files if viewing a quarter
-    const missingPdfs: string[] = [];
-    const missingCsvs: string[] = [];
-    if (expectedMonths) {
-      expectedMonths.forEach((monthKey: string) => {
-        const hasPdf = pdfFiles.some((f) => f.displayDate === monthKey);
-        const hasCsv = csvFiles.some((f) => f.displayDate === monthKey);
-        if (!hasPdf) missingPdfs.push(monthKey);
-        if (!hasCsv) missingCsvs.push(monthKey);
-      });
-    }
-    
+    const missingPdfs = missingMonthsForAccount(account, 'pdf', readinessMissing);
+    const missingCsvs = missingMonthsForAccount(account, 'csv', readinessMissing);
+
     return `
       <div class="account-section">
         <h3>${formatAccountName(account)}</h3>
@@ -194,46 +204,6 @@ function renderStatements(data: AllStatements): void {
   }).join('');
   
   container.innerHTML = html;
-}
-
-/**
- * Get expected months for a quarter
- */
-function getExpectedMonthsForQuarter(quarter: string): string[] | null {
-  const match = quarter.match(/^(Q[1-4])-(\d{4})$/);
-  if (!match) return null;
-  
-  const qNum = match[1] as keyof typeof VAT_QUARTERS;
-  const year = parseInt(match[2]);
-  
-  switch (qNum) {
-    case 'Q1': // Nov-Jan
-      return [
-        `${year - 1}-11`,
-        `${year - 1}-12`,
-        `${year}-01`
-      ];
-    case 'Q2': // Feb-Apr
-      return [
-        `${year}-02`,
-        `${year}-03`,
-        `${year}-04`
-      ];
-    case 'Q3': // May-Jul
-      return [
-        `${year}-05`,
-        `${year}-06`,
-        `${year}-07`
-      ];
-    case 'Q4': // Aug-Oct
-      return [
-        `${year}-08`,
-        `${year}-09`,
-        `${year}-10`
-      ];
-    default:
-      return null;
-  }
 }
 
 /**

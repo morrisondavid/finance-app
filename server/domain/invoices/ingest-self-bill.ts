@@ -211,9 +211,6 @@ export function ingestSelfBill(input: IngestSelfBillInput): IngestSelfBillResult
     fx_rate_at_issue: null,
     fx_base_currency: null,
     mechanism: 'self-bill',
-    // Route layer sets this to the `invoices/ingested/<id>.pdf` path
-    // once it has persisted the uploaded file.
-    pdf_path: null,
     status: 'issued',
     due_date: shiftIsoDate(parsed.invoiceDate, contract.payment_terms_days),
     created_at: input.today,

@@ -63,6 +63,10 @@ Requires buckets from `./01-s3-buckets.sh` and AWS CLI credentials (same profile
 ./deploy/aws/12-s3-seed-durable-from-local.sh
 ```
 
+**Invoices CSV vs PDFs:** `09` syncs the whole `invoices/` prefix from S3, then **force-pulls** `invoices.csv` and `invoice_payments.csv` (see below). Push CSVs with [`push-invoices-to-s3.sh`](push-invoices-to-s3.sh) or the full seed above when the laptop is authoritative.
+
+**Same-size sync skip:** `aws s3 sync` (default) **does not re-download** a local file when it has the **same byte size** as S3 and S3 is not newer — even when the **content** differs. `UK-####` → `EG-####` renames keep the same length, so a correct `invoices.csv` on S3 can coexist with a stale UK copy on disk after `09`. Current **`09`** uses `--exact-timestamps` and always `aws s3 cp`s the invoice CSVs after sync; **`09` exits non-zero** if disk and S3 still disagree on la-fosse id prefix.
+
 ### Rolling out after code changes
 
 1. Run **`12-s3-seed-durable-from-local.sh`** if S3 does not yet reflect your authoritative copy (first deploy or drift recovery).

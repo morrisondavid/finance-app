@@ -30,7 +30,7 @@ export function getIngestedPdfPath(
   return path.join(getIngestedPdfDir(invoicesDir), `${invoice.id}.pdf`);
 }
 
-/** Value to store in `invoices.pdf_path` — relative, forward slashes. */
+/** Canonical repo-relative path — forward slashes. */
 export function getRelativeIngestedPdfPath(invoice: Invoice): string {
   return `invoices/${INGESTED_PDF_SUBDIR}/${invoice.id}.pdf`;
 }

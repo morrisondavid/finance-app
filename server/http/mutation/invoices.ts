@@ -42,10 +42,10 @@ export const InvoiceReconcileBodySchema = z.object({
 function rewindToDraftOrSkip(invoiceId: string): void {
   const existing = findInvoiceById(invoiceId);
   if (existing === null) return;
-  if (existing.status === 'draft' && existing.pdf_path === null) return;
+  if (existing.status === 'draft') return;
   updateInvoice({
     invoiceId,
-    patch: { status: 'draft', pdf_path: null },
+    patch: { status: 'draft' },
   });
 }
 
@@ -64,7 +64,6 @@ export async function mutateInvoiceGenerate(body: unknown): Promise<JsonMutation
   const draft: Invoice = {
     ...parsed.data.invoice,
     status: 'draft',
-    pdf_path: null,
   };
 
   const contractForGenerate = findContractById(draft.contract_id);
@@ -116,7 +115,7 @@ export async function mutateInvoiceGenerate(body: unknown): Promise<JsonMutation
   }
 
   try {
-    const writeResult = await writeInvoicePdf({
+    await writeInvoicePdf({
       invoice: createResult.invoice,
       company,
       client,
@@ -124,7 +123,7 @@ export async function mutateInvoiceGenerate(body: unknown): Promise<JsonMutation
 
     const patchResult = updateInvoice({
       invoiceId: createResult.invoice.id,
-      patch: { status: 'issued', pdf_path: writeResult.relativePath },
+      patch: { status: 'issued' },
     });
 
     if (!patchResult.ok) {

@@ -64,6 +64,8 @@ export const ACCOUNTS = AccountNameSchema.options;
 export const CurrencyCodeSchema = z.enum(['GBP', 'AED', 'USD']);
 export type CurrencyCode = z.infer<typeof CurrencyCodeSchema>;
 
+export const IsoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
 /**
  * Currencies that may appear on AISP feed payloads when they differ from
  * book {@link CurrencyCodeSchema} (e.g. EUR from an ES sandbox ASPSP).
@@ -130,6 +132,8 @@ export const AccountConfigSchema = z.object({
   canMakeOutgoingPayments: z.boolean(),
   excludeTransfersFromIncome: z.boolean(),
   showTaxLiabilities: z.boolean(),
+  /** First calendar month statement PDF/CSV are required; omitted = always required. */
+  bankOpenedDate: IsoDateSchema.nullable().optional(),
   aispFeed: DashboardAispFeedSchema.optional(),
 });
 
@@ -1152,8 +1156,6 @@ export const DebtIdSchema = z
   .min(1)
   .max(64)
   .regex(/^[a-z0-9][a-z0-9-]*$/);
-
-export const IsoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 /**
  * Date-window fields for Hermes drill / MCP transaction listings (Roadmap Wave 03).
@@ -3128,13 +3130,6 @@ export type InvoiceId = z.infer<typeof InvoiceIdSchema>;
 export const InvoiceStatusSchema = z.enum(['draft', 'issued', 'paid', 'partial']);
 export type InvoiceStatus = z.infer<typeof InvoiceStatusSchema>;
 
-/**
- * Reference to a rendered / received PDF relative to the `invoices/`
- * directory. `null` for historical rows seeded before we had a PDF
- * pipeline (including the 10 DC seed fixtures in Phase 1).
- */
-export const InvoicePdfPathSchema = z.string().min(1).nullable();
-
 export const InvoiceSchema = z.object({
   id: InvoiceIdSchema,
   contract_id: ContractIdSchema,
@@ -3171,7 +3166,6 @@ export const InvoiceSchema = z.object({
   /** Typically `GBP`. `null` when same currency. */
   fx_base_currency: CurrencyCodeSchema.nullable(),
   mechanism: InvoiceMechanismSchema,
-  pdf_path: InvoicePdfPathSchema,
   status: InvoiceStatusSchema,
   due_date: IsoDateSchema,
   created_at: IsoDateSchema,
@@ -3211,9 +3205,15 @@ export const InvoicePaymentSchema = z.object({
 });
 export type InvoicePayment = z.infer<typeof InvoicePaymentSchema>;
 
+/** Invoice row plus whether an archived PDF exists on disk (list API only). */
+export const InvoiceListItemSchema = InvoiceSchema.extend({
+  stored_pdf_available: z.boolean(),
+});
+export type InvoiceListItem = z.infer<typeof InvoiceListItemSchema>;
+
 /** Response shape of `GET /api/invoices`. */
 export const InvoicesListResponseSchema = z.object({
-  invoices: z.array(InvoiceSchema),
+  invoices: z.array(InvoiceListItemSchema),
 });
 export type InvoicesListResponse = z.infer<typeof InvoicesListResponseSchema>;
 
@@ -3291,6 +3291,27 @@ export const ReportingReadinessResponseSchema = z.object({
   generatedAt: z.string(),
 });
 export type ReportingReadinessResponse = z.infer<typeof ReportingReadinessResponseSchema>;
+
+export const FinancialYearReadinessOverviewSchema = z.object({
+  entityId: EntityIdSchema,
+  financialYear: z.string().min(1),
+  corporationTax: ReportingReadinessResponseSchema,
+  vatQuarters: z.array(
+    z.object({
+      periodLabel: z.string().min(1),
+      readiness: ReportingReadinessResponseSchema,
+    }),
+  ),
+  aggregate: z.object({
+    ready: z.boolean(),
+    missingDocCount: z.number().int().nonnegative(),
+    missingInvoiceCount: z.number().int().nonnegative(),
+    missingInvoiceNumbers: z.array(z.string()),
+  }),
+  recommendedNextSteps: z.array(z.string()),
+  generatedAt: z.string(),
+});
+export type FinancialYearReadinessOverview = z.infer<typeof FinancialYearReadinessOverviewSchema>;
 
 export const EntityFoundationWarningCodeSchema = z.enum([
   // §1.1 + earlier

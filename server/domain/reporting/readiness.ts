@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import {
   ReportingReadinessResponseSchema,
@@ -10,11 +9,8 @@ import {
 } from '../../../shared/api-contracts.js';
 import { getAccountConfig } from '../accounts/index.js';
 import { listInvoicesByIssuingEntityId } from '../invoices/index.js';
-import {
-  REPO_ROOT,
-  STATEMENTS_DIR,
-  listFilesInDir,
-} from '../statements/statement-files-catalog.js';
+import { isInvoiceStoredPdfAvailable } from '../invoices/stored-pdf.js';
+import { STATEMENTS_DIR, listFilesInDir } from '../statements/statement-files-catalog.js';
 import { getReportingManifest } from './reporting-manifest.js';
 import { resolveReportingPeriod } from './period.js';
 
@@ -37,10 +33,7 @@ function defaultMonthsOnDisk(account: string, docType: 'pdf' | 'csv'): Set<strin
 }
 
 function defaultInvoicePdfExists(invoice: Invoice): boolean {
-  if (invoice.pdf_path === null) {
-    return false;
-  }
-  return fs.existsSync(path.join(REPO_ROOT, invoice.pdf_path));
+  return isInvoiceStoredPdfAvailable(invoice);
 }
 
 export function computeReportingReadiness(
@@ -59,9 +52,14 @@ export function computeReportingReadiness(
 
   for (const account of manifest.accounts) {
     const docTypes = manifest.docTypesByAccount.get(account) ?? ['pdf', 'csv'];
-    const accountLabel = getAccountConfig(account).label;
+    const accountConfig = getAccountConfig(account);
+    const accountLabel = accountConfig.label;
+    const openedFrom = accountConfig.bankOpenedDate?.slice(0, 7) ?? null;
 
     for (const monthKey of period.monthKeys) {
+      if (openedFrom !== null && monthKey < openedFrom) {
+        continue;
+      }
       for (const docType of docTypes) {
         const item: ReportingReadinessItem = {
           account,

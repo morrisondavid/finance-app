@@ -4,6 +4,7 @@ import {
   composeSupplierInvoiceDraftForContract,
   listSupplierMonthlyInvoiceGaps,
 } from '../../domain/invoices/index.js';
+import { isInvoiceStoredPdfAvailable } from '../../domain/invoices/stored-pdf.js';
 import { allContracts } from '../../domain/contracts/index.js';
 import { todayIsoLocal } from '../../../shared/iso-date.js';
 import { IsoDateSchema, SupplierMonthGapsResponseSchema } from '../../../shared/api-contracts.js';
@@ -21,7 +22,11 @@ export const InvoiceDraftQuerySchema = z.object({
 
 /** GET /api/invoices parity. */
 export function readInvoiceList(): JsonReadResult {
-  return jsonReadOk({ invoices: allInvoices() });
+  const invoices = allInvoices().map(inv => ({
+    ...inv,
+    stored_pdf_available: isInvoiceStoredPdfAvailable(inv),
+  }));
+  return jsonReadOk({ invoices });
 }
 
 /** GET /api/invoices/supplier-month-gaps parity. */

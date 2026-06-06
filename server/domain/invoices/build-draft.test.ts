@@ -70,10 +70,9 @@ describe('buildDraftInvoice — happy path (DC SOW, UK Ltd, no prior invoices)',
     expect(draft.due_date).toBe('2026-05-20');
   });
 
-  it('defaults mechanism / status / pdf_path for a fresh draft', () => {
+  it('defaults mechanism and status for a fresh draft', () => {
     expect(draft.mechanism).toBe('supplier-issued');
     expect(draft.status).toBe('draft');
-    expect(draft.pdf_path).toBeNull();
   });
 
   it('composes description from the contract job_title', () => {

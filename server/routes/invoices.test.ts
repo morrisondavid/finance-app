@@ -190,7 +190,6 @@ describe('GET /api/invoices/draft', () => {
     const body = (await res.json()) as { invoice: unknown };
     const draft = InvoiceSchema.parse(body.invoice);
     expect(draft.status).toBe('draft');
-    expect(draft.pdf_path).toBeNull();
     expect(draft.contract_id).toBe('dc-sow-2026');
     expect(draft.id).toMatch(/^DC-\d{3}$/);
     expect(draft.invoice_number).toBe('DC-011');
@@ -279,7 +278,6 @@ const CANONICAL_DRAFT: Invoice = {
   fx_rate_at_issue: null,
   fx_base_currency: null,
   mechanism: 'supplier-issued',
-  pdf_path: null,
   status: 'draft',
   due_date: '2026-05-24',
   created_at: '2026-04-24',
@@ -315,7 +313,6 @@ describe('POST /api/invoices/generate', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { invoice: Invoice };
     expect(body.invoice.status).toBe('issued');
-    expect(body.invoice.pdf_path).toBe('invoices/generated/DC-999.pdf');
 
     expect(createInvoiceMock).toHaveBeenCalledOnce();
     expect(writeInvoicePdfMock).toHaveBeenCalledOnce();
@@ -383,9 +380,9 @@ describe('POST /api/invoices/generate', () => {
       body: JSON.stringify({ invoice: CANONICAL_DRAFT, allowOutsideGapList: true }),
     });
     expect(res.status).toBe(500);
-    // Rewind is a no-op if the row is already draft-with-null-pdf_path,
-    // so we don't strictly require a call here — the important contract
-    // is: no successful status=issued body was returned.
+    // Rewind is a no-op if the row is already draft, so we don't strictly
+    // require a call here — the important contract is: no successful
+    // status=issued body was returned.
   });
 });
 
@@ -546,10 +543,7 @@ describe('POST /api/invoices/ingest-self-bill', () => {
     };
     persistIngestedSelfBillFromBufferMock.mockResolvedValue({
       ok: true,
-      invoice: {
-        ...INGESTED_INVOICE,
-        pdf_path: 'invoices/ingested/FZ-0042.pdf',
-      },
+      invoice: INGESTED_INVOICE,
       parsed,
       contractId: 'lf-2026-apr',
       clientId: 'la-fosse',
@@ -561,7 +555,7 @@ describe('POST /api/invoices/ingest-self-bill', () => {
       invoice: Invoice;
       parsed: { supplierInvoiceNumber: string };
     };
-    expect(body.invoice.pdf_path).toBe('invoices/ingested/FZ-0042.pdf');
+    expect(body.invoice.id).toBe('FZ-0042');
     expect(body.parsed.supplierInvoiceNumber).toBe('SB-277615');
     expect(persistIngestedSelfBillFromBufferMock).toHaveBeenCalledOnce();
   });
@@ -576,25 +570,51 @@ describe('GET /api/invoices/:id/pdf', () => {
     expect(res.status).toBe(404);
   });
 
-  it('renders on the fly when pdf_path is null but entities resolve', async () => {
-    findInvoiceByIdMock.mockReturnValue({ ...CANONICAL_DRAFT, pdf_path: null });
-    const res = await fetch(`${baseUrl}/api/invoices/DC-999/pdf`);
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toBe('application/pdf');
-    const bytes = Buffer.from(await res.arrayBuffer());
-    expect(bytes.slice(0, 5).toString('utf8')).toBe('%PDF-');
-  });
-
-  it('falls back to on-the-fly render when the stored PDF file is missing', async () => {
+  it('404s when canonical file is missing', async () => {
     findInvoiceByIdMock.mockReturnValue({
       ...CANONICAL_DRAFT,
-      pdf_path: 'invoices/generated/does-not-exist.pdf',
+      id: 'DC-999',
+      invoice_number: 'DC-999',
+      payment_reference: 'DC-999',
     });
     const res = await fetch(`${baseUrl}/api/invoices/DC-999/pdf`);
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toBe('application/pdf');
-    const bytes = Buffer.from(await res.arrayBuffer());
-    expect(bytes.slice(0, 5).toString('utf8')).toBe('%PDF-');
+    expect(res.status).toBe(404);
+  });
+
+  it('streams canonical PDF when file exists on disk', async () => {
+    const projectRoot = path.resolve(
+      path.dirname(new URL(import.meta.url).pathname),
+      '../..',
+    );
+    const dir = path.join(projectRoot, 'invoices', 'generated');
+    const pdfPath = path.join(dir, 'DC-078.pdf');
+    fs.mkdirSync(dir, { recursive: true });
+    const pdfBody = Buffer.from('%PDF-1.4\n% test\n%%EOF\n');
+    fs.writeFileSync(pdfPath, pdfBody);
+    try {
+      findInvoiceByIdMock.mockReturnValue({
+        ...CANONICAL_DRAFT,
+        id: 'DC-078',
+        invoice_number: 'DC-078',
+        payment_reference: 'DC-078',
+      });
+      const res = await fetch(`${baseUrl}/api/invoices/DC-078/pdf`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe('application/pdf');
+    } finally {
+      fs.rmSync(pdfPath, { force: true });
+    }
+  });
+
+  it('404s when the stored PDF file is missing on disk', async () => {
+    findInvoiceByIdMock.mockReturnValue({
+      ...CANONICAL_DRAFT,
+      id: 'DC-missing',
+      invoice_number: 'DC-missing',
+      payment_reference: 'DC-missing',
+    });
+    const res = await fetch(`${baseUrl}/api/invoices/DC-999/pdf`);
+    expect(res.status).toBe(404);
   });
 
   it('streams the PDF with Content-Type: application/pdf', async () => {
@@ -615,7 +635,6 @@ describe('GET /api/invoices/:id/pdf', () => {
         id: 'DC-077',
         invoice_number: 'DC-077',
         payment_reference: 'DC-077',
-        pdf_path: 'invoices/generated/DC-077.pdf',
       });
       const res = await fetch(`${baseUrl}/api/invoices/DC-077/pdf`);
       expect(res.status).toBe(200);

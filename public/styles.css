@@ -6193,6 +6193,24 @@ body {
   border-color: var(--color-text-muted);
 }
 
+.invoice-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.invoice-card__pdf--unavailable {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.invoice-card__secondary-action {
+  flex-shrink: 0;
+}
+
 .invoice-card__row {
   display: flex;
   flex-direction: row;

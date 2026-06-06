@@ -103,8 +103,8 @@ export function resolveBillingMonthPeriod(
 
 /**
  * Compose a fresh draft invoice for `contract`. Status is always
- * `'draft'` and `pdf_path` is `null`; the generate endpoint flips both
- * of those once the PDF is rendered.
+ * `'draft'`; the generate endpoint flips it to `'issued'` once the PDF
+ * is written to the canonical path on disk.
  *
  * A degenerate `[period_start, period_end]` (e.g. a contract that
  * ended before the calendar month began) yields a draft with zero
@@ -188,7 +188,6 @@ export function buildDraftInvoice(input: BuildDraftInput): Invoice {
     fx_rate_at_issue: null,
     fx_base_currency: null,
     mechanism: 'supplier-issued',
-    pdf_path: null,
     status: 'draft',
     due_date: dueDate,
     created_at: invoiceDate,

@@ -24,6 +24,7 @@ import type {
   Client,
   Company,
   Invoice,
+  InvoiceListItem,
   CurrencyCode,
 } from '../../../shared/api-contracts.js';
 import { escapeAttribute, escapeHtml, openModal, closeModal } from '../utils/dom';
@@ -118,7 +119,6 @@ async function getJson<T>(url: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-interface InvoicesListResponse { readonly invoices: readonly Invoice[] }
 interface ContractsListResponse { readonly contracts: readonly Contract[] }
 interface ClientsListResponse { readonly clients: readonly Client[] }
 interface CompaniesListResponse { readonly companies: readonly Company[] }
@@ -248,7 +248,7 @@ export async function loadInvoices(): Promise<void> {
 
   try {
     const [invoicesRes, clientsRes, companiesRes, contractsRes] = await Promise.all([
-      getJson<InvoicesListResponse>('/api/invoices'),
+      getJson<{ invoices: readonly InvoiceListItem[] }>('/api/invoices'),
       getJson<ClientsListResponse>('/api/clients'),
       getJson<CompaniesListResponse>('/api/company'),
       getJson<ContractsListResponse>('/api/contracts'),
@@ -271,7 +271,7 @@ export async function loadInvoices(): Promise<void> {
 
 function renderGroups(
   host: HTMLElement,
-  invoices: readonly Invoice[],
+  invoices: readonly InvoiceListItem[],
   clients: readonly Client[],
   companies: readonly Company[],
 ): void {
@@ -284,7 +284,7 @@ function renderGroups(
   const clientById = new Map<string, Client>(clients.map(c => [c.id, c]));
   const companyById = new Map<string, Company>(companies.map(c => [c.id, c]));
 
-  const byClient = new Map<string, Invoice[]>();
+  const byClient = new Map<string, InvoiceListItem[]>();
   for (const inv of invoices) {
     const list = byClient.get(inv.client_id) ?? [];
     list.push(inv);
@@ -398,11 +398,49 @@ function onInvoiceClientFilterEvent(ev: Event): void {
   applyClientSectionFilter(target);
 }
 
+async function onInvoiceTileActionClick(ev: Event): Promise<void> {
+  const target = ev.target;
+  if (!(target instanceof HTMLElement)) return;
+  const btn = target.closest('[data-invoice-action]');
+  if (!(btn instanceof HTMLButtonElement)) return;
+
+  const action = btn.dataset.invoiceAction;
+  if (action === 'open-ingest') {
+    openSelfBillIngestWithHint('Upload the agency self-bill PDF for this invoice.');
+    return;
+  }
+
+  if (action !== 'persist-pdf') return;
+  const invoiceId = btn.dataset.invoiceId?.trim() ?? '';
+  if (invoiceId === '') return;
+
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/invoices/${encodeURIComponent(invoiceId)}/persist-pdf`, {
+      method: 'POST',
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(extractErrorLine(text, res.status));
+    }
+    await loadInvoices();
+  } catch (err) {
+    window.alert(
+      `Could not generate PDF: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function bindInvoiceGroupFilters(host: HTMLElement): void {
   if (invoiceGroupFiltersBound) return;
   invoiceGroupFiltersBound = true;
   host.addEventListener('input', onInvoiceClientFilterEvent);
   host.addEventListener('search', onInvoiceClientFilterEvent);
+  host.addEventListener('click', ev => {
+    void onInvoiceTileActionClick(ev);
+  });
 }
 
 /** Paid date / due line — paid invoices use a green tick + date (no duplicate status chip in meta). */
@@ -420,19 +458,33 @@ function invoicePaidOrDueRow(inv: Invoice): string {
   return `<p class="invoice-card__paid">${escapeHtml(`Due ${formatIsoDateUk(inv.due_date)}`)}</p>`;
 }
 
+function renderTileActionButtons(invoice: InvoiceListItem): string {
+  const pdfTitle = invoice.stored_pdf_available
+    ? 'Open archived PDF'
+    : 'No archived PDF on disk yet';
+  const pdfControl = invoice.stored_pdf_available
+    ? `<a class="btn btn-sm" href="/api/invoices/${encodeURIComponent(invoice.id)}/pdf" target="_blank" rel="noopener" title="${escapeHtml(pdfTitle)}">PDF</a>`
+    : `<span class="btn btn-sm invoice-card__pdf--unavailable" title="${escapeHtml(pdfTitle)}">PDF</span>`;
+
+  if (invoice.stored_pdf_available) {
+    return pdfControl;
+  }
+
+  if (invoice.mechanism === 'supplier-issued') {
+    return `${pdfControl}<button type="button" class="btn btn-sm btn-primary invoice-card__secondary-action" data-invoice-action="persist-pdf" data-invoice-id="${escapeAttribute(invoice.id)}">Generate</button>`;
+  }
+
+  return `${pdfControl}<button type="button" class="btn btn-sm invoice-card__secondary-action" data-invoice-action="open-ingest">Ingest</button>`;
+}
+
 function renderTile(
-  invoice: Invoice,
+  invoice: InvoiceListItem,
   issuingCompany: Company | null,
 ): string {
   const total = formatCurrency(invoice.total, invoice.currency);
   const entityLabel = issuingCompany?.trading_name ?? invoice.issuing_entity_id;
   const period = `${formatIsoDateUk(invoice.period_start)}–${formatIsoDateUk(invoice.period_end)}`;
   const issued = formatIsoDateUk(invoice.invoice_date);
-  const pdfHref = `/api/invoices/${encodeURIComponent(invoice.id)}/pdf`;
-  const pdfTitle =
-    invoice.pdf_path === null
-      ? 'Opens a PDF rebuilt from this invoice row (historical rows have no archived file).'
-      : 'Open stored PDF';
   const statusChip =
     invoice.status === 'paid'
       ? ''
@@ -451,7 +503,7 @@ function renderTile(
           <p class="invoice-card__number">${escapeHtml(invoice.invoice_number)}</p>
           ${ledgerLine}
         </div>
-        <a class="btn btn-sm" href="${pdfHref}" target="_blank" rel="noopener" title="${escapeHtml(pdfTitle)}">PDF</a>
+        <div class="invoice-card__actions">${renderTileActionButtons(invoice)}</div>
       </div>
       <p class="invoice-card__amount">${escapeHtml(total)}</p>
       ${invoicePaidOrDueRow(invoice)}

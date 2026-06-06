@@ -127,10 +127,10 @@ describe('createInvoice', () => {
 });
 
 describe('updateInvoice', () => {
-  it('patches status + pdf_path and stamps updated_at', () => {
+  it('patches status and stamps updated_at', () => {
     const result = updateInvoice({
       invoiceId: 'DC-001',
-      patch: { status: 'issued', pdf_path: 'invoices/generated/DC-001.pdf' },
+      patch: { status: 'issued' },
       invoicesDir: tmpDir,
       now: FIXED_NOW,
     });
@@ -138,7 +138,6 @@ describe('updateInvoice', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.invoice.status).toBe('issued');
-    expect(result.invoice.pdf_path).toBe('invoices/generated/DC-001.pdf');
     expect(result.invoice.updated_at).toBe('2026-05-01');
 
     const onDisk = readInvoicesCsvFile(getInvoicesCsvPath(tmpDir));

@@ -3,6 +3,7 @@
  */
 
 import type { Invoice } from '../invoices/schema.js';
+import { isInvoiceStoredPdfAvailable } from '../invoices/stored-pdf.js';
 
 import { appendInvoiceDeliveryOutbox, invoiceDeliveryRecordedForInvoiceId } from './invoice-delivery-outbox.js';
 import { INVOICE_ISSUED_NOTICE_TO_DEFAULT } from './invoice-delivery-recipients.js';
@@ -72,7 +73,7 @@ export async function sendInvoiceIssuedNoticeIfConfigured(invoice: Invoice): Pro
     `Invoice ${invoice.invoice_number} (${invoice.id}) issued.`,
     `Client ${invoice.client_id} · Period ${invoice.period_start} → ${invoice.period_end}`,
     `Total ${invoice.total} ${invoice.currency}`,
-    `PDF path: ${invoice.pdf_path ?? 'n/a'}`,
+    `PDF on disk: ${isInvoiceStoredPdfAvailable(invoice) ? 'yes' : 'no'}`,
   ].join('\n');
 
   let response: Response;

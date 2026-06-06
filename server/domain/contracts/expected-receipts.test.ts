@@ -48,7 +48,6 @@ function makeInvoice(overrides: Partial<Invoice> & { id: string }): Invoice {
     fx_rate_at_issue: null,
     fx_base_currency: null,
     mechanism: 'supplier-issued',
-    pdf_path: null,
     status: 'issued',
     due_date: '2026-05-15',
     created_at: '2026-04-01',

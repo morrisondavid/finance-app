@@ -90,3 +90,103 @@ export function resolveReportingPeriod(
   }
   return resolveCtPeriod(trimmed);
 }
+
+export interface VatQuarterDescriptor {
+  periodLabel: string;
+  periodStartDate: string;
+  periodEndDate: string;
+  dueDate: string;
+  humanLabel: string;
+}
+
+/** The Stagger-2 VAT quarters whose date range overlaps the May–Apr financial year. */
+export function listVatQuarterDescriptorsInFinancialYear(fy: string): VatQuarterDescriptor[] {
+  const monthKeys = listMonthKeysInFinancialYear(fy);
+  const seen = new Set<string>();
+  const out: VatQuarterDescriptor[] = [];
+  for (const key of monthKeys) {
+    const [year, month] = key.split('-').map(Number);
+    const range = getVatQuarterForDate(new Date(year, month - 1, 15));
+    const periodLabel = vatQuarterLabel(range);
+    if (seen.has(periodLabel)) continue;
+    seen.add(periodLabel);
+    out.push({
+      periodLabel,
+      periodStartDate: range.startDate,
+      periodEndDate: range.endDate,
+      dueDate: range.dueDate,
+      humanLabel: range.label,
+    });
+  }
+  return out;
+}
+
+export function listVatQuarterLabelsInFinancialYear(fy: string): string[] {
+  return listVatQuarterDescriptorsInFinancialYear(fy).map(d => d.periodLabel);
+}
+
+/** UK CT deadline: financial-year end + 9 months + 1 day (e.g. 2025/26 → 2027-01-31). */
+export function corporationTaxDueDateForFy(fy: string): string {
+  const range = getFinancialYearRange(fy);
+  const [y, m, d] = range.endDate.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCMonth(dt.getUTCMonth() + 9);
+  dt.setUTCDate(dt.getUTCDate() + 1);
+  return dt.toISOString().slice(0, 10);
+}
+
+export interface DueReportingPeriod {
+  regime: ReportingRegime;
+  periodLabel: string;
+  dueDate: string;
+  periodStartDate: string;
+  periodEndDate: string;
+}
+
+/** VAT quarters + CT financial years whose filing deadline falls in (today, today+horizonDays]. */
+export function listReportingPeriodsDueWithinHorizon(
+  horizonDays: number,
+  today: Date = new Date(),
+): DueReportingPeriod[] {
+  const horizonEnd = new Date(today);
+  horizonEnd.setDate(horizonEnd.getDate() + horizonDays);
+  const todayIso = today.toISOString().slice(0, 10);
+  const horizonIso = horizonEnd.toISOString().slice(0, 10);
+  const result: DueReportingPeriod[] = [];
+
+  const seenVat = new Set<string>();
+  for (let offsetMonths = -6; offsetMonths <= 12; offsetMonths += 1) {
+    const probe = new Date(today);
+    probe.setMonth(probe.getMonth() + offsetMonths);
+    const range = getVatQuarterForDate(probe);
+    const periodLabel = vatQuarterLabel(range);
+    if (seenVat.has(periodLabel)) continue;
+    seenVat.add(periodLabel);
+    if (range.dueDate > todayIso && range.dueDate <= horizonIso) {
+      result.push({
+        regime: 'vat',
+        periodLabel,
+        dueDate: range.dueDate,
+        periodStartDate: range.startDate,
+        periodEndDate: range.endDate,
+      });
+    }
+  }
+
+  const ctFys = new Set([mostRecentlyEndedFyLabel(today), getFinancialYearForDate(today)]);
+  for (const fy of ctFys) {
+    const range = getFinancialYearRange(fy);
+    const dueDate = corporationTaxDueDateForFy(fy);
+    if (dueDate > todayIso && dueDate <= horizonIso) {
+      result.push({
+        regime: 'corporation_tax',
+        periodLabel: range.label,
+        dueDate,
+        periodStartDate: range.startDate,
+        periodEndDate: range.endDate,
+      });
+    }
+  }
+
+  return result.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+}

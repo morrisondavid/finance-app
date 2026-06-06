@@ -22,7 +22,6 @@ const MINIMAL_ISSUABLE_ROW: Invoice = {
   fx_rate_at_issue: null,
   fx_base_currency: null,
   mechanism: 'supplier-issued',
-  pdf_path: null,
   status: 'draft',
   due_date: '2026-05-01',
   created_at: '2026-04-01',

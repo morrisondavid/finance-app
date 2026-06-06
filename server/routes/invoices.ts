@@ -25,15 +25,14 @@
  *                                         (when `dryRun=false`) persists
  *                                         proposed payments via
  *                                         `recordInvoicePayments`.
- *   GET  /api/invoices/:id/pdf          — Streams the stored PDF when
- *                                         `pdf_path` resolves on disk; otherwise
- *                                         rebuilds from the invoice row + client +
- *                                         company (so historical seed rows still
- *                                         open a PDF).
+ *   POST /api/invoices/:id/persist-pdf  — Render + write PDF for an existing
+ *                                         supplier-issued row (no duplicate create).
+ *   GET  /api/invoices/:id/pdf          — Streams the archived PDF only when
+ *                                         the file exists on disk.
  *
  * The generate flow is a small workflow: create → render → update. If the
  * render step fails, we flip the row back to `draft` so we never leave
- * a row claiming `status = 'issued'` with `pdf_path = null`.
+ * a row claiming `status = 'issued'` without a PDF on disk.
  */
 
 import { Router, type Request, type Response } from 'express';
@@ -51,6 +50,7 @@ import {
   mutateMonthlyInvoicePreview,
 } from '../http/mutation/monthly-invoice-workflow.js';
 import { mutateInvoicePdfDownload } from '../http/mutation/invoice-pdf-download.js';
+import { mutateInvoicePersistPdf } from '../http/mutation/invoice-persist-pdf.js';
 import {
   readInvoiceList,
   readInvoiceDraftFromQuery,
@@ -166,6 +166,12 @@ router.post(
 
 router.post('/reconcile', (req: Request, res: Response) => {
   sendJsonMutation(res, mutateInvoiceReconcile(req.body));
+});
+
+// ─── POST /:id/persist-pdf ───────────────────────────────────────────────────
+
+router.post('/:id/persist-pdf', async (req: Request<{ id: string }>, res: Response) => {
+  sendJsonMutation(res, await mutateInvoicePersistPdf(req.params.id));
 });
 
 // ─── GET /:id/pdf ───────────────────────────────────────────────────────────

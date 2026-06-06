@@ -6,13 +6,13 @@ import type { AccountName } from '../types.js';
 import { ACCOUNTS } from '../types.js';
 import { accountsForEntity, getAccountConfig, businessAccounts } from '../domain/accounts/index.js';
 import { listInvoicesByIssuingEntityId } from '../domain/invoices/index.js';
+import { invoiceStoredPdfAbsolutePath } from '../domain/invoices/stored-pdf.js';
 import { resolveReportingPeriod } from '../domain/reporting/index.js';
 import { EntityIdSchema, ReportingRegimeSchema } from '../../shared/api-contracts.js';
 import type { ReportingRegime } from '../../shared/api-contracts.js';
 import { formatFinancialYearPackName, formatQuarterName } from '../../shared/formatting.js';
 import {
   INVOICES_UPLOAD_DIR as INVOICES_DIR,
-  REPO_ROOT,
   STATEMENTS_DIR,
   matchesQuarter,
   listFilesInDir,
@@ -257,15 +257,14 @@ router.get('/download-for-accountant', (req: Request<object, unknown, object, Ac
   if (entityParsed.success && entityParsed.data === 'autonize-it-ltd') {
     for (const inv of listInvoicesByIssuingEntityId('autonize-it-ltd')) {
       if (
-        inv.pdf_path !== null &&
         inv.invoice_date >= resolved.startDate &&
         inv.invoice_date <= resolved.endDate
       ) {
-        const invoicePath = path.join(REPO_ROOT, inv.pdf_path);
-        if (fs.existsSync(invoicePath)) {
+        const invoicePath = invoiceStoredPdfAbsolutePath(inv);
+        if (invoicePath !== null) {
           filesToZip.push({
             path: invoicePath,
-            name: `invoices/${path.basename(inv.pdf_path)}`,
+            name: `invoices/${path.basename(invoicePath)}`,
           });
         }
       }

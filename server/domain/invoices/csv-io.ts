@@ -54,7 +54,6 @@ export const INVOICE_CSV_HEADERS = [
   'fx_rate_at_issue',
   'fx_base_currency',
   'mechanism',
-  'pdf_path',
   'status',
   'due_date',
   'created_at',
@@ -108,7 +107,6 @@ export function parseInvoiceRow(row: Record<string, string>): Invoice {
     fx_rate_at_issue: decodeNullableNumber(row.fx_rate_at_issue, 'fx_rate_at_issue', rowId),
     fx_base_currency: nullIfEmpty(row.fx_base_currency),
     mechanism: requireNonEmpty(row.mechanism, 'mechanism', rowId),
-    pdf_path: nullIfEmpty(row.pdf_path),
     status: requireNonEmpty(row.status, 'status', rowId),
     due_date: decodeIsoDate(row.due_date, 'due_date', rowId),
     created_at: decodeIsoDate(row.created_at, 'created_at', rowId),
@@ -190,7 +188,6 @@ export function serializeInvoiceRow(invoice: Invoice): string {
       case 'fx_rate_at_issue': return encodeNullableNumber(invoice.fx_rate_at_issue);
       case 'fx_base_currency': return encodeOptional(invoice.fx_base_currency);
       case 'mechanism': return invoice.mechanism;
-      case 'pdf_path': return encodeOptional(invoice.pdf_path);
       case 'status': return invoice.status;
       case 'due_date': return invoice.due_date;
       case 'created_at': return invoice.created_at;

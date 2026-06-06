@@ -70,6 +70,22 @@ fi
 REMOTE_BASE="s3://${BUCKET}/${PREFIX}"
 echo "[09] Syncing durable dirs from ${REMOTE_BASE}/ …"
 
+# --exact-timestamps: default sync skips same-sized files unless local mtime is newer.
+# UK-#### → EG-#### renames preserve byte length, so invoices.csv can differ on S3 while
+# `aws s3 sync` silently leaves a stale local copy. We still force-pull canonical CSVs below.
+S3_SYNC_FROM_REMOTE_FLAGS=(--region "${AWS_REGION}" --delete --exact-timestamps)
+
+force_pull_s3_object() {
+  local rel="$1"
+  local dest="${DEST_ROOT}/${rel}"
+  local remote="${REMOTE_BASE}/${rel}"
+  if aws s3api head-object --bucket "${BUCKET}" --key "${PREFIX}/${rel}" --region "${AWS_REGION}" >/dev/null 2>&1; then
+    mkdir -p "$(dirname "${dest}")"
+    echo "[09]   force-pull ${rel}"
+    aws s3 cp "${remote}" "${dest}" --region "${AWS_REGION}" --only-show-errors
+  fi
+}
+
 DIRS=(
   statements budgets obligations debts deadlines net-worth
   autonize-it clients working-days reserves invoices
@@ -77,8 +93,39 @@ DIRS=(
 
 for d in "${DIRS[@]}"; do
   mkdir -p "${DEST_ROOT}/${d}"
-  aws s3 sync "${REMOTE_BASE}/${d}/" "${DEST_ROOT}/${d}/" --region "${AWS_REGION}" --delete
+  echo "[09]   sync ${d}/ …"
+  aws s3 sync "${REMOTE_BASE}/${d}/" "${DEST_ROOT}/${d}/" "${S3_SYNC_FROM_REMOTE_FLAGS[@]}"
 done
+
+# Canonical CSVs: always mirror S3 bytes (content can change without size/mtime tripping sync).
+FORCE_PULL_REL_PATHS=(
+  invoices/invoices.csv
+  invoices/invoice_payments.csv
+)
+for rel in "${FORCE_PULL_REL_PATHS[@]}"; do
+  force_pull_s3_object "${rel}"
+done
+
+INVOICES_CSV_LOCAL="${DEST_ROOT}/invoices/invoices.csv"
+INVOICES_CSV_REMOTE="${REMOTE_BASE}/invoices/invoices.csv"
+if [[ -f "${INVOICES_CSV_LOCAL}" ]]; then
+  LOCAL_LA_FOSSE_PREFIX="$(
+    grep ',la-fosse,' "${INVOICES_CSV_LOCAL}" | head -1 | cut -d, -f1 || true
+  )"
+  REMOTE_LA_FOSSE_PREFIX="$(
+    aws s3 cp "${INVOICES_CSV_REMOTE}" - --region "${AWS_REGION}" 2>/dev/null \
+      | grep ',la-fosse,' | head -1 | cut -d, -f1 || true
+  )"
+  echo "[09] invoices.csv la-fosse id on disk: ${LOCAL_LA_FOSSE_PREFIX:-<none>}"
+  echo "[09] invoices.csv la-fosse id on S3:  ${REMOTE_LA_FOSSE_PREFIX:-<missing or unreadable>}"
+  if [[ -n "${LOCAL_LA_FOSSE_PREFIX}" && -n "${REMOTE_LA_FOSSE_PREFIX}" \
+    && "${LOCAL_LA_FOSSE_PREFIX}" != "${REMOTE_LA_FOSSE_PREFIX}" ]]; then
+    echo "[09] FATAL: disk invoices.csv still disagrees with S3 after force-pull." >&2
+    exit 1
+  fi
+else
+  echo "[09] invoices.csv missing on disk after sync (not present on S3 either?)." >&2
+fi
 
 mkdir -p "${DEST_ROOT}/data"
 aws s3 sync "${REMOTE_BASE}/data/" "${DEST_ROOT}/data/" --region "${AWS_REGION}" --delete \

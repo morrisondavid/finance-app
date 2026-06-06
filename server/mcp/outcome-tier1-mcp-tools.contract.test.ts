@@ -15,7 +15,12 @@ import { HouseholdFinancialPostureQuerySchema } from '../domain/ai/ai-get-query-
 import { composeAiFinancialSafety, composeAiIncomeComposition } from '../domain/ai/index.js';
 import { initDatabase, closeDatabase } from '../db/index.js';
 import { readDashboardSummaryFromQuery } from '../http/read/dashboard.js';
-import { runAccountantReadinessSnapshotMcpTool } from './accountant-pack-mcp-tools.js';
+import {
+  runAccountantReadinessSnapshotMcpTool,
+  runAccountantReadinessFinancialYearMcpTool,
+  runReportingListPeriodsMcpTool,
+  runAccountantReadinessUpcomingMcpTool,
+} from './accountant-pack-mcp-tools.js';
 import { runHouseholdFinancialPostureMcpTool, runIncomeGetCompositionMcpTool } from './bank-mcp-server.js';
 
 function financialSafetyOptsFromHouseholdParsed(
@@ -152,5 +157,35 @@ describe('outcome MCP — income composition + posture + accountant readiness', 
     expect(Array.isArray(sc.present)).toBe(true);
     expect(Array.isArray(sc.missing)).toBe(true);
     expect('code' in sc && sc.code === 'accountant-readiness-not-configured').toBe(false);
+  });
+
+  it('accountant_readiness_financial_year returns CT + four VAT quarters', () => {
+    const r = runAccountantReadinessFinancialYearMcpTool({
+      financial_year: '2025/26',
+      entityId: 'autonize-it-ltd',
+    });
+    expect('isError' in r).toBe(false);
+    if (!('structuredContent' in r)) return;
+    const sc = r.structuredContent;
+    expect(sc).toHaveProperty('corporationTax');
+    expect(sc).toHaveProperty('vatQuarters');
+    expect(sc).toHaveProperty('aggregate');
+    if ('vatQuarters' in sc && Array.isArray(sc.vatQuarters)) {
+      expect(sc.vatQuarters).toHaveLength(4);
+    }
+  });
+
+  it('reporting_list_periods lists CT FY + VAT quarters', () => {
+    const r = runReportingListPeriodsMcpTool({ financial_year: '2025/26' });
+    expect('isError' in r).toBe(false);
+    if (!('structuredContent' in r)) return;
+    expect(r.structuredContent).toMatchObject({ ok: true, financialYear: '2025/26' });
+  });
+
+  it('accountant_readiness_upcoming returns a periods array', () => {
+    const r = runAccountantReadinessUpcomingMcpTool({ deadline_horizon_days: 400 });
+    expect('isError' in r).toBe(false);
+    if (!('structuredContent' in r)) return;
+    expect(r.structuredContent).toHaveProperty('periods');
   });
 });

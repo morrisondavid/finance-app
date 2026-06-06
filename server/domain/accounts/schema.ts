@@ -29,6 +29,7 @@ import {
   AispFeedCurrencyCodeSchema,
   CurrencyCodeSchema,
   EntityIdSchema,
+  IsoDateSchema,
   JurisdictionSchema,
   TbcSchema,
   type AccountName,
@@ -165,6 +166,12 @@ const BaseAccountConfigSchema = z.object({
   excludeTransfersFromIncome: z.boolean(),
   showTaxLiabilities: z.boolean(),
   quarterOverlapMonths: z.number().optional(),
+  /**
+   * When set, statement PDF/CSV are only required from this calendar month
+   * onward (`YYYY-MM` derived from the date). Null/omitted = required for
+   * the full reporting horizon.
+   */
+  bankOpenedDate: IsoDateSchema.nullable().optional(),
   /** §1.9 — credit-card-specific terms. Optional everywhere. */
   creditCard: CreditCardConfigSchema.optional(),
   /**

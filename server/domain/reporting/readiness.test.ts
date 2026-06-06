@@ -91,7 +91,6 @@ describe('computeReportingReadiness', () => {
       fx_rate_at_issue: null,
       fx_base_currency: null,
       mechanism: 'supplier-issued',
-      pdf_path: 'invoices/generated/DC-011.pdf',
       status: 'issued',
       due_date: '2025-04-15',
       created_at: '2025-03-01',
@@ -108,5 +107,27 @@ describe('computeReportingReadiness', () => {
     );
     expect(result.ready).toBe(false);
     expect(result.invoices.missingInvoiceNumbers).toContain('DC-011');
+  });
+
+  it('does not flag Wise for months before bankOpenedDate in a VAT quarter', () => {
+    const result = computeReportingReadiness(
+      { entityId: 'autonize-it-ltd', regime: 'vat', periodLabel: 'Q3-2025' },
+      { monthsOnDisk: () => new Set(), invoicesForEntity: () => [] },
+    );
+    const wiseMissing = result.missing.filter(m => m.account === 'wise-ltd');
+    expect(wiseMissing).toHaveLength(0);
+    expect(result.missing.some(m => m.account === 'barclays-current')).toBe(true);
+  });
+
+  it('requires Wise statements only from bankOpenedDate month in a CT financial year', () => {
+    const result = computeReportingReadiness(
+      { entityId: 'autonize-it-ltd', regime: 'corporation_tax', periodLabel: '2025/26' },
+      { monthsOnDisk: () => new Set(), invoicesForEntity: () => [] },
+    );
+    const wiseMissing = result.missing.filter(m => m.account === 'wise-ltd');
+    expect(wiseMissing.some(m => m.monthKey === '2025-05')).toBe(false);
+    expect(wiseMissing.some(m => m.monthKey === '2025-11')).toBe(false);
+    expect(wiseMissing.some(m => m.monthKey === '2025-12')).toBe(true);
+    expect(wiseMissing.some(m => m.monthKey === '2026-04')).toBe(true);
   });
 });

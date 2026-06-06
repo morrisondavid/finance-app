@@ -24,17 +24,16 @@ export type PersistIngestedSelfBillFromBufferResult =
 function rewindIngestRow(invoiceId: string): void {
   const existing = findInvoiceById(invoiceId);
   if (existing === null) return;
-  if (existing.status === 'draft' && existing.pdf_path === null) return;
+  if (existing.status === 'draft') return;
   updateInvoice({
     invoiceId,
-    patch: { status: 'draft', pdf_path: null },
+    patch: { status: 'draft' },
   });
 }
 
 /**
  * Extract text → `ingestSelfBill` → create row → write PDF under
- * `invoices/ingested/` → patch `pdf_path`. Returns the final invoice row
- * on success.
+ * `invoices/ingested/`. Returns the final invoice row on success.
  */
 export async function persistIngestedSelfBillFromBuffer(
   buffer: Buffer,
@@ -68,13 +67,11 @@ export async function persistIngestedSelfBillFromBuffer(
     return { ok: false, code: createResult.code, detail: createResult.issues };
   }
 
-  let relativePath: string;
   try {
-    const writeResult = writeIngestedPdf({
+    writeIngestedPdf({
       invoice: createResult.invoice,
       buffer,
     });
-    relativePath = writeResult.relativePath;
   } catch (err) {
     rewindIngestRow(createResult.invoice.id);
     return {
@@ -84,17 +81,9 @@ export async function persistIngestedSelfBillFromBuffer(
     };
   }
 
-  const patchResult = updateInvoice({
-    invoiceId: createResult.invoice.id,
-    patch: { pdf_path: relativePath },
-  });
-  if (!patchResult.ok) {
-    return { ok: false, code: 'patch-failed', detail: patchResult };
-  }
-
   return {
     ok: true,
-    invoice: patchResult.invoice,
+    invoice: createResult.invoice,
     parsed: ingest.parsed,
     contractId: ingest.contract.id,
     clientId: ingest.client.id,

@@ -38,7 +38,6 @@ const validInvoice = {
   fx_rate_at_issue: null,
   fx_base_currency: null,
   mechanism: 'supplier-issued' as const,
-  pdf_path: null,
   status: 'paid' as const,
   due_date: '2025-08-09',
   created_at: '2025-07-09',
@@ -118,10 +117,6 @@ describe('InvoiceSchema', () => {
   it('rejects negative subtotal / total', () => {
     expect(() => InvoiceSchema.parse({ ...validInvoice, subtotal: -100 })).toThrow();
     expect(() => InvoiceSchema.parse({ ...validInvoice, total: -10 })).toThrow();
-  });
-
-  it('allows pdf_path to be null (historical rows with no stored PDF)', () => {
-    expect(InvoiceSchema.parse({ ...validInvoice, pdf_path: null }).pdf_path).toBeNull();
   });
 
   it('allows nullable updated_at', () => {

@@ -120,7 +120,7 @@ export type UpdateInvoiceResult =
  *
  * Used by:
  *   - the generate endpoint to flip `status: 'draft' -> 'issued'`
- *     and set `pdf_path` once the PDF is rendered;
+ *     once the PDF is written to disk;
  *   - Phase 4 reconciler future work (partial-payment updates).
  *
  * Stamps `updated_at` server-side (callers can't spoof it) and refuses

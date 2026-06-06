@@ -130,6 +130,7 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
     type: 'current',
     currency: 'GBP',
     entityId: 'autonize-it-ltd',
+    bankOpenedDate: '2025-12-01',
     category: 'business',
     business: {
       jurisdiction: 'UK',

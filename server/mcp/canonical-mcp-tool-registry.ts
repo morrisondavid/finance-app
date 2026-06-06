@@ -36,9 +36,12 @@ export const CANONICAL_MCP_TOOL_GROUPS = [
   ['Transactions', ['transactions_drill_query']],
   ['Monthly invoices', ['invoices_preview_monthly', 'invoices_commit_monthly']],
   [
-    'Accountant (stubs)',
+    'Accountant',
     [
       'accountant_readiness_snapshot',
+      'accountant_readiness_financial_year',
+      'reporting_list_periods',
+      'accountant_readiness_upcoming',
       'accountant_preview_vat_bundle',
       'accountant_preview_corporation_tax_bundle',
       'accountant_preview_sa_bundle',

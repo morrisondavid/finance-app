@@ -1,7 +1,7 @@
 /**
  * Persists a rendered invoice PDF under `<invoicesDir>/generated/`.
  *
- * The returned path is the value to store in `invoices.pdf_path` —
+ * The returned path is the canonical repo-relative location —
  * always relative to the project root so it survives a repo move,
  * and never contains backslashes.
  */
@@ -31,7 +31,7 @@ export function getGeneratedPdfPath(
   return path.join(getGeneratedPdfDir(invoicesDir), `${invoice.id}.pdf`);
 }
 
-/** Value to store in `invoices.pdf_path` — relative, forward slashes. */
+/** Canonical repo-relative path — forward slashes. */
 export function getRelativePdfPath(invoice: Invoice): string {
   return `invoices/${GENERATED_PDF_SUBDIR}/${invoice.id}.pdf`;
 }
@@ -47,7 +47,7 @@ export interface WriteInvoicePdfInput {
 export interface WriteInvoicePdfResult {
   /** Absolute path on disk. */
   readonly absolutePath: string;
-  /** Repo-relative path suitable for `invoices.pdf_path`. */
+  /** Repo-relative canonical path. */
   readonly relativePath: string;
   /** Byte size of the written PDF — useful for the route response. */
   readonly sizeBytes: number;

@@ -37,7 +37,6 @@ describe('parseInvoiceRow', () => {
     expect(inv.subtotal).toBe(3300);
     expect(inv.vat_amount).toBe(660);
     expect(inv.total).toBe(3960);
-    expect(inv.pdf_path).toBeNull();
   });
 
   it('parses a self-bill FZCO invoice with zero VAT', () => {
