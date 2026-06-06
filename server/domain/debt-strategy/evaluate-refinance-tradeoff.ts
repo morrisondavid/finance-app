@@ -24,6 +24,10 @@
  */
 
 import type { CreditCardConfig } from '../accounts/schema.js';
+import {
+  effectiveMinPaymentFloorGbp,
+  effectiveMinPaymentPct,
+} from '../accounts/credit-card-terms.js';
 
 export interface RefinanceSourceDebt {
   /** Outstanding balance to refinance. */
@@ -165,8 +169,8 @@ function _evaluateInner(
   // simulator can't change APR per month easily (would need a more
   // capable hook), so do month-by-month simulation here directly.
   const balanceB = sourceDebt.balance + transferFee;
-  const minPct = targetCard.promo?.minPaymentPct ?? 0.02;
-  const PLAN_B_MIN_FLOOR = 25; // £25 floor mirroring typical card minimums
+  const minPct = effectiveMinPaymentPct(targetCard);
+  const PLAN_B_MIN_FLOOR = effectiveMinPaymentFloorGbp(targetCard);
 
   let balanceMin = balanceB;
   let totalInterestMin = 0;

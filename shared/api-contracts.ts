@@ -3331,6 +3331,7 @@ export const EntityFoundationWarningCodeSchema = z.enum([
   'warning-cleared',
   // §1.9 — Debt Strategy Advisor
   'account-credit-card-config-missing',
+  'credit-card-recurring-spend',
   'plan-blocked-incomplete-budgets',
   'plan-blocked-fzco-no-savings-account',
   'mortgage-rate-reset-soon',

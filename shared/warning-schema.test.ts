@@ -85,6 +85,7 @@ describe('EntityFoundationWarningSchema (1.8 additive)', () => {
   it('accepts every new §1.9 Debt Strategy code', () => {
     const newCodes = [
       'account-credit-card-config-missing',
+      'credit-card-recurring-spend',
       'plan-blocked-incomplete-budgets',
       'plan-blocked-fzco-no-savings-account',
       'mortgage-rate-reset-soon',

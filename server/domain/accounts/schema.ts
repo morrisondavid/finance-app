@@ -91,6 +91,14 @@ export type CreditCardPromo = z.infer<typeof CreditCardPromoSchema>;
 export const CreditCardConfigSchema = z.object({
   /** Standard APR after any promo period (or always, if no promo active). */
   standardApr: z.number().min(0).max(1),
+  /**
+   * Contractual minimum monthly payment as a decimal fraction of balance
+   * (e.g. `0.10` = 10%). Applies outside promo windows; promo may override
+   * via `promo.minPaymentPct` while the intro rate is active.
+   */
+  minPaymentPct: z.number().min(0).max(1).optional(),
+  /** Absolute minimum payment floor in account currency (e.g. £100 on CoT). */
+  minPaymentFloorGbp: z.number().min(0).optional(),
   promo: CreditCardPromoSchema.optional(),
 });
 export type CreditCardConfig = z.infer<typeof CreditCardConfigSchema>;

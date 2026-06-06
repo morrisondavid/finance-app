@@ -31,6 +31,16 @@ describe('CreditCardConfig schema', () => {
     expect(() => CreditCardConfigSchema.parse(validBase)).not.toThrow();
   });
 
+  it('accepts minPaymentPct and minPaymentFloorGbp on the card block', () => {
+    expect(() =>
+      CreditCardConfigSchema.parse({
+        standardApr: 0.0718,
+        minPaymentPct: 0.1,
+        minPaymentFloorGbp: 100,
+      }),
+    ).not.toThrow();
+  });
+
   it('accepts a config with a promo block', () => {
     expect(() => CreditCardConfigSchema.parse(validWithPromo)).not.toThrow();
   });
@@ -84,10 +94,14 @@ describe('AccountConfigSchema integration', () => {
     expect(() => AccountConfigSchema.parse(enriched)).not.toThrow();
   });
 
-  it('all three credit-card accounts (Barclaycard, Capital on Tap, Santander Everyday) currently have no creditCard block — user populates in follow-up edit', () => {
+  it('Barclaycard and Santander Everyday still lack creditCard blocks; Capital on Tap is populated from facility agreement', () => {
     expect(ACCOUNT_CONFIG_DATA['barclaycard'].creditCard).toBeUndefined();
-    expect(ACCOUNT_CONFIG_DATA['capital-on-tap'].creditCard).toBeUndefined();
     expect(ACCOUNT_CONFIG_DATA['santander-everyday'].creditCard).toBeUndefined();
+    expect(ACCOUNT_CONFIG_DATA['capital-on-tap'].creditCard).toEqual({
+      standardApr: 0.0718,
+      minPaymentPct: 0.1,
+      minPaymentFloorGbp: 100,
+    });
   });
 
   it('non-credit-card accounts may also carry creditCard:undefined (semantically meaningless but schema-valid)', () => {

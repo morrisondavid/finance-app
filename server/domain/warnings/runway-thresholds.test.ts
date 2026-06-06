@@ -130,6 +130,9 @@ describe('trapped-cash — cross-currency divergence', () => {
     expect(w).toBeDefined();
     expect(w?.context?.stressedCurrency).toBe('GBP');
     expect(w?.context?.solventCurrencies).toContain('AED');
+    expect(w?.title).toMatch(/GBP runs out on \d{2} \w{3} 2026 while AED stays in credit/);
+    expect(w?.title).not.toContain('2026-06-01');
+    expect(w?.detail).toContain('currency move');
   });
 
   it('does not emit when both currencies are solvent', () => {

@@ -188,7 +188,7 @@ export function planReconciliation(
     input.existingPayments.map(p => p.bank_transaction_id),
   );
   const matchableTransactions = input.transactions.filter(tx =>
-    isInvoiceReconcilableDeposit(tx, settledBankTxIds),
+    isInvoiceReconcilableDeposit(tx, settledBankTxIds, input.transactions),
   );
 
   const notes: ReconciliationNote[] = [];
@@ -693,14 +693,73 @@ function buildPayment(input: BuildPaymentInput): InvoicePayment {
   };
 }
 
+/** Client invoice settlements are never micro-deposits (card FX legs, etc.). */
+const MIN_INVOICE_DEPOSIT_AMOUNT = 1;
+
 function isInvoiceReconcilableDeposit(
   tx: ReconcileTransaction,
   settledBankTxIds: ReadonlySet<string>,
+  allTransactions: readonly ReconcileTransaction[],
 ): boolean {
-  if (tx.amount <= 0) return false;
+  if (tx.amount < MIN_INVOICE_DEPOSIT_AMOUNT) return false;
   if (settledBankTxIds.has(tx.id)) return false;
   if (/\bREFUND\b/i.test(tx.description)) return false;
+  if (isDuplicateSettledRemittanceLeg(tx, settledBankTxIds, allTransactions)) {
+    return false;
+  }
   return true;
+}
+
+/**
+ * Barclays (and similar) often posts the same client remittance twice on one
+ * date — transfer leg (TFR) plus credit leg (BG). When the sibling leg is
+ * already linked in `invoice_payments.csv`, suppress the duplicate.
+ */
+function isDuplicateSettledRemittanceLeg(
+  tx: ReconcileTransaction,
+  settledBankTxIds: ReadonlySet<string>,
+  allTransactions: readonly ReconcileTransaction[],
+): boolean {
+  if (settledBankTxIds.size === 0) return false;
+
+  const payer = remittancePayerKey(tx.description);
+  const refs = remittanceReferenceKeys(tx.description);
+
+  for (const other of allTransactions) {
+    if (other.id === tx.id || !settledBankTxIds.has(other.id)) continue;
+    if (
+      other.date !== tx.date
+      || other.account !== tx.account
+      || round2(other.amount) !== round2(tx.amount)
+    ) {
+      continue;
+    }
+    if (payer !== null && payer === remittancePayerKey(other.description)) {
+      return true;
+    }
+    if (refs.length > 0 && remittanceReferenceKeys(other.description).some(
+      key => refs.includes(key),
+    )) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function remittancePayerKey(description: string): string | null {
+  const match = description.match(/\b(LA FOSSE|DELTA CAPITA)\b/i);
+  return match?.[1]?.toLowerCase().replace(/\s+/g, ' ') ?? null;
+}
+
+function remittanceReferenceKeys(description: string): readonly string[] {
+  const keys = new Set<string>();
+  for (const match of description.matchAll(/SB\s*-?\s*(\d+)/gi)) {
+    const digits = match[1];
+    if (digits !== undefined && digits.length > 0) {
+      keys.add(`sb-${digits}`);
+    }
+  }
+  return [...keys];
 }
 
 function computeResidualByInvoice(

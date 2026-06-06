@@ -8,12 +8,10 @@ const allAccounts = Object.values(ACCOUNT_CONFIG_DATA) as AccountConfig[];
 describe('deriveAccountCreditCardConfigMissingWarnings', () => {
   it('fires for each credit-card account with no creditCard block', () => {
     const out = deriveAccountCreditCardConfigMissingWarnings({ accounts: allAccounts });
-    // Three credit-card accounts in the seed (Barclaycard, Capital on Tap, Santander Everyday),
-    // all currently without creditCard blocks.
-    expect(out).toHaveLength(3);
+    // Barclaycard + Santander Everyday still lack creditCard blocks; Capital on Tap is configured.
+    expect(out).toHaveLength(2);
     expect(out.map(w => w.context?.account).sort()).toEqual([
       'barclaycard',
-      'capital-on-tap',
       'santander-everyday',
     ]);
     for (const w of out) {
@@ -36,6 +34,6 @@ describe('deriveAccountCreditCardConfigMissingWarnings', () => {
     );
     const out = deriveAccountCreditCardConfigMissingWarnings({ accounts: enriched });
     expect(out.find(w => w.context?.account === 'barclaycard')).toBeUndefined();
-    expect(out).toHaveLength(2); // Capital on Tap + Santander Everyday still missing
+    expect(out).toHaveLength(1); // Santander Everyday still missing (Capital on Tap already configured)
   });
 });

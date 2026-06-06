@@ -57,6 +57,7 @@ import { deriveMortgageRateResetWarnings } from './mortgage-rate-reset.js';
 import { deriveFeedSyncScheduledWarnings } from './feed-sync-scheduled.js';
 import { deriveDebtUnregisteredWarnings } from './debt-unregistered.js';
 import { deriveAccountCreditCardConfigMissingWarnings } from './account-credit-card-config-missing.js';
+import { deriveCreditCardRecurringSpendWarnings } from './credit-card-recurring-spend.js';
 import { derivePlanBlockedIncompleteBudgetsWarnings } from './plan-blocked-incomplete-budgets.js';
 import { derivePlanFeasibilityDegradedWarnings } from './plan-feasibility-degraded.js';
 import { derivePlanTargetReachedWarnings } from './plan-target-reached.js';
@@ -222,6 +223,10 @@ export function buildConsolidatedWarningsResponse(
   });
 
   const accountCcConfigMissingWarnings = deriveAccountCreditCardConfigMissingWarnings({ accounts });
+  const creditCardRecurringSpendWarnings = deriveCreditCardRecurringSpendWarnings({
+    accounts,
+    pipeline,
+  });
 
   const debtStrategy = assembleDebtStrategy({ today: todayIso });
   const hasPlansNeedingBudgets =
@@ -337,6 +342,7 @@ export function buildConsolidatedWarningsResponse(
     ...mortgageRateResetWarnings,
     ...debtUnregisteredWarnings,
     ...accountCcConfigMissingWarnings,
+    ...creditCardRecurringSpendWarnings,
     ...incompleteBudgetsWarnings,
     ...feasibilityWarnings,
     ...targetReachedWarnings,

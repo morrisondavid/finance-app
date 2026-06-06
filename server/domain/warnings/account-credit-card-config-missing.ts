@@ -36,7 +36,7 @@ export function deriveAccountCreditCardConfigMissingWarnings(
         `in the AccountConfig.creditCard block.`,
       recommended_action:
         `Edit server/domain/accounts/data.ts to add a creditCard block to '${acc.name}': ` +
-        `{ standardApr, promo?: { apr, expiresAt, transferFeePct, minPaymentPct, minPaymentTerminatesPromo } }.`,
+        `{ standardApr, minPaymentPct?, minPaymentFloorGbp?, promo?: { apr, expiresAt, transferFeePct, minPaymentPct, minPaymentTerminatesPromo } }.`,
       sources: [`account:${acc.name}`, 'account-credit-card-config-missing'],
       context: {
         account: acc.name,

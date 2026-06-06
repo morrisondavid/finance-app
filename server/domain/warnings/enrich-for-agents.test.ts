@@ -88,6 +88,21 @@ describe('enrich-for-agents', () => {
     expect(warningPassesListingFilter(snoozed, '2026-05-07')).toBe(true);
   });
 
+  it('warningPassesListingFilter hides snapshot-diff meta entries', () => {
+    const cleared = makeWarning({
+      code: 'warning-cleared',
+      severity: 'info',
+      title: 'Cleared: Deposit on 2026-02-18 did not match any invoice',
+    });
+    const improved = makeWarning({
+      code: 'warning-improved',
+      severity: 'info',
+      title: 'Improved: Runway low',
+    });
+    expect(warningPassesListingFilter(cleared, '2026-06-06')).toBe(false);
+    expect(warningPassesListingFilter(improved, '2026-06-06')).toBe(false);
+  });
+
   it('actionHintsForWarningCode maps runway prefix', () => {
     expect(actionHintsForWarningCode('runway-low')).toContain('review_runway_forecast');
   });

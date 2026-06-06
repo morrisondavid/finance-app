@@ -164,8 +164,18 @@ function enrichOneWarning(
   };
 }
 
-/** Snooze hides the warning from **listing** feeds until `snoozedUntil` date (inclusive) is before today (ISO date). */
+/**
+ * Whether a warning appears in the Warnings tab / consolidated listing feed.
+ *
+ * Snooze hides until `snoozedUntil` is before today. Snapshot-diff meta entries
+ * (`warning-cleared`, `warning-improved`) are recorded for timeline history but
+ * are not actionable signals — suppress them from the listing so fixed false
+ * positives do not clutter the feed.
+ */
 export function warningPassesListingFilter(w: EntityFoundationWarning, todayIso: string): boolean {
+  if (w.code === 'warning-cleared' || w.code === 'warning-improved') {
+    return false;
+  }
   const untilRaw = w.userState?.snoozedUntil;
   if (untilRaw === undefined || untilRaw === null || untilRaw === '') return true;
   const untilDay = untilRaw.slice(0, 10);

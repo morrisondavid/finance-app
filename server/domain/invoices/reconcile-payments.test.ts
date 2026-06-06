@@ -232,6 +232,64 @@ describe('planReconciliation — same-currency happy path', () => {
     expect(plan.proposedPayments).toHaveLength(0);
     expect(plan.unmatchedTransactions).toHaveLength(0);
   });
+
+  it('excludes duplicate Barclays remittance leg when sibling is already settled', () => {
+    const settledTfr = tx({
+      id: 'hash-tfr-settled',
+      date: '2026-02-18',
+      amount: 6000,
+      description: 'LA FOSSE LTD SB-285350 SB-28535 TFR',
+    });
+    const duplicateBg = tx({
+      id: 'hash-bg-duplicate',
+      date: '2026-02-18',
+      amount: 6000,
+      description: 'LA FOSSE LTD SB-285350 SB-28535 BG',
+    });
+    const existing: InvoicePayment = {
+      id: 'ip-EG-0045-hash-tfr-settled',
+      invoice_id: 'EG-0045',
+      bank_transaction_id: 'hash-tfr-settled',
+      payment_date: '2026-02-18',
+      amount_paid: 3000,
+      deposit_currency: 'GBP',
+      fx_rate_at_payment: null,
+      amount_in_invoice_currency: 3000,
+      fx_gain_loss: 0,
+      residual: 0,
+      created_at: TODAY,
+      updated_at: null,
+    };
+
+    const plan = planReconciliation({
+      invoices: [],
+      transactions: [settledTfr, duplicateBg],
+      clientsById: laFosseClientsById,
+      existingPayments: [existing],
+      options: { now: TODAY },
+    });
+
+    expect(plan.unmatchedTransactions).toHaveLength(0);
+  });
+
+  it('excludes micro card FX credit legs from unmatchedTransactions', () => {
+    const microDeposit = tx({
+      id: 'hash-careem-fx',
+      date: '2026-04-07',
+      amount: 0.2,
+      description: 'CAREEM FOOD U.A.EMIRATES AMOUNT IN',
+    });
+
+    const plan = planReconciliation({
+      invoices: [],
+      transactions: [microDeposit],
+      clientsById: dcClientsById,
+      existingPayments: [],
+      options: { now: TODAY },
+    });
+
+    expect(plan.unmatchedTransactions).toHaveLength(0);
+  });
 });
 
 describe('planReconciliation — disqualifications', () => {

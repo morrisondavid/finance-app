@@ -81,6 +81,16 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
     excludeTransfersFromIncome: false,
     showTaxLiabilities: false,
     quarterOverlapMonths: 1,
+    /**
+     * Revolving Credit Facility Agreement (12 Jul 2023), Schedule 1: Business Rate 3.43%
+     * + variable Bank of England base rate (clause 4.1). No promo/BT window in that agreement.
+     * Snapshot APR uses BoE 3.75% (Apr 2026 MPC hold) → 7.18% total.
+     */
+    creditCard: {
+      standardApr: 0.0718,
+      minPaymentPct: 0.1,
+      minPaymentFloorGbp: 100,
+    },
     /** Capital on Tap is not on TrueLayer AIS — use CSV upload (`capital-on-tap` parser). */
   },
   'barclaycard': {

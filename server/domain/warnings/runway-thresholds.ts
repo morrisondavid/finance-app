@@ -11,9 +11,8 @@
  *                              only is materially worse than at full
  *                              lifestyle).
  *   - `trapped-cash`         — one currency goes negative inside the
- *                              horizon while another stays positive. Names
- *                              the constraint as "moving money", not
- *                              "earning more".
+ *                              horizon while another stays positive (funds
+ *                              may exist but in the wrong currency).
  *
  * Pure: takes the assembled runway bundle, returns warnings.
  */
@@ -23,8 +22,20 @@ import type {
   EntityFoundationWarning,
   WarningSeverity,
 } from '../../../shared/api-contracts.js';
+import { formatIsoDateUkLong } from '../../../shared/formatting.js';
 import type { AssembledRunway } from '../forecast/assemble-runway.js';
 import { firstNegativeBalanceDate } from '../forecast/runway-metrics.js';
+
+function stressDateLabel(isoDate: string): string {
+  return formatIsoDateUkLong(isoDate);
+}
+
+function joinNaturalList(items: readonly string[]): string {
+  if (items.length === 0) return '';
+  if (items.length === 1) return items[0]!;
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+}
 
 export const RUNWAY_LOW_MONTHS_CRITICAL = 3;
 export const RUNWAY_LOW_MONTHS_WARN = 6;
@@ -59,12 +70,12 @@ function emitRunwayLow(
     severity,
     title: `${currency} runway is ${months.toFixed(1)} months at full lifestyle`,
     detail:
-      `Household ${currency} runway hits zero on ${firstStressDate} if active income stops today, ` +
+      `Household ${currency} runway hits zero on ${stressDateLabel(firstStressDate)} if active income stops today, ` +
       `with cash ${block?.totalCashCurrent ?? 0} and available credit ${block?.totalAvailableCredit ?? 0} carrying you. ` +
       `Threshold for ${severity}: < ${severity === 'critical' ? RUNWAY_LOW_MONTHS_CRITICAL : RUNWAY_LOW_MONTHS_WARN} months.`,
     recommended_action:
       severity === 'critical'
-        ? `Find new income or cut discretionary spend immediately — at this rate ${currency} runs out in ${months.toFixed(1)} months.`
+        ? `Find new income or cut discretionary spend immediately — at this rate ${currency} runs out in ${months.toFixed(1)} months (around ${stressDateLabel(firstStressDate)}).`
         : `Plan a runway extension: new income, reduced spend, or moving money from another currency. ${months.toFixed(1)} months is comfortable today but tight if a contract slips.`,
     sources: [`currency:${currency}`, 'forecast:runway'],
     context: {
@@ -94,11 +105,11 @@ function emitRunwayMandatoryLow(
     severity,
     title: `${currency} runway on bills-only is ${months.toFixed(1)} months`,
     detail:
-      `Even cutting QoL spend, household ${currency} hits zero on ${firstStressDate} if active income stops. ` +
+      `Even cutting QoL spend, household ${currency} hits zero on ${stressDateLabel(firstStressDate)} if active income stops. ` +
       `Cash ${block?.totalCashCurrent ?? 0}, available credit ${block?.totalAvailableCredit ?? 0}.`,
     recommended_action:
       `Bills-only is the floor; running out on this lane means renegotiating mortgages / selling / drawing credit. ` +
-      `Treat this as a hard deadline — ${firstStressDate} is when it bites.`,
+      `Treat this as a hard deadline — ${stressDateLabel(firstStressDate)} is when it bites.`,
     sources: [`currency:${currency}`, 'forecast:runway'],
     context: {
       currency,
@@ -130,24 +141,35 @@ function emitTrappedCash(
   }
   if (negatives.size === 0 || positives.length === 0) return null;
 
-  const stressedList = [...negatives.entries()].map(([c, d]) => `${c} (${d})`).join(', ');
-  const solventList = positives.join(', ');
+  const solventList = joinNaturalList(positives);
 
   // The first stressed currency drives the warning's identity; if both
   // stress, alphabetical for stable id.
   const firstStressedCurrency = [...negatives.keys()].sort()[0];
   const firstStressDate = negatives.get(firstStressedCurrency)!;
+  const firstStressLabel = stressDateLabel(firstStressDate);
+
+  const stressedTitles = [...negatives.entries()].map(
+    ([currency, date]) => `${currency} on ${stressDateLabel(date)}`,
+  );
+
+  const title =
+    negatives.size === 1
+      ? `${firstStressedCurrency} runs out on ${firstStressLabel} while ${solventList} stays in credit`
+      : `${joinNaturalList(stressedTitles)} run out while ${solventList} stays in credit`;
 
   return {
     id: `trapped-cash:${firstStressedCurrency}`,
     code: 'trapped-cash',
     severity: 'warn',
-    title: `Trapped cash: ${stressedList} runs out while ${solventList} stays solvent`,
+    title,
     detail:
-      `One currency goes negative inside the runway horizon while another stays positive throughout. ` +
-      `Moving money between accounts (or entities) is the constraint, not earning more.`,
+      `If recurring income stopped today, the household forecast shows ${firstStressedCurrency} cash hitting zero on ${firstStressLabel}, ` +
+      `while ${solventList} stay above zero for the rest of the horizon. ` +
+      `You may still have funds in ${solventList}, but ${firstStressedCurrency} bills need a currency move — transferring or converting cash may matter more than earning more.`,
     recommended_action:
-      `Plan an inter-currency transfer well before ${firstStressDate}. Look at FX cost, timing, and any tax implications of moving money between entities.`,
+      `Plan a ${firstStressedCurrency} top-up from ${solventList} well before ${firstStressLabel}. ` +
+      `Check FX cost, transfer timing, and any tax or entity rules before moving money.`,
     sources: [...negatives.keys(), ...positives].map(c => `currency:${c}`).concat(['forecast:runway']),
     context: {
       stressedCurrency: firstStressedCurrency,
