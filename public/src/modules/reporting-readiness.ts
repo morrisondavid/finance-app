@@ -154,7 +154,7 @@ function renderReadinessPanel(readiness: ReportingReadinessResponse): string {
       : `
     <section class="reporting-section">
       <h4 class="reporting-section-title">Business accounts</h4>
-      <p class="reporting-section-hint">Official PDF and transaction CSV required for each account in the period.</p>
+      <p class="reporting-section-hint">Required statement documents per account (see missing list below).</p>
       <ul class="reporting-accounts-overview">
         ${readiness.accountsOverview.map(renderAccountOverviewRow).join('')}
       </ul>

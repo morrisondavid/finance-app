@@ -31,6 +31,7 @@ import {
   EntityIdSchema,
   IsoDateSchema,
   JurisdictionSchema,
+  ReportingDocTypeSchema,
   TbcSchema,
   type AccountName,
   type EntityId,
@@ -172,6 +173,11 @@ const BaseAccountConfigSchema = z.object({
    * the full reporting horizon.
    */
   bankOpenedDate: IsoDateSchema.nullable().optional(),
+  /**
+   * Statement doc types required for accountant / reporting readiness.
+   * Omit = official PDF + transaction CSV (default). Wise: CSV only.
+   */
+  reportingDocTypes: z.array(ReportingDocTypeSchema).min(1).optional(),
   /** §1.9 — credit-card-specific terms. Optional everywhere. */
   creditCard: CreditCardConfigSchema.optional(),
   /**

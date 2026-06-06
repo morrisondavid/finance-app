@@ -23,6 +23,7 @@ import { findClientById } from '../../domain/clients/index.js';
 import { companyById } from '../../domain/company/index.js';
 import { shiftIsoDate, todayIsoLocal } from '../../../shared/iso-date.js';
 import { EntityIdSchema, type EntityId } from '../../../shared/api-contracts.js';
+import { publishGeneratedInvoiceArtifacts } from '../../ingestion/invoice-upload-durable-publish.js';
 import type { JsonMutationResult } from './types.js';
 
 /** POST `/generate` — same `{ invoice }` envelope as `/api/invoices/generate`. */
@@ -132,6 +133,8 @@ export async function mutateInvoiceGenerate(body: unknown): Promise<JsonMutation
         body: { error: 'Failed to flip invoice to issued' },
       };
     }
+
+    await publishGeneratedInvoiceArtifacts(patchResult.invoice);
 
     return { status: 200, body: { invoice: patchResult.invoice } };
   } catch (err) {

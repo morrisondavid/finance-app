@@ -10,6 +10,7 @@ import { isInvoiceStoredPdfAvailable } from '../../domain/invoices/stored-pdf.js
 import { findContractById } from '../../domain/contracts/index.js';
 import { findClientById } from '../../domain/clients/index.js';
 import { companyById } from '../../domain/company/index.js';
+import { publishGeneratedInvoiceArtifacts } from '../../ingestion/invoice-upload-durable-publish.js';
 import type { JsonMutationResult } from './types.js';
 
 export async function mutateInvoicePersistPdf(invoiceId: string): Promise<JsonMutationResult> {
@@ -45,6 +46,9 @@ export async function mutateInvoicePersistPdf(invoiceId: string): Promise<JsonMu
     if (refreshed === null) {
       return { status: 500, body: { error: 'Invoice disappeared after PDF write' } };
     }
+
+    await publishGeneratedInvoiceArtifacts(refreshed);
+
     return { status: 200, body: { invoice: refreshed } };
   } catch (err) {
     return {

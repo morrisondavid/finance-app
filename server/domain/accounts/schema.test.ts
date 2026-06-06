@@ -25,6 +25,15 @@ describe('schema coherence with data.ts', () => {
   });
 });
 
+describe('reportingDocTypes', () => {
+  it('wise-ltd seed data includes CSV-only reportingDocTypes', () => {
+    const parsed = AccountConfigSchema.safeParse(ACCOUNT_CONFIG_DATA['wise-ltd']);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.reportingDocTypes).toEqual(['csv']);
+  });
+});
+
 describe('BusinessAccountConfigSchema discriminator', () => {
   it('accepts a well-formed UK business account', () => {
     const result = BusinessAccountConfigSchema.safeParse(ACCOUNT_CONFIG_DATA['barclays-current']);

@@ -43,6 +43,7 @@ export {
   isValidAccountName,
   validateAccount,
   getAccountConfig,
+  reportingDocTypesForAccount,
   isBusinessConfig,
   isBusinessAccount,
   isCreditCard,

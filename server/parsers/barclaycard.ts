@@ -86,6 +86,28 @@ function parseDateInternal(dateStr: string | undefined): Date | null {
   return null;
 }
 
+/** Month abbreviations for portal PDF filenames (`Statement12May25…`). */
+const MONTH_MAP: Record<string, string> = {
+  jan: '01',
+  feb: '02',
+  mar: '03',
+  apr: '04',
+  may: '05',
+  jun: '06',
+  jul: '07',
+  aug: '08',
+  sep: '09',
+  oct: '10',
+  nov: '11',
+  dec: '12',
+};
+
+function expandTwoDigitYear(year: string): string {
+  if (year.length === 4) return year;
+  const num = parseInt(year, 10);
+  return num <= 50 ? `20${year.padStart(2, '0')}` : `19${year}`;
+}
+
 const barclaycardParser: BankParser = {
   columns: 'auto',
   
@@ -174,16 +196,31 @@ const barclaycardParser: BankParser = {
   },
   
   /**
-   * Extract date from filename for normalization (returns YYYY-MM-DD or null)
-   * Pattern: "Barclaycard 2024" -> extract year
+   * Extract date from filename for normalization (returns YYYY-MM-DD or null).
+   *
+   * Portal PDF: `Statement12May25XXXX6719.PDF` → statement date 12 May 2025.
+   * Annual CSV: `Barclaycard 2024.csv` → end of calendar year.
    */
   extractFilenameDate(filename: string): string | null {
-    // Pattern: 4-digit year
-    const match = filename.match(/(\d{4})/);
-    if (match) {
-      // Default to December 31st of that year
-      return `${match[1]}-12-31`;
+    const portalPdf = filename.match(/Statement\s*12([A-Za-z]{3})(\d{2})/i);
+    if (portalPdf) {
+      const month = MONTH_MAP[portalPdf[1].toLowerCase().slice(0, 3)];
+      if (month !== undefined) {
+        const year = expandTwoDigitYear(portalPdf[2]);
+        return `${year}-${month}-12`;
+      }
     }
+
+    const annualCsv = filename.match(/Barclaycard\s+(\d{4})/i);
+    if (annualCsv) {
+      return `${annualCsv[1]}-12-31`;
+    }
+
+    const statementWithYear = filename.match(/Statement[_\s].*?(\d{4})/i);
+    if (statementWithYear) {
+      return `${statementWithYear[1]}-12-31`;
+    }
+
     return null;
   },
   

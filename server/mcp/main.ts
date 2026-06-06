@@ -27,11 +27,12 @@ import {
   mountStreamableHttpMcp,
   resolveMcpHttpBearerToken,
 } from './streamable-http-express.js';
+import { jsonBodyParserMiddleware } from '../http/json-body-middleware.js';
 
 async function runStandaloneHttpMcp(port: number, token: string): Promise<void> {
   await initDatabase();
   const app = express();
-  app.use(express.json());
+  app.use(jsonBodyParserMiddleware);
   await mountStreamableHttpMcp(app, token);
 
   await new Promise<void>((resolve, reject) => {

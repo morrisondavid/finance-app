@@ -4,18 +4,21 @@
  */
 
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { evaluateUploadAcceptance } from '../../ingestion/upload-evaluate-acceptance.js';
 import {
   executeStatementDiskUpload,
+  STATEMENTS_UPLOAD_ROOT,
   type DiskBackedUploadFileLike,
 } from '../../ingestion/statement-disk-upload-batch.js';
+import {
+  MCP_STATEMENT_UPLOAD_MAX_FILES,
+  mcpStatementUploadMaxBytesForType,
+  mcpStatementUploadMaxTotalBytes,
+} from '../../ingestion/upload-limits.js';
 import type { JsonMutationResult } from './types.js';
 
-/** Stricter caps than browser multipart UX for MCP transports (Hermes sends JSON payloads). */
-export const MCP_STATEMENT_UPLOAD_MAX_FILES = 10;
-export const MCP_STATEMENT_UPLOAD_MAX_BYTES_PER_FILE = 6 * 1024 * 1024;
+export { MCP_STATEMENT_UPLOAD_MAX_FILES };
 
 function decodeBase64ToBuffer(raw: string, maxBytes: number): Buffer | JsonMutationResult {
   let buf: Buffer;
@@ -41,36 +44,31 @@ export async function mutateStatementsUploadBase64(payload: unknown): Promise<Js
   if ('error' in schema) return schema.error;
   const { account, type, overwrite, decoded } = schema;
 
-  const stagingRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bank-stmt-upload-'));
+  // Same destination as multer (`server/routes/upload.ts`) — not /tmp. Normalisation and
+  // S3 publish assume paths under `statements/<account>/<type>/`.
+  const destDir = path.join(STATEMENTS_UPLOAD_ROOT, account, type);
+  fs.mkdirSync(destDir, { recursive: true });
 
-  try {
-    const diskFiles: DiskBackedUploadFileLike[] = [];
+  const diskFiles: DiskBackedUploadFileLike[] = [];
 
-    for (let i = 0; i < decoded.length; i++) {
-      const row = decoded[i];
-      const tempPath = path.join(stagingRoot, `${String(i)}_${row.basename}`);
-      fs.writeFileSync(tempPath, row.buffer);
-      diskFiles.push({
-        path: tempPath,
-        originalname: row.basename,
-        size: row.buffer.byteLength,
-        filename: path.basename(tempPath),
-      });
-    }
-
-    return await executeStatementDiskUpload({
-      account,
-      type,
-      files: diskFiles,
-      overwrite,
+  for (let i = 0; i < decoded.length; i++) {
+    const row = decoded[i];
+    const destPath = path.join(destDir, row.basename);
+    fs.writeFileSync(destPath, row.buffer);
+    diskFiles.push({
+      path: destPath,
+      originalname: row.basename,
+      size: row.buffer.byteLength,
+      filename: row.basename,
     });
-  } finally {
-    try {
-      fs.rmSync(stagingRoot, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
   }
+
+  return await executeStatementDiskUpload({
+    account,
+    type,
+    files: diskFiles,
+    overwrite,
+  });
 }
 
 type DecodedRow = { basename: string; buffer: Buffer };
@@ -121,7 +119,8 @@ function validateStatementsBase64Envelope(payload: unknown):
   const decoded: DecodedRow[] = [];
   let totalDecoded = 0;
 
-  const maxTotalDecoded = MCP_STATEMENT_UPLOAD_MAX_BYTES_PER_FILE * MCP_STATEMENT_UPLOAD_MAX_FILES;
+  const maxBytesPerFile = mcpStatementUploadMaxBytesForType(type);
+  const maxTotalDecoded = mcpStatementUploadMaxTotalBytes();
 
   for (const entry of filesRaw) {
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
@@ -142,7 +141,7 @@ function validateStatementsBase64Envelope(payload: unknown):
       return { error: { status: 400, body: { error: acceptance.reason } } };
     }
 
-    const dec = decodeBase64ToBuffer(base64, MCP_STATEMENT_UPLOAD_MAX_BYTES_PER_FILE);
+    const dec = decodeBase64ToBuffer(base64, maxBytesPerFile);
     if (!Buffer.isBuffer(dec)) {
       return { error: dec };
     }

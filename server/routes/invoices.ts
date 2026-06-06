@@ -56,6 +56,8 @@ import {
   readInvoiceDraftFromQuery,
   readSupplierMonthGaps,
 } from '../http/read/invoices.js';
+import { UPLOAD_MAX_PDF_BYTES } from '../ingestion/upload-limits.js';
+import { publishInvoiceUploadArtifacts } from '../ingestion/invoice-upload-durable-publish.js';
 
 const router = Router();
 
@@ -89,13 +91,9 @@ router.post('/generate', async (req: Request, res: Response) => {
 
 // ─── POST /ingest-self-bill ─────────────────────────────────────────────────
 
-// Self-bill PDFs are tiny (1 page). A 5 MB cap is generous and keeps a
-// malformed upload from pinning the process.
-const INGEST_MAX_BYTES = 5 * 1024 * 1024;
-
 const ingestUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: INGEST_MAX_BYTES, files: 1 },
+  limits: { fileSize: UPLOAD_MAX_PDF_BYTES, files: 1 },
 });
 
 router.post(
@@ -152,6 +150,16 @@ router.post(
       res.status(422).json({ error: persisted.code, detail: persisted.detail });
       return;
     }
+
+    await publishInvoiceUploadArtifacts([
+      {
+        outcome: {
+          filename: file.originalname,
+          outcome: 'ingested',
+          invoiceId: persisted.invoice.id,
+        },
+      },
+    ]);
 
     res.json({
       invoice: persisted.invoice,

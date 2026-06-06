@@ -11,6 +11,7 @@ import {
 import { mutateEnableFeedStart, mutateTrueLayerFeedStart } from '../http/mutation/feed-oauth-start.js';
 import { mutateStatementsUploadBase64, MCP_STATEMENT_UPLOAD_MAX_FILES } from '../http/mutation/statements-upload-base64.js';
 import { mutateInvoicePdfsUploadFromBase64, MCP_INVOICE_PDF_UPLOAD_MAX_FILES } from '../http/mutation/invoice-upload-base64.js';
+import { uploadMaxPdfMiBLabel } from '../ingestion/upload-limits.js';
 import { mutateContractSignedPdfDownload } from '../http/mutation/contract-signed-pdf-download.js';
 import { todayIsoLocal } from '../../shared/iso-date.js';
 import { mutateInvoicePdfDownload } from '../http/mutation/invoice-pdf-download.js';
@@ -107,7 +108,9 @@ export function registerBankStatementsBinaryOAuthUploadTools(server: McpServer):
     'post_upload_statements_base64',
     'POST /api/upload/:account/:type parity via JSON **base64** file payloads (not multipart). Caps: `' +
       String(MCP_STATEMENT_UPLOAD_MAX_FILES) +
-      '` files max, **`6MiB` decoded per file**; rejects oversize totals. Writes the same disk + ingest workflow as the browser uploader.',
+      '` files max, **`' +
+      uploadMaxPdfMiBLabel() +
+      '` decoded per file**; rejects oversize totals. Writes the same disk + ingest workflow as the browser uploader.',
     StatementUploadBase64McpSchema.shape,
     async raw => httpMutationToMcpToolResult(await mutateStatementsUploadBase64(raw ?? {})),
   );
@@ -117,7 +120,9 @@ export function registerBankStatementsBinaryOAuthUploadTools(server: McpServer):
     'post_upload_invoice_pdfs_base64',
     'Self-bill invoice PDF batch (`POST /api/upload/invoices` semantics) via base64 payloads. **`' +
       String(MCP_INVOICE_PDF_UPLOAD_MAX_FILES) +
-      '`** PDFs max per call; **`6MiB`** decoded cap per PDF (aligned with MCP statement uploads).',
+      '`** PDFs max per call; **`' +
+      uploadMaxPdfMiBLabel() +
+      '`** decoded cap per PDF (aligned with MCP statement uploads).',
     InvoicePdfsBase64McpSchema.shape,
     async raw =>
       httpMutationToMcpToolResult(await mutateInvoicePdfsUploadFromBase64(raw ?? {}, todayIsoLocal())),

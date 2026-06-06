@@ -38,6 +38,7 @@ import {
   mountStreamableHttpMcp,
   resolveMcpHttpBearerToken,
 } from './mcp/streamable-http-express.js';
+import { jsonBodyParserMiddleware } from './http/json-body-middleware.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,7 +48,7 @@ const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
 
 // Middleware
-app.use(express.json());
+app.use(jsonBodyParserMiddleware);
 app.use(siteAccessGateMiddleware);
 
 // In production, Express serves the built frontend from dist/.

@@ -3,6 +3,7 @@ import barclaycardParser from './barclaycard.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { normalizeFilename, normalizeFileOnDisk } from '../utils/filename-normalizer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,14 +40,44 @@ describe('Barclaycard Parser', () => {
   });
 
   describe('extractFilenameDate', () => {
-    it('extracts year from "Barclaycard 2024" format', () => {
-      expect(barclaycardParser.extractFilenameDate('Barclaycard 2024'))
-        .toBe('2024-12-31');  // Defaults to end of year
+    const portalPdfCases: { filename: string; expected: string }[] = [
+      { filename: 'Statement12May25XXXX6719.PDF', expected: '2025-05-12' },
+      { filename: 'Statement12Jun25XXXX6719.PDF', expected: '2025-06-12' },
+      { filename: 'Statement12Jul25XXXX6719.PDF', expected: '2025-07-12' },
+      { filename: 'Statement12Aug25XXXX6719.PDF', expected: '2025-08-12' },
+      { filename: 'Statement12Sep25XXXX6719.PDF', expected: '2025-09-12' },
+      { filename: 'Statement12Oct25XXXX6719.PDF', expected: '2025-10-12' },
+      { filename: 'Statement12Nov25XXXX6719.PDF', expected: '2025-11-12' },
+      { filename: 'Statement12Dec25XXXX6719.PDF', expected: '2025-12-12' },
+      { filename: 'Statement12Jan26XXXX6719.PDF', expected: '2026-01-12' },
+      { filename: 'Statement12Feb26XXXX6719.PDF', expected: '2026-02-12' },
+      { filename: 'Statement12Mar26XXXX6719.PDF', expected: '2026-03-12' },
+      { filename: 'Statement12Apr26XXXX6719.PDF', expected: '2026-04-12' },
+      { filename: 'Statement12May26XXXX6719.PDF', expected: '2026-05-12' },
+    ];
+
+    it.each(portalPdfCases)(
+      'parses portal PDF $filename → $expected',
+      ({ filename, expected }) => {
+        expect(barclaycardParser.extractFilenameDate(filename)).toBe(expected);
+      },
+    );
+
+    it('does not treat card suffix 6719 as the statement year', () => {
+      const iso = barclaycardParser.extractFilenameDate('Statement12May25XXXX6719.PDF');
+      expect(iso).not.toBe('6719-12-31');
+      expect(iso?.startsWith('6719')).toBe(false);
+      expect(normalizeFilename('Statement12May25XXXX6719.PDF', barclaycardParser, 'barclaycard')).toBe(
+        '2025-05_statement_barclaycard.pdf',
+      );
     });
 
-    it('extracts year from filename with other text', () => {
-      expect(barclaycardParser.extractFilenameDate('Statement_2025_export'))
-        .toBe('2025-12-31');
+    it('extracts year from "Barclaycard 2024" annual CSV export', () => {
+      expect(barclaycardParser.extractFilenameDate('Barclaycard 2024')).toBe('2024-12-31');
+    });
+
+    it('extracts year from Statement_2025_export style filenames', () => {
+      expect(barclaycardParser.extractFilenameDate('Statement_2025_export')).toBe('2025-12-31');
     });
 
     it('returns null for filename without year', () => {
@@ -122,6 +153,23 @@ describe('Barclaycard Parser', () => {
       
       const result = barclaycardParser.transform(row, 'barclaycard');
       expect(result).toBeNull();
+    });
+  });
+
+  describe('portal PDF fixtures on disk', () => {
+    it('normalises copied portal PDF fixture to YYYY-MM_statement_barclaycard.pdf', () => {
+      const fixtureSrc = path.join(__dirname, 'fixtures', 'barclaycard-statement-2025-05.pdf');
+      const workDir = fs.mkdtempSync(path.join(path.dirname(fixtureSrc), 'barclaycard-pdf-test-'));
+      const incoming = path.join(workDir, 'Statement12May25XXXX6719.PDF');
+      fs.copyFileSync(fixtureSrc, incoming);
+
+      try {
+        const result = normalizeFileOnDisk(incoming, 'barclaycard');
+        expect(result.normalized).toBe('2025-05_statement_barclaycard.pdf');
+        expect(fs.existsSync(path.join(workDir, '2025-05_statement_barclaycard.pdf'))).toBe(true);
+      } finally {
+        fs.rmSync(workDir, { recursive: true, force: true });
+      }
     });
   });
 

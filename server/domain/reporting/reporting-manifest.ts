@@ -4,10 +4,9 @@ import type {
   ReportingDocType,
   ReportingRegime,
 } from '../../../shared/api-contracts.js';
-import { accountsForEntity } from '../accounts/index.js';
+import { accountsForEntity, reportingDocTypesForAccount } from '../accounts/index.js';
 
-/** Accountant packs require official PDF statements and transaction CSVs for every account. */
-const REQUIRED_DOC_TYPES: readonly ReportingDocType[] = ['pdf', 'csv'];
+/** Default is PDF + CSV per account; override via `reportingDocTypes` on account config. */
 
 export interface ReportingManifest {
   entityId: EntityId;
@@ -25,7 +24,7 @@ export function getReportingManifest(
   const accounts = accountsForEntity(entityId);
   const docTypesByAccount = new Map<AccountName, readonly ReportingDocType[]>();
   for (const account of accounts) {
-    docTypesByAccount.set(account, REQUIRED_DOC_TYPES);
+    docTypesByAccount.set(account, [...reportingDocTypesForAccount(account)]);
   }
   const requiresInvoices =
     entityId === 'autonize-it-ltd' &&

@@ -122,12 +122,77 @@ describe('computeReportingReadiness', () => {
   it('requires Wise statements only from bankOpenedDate month in a CT financial year', () => {
     const result = computeReportingReadiness(
       { entityId: 'autonize-it-ltd', regime: 'corporation_tax', periodLabel: '2025/26' },
-      { monthsOnDisk: () => new Set(), invoicesForEntity: () => [] },
+      {
+        monthsOnDisk: () => new Set(),
+        invoicesForEntity: () => [],
+        hasTransactionsInMonth: () => true,
+      },
     );
     const wiseMissing = result.missing.filter(m => m.account === 'wise-ltd');
     expect(wiseMissing.some(m => m.monthKey === '2025-05')).toBe(false);
     expect(wiseMissing.some(m => m.monthKey === '2025-11')).toBe(false);
     expect(wiseMissing.some(m => m.monthKey === '2025-12')).toBe(true);
     expect(wiseMissing.some(m => m.monthKey === '2026-04')).toBe(true);
+  });
+
+  it('does not flag CSV-only Wise for dormant months with no transactions', () => {
+    const result = computeReportingReadiness(
+      { entityId: 'autonize-it-ltd', regime: 'corporation_tax', periodLabel: '2025/26' },
+      {
+        monthsOnDisk: () => new Set(),
+        invoicesForEntity: () => [],
+        hasTransactionsInMonth: () => false,
+      },
+    );
+    const wiseMissing = result.missing.filter(m => m.account === 'wise-ltd');
+    expect(wiseMissing).toHaveLength(0);
+    const wiseOverview = result.accountsOverview.find(o => o.account === 'wise-ltd');
+    expect(wiseOverview?.ready).toBe(true);
+  });
+
+  it('flags CSV-only Wise when the month had transactions but CSV is missing', () => {
+    const result = computeReportingReadiness(
+      { entityId: 'autonize-it-ltd', regime: 'corporation_tax', periodLabel: '2025/26' },
+      {
+        monthsOnDisk: () => new Set(),
+        invoicesForEntity: () => [],
+        hasTransactionsInMonth: (account, monthKey) =>
+          account === 'wise-ltd' && monthKey === '2025-12',
+      },
+    );
+    const wiseMissing = result.missing.filter(m => m.account === 'wise-ltd');
+    expect(wiseMissing).toHaveLength(1);
+    expect(wiseMissing[0]).toMatchObject({
+      account: 'wise-ltd',
+      monthKey: '2025-12',
+      docType: 'csv',
+    });
+  });
+
+  it('still flags PDF accounts for dormant months (activity gating does not apply)', () => {
+    const result = computeReportingReadiness(
+      { entityId: 'autonize-it-ltd', regime: 'vat', periodLabel: 'Q2-2025' },
+      {
+        monthsOnDisk: () => new Set(),
+        invoicesForEntity: () => [],
+        hasTransactionsInMonth: () => false,
+      },
+    );
+    expect(
+      result.missing.some(
+        m =>
+          m.account === 'barclays-current' &&
+          m.docType === 'pdf' &&
+          m.monthKey === '2025-04',
+      ),
+    ).toBe(true);
+    expect(
+      result.missing.some(
+        m =>
+          m.account === 'barclays-current' &&
+          m.docType === 'csv' &&
+          m.monthKey === '2025-04',
+      ),
+    ).toBe(true);
   });
 });

@@ -128,7 +128,7 @@ async function maybePublishPdfArtifacts(resultBody: AggregateUploadOkBody, accou
       .relative(REPO_ROOT, path.join(originalsDir, base))
       .split(path.sep)
       .join('/');
-    const finalRel = path.relative(REPO_ROOT, f.path).split(path.sep).join('/');
+    const finalRel = `statements/${account}/pdf/${f.filename}`;
     paths.add(originalRel);
     paths.add(finalRel);
   }

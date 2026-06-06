@@ -12,6 +12,7 @@ import {
   generateUniqueFilename,
 } from './filename-normalizer.js';
 import type { BankParser, CSVRow, ValidationResult } from '../types.js';
+import barclaycardParser from '../parsers/barclaycard.js';
 
 // Mock parser for testing
 const mockParser: BankParser = {
@@ -228,6 +229,32 @@ describe('normalizeFileOnDisk', () => {
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('normalises Barclaycard portal PDF Statement12May25… to 2025-05_statement_barclaycard.pdf', () => {
+    const incomingName = 'Statement12May25XXXX6719.PDF';
+    const incoming = path.join(tmpDir, incomingName);
+    fs.writeFileSync(incoming, '%PDF-1.4 barclaycard-fixture');
+
+    const result = normalizeFileOnDisk(incoming, 'barclaycard');
+
+    expect(result.renamed).toBe(true);
+    expect(result.normalized).toBe('2025-05_statement_barclaycard.pdf');
+    expect(result.newPath).toBe(path.join(tmpDir, '2025-05_statement_barclaycard.pdf'));
+    expect(fs.existsSync(incoming)).toBe(false);
+    expect(fs.existsSync(result.newPath!)).toBe(true);
+  });
+
+  it('normalizeFilename maps Barclaycard portal PDF months via parser', () => {
+    expect(
+      normalizeFilename('Statement12May25XXXX6719.PDF', barclaycardParser, 'barclaycard'),
+    ).toBe('2025-05_statement_barclaycard.pdf');
+    expect(
+      normalizeFilename('Statement12Dec25XXXX6719.PDF', barclaycardParser, 'barclaycard'),
+    ).toBe('2025-12_statement_barclaycard.pdf');
+    expect(
+      normalizeFilename('Statement12Jan26XXXX6719.PDF', barclaycardParser, 'barclaycard'),
+    ).toBe('2026-01_statement_barclaycard.pdf');
   });
 
   // Two uploads can legitimately normalise to the same `YYYY-MM_transactions_...`

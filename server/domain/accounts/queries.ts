@@ -12,7 +12,7 @@
  * global-state pollution.
  */
 
-import type { EntityId } from '../../../shared/api-contracts.js';
+import type { EntityId, ReportingDocType } from '../../../shared/api-contracts.js';
 import { ACCOUNTS } from '../../../shared/api-contracts.js';
 import type { AccountConfig, AccountName, BusinessAccountConfig } from './schema.js';
 import { getAccountsRegistry, type AccountsRegistry } from './registry.js';
@@ -83,6 +83,15 @@ export function getAccountConfig(
   }
 
   return cfg;
+}
+
+const DEFAULT_REPORTING_DOC_TYPES = ['pdf', 'csv'] as const;
+
+export function reportingDocTypesForAccount(
+  account: AccountName,
+  reg: AccountsRegistry = getAccountsRegistry(),
+): readonly ReportingDocType[] {
+  return getAccountConfig(account, reg).reportingDocTypes ?? DEFAULT_REPORTING_DOC_TYPES;
 }
 
 /**

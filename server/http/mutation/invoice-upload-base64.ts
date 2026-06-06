@@ -4,11 +4,15 @@
 
 import path from 'path';
 import type { JsonMutationResult } from './types.js';
-import { MCP_STATEMENT_UPLOAD_MAX_BYTES_PER_FILE } from './statements-upload-base64.js';
+import {
+  MCP_INVOICE_PDF_UPLOAD_MAX_FILES,
+  UPLOAD_MAX_PDF_BYTES,
+  mcpInvoiceUploadMaxTotalBytes,
+} from '../../ingestion/upload-limits.js';
 import { evaluateUploadAcceptance } from '../../ingestion/upload-evaluate-acceptance.js';
 import { executeSelfBillPdfBuffers } from '../../ingestion/invoice-self-bill-upload-batch.js';
 
-export const MCP_INVOICE_PDF_UPLOAD_MAX_FILES = 5;
+export { MCP_INVOICE_PDF_UPLOAD_MAX_FILES };
 
 function decodePdfBase64(raw: string): Buffer | JsonMutationResult {
   let buf: Buffer;
@@ -20,10 +24,10 @@ function decodePdfBase64(raw: string): Buffer | JsonMutationResult {
   if (buf.byteLength === 0) {
     return { status: 400, body: { error: 'Empty file after base64 decode' } };
   }
-  if (buf.byteLength > MCP_STATEMENT_UPLOAD_MAX_BYTES_PER_FILE) {
+  if (buf.byteLength > UPLOAD_MAX_PDF_BYTES) {
     return {
       status: 413,
-      body: { error: 'PDF too large after decode', maxBytesPerFile: MCP_STATEMENT_UPLOAD_MAX_BYTES_PER_FILE },
+      body: { error: 'PDF too large after decode', maxBytesPerFile: UPLOAD_MAX_PDF_BYTES },
     };
   }
   return buf;
@@ -64,8 +68,7 @@ function parseInvoiceEnvelope(payload: unknown):
 
   let totalDecoded = 0;
 
-  const maxTotalDecoded =
-    MCP_STATEMENT_UPLOAD_MAX_BYTES_PER_FILE * MCP_INVOICE_PDF_UPLOAD_MAX_FILES;
+  const maxTotalDecoded = mcpInvoiceUploadMaxTotalBytes();
 
   for (const entry of filesRaw) {
     if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {

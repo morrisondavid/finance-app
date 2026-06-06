@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { getReportingManifest } from './reporting-manifest.js';
 
 describe('getReportingManifest', () => {
-  it('UK Ltd VAT requires 5 accounts with PDF and CSV for each', () => {
+  it('UK Ltd VAT requires 5 accounts; wise-ltd CSV-only, others PDF+CSV', () => {
     const manifest = getReportingManifest('autonize-it-ltd', 'vat');
     expect(manifest.accounts).toHaveLength(5);
+    expect(manifest.docTypesByAccount.get('wise-ltd')).toEqual(['csv']);
     for (const account of manifest.accounts) {
+      if (account === 'wise-ltd') continue;
       expect(manifest.docTypesByAccount.get(account)).toEqual(['pdf', 'csv']);
     }
     expect(manifest.requiresInvoices).toBe(true);

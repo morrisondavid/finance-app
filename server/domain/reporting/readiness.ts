@@ -7,6 +7,7 @@ import {
   type ReportingReadinessResponse,
   type ReportingRegime,
 } from '../../../shared/api-contracts.js';
+import { getTransactions } from '../../db/index.js';
 import { getAccountConfig } from '../accounts/index.js';
 import { listInvoicesByIssuingEntityId } from '../invoices/index.js';
 import { isInvoiceStoredPdfAvailable } from '../invoices/stored-pdf.js';
@@ -18,6 +19,7 @@ export interface ReadinessDeps {
   monthsOnDisk?: (account: string, docType: 'pdf' | 'csv') => Set<string>;
   invoicesForEntity?: (entityId: EntityId) => readonly Invoice[];
   invoicePdfExists?: (invoice: Invoice) => boolean;
+  hasTransactionsInMonth?: (account: string, monthKey: string) => boolean;
   now?: Date;
 }
 
@@ -36,6 +38,17 @@ function defaultInvoicePdfExists(invoice: Invoice): boolean {
   return isInvoiceStoredPdfAvailable(invoice);
 }
 
+function defaultHasTransactionsInMonth(account: string, monthKey: string): boolean {
+  return (
+    getTransactions({
+      account,
+      year: monthKey.slice(0, 4),
+      month: monthKey.slice(5, 7),
+      includeTransfers: true,
+    }).length > 0
+  );
+}
+
 export function computeReportingReadiness(
   args: ComputeReadinessArgs,
   deps: ReadinessDeps = {},
@@ -45,6 +58,7 @@ export function computeReportingReadiness(
   const monthsOnDisk = deps.monthsOnDisk ?? defaultMonthsOnDisk;
   const invoicesForEntity = deps.invoicesForEntity ?? listInvoicesByIssuingEntityId;
   const invoicePdfExists = deps.invoicePdfExists ?? defaultInvoicePdfExists;
+  const hasTransactionsInMonth = deps.hasTransactionsInMonth ?? defaultHasTransactionsInMonth;
   const now = deps.now ?? new Date();
 
   const present: ReportingReadinessItem[] = [];
@@ -52,12 +66,16 @@ export function computeReportingReadiness(
 
   for (const account of manifest.accounts) {
     const docTypes = manifest.docTypesByAccount.get(account) ?? ['pdf', 'csv'];
+    const csvOnly = !docTypes.includes('pdf');
     const accountConfig = getAccountConfig(account);
     const accountLabel = accountConfig.label;
     const openedFrom = accountConfig.bankOpenedDate?.slice(0, 7) ?? null;
 
     for (const monthKey of period.monthKeys) {
       if (openedFrom !== null && monthKey < openedFrom) {
+        continue;
+      }
+      if (csvOnly && !hasTransactionsInMonth(account, monthKey)) {
         continue;
       }
       for (const docType of docTypes) {

@@ -12,6 +12,14 @@ import { persistIngestedSelfBillFromBuffer } from '../domain/invoices/index.js';
 import { todayIsoLocal } from '../../shared/iso-date.js';
 import { ACCOUNTS, AccountName } from '../types.js';
 import { executeStatementDiskUpload } from '../ingestion/statement-disk-upload-batch.js';
+import {
+  UPLOAD_MAX_FILES_PER_REQUEST,
+  UPLOAD_MAX_PDF_BYTES,
+} from '../ingestion/upload-limits.js';
+import {
+  publishInvoiceUploadArtifacts,
+  type InvoiceUploadDiskTouch,
+} from '../ingestion/invoice-upload-durable-publish.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -65,6 +73,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
+  limits: { fileSize: UPLOAD_MAX_PDF_BYTES },
   fileFilter: (req, file, cb) => {
     const account = getParam(req.params, 'account');
     const type = getParam(req.params, 'type');
@@ -76,7 +85,7 @@ const upload = multer({
 
 
 // POST /api/upload/:account/:type — multipart uploads; MCP uses `post_upload_statements_base64` with the same disk workflow.
-router.post('/:account/:type', upload.array('files', 50), async (req: Request, res: Response) => {
+router.post('/:account/:type', upload.array('files', UPLOAD_MAX_FILES_PER_REQUEST), async (req: Request, res: Response) => {
   const account = getParam(req.params, 'account');
   const type = getParam(req.params, 'type');
   const files = req.files as Express.Multer.File[] | undefined;
@@ -109,7 +118,7 @@ router.post('/:account/:type', upload.array('files', 50), async (req: Request, r
 // other PDFs stay in `invoices/` as archives (same as before ingestion existed).
 router.post(
   '/invoices',
-  upload.array('files', 50),
+  upload.array('files', UPLOAD_MAX_FILES_PER_REQUEST),
   async (req: Request, res: Response) => {
     req.params.account = 'invoices';
     req.params.type = 'pdf';
@@ -123,6 +132,7 @@ router.post(
 
     const today = todayIsoLocal();
     const ingestOutcomes: InvoiceUploadIngestResult[] = [];
+    const durableTouches: InvoiceUploadDiskTouch[] = [];
     let ingestedCount = 0;
 
     for (const f of files) {
@@ -130,23 +140,27 @@ router.post(
       try {
         buffer = fs.readFileSync(f.path);
       } catch {
-        ingestOutcomes.push({
+        const failed: InvoiceUploadIngestResult = {
           filename: f.originalname,
           outcome: 'failed',
           code: 'read-failed',
           message: 'Could not read uploaded file',
-        });
+        };
+        ingestOutcomes.push(failed);
+        durableTouches.push({ outcome: failed });
         continue;
       }
 
       const persisted = await persistIngestedSelfBillFromBuffer(buffer, today);
       if (persisted.ok) {
         ingestedCount += 1;
-        ingestOutcomes.push({
+        const ingested: InvoiceUploadIngestResult = {
           filename: f.originalname,
           outcome: 'ingested',
           invoiceId: persisted.invoice.id,
-        });
+        };
+        ingestOutcomes.push(ingested);
+        durableTouches.push({ outcome: ingested });
         try {
           fs.unlinkSync(f.path);
         } catch {
@@ -161,16 +175,18 @@ router.post(
         persisted.code === 'unexpected-format' ||
         persisted.code === 'no-contract-match'
       ) {
-        ingestOutcomes.push({
+        const archived: InvoiceUploadIngestResult = {
           filename: f.originalname,
           outcome: 'archived-only',
           code: persisted.code,
           message: 'File kept in invoices/ — not a recognised self-bill layout',
-        });
+        };
+        ingestOutcomes.push(archived);
+        durableTouches.push({ outcome: archived, archivedAbsolutePath: f.path });
         continue;
       }
 
-      ingestOutcomes.push({
+      const failed: InvoiceUploadIngestResult = {
         filename: f.originalname,
         outcome: 'failed',
         code: persisted.code,
@@ -178,8 +194,12 @@ router.post(
           typeof persisted.detail === 'string'
             ? persisted.detail
             : persisted.code,
-      });
+      };
+      ingestOutcomes.push(failed);
+      durableTouches.push({ outcome: failed });
     }
+
+    await publishInvoiceUploadArtifacts(durableTouches);
 
     const uploadedFiles: UploadedFile[] = files.map(file => ({
       filename: file.filename,
@@ -206,8 +226,17 @@ router.post(
 // Error handling middleware for multer
 router.use((err: Error, _req: Request, res: Response, next: NextFunction) => {
   if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      res.status(413).json({
+        error: 'File too large',
+        maxBytesPerFile: UPLOAD_MAX_PDF_BYTES,
+      });
+      return;
+    }
     if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-      res.status(400).json({ error: 'Too many files. Maximum 50 files per upload.' });
+      res.status(400).json({
+        error: `Too many files. Maximum ${String(UPLOAD_MAX_FILES_PER_REQUEST)} files per upload.`,
+      });
       return;
     }
     res.status(400).json({ error: err.message });

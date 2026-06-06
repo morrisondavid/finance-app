@@ -3,6 +3,7 @@ import {
   isValidAccountName,
   validateAccount,
   getAccountConfig,
+  reportingDocTypesForAccount,
   isBusinessConfig,
   isBusinessAccount,
   isCreditCard,
@@ -262,5 +263,15 @@ describe('query purity — injection of a fixture registry is honoured', () => {
     ]);
     // Default registry remains unchanged — query doesn't leak fixture state.
     expect(vatApplicableAccounts({ entityId: 'autonize-it-fzco' }, reg)).toEqual([]);
+  });
+});
+
+describe('reportingDocTypesForAccount', () => {
+  it('returns CSV-only for wise-ltd', () => {
+    expect(reportingDocTypesForAccount('wise-ltd', reg)).toEqual(['csv']);
+  });
+
+  it('defaults to PDF+CSV for accounts without override', () => {
+    expect(reportingDocTypesForAccount('barclays-current', reg)).toEqual(['pdf', 'csv']);
   });
 });

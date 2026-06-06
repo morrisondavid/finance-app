@@ -6,6 +6,7 @@
 import type { UploadedFile } from '../types.js';
 import type { InvoiceUploadIngestResult, UploadResponse } from '../types.js';
 import { persistIngestedSelfBillFromBuffer } from '../domain/invoices/index.js';
+import { publishInvoiceUploadArtifacts } from './invoice-upload-durable-publish.js';
 
 export interface SelfBillBufferInput {
   readonly filename: string;
@@ -81,6 +82,8 @@ export async function executeSelfBillPdfBuffers(
     ingestedCount > 0 ? `${String(ingestedCount)} ingested as self-bill` : null,
     ingestedCount < inputs.length ? 'others archived or failed (see details)' : null,
   ].filter((p): p is string => p !== null);
+
+  await publishInvoiceUploadArtifacts(ingestOutcomes.map(outcome => ({ outcome })));
 
   return {
     status: 200,
