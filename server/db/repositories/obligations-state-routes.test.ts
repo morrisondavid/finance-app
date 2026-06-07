@@ -237,7 +237,7 @@ describe('POST /api/obligations/:id/state', () => {
     });
     expect(res.status).toBe(400);
     const body = await res.json() as { error: string };
-    expect(body.error).toMatch(/does not match obligation expected/i);
+    expect(body.error).toMatch(/less than obligation expected/i);
   });
 });
 

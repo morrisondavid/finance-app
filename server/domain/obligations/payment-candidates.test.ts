@@ -56,38 +56,39 @@ describe('findObligationPaymentCandidates', () => {
     expect(candidates![0].account).toBe('barclaycard');
   });
 
-  it('excludes transactions whose amount is outside tolerance of the obligation expected amount', () => {
+  it('excludes underpayments and includes overpayments', () => {
     harness.db.prepare(`
       INSERT INTO transactions (hash, date, description, amount, account, type)
-      VALUES ('wrong-amt', '2026-05-14', 'HMRC GOV.UK SA', -5000, 'barclaycard', 'expense')
+      VALUES ('overpay', '2026-05-14', 'HMRC GOV.UK SA', -5000, 'barclaycard', 'expense')
     `).run();
     harness.db.prepare(`
       INSERT INTO transactions (hash, date, description, amount, account, type)
       VALUES ('finance-charge', '2026-05-14', 'FINANCE CHARGE', -30.69, 'barclaycard', 'expense')
     `).run();
+    harness.db.prepare(`
+      INSERT INTO transactions (hash, date, description, amount, account, type)
+      VALUES ('underpay', '2026-05-14', 'HMRC GOV.UK SA', -2000, 'barclaycard', 'expense')
+    `).run();
 
     const candidates = findObligationPaymentCandidates(MANUAL_SA_ID, FILTERS);
-    expect(candidates).toEqual([]);
+    expect(candidates).toHaveLength(1);
+    expect(candidates![0].hash).toBe('overpay');
   });
 
-  it('includes matching-amount transactions alongside other in-tolerance rows', () => {
+  it('includes exact-amount transactions for the month', () => {
     harness.db.prepare(`
       INSERT INTO transactions (hash, date, description, amount, account, type)
       VALUES ('sa-pay', '2026-05-14', 'HMRC GOV.UK SA', -2123.24, 'barclaycard', 'expense')
     `).run();
-    harness.db.prepare(`
-      INSERT INTO transactions (hash, date, description, amount, account, type)
-      VALUES ('near-match', '2026-05-01', 'HMRC GOV.UK SA', -2000, 'barclaycard', 'expense')
-    `).run();
 
     const candidates = findObligationPaymentCandidates(MANUAL_SA_ID, FILTERS);
-    expect(candidates!.map(c => c.hash).sort()).toEqual(['near-match', 'sa-pay']);
+    expect(candidates!.map(c => c.hash)).toEqual(['sa-pay']);
   });
 
-  it('includes non-expense rows for the account when amount is within tolerance (same surface as dashboard month drill-down)', () => {
+  it('includes non-expense rows when amount covers expected (same surface as dashboard month drill-down)', () => {
     harness.db.prepare(`
       INSERT INTO transactions (hash, date, description, amount, account, type)
-      VALUES ('card-payment', '2026-05-01', 'PAYMENT RECEIVED', 2000, 'barclaycard', 'income')
+      VALUES ('card-payment', '2026-05-01', 'PAYMENT RECEIVED', 2500, 'barclaycard', 'income')
     `).run();
     harness.db.prepare(`
       INSERT INTO transactions (hash, date, description, amount, account, type)

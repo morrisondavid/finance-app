@@ -115,6 +115,6 @@ describe('obligation payment link MCP parity', () => {
     if (result.body === null || typeof result.body !== 'object' || Array.isArray(result.body)) {
       expect.fail('expected error body');
     }
-    expect(Reflect.get(result.body, 'error')).toMatch(/does not match obligation expected/i);
+    expect(Reflect.get(result.body, 'error')).toMatch(/less than obligation expected/i);
   });
 });

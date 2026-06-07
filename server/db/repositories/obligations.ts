@@ -504,7 +504,6 @@ export function upsertManualObligationState(id: string, patch: {
       hash: patch.paidFromTxHash,
       paidAmount: resolved.paidAmount,
       expectedAmount: expectation?.expectedAmount ?? null,
-      toleranceRatio: expectation?.toleranceRatio,
     });
     paidAmount = resolved.paidAmount;
     paidDate = resolved.paidDate;

@@ -1,10 +1,18 @@
 /**
- * Shared amount-tolerance rules for obligation payment linking and
- * auto-matching. Expressed as a decimal fraction of the expected amount
- * (0.3 = ±30%).
+ * Amount rules for obligation payments.
+ *
+ * Manual "mark paid" linking uses {@link paymentCoversObligation}: the
+ * transaction must cover the expected amount (overpayment is fine).
+ *
+ * The renewal auto-matcher uses symmetric {@link amountWithinTolerance}
+ * when the declared premium may drift from the actual debit.
  */
 
+/** Symmetric tolerance for auto-matching renewals (0.3 = ±30%). */
 export const DEFAULT_OBLIGATION_AMOUNT_TOLERANCE_RATIO = 0.3;
+
+/** Allowed shortfall vs expected when linking a payment (penny rounding). */
+export const OBLIGATION_PAYMENT_UNDERPAYMENT_TOLERANCE_GBP = 0.01;
 
 export function amountWithinTolerance(
   paymentAmountAbs: number,
@@ -16,6 +24,15 @@ export function amountWithinTolerance(
   return diff <= expected * toleranceRatio;
 }
 
+export function paymentCoversObligation(
+  paymentAmountAbs: number,
+  expected: number,
+  underpaymentToleranceGbp = OBLIGATION_PAYMENT_UNDERPAYMENT_TOLERANCE_GBP,
+): boolean {
+  if (expected <= 0) return true;
+  return paymentAmountAbs >= expected - underpaymentToleranceGbp;
+}
+
 export class PaymentAmountMismatchError extends Error {
   constructor(
     readonly hash: string,
@@ -23,7 +40,7 @@ export class PaymentAmountMismatchError extends Error {
     readonly expectedAmount: number,
   ) {
     super(
-      `Transaction amount £${paidAmount.toFixed(2)} does not match obligation expected £${expectedAmount.toFixed(2)} (within ${Math.round(DEFAULT_OBLIGATION_AMOUNT_TOLERANCE_RATIO * 100)}% tolerance)`,
+      `Transaction amount £${paidAmount.toFixed(2)} is less than obligation expected £${expectedAmount.toFixed(2)}`,
     );
     this.name = 'PaymentAmountMismatchError';
   }
@@ -33,11 +50,9 @@ export function assertPaymentMatchesObligation(opts: {
   hash: string;
   paidAmount: number;
   expectedAmount: number | null;
-  toleranceRatio?: number;
 }): void {
   if (opts.expectedAmount === null || opts.expectedAmount <= 0) return;
-  const ratio = opts.toleranceRatio ?? DEFAULT_OBLIGATION_AMOUNT_TOLERANCE_RATIO;
-  if (!amountWithinTolerance(opts.paidAmount, opts.expectedAmount, ratio)) {
+  if (!paymentCoversObligation(opts.paidAmount, opts.expectedAmount)) {
     throw new PaymentAmountMismatchError(opts.hash, opts.paidAmount, opts.expectedAmount);
   }
 }
