@@ -38,6 +38,7 @@ function slot(overrides: Partial<MatcherSlot>): MatcherSlot {
 
 function tx(overrides: Partial<ExpenseTransactionMatch>): ExpenseTransactionMatch {
   return {
+    hash: 'tx-1',
     date: '2025-11-06',
     amount: -615,
     account: 'barclays-current',
@@ -231,8 +232,8 @@ describe('obligation-state.csv source column roundtrip', () => {
 
   it('writes and reads back mixed user/auto rows with full fidelity', () => {
     const rows: ObligationStateRow[] = [
-      { id: 'z-user', status: 'paid', paidAmount: 123.45, paidDate: '2025-03-01', paidFromAccount: 'barclays-current', source: 'user' },
-      { id: 'a-auto', status: 'paid', paidAmount: 615,    paidDate: '2025-11-06', paidFromAccount: 'barclays-current', source: 'auto' },
+      { id: 'z-user', status: 'paid', paidAmount: 123.45, paidDate: '2025-03-01', paidFromAccount: 'barclays-current', paidFromTxHash: null, source: 'user' },
+      { id: 'a-auto', status: 'paid', paidAmount: 615,    paidDate: '2025-11-06', paidFromAccount: 'barclays-current', paidFromTxHash: 'tx-1', source: 'auto' },
     ];
     writeObligationStateToFile(csvPath, rows);
     const read = readObligationStateFromFile(csvPath);
@@ -242,11 +243,11 @@ describe('obligation-state.csv source column roundtrip', () => {
 
   it('emits the source header on every write so legacy readers break loudly (not silently)', () => {
     writeObligationStateToFile(csvPath, [
-      { id: 'x', status: 'paid', paidAmount: null, paidDate: null, paidFromAccount: null, source: 'auto' },
+      { id: 'x', status: 'paid', paidAmount: null, paidDate: null, paidFromAccount: null, paidFromTxHash: null, source: 'auto' },
     ]);
     const raw = fs.readFileSync(csvPath, 'utf8');
     const header = raw.split('\n')[0];
-    expect(header.split(',')).toEqual(['id', 'status', 'paid_amount', 'paid_date', 'paid_from_account', 'source']);
+    expect(header.split(',')).toEqual(['id', 'status', 'paid_amount', 'paid_date', 'paid_from_account', 'paid_from_tx_hash', 'source']);
   });
 
   it('defaults legacy rows missing the source column to source=user (backwards-compat)', () => {

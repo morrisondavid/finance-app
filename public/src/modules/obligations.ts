@@ -1,7 +1,7 @@
 import { escapeHtml, openModal as openModalEl, closeModal as closeModalEl } from '../utils/dom';
-import { formatCurrency, formatIsoDateUkLong } from '../utils/formatting';
+import { formatCurrency, formatAccountName, formatIsoDateUkLong } from '../utils/formatting';
 import { daysUntil, daysLabel, todayIsoLocal } from '../../../shared/iso-date.js';
-import type { EntityFoundationWarning } from '../../../shared/api-contracts';
+import { ACCOUNTS, type EntityFoundationWarning } from '../../../shared/api-contracts';
 
 type PersonId = 'david' | 'heena';
 
@@ -18,6 +18,7 @@ interface ObligationItem {
   paidAmount: number | null;
   paidDate: string | null;
   paidFromAccount: string | null;
+  paidFromTxHash?: string | null;
   notes: string | null;
   personId?: PersonId | null;
 }
@@ -547,33 +548,278 @@ async function handleDismiss(id: string): Promise<void> {
   }
 }
 
+interface PaymentCandidateItem {
+  hash: string;
+  date: string;
+  amount: number;
+  account: string;
+  description: string;
+}
+
+interface MarkPaidChoice {
+  paidFromTxHash: string | null;
+}
+
+function accountSelectOptions(): string {
+  return ACCOUNTS
+    .map(a => `<option value="${escapeHtml(a)}">${escapeHtml(formatAccountName(a))}</option>`)
+    .join('');
+}
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+function yearSelectOptions(): string {
+  const currentYear = new Date().getFullYear();
+  const years: string[] = [];
+  for (let y = currentYear + 1; y >= currentYear - 10; y--) {
+    years.push(`<option value="${y}">${y}</option>`);
+  }
+  return years.join('');
+}
+
+function monthSelectOptions(): string {
+  return MONTH_NAMES
+    .map((name, i) => `<option value="${i + 1}">${name}</option>`)
+    .join('');
+}
+
+function renderMarkPaidCandidateRow(c: PaymentCandidateItem): string {
+  const dateLabel = formatIsoDateUkLong(c.date);
+  const amountLabel = formatCurrency(Math.abs(c.amount));
+  return `
+    <label class="mark-paid-tx-row">
+      <input type="radio" name="mark-paid-choice" value="${escapeHtml(c.hash)}" />
+      <span class="mark-paid-tx-row-body">
+        <span class="mark-paid-tx-row-main">${escapeHtml(dateLabel)} · ${amountLabel}</span>
+        <span class="mark-paid-tx-row-desc">${escapeHtml(c.description)}</span>
+      </span>
+    </label>`;
+}
+
+function showMarkPaidDialog(obligation: ObligationItem): Promise<MarkPaidChoice | null> {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay mark-paid-overlay';
+    overlay.style.display = 'flex';
+
+    const amountLabel = obligation.expectedAmount !== null
+      ? formatCurrency(obligation.expectedAmount)
+      : '(no expected amount)';
+
+    overlay.innerHTML = `
+      <div class="modal modal-large mark-paid-modal" role="dialog" aria-labelledby="mark-paid-title">
+        <div class="modal-header">
+          <h3 id="mark-paid-title">Mark as paid</h3>
+          <button type="button" class="modal-close" data-action="cancel">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="mark-paid-summary">
+            <div class="mark-paid-summary-name">${escapeHtml(obligation.name)}</div>
+            <div class="mark-paid-subtitle">Due ${obligation.dueDate ? escapeHtml(formatIsoDateUkLong(obligation.dueDate)) : '—'} · expected ${amountLabel}</div>
+          </div>
+
+          <fieldset class="mark-paid-filters">
+            <legend>Find transaction</legend>
+            <label class="mark-paid-filter-account">
+              Account
+              <select id="mark-paid-account" class="form-input">
+                <option value="">Select account…</option>
+                ${accountSelectOptions()}
+              </select>
+            </label>
+            <div class="mark-paid-filter-period">
+              <label>
+                Year
+                <select id="mark-paid-year" class="form-input">
+                  <option value="">Select year…</option>
+                  ${yearSelectOptions()}
+                </select>
+              </label>
+              <label>
+                Month
+                <select id="mark-paid-month" class="form-input">
+                  <option value="">Select month…</option>
+                  ${monthSelectOptions()}
+                </select>
+              </label>
+            </div>
+          </fieldset>
+
+          <div id="mark-paid-results" class="mark-paid-results">
+            <p class="form-hint">Select account, year, and month to list transactions — or mark as cash below.</p>
+          </div>
+
+          <fieldset class="mark-paid-cash-option">
+            <legend>Or mark without a ledger link</legend>
+            <label class="mark-paid-tx-row">
+              <input type="radio" name="mark-paid-choice" value="" />
+              <span class="mark-paid-tx-row-body">
+                <span class="mark-paid-tx-row-main">Cash / in-person</span>
+                <span class="mark-paid-tx-row-desc">Uses expected amount and today’s date — no bank transaction linked</span>
+              </span>
+            </label>
+          </fieldset>
+        </div>
+        <div class="modal-footer mark-paid-footer">
+          <button type="button" class="btn" data-action="cancel">Cancel</button>
+          <button type="button" class="btn btn-primary" data-action="confirm" disabled>Mark paid</button>
+        </div>
+      </div>
+    `;
+
+    const accountEl = overlay.querySelector('#mark-paid-account') as HTMLSelectElement;
+    const yearEl = overlay.querySelector('#mark-paid-year') as HTMLSelectElement;
+    const monthEl = overlay.querySelector('#mark-paid-month') as HTMLSelectElement;
+    const resultsEl = overlay.querySelector('#mark-paid-results') as HTMLElement;
+    const confirmBtn = overlay.querySelector('[data-action="confirm"]') as HTMLButtonElement;
+
+    let loadSeq = 0;
+
+    const cleanup = (): void => {
+      overlay.remove();
+    };
+
+    const filtersReady = (): boolean =>
+      accountEl.value.trim() !== '' && yearEl.value !== '' && monthEl.value !== '';
+
+    const clearTransactionSelection = (): void => {
+      overlay.querySelectorAll('input[name="mark-paid-choice"]').forEach(el => {
+        (el as HTMLInputElement).checked = false;
+      });
+      updateConfirmEnabled();
+    };
+
+    const selectedHash = (): string | null => {
+      const checked = overlay.querySelector('input[name="mark-paid-choice"]:checked') as HTMLInputElement | null;
+      if (checked === null) return null;
+      const v = checked.value.trim();
+      return v === '' ? null : v;
+    };
+
+    const updateConfirmEnabled = (): void => {
+      confirmBtn.disabled = overlay.querySelector('input[name="mark-paid-choice"]:checked') === null;
+    };
+
+    const renderCandidates = (candidates: PaymentCandidateItem[]): void => {
+      if (candidates.length === 0) {
+        resultsEl.innerHTML = '<p class="form-hint">No transactions for this account and month. Try another month or mark as cash below.</p>';
+        return;
+      }
+      resultsEl.innerHTML = `
+        <p class="form-hint">${candidates.length} transaction${candidates.length === 1 ? '' : 's'} — select the one that settled this obligation:</p>
+        <div class="transactions-list mark-paid-tx-list">
+          ${candidates.map(renderMarkPaidCandidateRow).join('')}
+        </div>`;
+    };
+
+    const loadCandidates = async (): Promise<void> => {
+      if (!filtersReady()) {
+        resultsEl.innerHTML = '<p class="form-hint">Select account, year, and month to list transactions — or mark as cash below.</p>';
+        clearTransactionSelection();
+        return;
+      }
+
+      const seq = ++loadSeq;
+      clearTransactionSelection();
+      resultsEl.innerHTML = '<p class="form-hint">Loading…</p>';
+
+      const params = new URLSearchParams({
+        account: accountEl.value,
+        year: yearEl.value,
+        month: monthEl.value,
+      });
+
+      try {
+        const resp = await fetch(
+          `/api/obligations/${encodeURIComponent(obligation.id)}/payment-candidates?${params}`,
+        );
+        if (seq !== loadSeq) return;
+
+        if (!resp.ok) {
+          const errPayload = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` })) as { error?: string };
+          throw new Error(errPayload.error ?? 'Failed to load transactions');
+        }
+        const data = await resp.json() as { candidates: PaymentCandidateItem[] };
+        if (seq !== loadSeq) return;
+        renderCandidates(data.candidates ?? []);
+      } catch (err) {
+        if (seq !== loadSeq) return;
+        resultsEl.innerHTML = `<p class="error">${escapeHtml(err instanceof Error ? err.message : 'Failed to load transactions')}</p>`;
+      }
+    };
+
+    accountEl.addEventListener('change', () => { void loadCandidates(); });
+    yearEl.addEventListener('change', () => { void loadCandidates(); });
+    monthEl.addEventListener('change', () => { void loadCandidates(); });
+
+    overlay.addEventListener('change', e => {
+      if ((e.target as HTMLElement).matches('input[name="mark-paid-choice"]')) {
+        updateConfirmEnabled();
+      }
+    });
+
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay) {
+        cleanup();
+        resolve(null);
+      }
+    });
+
+    overlay.querySelector('[data-action="cancel"]')?.addEventListener('click', () => {
+      cleanup();
+      resolve(null);
+    });
+
+    overlay.querySelector('.modal-close')?.addEventListener('click', () => {
+      cleanup();
+      resolve(null);
+    });
+
+    confirmBtn.addEventListener('click', () => {
+      if (confirmBtn.disabled) return;
+      const hash = selectedHash();
+      cleanup();
+      resolve({ paidFromTxHash: hash });
+    });
+
+    document.body.appendChild(overlay);
+  });
+}
+
 /**
- * Mark a manual obligation as paid. Prefills paid date to today and
- * paid amount to the expected amount so the common case is a single
- * confirm click; paid-from-account is left blank because the UI
- * doesn't have the obligation's configured account to hand (that data
- * lives in `obligations.csv` and isn't on `ObligationRowSchema`).
- * Users who need to record a specific account can edit
- * `obligation-state.csv` directly — same fallback path the rest of
- * the state system relies on.
+ * Mark a manual obligation as paid. Optionally link a bank transaction
+ * (`paidFromTxHash`); when linked, paid amount/date/account are derived
+ * server-side from the ledger row.
  */
 async function handleMarkPaid(obligation: ObligationItem): Promise<void> {
-  const paidDate = todayIsoLocal();
-  const paidAmount = obligation.expectedAmount;
-  const amountLabel = paidAmount !== null ? formatCurrency(paidAmount) : '(no expected amount)';
-  const confirmMsg = `Mark "${obligation.name}" as paid on ${paidDate} for ${amountLabel}?`;
-  if (!confirm(confirmMsg)) return;
+  const choice = await showMarkPaidDialog(obligation);
+  if (choice === null) return;
+
+  const body: {
+    status: string;
+    paidFromTxHash?: string | null;
+    paidAmount?: number | null;
+    paidDate?: string | null;
+    paidFromAccount?: string | null;
+  } = { status: 'paid' };
+
+  if (choice.paidFromTxHash !== null) {
+    body.paidFromTxHash = choice.paidFromTxHash;
+  } else {
+    body.paidAmount = obligation.expectedAmount;
+    body.paidDate = todayIsoLocal();
+    body.paidFromAccount = null;
+    body.paidFromTxHash = null;
+  }
 
   try {
     const resp = await fetch(`/api/obligations/${encodeURIComponent(obligation.id)}/state`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        status: 'paid',
-        paidAmount,
-        paidDate,
-        paidFromAccount: null,
-      }),
+      body: JSON.stringify(body),
     });
     if (!resp.ok) {
       const errPayload = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` })) as { error?: string };

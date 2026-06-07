@@ -16,6 +16,7 @@ function makeQuarter(overrides: Partial<VatQuarterRange> = {}): VatQuarterRange 
 
 function makePayment(overrides: Partial<HmrcPaymentMatch> = {}): HmrcPaymentMatch {
   return {
+    hash: 'vat-pay-hash',
     date: '2025-06-01',
     amount: -1000,
     account: 'barclays-current',

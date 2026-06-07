@@ -28,7 +28,7 @@ import { escapeCsvField, atomicWriteCsv } from '../../utils/csv-helpers.js';
 export const OBLIGATION_STATE_FILENAME = 'obligation-state.csv';
 
 const STATE_HEADERS = [
-  'id', 'status', 'paid_amount', 'paid_date', 'paid_from_account', 'source',
+  'id', 'status', 'paid_amount', 'paid_date', 'paid_from_account', 'paid_from_tx_hash', 'source',
 ] as const;
 
 /**
@@ -47,6 +47,8 @@ export interface ObligationStateRow {
   paidAmount: number | null;
   paidDate: string | null;
   paidFromAccount: string | null;
+  /** Stable link to `transactions.hash` when payment came from the ledger. */
+  paidFromTxHash: string | null;
   /** Provenance of this row. See {@link ObligationStateSource}. */
   source: ObligationStateSource;
 }
@@ -94,6 +96,7 @@ export function readObligationStateFromFile(csvPath: string): Map<string, Obliga
       paidAmount,
       paidDate: row.paid_date?.trim() || null,
       paidFromAccount: row.paid_from_account?.trim() || null,
+      paidFromTxHash: row.paid_from_tx_hash?.trim() || null,
       source: parseSource(row.source),
     });
   }
@@ -113,6 +116,7 @@ export function writeObligationStateToFile(
       r.paidAmount !== null ? String(r.paidAmount) : '',
       r.paidDate ?? '',
       escapeCsvField(r.paidFromAccount ?? ''),
+      escapeCsvField(r.paidFromTxHash ?? ''),
       r.source,
     ].join(','));
   }

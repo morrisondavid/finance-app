@@ -247,6 +247,7 @@ export function deriveAndInsertAutoCtObligations(referenceDate: Date = new Date(
       paidAmount: match ? round2(Math.abs(match.amount)) : null,
       paidDate: match?.date ?? null,
       paidFromAccount: match?.account ?? null,
+      paidFromTxHash: match?.hash ?? null,
       notes: `Estimate based on FY ${slot.fyLabel} income, net of VAT. Corrected automatically once HMRC settles.`,
     });
     inserted++;

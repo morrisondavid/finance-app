@@ -19,6 +19,7 @@ import {
   readUpcomingPaymentsMerged,
   readObligationsDismissals,
 } from '../http/read/obligations-read.js';
+import { readObligationPaymentCandidates } from '../http/read/obligation-payment-candidates.js';
 
 const router = express.Router();
 
@@ -67,6 +68,10 @@ router.delete('/dismissals/:id', (req: Request, res: Response<{ success: boolean
 
 router.post('/', (req: Request, res: Response<ObligationRow | { error: string }>) => {
   sendJsonMutation(res, mutateFinancialObligationsCreate(req.body));
+});
+
+router.get('/:id/payment-candidates', (req: Request<{ id: string }>, res: Response) => {
+  sendJsonRead(res, readObligationPaymentCandidates(req.params.id, req.query as Record<string, unknown>));
 });
 
 router.put('/:id', (req: Request<{ id: string }>, res: Response<ObligationRow | { error: string }>) => {

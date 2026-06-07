@@ -123,6 +123,7 @@ function createAllDomainTables(db: Database.Database): void {
       paid_amount REAL,
       paid_date TEXT,
       paid_from_account TEXT,
+      paid_from_tx_hash TEXT,
       notes TEXT,
       person_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,

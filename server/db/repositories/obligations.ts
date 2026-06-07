@@ -18,6 +18,17 @@ import {
   projectObligationToRow,
 } from '../../domain/obligations/obligation-projection.js';
 import {
+  UnknownTransactionError,
+  paidFieldsFromTransactionMatch,
+  resolvePaidFieldsFromTxHash,
+} from '../../domain/obligations/paid-fields.js';
+import {
+  assertPaymentMatchesObligation,
+  PaymentAmountMismatchError,
+} from '../../domain/obligations/amount-tolerance.js';
+import { obligationPaymentExpectation } from '../../domain/obligations/payment-candidates.js';
+import type { ExpenseTransactionMatch } from './transaction-queries.js';
+import {
   OutgoingObligationSchema,
   ObligationSourceSchema,
   ObligationTypeSchema,
@@ -60,6 +71,7 @@ interface ObligationDbRow {
   paid_amount: number | null;
   paid_date: string | null;
   paid_from_account: string | null;
+  paid_from_tx_hash: string | null;
   notes: string | null;
   person_id: string | null;
   created_at: string | null;
@@ -103,15 +115,15 @@ export function loadManualObligationsFromCsv(): void {
     INSERT OR REPLACE INTO financial_obligations
       (id, source, type, name, entity, frequency, expected_amount, naive_amount, adjustment_basis, adjustment_source,
        due_date, status,
-       paid_amount, paid_date, paid_from_account, notes, person_id, created_at, updated_at)
-    VALUES (?, 'manual', ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       paid_amount, paid_date, paid_from_account, paid_from_tx_hash, notes, person_id, created_at, updated_at)
+    VALUES (?, 'manual', ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `);
 
   for (const r of projected) {
     insert.run(
       r.id, r.type, r.name, r.entity, r.frequency,
       r.expectedAmount, r.dueDate, r.status,
-      r.paidAmount, r.paidDate, r.paidFromAccount, r.notes, r.personId,
+      r.paidAmount, r.paidDate, r.paidFromAccount, r.paidFromTxHash, r.notes, r.personId,
     );
   }
 
@@ -138,6 +150,7 @@ export function insertAutoObligation(obligation: {
   paidAmount: number | null;
   paidDate: string | null;
   paidFromAccount: string | null;
+  paidFromTxHash?: string | null;
   notes: string | null;
   personId?: string | null;
 }): void {
@@ -146,8 +159,8 @@ export function insertAutoObligation(obligation: {
     INSERT OR REPLACE INTO financial_obligations
       (id, source, type, name, entity, frequency, expected_amount, naive_amount, adjustment_basis, adjustment_source,
        due_date, status,
-       paid_amount, paid_date, paid_from_account, notes, person_id, created_at, updated_at)
-    VALUES (?, 'auto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       paid_amount, paid_date, paid_from_account, paid_from_tx_hash, notes, person_id, created_at, updated_at)
+    VALUES (?, 'auto', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `).run(
     obligation.id, obligation.type, obligation.name, obligation.entity,
     obligation.frequency, obligation.expectedAmount,
@@ -156,7 +169,8 @@ export function insertAutoObligation(obligation: {
     obligation.adjustmentSource ?? null,
     obligation.dueDate,
     obligation.status, obligation.paidAmount, obligation.paidDate,
-    obligation.paidFromAccount, obligation.notes, obligation.personId ?? null,
+    obligation.paidFromAccount, obligation.paidFromTxHash ?? null,
+    obligation.notes, obligation.personId ?? null,
   );
 }
 
@@ -347,6 +361,7 @@ function writeStateFromInput(id: string, data: {
     paidAmount: data.paidAmount ?? null,
     paidDate: data.paidDate ?? null,
     paidFromAccount: data.paidFromAccount ?? null,
+    paidFromTxHash: null,
     source: 'user',
   };
   upsertObligationState(obligationStateCsvPath(), row);
@@ -439,6 +454,7 @@ export function updateManualObligation(id: string, patch: UpdateObligationBody):
       paidAmount: currentState?.paidAmount ?? existing.paid_amount,
       paidDate: currentState?.paidDate ?? existing.paid_date,
       paidFromAccount: currentState?.paidFromAccount ?? existing.paid_from_account,
+      paidFromTxHash: currentState?.paidFromTxHash ?? existing.paid_from_tx_hash,
       source: 'user',
     };
     upsertObligationState(obligationStateCsvPath(), next);
@@ -462,6 +478,7 @@ export function upsertManualObligationState(id: string, patch: {
   paidAmount?: number | null;
   paidDate?: string | null;
   paidFromAccount?: string | null;
+  paidFromTxHash?: string | null;
 }): ObligationDbRow | null {
   if (id.startsWith('auto-')) {
     throw new NonManualStateError(
@@ -472,18 +489,71 @@ export function upsertManualObligationState(id: string, patch: {
   const exists = registry.all.some(c => c.id === id);
   if (!exists) return null;
 
+  let paidAmount = patch.paidAmount ?? null;
+  let paidDate = patch.paidDate ?? null;
+  let paidFromAccount = patch.paidFromAccount ?? null;
+  let paidFromTxHash: string | null = patch.paidFromTxHash ?? null;
+
+  if (patch.paidFromTxHash !== undefined && patch.paidFromTxHash !== null) {
+    const resolved = resolvePaidFieldsFromTxHash(patch.paidFromTxHash);
+    if (resolved === null) {
+      throw new UnknownTransactionError(patch.paidFromTxHash);
+    }
+    const expectation = obligationPaymentExpectation(id);
+    assertPaymentMatchesObligation({
+      hash: patch.paidFromTxHash,
+      paidAmount: resolved.paidAmount,
+      expectedAmount: expectation?.expectedAmount ?? null,
+      toleranceRatio: expectation?.toleranceRatio,
+    });
+    paidAmount = resolved.paidAmount;
+    paidDate = resolved.paidDate;
+    paidFromAccount = resolved.paidFromAccount;
+    paidFromTxHash = patch.paidFromTxHash;
+  }
+
   const row: ObligationStateRow = {
     id,
     status: patch.status,
-    paidAmount: patch.paidAmount ?? null,
-    paidDate: patch.paidDate ?? null,
-    paidFromAccount: patch.paidFromAccount ?? null,
+    paidAmount,
+    paidDate,
+    paidFromAccount,
+    paidFromTxHash,
     source: 'user',
   };
   upsertObligationState(obligationStateCsvPath(), row);
   rebuildObligationsTable();
   return getObligationById(id) ?? null;
 }
+
+/**
+ * Write a `source=auto` paid state row when an auto-matcher attributes a
+ * transaction to a manual registry obligation (e.g. SA manual supersede).
+ * Skips when the user has already marked the obligation paid (`source=user`).
+ */
+export function upsertAutoObligationStateFromMatch(
+  id: string,
+  match: ExpenseTransactionMatch,
+): void {
+  if (id.startsWith('auto-')) return;
+  const existing = readObligationStateFromFile(obligationStateCsvPath()).get(id);
+  if (existing?.source === 'user') return;
+
+  const link = paidFieldsFromTransactionMatch(match);
+  const row: ObligationStateRow = {
+    id,
+    status: 'paid',
+    paidAmount: link.paidAmount,
+    paidDate: link.paidDate,
+    paidFromAccount: link.paidFromAccount,
+    paidFromTxHash: link.paidFromTxHash,
+    source: 'auto',
+  };
+  upsertObligationState(obligationStateCsvPath(), row);
+  rebuildObligationsTable();
+}
+
+export { UnknownTransactionError, PaymentAmountMismatchError };
 
 /**
  * Remove any state override (user OR auto) for a manual obligation,
@@ -553,6 +623,7 @@ export function toApiObligation(row: ObligationDbRow): ObligationRow {
     paidAmount: row.paid_amount,
     paidDate: row.paid_date,
     paidFromAccount: row.paid_from_account,
+    paidFromTxHash: row.paid_from_tx_hash ?? null,
     notes: row.notes,
     personId,
     createdAt: row.created_at,

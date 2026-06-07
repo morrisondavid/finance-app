@@ -458,7 +458,7 @@ export function registerBankStatementsHttpMutationTools(server: McpServer): void
 
   reg(
     'financial_obligations_upsert_state',
-    'POST /api/obligations/:id/state parity (manual obligations).',
+    'POST /api/obligations/:id/state parity (manual obligations). Optional `paidFromTxHash` links the settling bank transaction (`transactions.hash`); paid amount/date/account are then derived from the ledger. Omit `paidFromTxHash` for cash/in-person payments. Flow: `financial_obligations_list` → `financial_obligations_list_payment_candidates` → upsert with `{ status: "paid", paidFromTxHash }`.',
     ObligationPathIdSchema.merge(ObligationStateUpsertBodySchema).shape,
     args => {
       const parsed = ObligationPathIdSchema.merge(ObligationStateUpsertBodySchema).safeParse(args);

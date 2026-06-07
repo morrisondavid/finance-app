@@ -90,6 +90,20 @@ export function todayIsoLocal(now: Date = new Date()): string {
 }
 
 /**
+ * Inclusive ISO date bounds for a calendar month (`month` is 1–12).
+ */
+export function calendarMonthIsoRange(
+  year: number,
+  month: number,
+): { startDate: string; endDate: string } {
+  const monthPadded = String(month).padStart(2, '0');
+  const startDate = `${year}-${monthPadded}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const endDate = `${year}-${monthPadded}-${String(lastDay).padStart(2, '0')}`;
+  return { startDate, endDate };
+}
+
+/**
  * Inclusive Monday..Sunday range containing the given ISO date. Uses ISO
  * 8601 week semantics (week starts Monday). Both endpoints are returned
  * as ISO `YYYY-MM-DD` strings.

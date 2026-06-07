@@ -26,8 +26,9 @@ import { isDismissed } from './obligation-dismissals.js';
 import { findHmrcPayments, type HmrcPaymentMatch } from './tax.js';
 import { HMRC_PATTERNS } from '../../domain/payees/index.js';
 import { businessAndPersonalPaymentAccounts } from '../../domain/accounts/index.js';
-import { matchPaymentsToSlots } from '../../utils/payment-matcher.js';
+import { matchPaymentsToSlotsAsymmetric } from '../../utils/payment-matcher.js';
 import { round2 } from '../../utils/math.js';
+import { upsertAutoObligationStateFromMatch } from './obligations.js';
 
 /**
  * Self Assessment payment "slot". The UK SA calendar books two payments per
@@ -65,12 +66,17 @@ export const MANUAL_SUPERSEDE_WINDOW_DAYS = 31;
 
 /**
  * Proximity window (days either side of a slot due date) used when
- * attributing HMRC SA bank debits to SA slots. 60 days is half the
- * 6-month gap between the Jan and Jul deadlines, so the ranges never
- * overlap — a payment can belong to at most one slot. Generous enough
- * to absorb typical "paid a week early" / "paid a month late" patterns.
+ * attributing HMRC SA bank debits to SA slots. Asymmetric: up to
+ * {@link SA_MATCH_EARLY_DAYS} before due, up to {@link SA_MATCH_LATE_DAYS}
+ * after due. The late window absorbs late filing/settlement (e.g. card
+ * payment ~103 days after 31 Jan) while the early cap keeps May payments
+ * from attaching to the Jul POA2 slot (78 days early > 60).
  */
-export const SA_MATCH_PROXIMITY_DAYS = 60;
+export const SA_MATCH_EARLY_DAYS = 60;
+export const SA_MATCH_LATE_DAYS = 120;
+
+/** @deprecated Use {@link SA_MATCH_EARLY_DAYS} / {@link SA_MATCH_LATE_DAYS}. */
+export const SA_MATCH_PROXIMITY_DAYS = SA_MATCH_EARLY_DAYS;
 
 /** Stable matcher key for an SA slot. */
 function saSlotKey(slot: { personId: PersonId; dueDate: string }): string {
@@ -125,13 +131,13 @@ function withinWindow(iso: string, start: Date, end: Date): boolean {
  * "user entered it with today's date" or "user entered the month's 1st"
  * still suppresses correctly. A manual row wins unconditionally.
  */
-function hasManualSupersede(slot: SaSlot): boolean {
+function findManualSupersede(slot: SaSlot): string | null {
   const db = getDb();
   const windowStart = shiftIso(slot.dueDate, -MANUAL_SUPERSEDE_WINDOW_DAYS);
   const windowEnd = shiftIso(slot.dueDate, MANUAL_SUPERSEDE_WINDOW_DAYS);
 
   const row = db.prepare(`
-    SELECT 1 AS hit FROM financial_obligations
+    SELECT id FROM financial_obligations
     WHERE source = 'manual'
       AND type = 'self-assessment'
       AND person_id = ?
@@ -139,9 +145,9 @@ function hasManualSupersede(slot: SaSlot): boolean {
       AND due_date >= ?
       AND due_date <= ?
     LIMIT 1
-  `).get(slot.personId, windowStart, windowEnd) as { hit: number } | undefined;
+  `).get(slot.personId, windowStart, windowEnd) as { id: string } | undefined;
 
-  return row !== undefined;
+  return row?.id ?? null;
 }
 
 function shiftIso(iso: string, days: number): string {
@@ -227,16 +233,23 @@ export function deriveAndInsertAutoSaObligations(): void {
   if (slots.length === 0) return;
 
   const payments = fetchSaPayments();
-  const paymentBySlot = matchPaymentsToSlots(
+  const paymentBySlot = matchPaymentsToSlotsAsymmetric(
     slots.map(s => ({ key: saSlotKey(s), dueDate: s.dueDate })),
     payments,
-    SA_MATCH_PROXIMITY_DAYS,
+    { maxEarlyDays: SA_MATCH_EARLY_DAYS, maxLateDays: SA_MATCH_LATE_DAYS },
   );
 
   let inserted = 0;
 
   for (const slot of slots) {
-    if (hasManualSupersede(slot)) continue;
+    const manualId = findManualSupersede(slot);
+    const match = paymentBySlot.get(saSlotKey(slot)) ?? null;
+    if (manualId !== null) {
+      if (match !== null) {
+        upsertAutoObligationStateFromMatch(manualId, match);
+      }
+      continue;
+    }
 
     const payload = buildSaObligationForSlot(slot);
     if (payload.expectedAmount <= 0) continue;
@@ -245,8 +258,6 @@ export function deriveAndInsertAutoSaObligations(): void {
     // table, skip it so the hidden reminder never rematerialises across
     // restarts or mid-session reseeds.
     if (isDismissed(payload.id)) continue;
-
-    const match = paymentBySlot.get(saSlotKey(slot)) ?? null;
 
     insertAutoObligation({
       id: payload.id,
@@ -260,6 +271,7 @@ export function deriveAndInsertAutoSaObligations(): void {
       paidAmount: match ? round2(Math.abs(match.amount)) : null,
       paidDate: match?.date ?? null,
       paidFromAccount: match?.account ?? null,
+      paidFromTxHash: match?.hash ?? null,
       notes: payload.notes,
       personId: slot.personId,
     });

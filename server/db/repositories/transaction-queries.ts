@@ -11,6 +11,7 @@
 import { getDb } from '../connection.js';
 
 export interface ExpenseTransactionMatch {
+  hash: string;
   date: string;
   amount: number;
   account: string;
@@ -57,7 +58,7 @@ export function findExpenseTransactionsByDescriptionPatterns(
   const accountParams = opts.accounts ?? [];
 
   return db.prepare(`
-    SELECT date, amount, account, description
+    SELECT hash, date, amount, account, description
     FROM transactions
     WHERE type = 'expense'
       AND (${patternCondition})${accountClause}

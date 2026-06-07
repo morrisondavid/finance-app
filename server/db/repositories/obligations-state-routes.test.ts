@@ -96,7 +96,44 @@ describe('upsertManualObligationState (repo)', () => {
     expect(updated?.paid_date).toBe('2025-11-06');
 
     const csv = fs.readFileSync(stateCsvPath(), 'utf8');
-    expect(csv).toContain(`${MANUAL_ID},paid,615,2025-11-06,barclays-current,user`);
+    expect(csv).toContain(`${MANUAL_ID},paid,615,2025-11-06,barclays-current,,user`);
+  });
+
+  it('derives paid fields from paidFromTxHash and stores the link', () => {
+    harness.db.prepare(`
+      INSERT INTO transactions (hash, date, description, amount, account, type)
+      VALUES ('linked-tx', '2025-11-06', 'Kingsbridge Insurance', -615, 'barclays-current', 'expense')
+    `).run();
+
+    const updated = obligationsRepo.upsertManualObligationState(MANUAL_ID, {
+      status: 'paid',
+      paidFromTxHash: 'linked-tx',
+    });
+    expect(updated?.paid_amount).toBe(615);
+    expect(updated?.paid_from_account).toBe('barclays-current');
+    expect(updated?.paid_from_tx_hash).toBe('linked-tx');
+
+    const csv = fs.readFileSync(stateCsvPath(), 'utf8');
+    expect(csv).toContain('linked-tx');
+  });
+
+  it('throws UnknownTransactionError for an invalid hash', () => {
+    expect(() => obligationsRepo.upsertManualObligationState(MANUAL_ID, {
+      status: 'paid',
+      paidFromTxHash: 'no-such-hash',
+    })).toThrowError(obligationsRepo.UnknownTransactionError);
+  });
+
+  it('throws PaymentAmountMismatchError when paidFromTxHash amount is far below expected', () => {
+    harness.db.prepare(`
+      INSERT INTO transactions (hash, date, description, amount, account, type)
+      VALUES ('tiny-charge', '2026-02-12', 'FINANCE CHARGE', -30.69, 'barclaycard', 'expense')
+    `).run();
+
+    expect(() => obligationsRepo.upsertManualObligationState(MANUAL_ID, {
+      status: 'paid',
+      paidFromTxHash: 'tiny-charge',
+    })).toThrowError(obligationsRepo.PaymentAmountMismatchError);
   });
 
   it('throws NonManualStateError for auto-* ids (those are owned by HMRC seeders)', () => {
@@ -185,6 +222,22 @@ describe('POST /api/obligations/:id/state', () => {
       body: JSON.stringify({ status: 'paid' }),
     });
     expect(res.status).toBe(404);
+  });
+
+  it('returns 400 when paidFromTxHash amount does not match obligation expected amount', async () => {
+    harness.db.prepare(`
+      INSERT INTO transactions (hash, date, description, amount, account, type)
+      VALUES ('tiny-charge', '2026-02-12', 'FINANCE CHARGE', -30.69, 'barclaycard', 'expense')
+    `).run();
+
+    const res = await fetch(`${baseUrl}/api/obligations/${MANUAL_ID}/state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'paid', paidFromTxHash: 'tiny-charge' }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toMatch(/does not match obligation expected/i);
   });
 });
 

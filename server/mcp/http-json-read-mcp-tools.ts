@@ -5,7 +5,7 @@
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { ContractIdSchema, DashboardSummaryHttpQuerySchema, DashboardTransactionsRawQuerySchema } from '../../shared/api-contracts.js';
+import { ContractIdSchema, DashboardSummaryHttpQuerySchema, DashboardTransactionsRawQuerySchema, ObligationPaymentCandidatesQuerySchema } from '../../shared/api-contracts.js';
 import type { JsonReadResult } from '../http/read/types.js';
 import { readInvoiceDraftFromQuery, InvoiceDraftQuerySchema, readInvoiceList, readSupplierMonthGaps } from '../http/read/invoices.js';
 import {
@@ -27,6 +27,7 @@ import {
   readUpcomingPaymentsMerged,
   readObligationsDismissals,
 } from '../http/read/obligations-read.js';
+import { readObligationPaymentCandidates } from '../http/read/obligation-payment-candidates.js';
 import { readDeadlinesRoot, readDeadlinesFeedQuery, readDeadlineById } from '../http/read/deadlines-read.js';
 import { readTaxVatPayments } from '../http/read/tax-read.js';
 import {
@@ -345,6 +346,29 @@ export function registerBankStatementsHttpJsonReadTools(server: McpServer): void
 
   reg(['financial_obligations_list_dismissals', 'get_http_obligations_dismissals'], 'GET /api/obligations/dismissals parity', {}, () =>
     httpJsonReadToMcpToolResult(readObligationsDismissals()),
+  );
+
+  reg(
+    ['financial_obligations_list_payment_candidates', 'get_http_obligations_payment_candidates'],
+    'GET /api/obligations/:id/payment-candidates parity. Requires `account`, `year`, and `month` (1–12) — lists expense transactions on that account in the calendar month for manual linking via `financial_obligations_upsert_state` with `paidFromTxHash`.',
+    z.object({ obligationId: z.string().min(1) }).merge(ObligationPaymentCandidatesQuerySchema).shape,
+    raw => {
+      const schema = z.object({ obligationId: z.string().min(1) }).merge(ObligationPaymentCandidatesQuerySchema);
+      const parsed = schema.safeParse(raw);
+      if (!parsed.success) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({ error: 'invalid-params', issues: parsed.error.issues }, null, 2),
+            },
+          ],
+        };
+      }
+      const { obligationId, ...query } = parsed.data;
+      return httpJsonReadToMcpToolResult(readObligationPaymentCandidates(obligationId, query));
+    },
   );
 
   reg(['deadlines_list', 'get_http_deadlines'], 'GET /api/deadlines parity', {}, () =>

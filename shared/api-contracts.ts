@@ -888,6 +888,8 @@ export const ObligationRowSchema = z.object({
   paidAmount: z.number().nullable(),
   paidDate: z.string().nullable(),
   paidFromAccount: z.string().nullable(),
+  /** Stable link to `transactions.hash` when settled from the ledger. */
+  paidFromTxHash: z.string().nullable().optional(),
   notes: z.string().nullable(),
   personId: PersonIdSchema.nullable().optional(),
   createdAt: z.string().nullable(),
@@ -1118,7 +1120,29 @@ export const ObligationStateUpsertBodySchema = z.object({
   paidAmount: z.number().nullable().optional(),
   paidDate: z.string().nullable().optional(),
   paidFromAccount: z.string().nullable().optional(),
+  /** Optional link to `transactions.hash`. When set, paid_* fields are derived from the transaction. */
+  paidFromTxHash: z.string().nullable().optional(),
 });
+
+export const ObligationPaymentCandidateSchema = z.object({
+  hash: z.string().min(1),
+  date: z.string(),
+  amount: z.number(),
+  account: z.string(),
+  description: z.string(),
+});
+
+export const ObligationPaymentCandidatesResponseSchema = z.object({
+  candidates: z.array(ObligationPaymentCandidateSchema),
+});
+
+export const ObligationPaymentCandidatesQuerySchema = z.object({
+  account: AccountNameSchema,
+  year: z.coerce.number().int().min(2000).max(2100),
+  month: z.coerce.number().int().min(1).max(12),
+});
+
+export type ObligationPaymentCandidatesQuery = z.infer<typeof ObligationPaymentCandidatesQuerySchema>;
 
 // ============================================
 // Obligation Dismissals
@@ -3663,6 +3687,8 @@ export type UpcomingPaymentsResponse = z.infer<typeof UpcomingPaymentsResponseSc
 export type CreateObligationBody = z.infer<typeof CreateObligationBodySchema>;
 export type UpdateObligationBody = z.infer<typeof UpdateObligationBodySchema>;
 export type ObligationStateUpsertBody = z.infer<typeof ObligationStateUpsertBodySchema>;
+export type ObligationPaymentCandidate = z.infer<typeof ObligationPaymentCandidateSchema>;
+export type ObligationPaymentCandidatesResponse = z.infer<typeof ObligationPaymentCandidatesResponseSchema>;
 export type Dismissal = z.infer<typeof DismissalSchema>;
 export type CreateDismissalBody = z.infer<typeof CreateDismissalBodySchema>;
 export type DismissalsListResponse = z.infer<typeof DismissalsListResponseSchema>;

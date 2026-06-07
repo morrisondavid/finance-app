@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   matchPaymentsToSlots,
+  matchPaymentsToSlotsAsymmetric,
   shiftIsoDate,
   DEFAULT_MAX_PROXIMITY_DAYS,
   type PaymentMatchSlot,
@@ -34,6 +35,7 @@ function q(overrides: Partial<VatQuarterRange>): VatQuarterRange {
 
 function p(overrides: Partial<HmrcPaymentMatch>): HmrcPaymentMatch {
   return {
+    hash: 'pay-1',
     date: '2025-06-07',
     amount: -1000,
     account: 'barclays-current',
@@ -206,16 +208,16 @@ describe('matchPaymentsToSlots', () => {
 
     // Real VAT-only payments pulled from the ledger.
     const payments: HmrcPaymentMatch[] = [
-      { date: '2022-04-29', amount: -12092.65, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
-      { date: '2022-06-06', amount: -12107.72, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
-      { date: '2022-07-25', amount: -14436.99, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
-      { date: '2023-03-06', amount: -8535.17, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
-      { date: '2023-06-15', amount: -5062.05, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
-      { date: '2023-11-13', amount: -3896.12, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
-      { date: '2023-12-04', amount: -4817.88, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
-      { date: '2025-03-07', amount: -6385.12, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
-      { date: '2025-09-08', amount: -8060.0, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
-      { date: '2025-12-08', amount: -11653.06, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
+      { hash: 'vat-2022-04-29', date: '2022-04-29', amount: -12092.65, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
+      { hash: 'vat-2022-06-06', date: '2022-06-06', amount: -12107.72, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
+      { hash: 'vat-2022-07-25', date: '2022-07-25', amount: -14436.99, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
+      { hash: 'vat-2023-03-06', date: '2023-03-06', amount: -8535.17, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
+      { hash: 'vat-2023-06-15', date: '2023-06-15', amount: -5062.05, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
+      { hash: 'vat-2023-11-13', date: '2023-11-13', amount: -3896.12, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
+      { hash: 'vat-2023-12-04', date: '2023-12-04', amount: -4817.88, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
+      { hash: 'vat-2025-03-07', date: '2025-03-07', amount: -6385.12, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
+      { hash: 'vat-2025-09-08', date: '2025-09-08', amount: -8060.0, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
+      { hash: 'vat-2025-12-08', date: '2025-12-08', amount: -11653.06, account: 'barclays-current', description: 'HMRC VAT SOUTHEND' },
     ];
 
     const run = () => matchPaymentsToSlots(quarters.map(slot), payments, DEFAULT_MAX_PROXIMITY_DAYS);
@@ -279,6 +281,50 @@ describe('matchPaymentsToSlots', () => {
   describe('defaults', () => {
     it('DEFAULT_MAX_PROXIMITY_DAYS is 90', () => {
       expect(DEFAULT_MAX_PROXIMITY_DAYS).toBe(90);
+    });
+  });
+
+  describe('matchPaymentsToSlotsAsymmetric', () => {
+    it('allows late payment beyond symmetric window when maxLateDays is larger', () => {
+      const slots: PaymentMatchSlot[] = [
+        { key: 'jan', dueDate: '2026-01-31' },
+        { key: 'jul', dueDate: '2026-07-31' },
+      ];
+      const payments: HmrcPaymentMatch[] = [
+        {
+          date: '2026-05-14',
+          amount: 2123.24,
+          account: 'barclaycard',
+          description: 'HMRC GOV.UK SA',
+          hash: 'late-sa-hash',
+        },
+      ];
+      const result = matchPaymentsToSlotsAsymmetric(slots, payments, {
+        maxEarlyDays: 60,
+        maxLateDays: 120,
+      });
+      expect(result.get('jan')?.hash).toBe('late-sa-hash');
+      expect(result.get('jul')).toBeNull();
+    });
+
+    it('rejects payment too early for a slot even when late window is wide', () => {
+      const slots: PaymentMatchSlot[] = [
+        { key: 'jul', dueDate: '2026-07-31' },
+      ];
+      const payments: HmrcPaymentMatch[] = [
+        {
+          date: '2026-05-14',
+          amount: 2123.24,
+          account: 'barclaycard',
+          description: 'HMRC GOV.UK SA',
+          hash: 'early-for-jul',
+        },
+      ];
+      const result = matchPaymentsToSlotsAsymmetric(slots, payments, {
+        maxEarlyDays: 60,
+        maxLateDays: 120,
+      });
+      expect(result.get('jul')).toBeNull();
     });
   });
 });

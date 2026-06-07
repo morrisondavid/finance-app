@@ -379,6 +379,7 @@ export function migrateObligationsIfNeeded(): void {
       paid_amount REAL,
       paid_date TEXT,
       paid_from_account TEXT,
+      paid_from_tx_hash TEXT,
       notes TEXT,
       person_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -411,6 +412,10 @@ export function migrateObligationsIfNeeded(): void {
   }
   if (!cols.some(c => c.name === 'adjustment_source')) {
     db.exec('ALTER TABLE financial_obligations ADD COLUMN adjustment_source TEXT');
+    cols = db.prepare('PRAGMA table_info(financial_obligations)').all() as Array<{ name: string }>;
+  }
+  if (!cols.some(c => c.name === 'paid_from_tx_hash')) {
+    db.exec('ALTER TABLE financial_obligations ADD COLUMN paid_from_tx_hash TEXT');
   }
 }
 

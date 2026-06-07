@@ -80,6 +80,7 @@ export interface ProjectedObligationRow {
   paidAmount: number | null;
   paidDate: string | null;
   paidFromAccount: string | null;
+  paidFromTxHash: string | null;
   notes: string | null;
   personId: string | null;
 }
@@ -118,6 +119,7 @@ export function projectObligationToRow(
     paidAmount: state?.paidAmount ?? null,
     paidDate: state?.paidDate ?? null,
     paidFromAccount: state?.paidFromAccount ?? null,
+    paidFromTxHash: state?.paidFromTxHash ?? null,
     notes: c.notes ?? null,
     personId,
   };

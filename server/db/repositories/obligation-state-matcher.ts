@@ -46,7 +46,7 @@ import {
   findExpenseTransactionsByDescriptionPatterns,
   type ExpenseTransactionMatch,
 } from './transaction-queries.js';
-import { round2 } from '../../utils/math.js';
+import { paidFieldsFromTransactionMatch } from '../../domain/obligations/paid-fields.js';
 import { shiftIsoDate, toIsoDate, daysBetween } from '../../../shared/iso-date.js';
 import type { OutgoingObligation } from '../../../shared/api-contracts.js';
 
@@ -63,7 +63,13 @@ export const MATCH_PROXIMITY_DAYS = 60;
  * own override. 30% absorbs normal premium inflation (insurance rises
  * 15-25% y/y are common) without letting wildly-off amounts sneak in.
  */
-export const DEFAULT_AMOUNT_TOLERANCE_RATIO = 0.3;
+import {
+  DEFAULT_OBLIGATION_AMOUNT_TOLERANCE_RATIO,
+  amountWithinTolerance,
+} from '../../domain/obligations/amount-tolerance.js';
+
+/** @deprecated Use {@link DEFAULT_OBLIGATION_AMOUNT_TOLERANCE_RATIO}. */
+export const DEFAULT_AMOUNT_TOLERANCE_RATIO = DEFAULT_OBLIGATION_AMOUNT_TOLERANCE_RATIO;
 
 /**
  * Flattened projection of an {@link OutgoingObligation} into the shape
@@ -120,16 +126,6 @@ function dayDistanceAbs(a: string, b: string): number {
 export function descriptionMatchesMerchant(description: string, merchant: string): boolean {
   if (merchant.length === 0) return false;
   return description.toLowerCase().includes(merchant.toLowerCase());
-}
-
-function amountWithinTolerance(
-  paymentAmountAbs: number,
-  expected: number,
-  toleranceRatio: number,
-): boolean {
-  if (expected <= 0) return true;
-  const diff = Math.abs(paymentAmountAbs - expected);
-  return diff <= expected * toleranceRatio;
 }
 
 /**
@@ -209,12 +205,14 @@ export function matchManualObligationsToTransactions(
     const slot = slots[si];
     const match = matchedSlot.get(si);
     if (match) {
+      const link = paidFieldsFromTransactionMatch(match);
       out.push({
         id: slot.id,
         status: 'paid',
-        paidAmount: round2(Math.abs(match.amount)),
-        paidDate: match.date,
-        paidFromAccount: match.account,
+        paidAmount: link.paidAmount,
+        paidDate: link.paidDate,
+        paidFromAccount: link.paidFromAccount,
+        paidFromTxHash: link.paidFromTxHash,
         source: 'auto',
       });
       continue;
@@ -226,6 +224,7 @@ export function matchManualObligationsToTransactions(
         paidAmount: null,
         paidDate: null,
         paidFromAccount: null,
+        paidFromTxHash: null,
         source: 'auto',
       });
     }
@@ -302,6 +301,7 @@ function rowsEqual(a: ObligationStateRow, b: ObligationStateRow): boolean {
     && a.paidAmount === b.paidAmount
     && a.paidDate === b.paidDate
     && a.paidFromAccount === b.paidFromAccount
+    && a.paidFromTxHash === b.paidFromTxHash
     && a.source === b.source;
 }
 

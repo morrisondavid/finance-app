@@ -147,6 +147,7 @@ export function buildVatReconciliationSet(
         paidAmount: 0,
         paidDate: null,
         paidFromAccount: null,
+        paidFromTxHash: null,
       };
     }
 
@@ -253,6 +254,7 @@ export function deriveAndInsertAutoObligations(): void {
       paidAmount: recon.paidAmount > 0 ? recon.paidAmount : null,
       paidDate: recon.paidDate,
       paidFromAccount: recon.paidFromAccount,
+      paidFromTxHash: recon.paidFromTxHash,
       notes: null,
     });
     count++;

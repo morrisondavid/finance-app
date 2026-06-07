@@ -19,7 +19,9 @@ import {
   deleteManualObligation,
   getObligationById,
   NonManualStateError,
+  PaymentAmountMismatchError,
   resetManualObligationState,
+  UnknownTransactionError,
   updateManualObligation,
   upsertManualObligationState,
   toApiObligation,
@@ -108,6 +110,12 @@ export function mutateFinancialObligationsUpsertState(id: string, body: unknown)
       }
       return { status: 200, body: toApiObligation(row) };
     } catch (err) {
+      if (err instanceof UnknownTransactionError) {
+        return { status: 400, body: { error: err.message } };
+      }
+      if (err instanceof PaymentAmountMismatchError) {
+        return { status: 400, body: { error: err.message } };
+      }
       if (err instanceof NonManualStateError) {
         return { status: 400, body: { error: err.message } };
       }

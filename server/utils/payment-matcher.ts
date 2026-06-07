@@ -139,6 +139,27 @@ export function matchPaymentsToSlots(
   payments: readonly HmrcPaymentMatch[],
   maxProximityDays: number,
 ): Map<string, HmrcPaymentMatch | null> {
+  return matchPaymentsToSlotsAsymmetric(slots, payments, {
+    maxEarlyDays: maxProximityDays,
+    maxLateDays: maxProximityDays,
+  });
+}
+
+export interface AsymmetricProximityDays {
+  maxEarlyDays: number;
+  maxLateDays: number;
+}
+
+/**
+ * Match HMRC payments using separate early/late windows around each slot's
+ * due date. Used by SA where late filing can land >60 days after 31 Jan but
+ * must not overlap the Jul POA2 slot when paying early.
+ */
+export function matchPaymentsToSlotsAsymmetric(
+  slots: readonly PaymentMatchSlot[],
+  payments: readonly HmrcPaymentMatch[],
+  window: AsymmetricProximityDays,
+): Map<string, HmrcPaymentMatch | null> {
   const sortedSlots = [...slots].sort((a, b) =>
     a.dueDate.localeCompare(b.dueDate),
   );
@@ -146,8 +167,10 @@ export function matchPaymentsToSlots(
     slots: sortedSlots,
     payments,
     score: (slot, payment) => {
-      const dist = Math.abs(daysBetween(payment.date, slot.dueDate));
-      return dist > maxProximityDays ? null : dist;
+      const daysFromDue = daysBetween(payment.date, slot.dueDate);
+      const dist = Math.abs(daysFromDue);
+      const maxAllowed = daysFromDue >= 0 ? window.maxLateDays : window.maxEarlyDays;
+      return dist > maxAllowed ? null : dist;
     },
     tieBreaker: (slot, payment) => `${payment.date}|${slot.dueDate}`,
     slotKey: s => s.key,

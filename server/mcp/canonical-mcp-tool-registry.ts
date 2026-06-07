@@ -67,6 +67,8 @@ export const CANONICAL_MCP_TOOL_GROUPS = [
     [
       'deadlines_create',
       'financial_obligations_create',
+      'financial_obligations_upsert_state',
+      'financial_obligations_list_payment_candidates',
       'clients_update',
       'warnings_resolve_inter_company_classifications',
       'contracts_request_renewal',

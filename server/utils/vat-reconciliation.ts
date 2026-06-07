@@ -23,6 +23,7 @@ export interface VatQuarterReconciliation {
   paidAmount: number;
   paidDate: string | null;
   paidFromAccount: string | null;
+  paidFromTxHash: string | null;
   status: VatReconciliationStatus;
 }
 
@@ -59,16 +60,33 @@ export function reconcileVatQuarter(
       paidAmount: round2(Math.abs(match.amount)),
       paidDate: match.date,
       paidFromAccount: match.account,
+      paidFromTxHash: match.hash,
       status: 'paid',
     };
   }
 
   const dueDate = new Date(`${quarter.dueDate}T23:59:59`);
   if (referenceDate < dueDate) {
-    return { quarter, expectedAmount, paidAmount: 0, paidDate: null, paidFromAccount: null, status: 'not-yet-due' };
+    return {
+      quarter,
+      expectedAmount,
+      paidAmount: 0,
+      paidDate: null,
+      paidFromAccount: null,
+      paidFromTxHash: null,
+      status: 'not-yet-due',
+    };
   }
 
   const isOutsideTrustedRange = dataCutoffDate !== null && quarter.endDate < dataCutoffDate;
   const status: VatReconciliationStatus = isOutsideTrustedRange ? 'insufficient-data' : 'unpaid';
-  return { quarter, expectedAmount, paidAmount: 0, paidDate: null, paidFromAccount: null, status };
+  return {
+    quarter,
+    expectedAmount,
+    paidAmount: 0,
+    paidDate: null,
+    paidFromAccount: null,
+    paidFromTxHash: null,
+    status,
+  };
 }

@@ -23,7 +23,11 @@ const {
   deriveAndInsertAutoSaObligations,
   enumerateSaSlots,
   MANUAL_SUPERSEDE_WINDOW_DAYS,
+  SA_MATCH_LATE_DAYS,
 } = await import('./sa-auto-seed.js');
+
+const { loadManualObligationsFromCsv } = await import('./obligations.js');
+const { shiftIsoDate } = await import('../../utils/payment-matcher.js');
 
 const { addDismissal, removeDismissal } = await import('./obligation-dismissals.js');
 
@@ -50,17 +54,27 @@ function insertSaPayment(opts: { date: string; amount: number; account: string; 
   );
 }
 
+function obligationsCsvPath(): string {
+  return path.join(harness.obligationsDir, 'obligations.csv');
+}
+
 function insertManualSaObligation(opts: {
   id: string;
   personId: string;
   dueDate: string;
   expectedAmount?: number;
 }): void {
-  harness.db.prepare(`
-    INSERT INTO financial_obligations
-      (id, source, type, name, entity, frequency, expected_amount, due_date, status, person_id)
-    VALUES (?, 'manual', 'self-assessment', 'SA manual', 'HMRC', 'annual', ?, ?, 'pending', ?)
-  `).run(opts.id, opts.expectedAmount ?? 1000, opts.dueDate, opts.personId);
+  const csvPath = obligationsCsvPath();
+  const header =
+    'id,category,frequency,merchant,display_name,account,amount,currency,notes,ownership_david,ownership_heena,person_id,amount_tolerance,due_date,tax_type\n';
+  const row =
+    `${opts.id},tax-manual,one-off,HMRC,Self Assessment Tax,,${opts.expectedAmount ?? 1000},GBP,,,,${opts.personId},,${opts.dueDate},self-assessment,\n`;
+  if (!fs.existsSync(csvPath)) {
+    fs.writeFileSync(csvPath, header + row, 'utf8');
+  } else {
+    fs.appendFileSync(csvPath, row, 'utf8');
+  }
+  loadManualObligationsFromCsv();
 }
 
 afterAll(() => {
@@ -71,10 +85,11 @@ beforeEach(() => {
   harness.db.exec('DELETE FROM financial_obligations');
   harness.db.exec('DELETE FROM obligation_dismissals');
   hashSeq = 0;
-  // Repo also syncs to a CSV in the obligations temp dir; drop it between
-  // tests so stale dismissals from a previous test don't leak back in.
-  const csvPath = path.join(harness.obligationsDir, 'obligation-dismissals.csv');
-  if (fs.existsSync(csvPath)) fs.unlinkSync(csvPath);
+  // Repo also syncs to CSV in the obligations temp dir; drop between tests.
+  for (const name of ['obligation-dismissals.csv', 'obligations.csv', 'obligation-state.csv']) {
+    const csvPath = path.join(harness.obligationsDir, name);
+    if (fs.existsSync(csvPath)) fs.unlinkSync(csvPath);
+  }
 });
 
 describe('enumerateSaSlots', () => {
@@ -346,7 +361,7 @@ describe('deriveAndInsertAutoSaObligations', () => {
       expect(row.paid_from_account).toBe('barclays-current');
     });
 
-    it('leaves status pending when no SA payment lands within ±SA_MATCH_PROXIMITY_DAYS', () => {
+    it('leaves status pending when no SA payment lands outside asymmetric windows', () => {
       insertDividend('2024-10-01', 'DAVID MORRISON', 60000);
 
       deriveAndInsertAutoSaObligations();
@@ -370,6 +385,132 @@ describe('deriveAndInsertAutoSaObligations', () => {
       expect(row.status).toBe('pending');
       expect(row.paid_amount).toBeNull();
       expect(row.paid_from_account).toBeNull();
+    });
+
+    it('matches a late Barclaycard SA payment ~103 days after the Jan due date', () => {
+      insertDividend('2024-10-01', 'DAVID MORRISON', 60000);
+
+      deriveAndInsertAutoSaObligations();
+      const janSlot = harness.db.prepare(`
+        SELECT id, due_date FROM financial_obligations
+        WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
+        ORDER BY due_date ASC LIMIT 1
+      `).get() as { id: string; due_date: string } | undefined;
+      expect(janSlot).toBeDefined();
+
+      insertSaPayment({
+        date: '2026-05-14',
+        amount: 2123.24,
+        account: 'barclaycard',
+        description: 'HMRC GOV.UK SA',
+      });
+      deriveAndInsertAutoSaObligations();
+
+      const row = harness.db.prepare(`
+        SELECT status, paid_amount, paid_date, paid_from_account, paid_from_tx_hash
+        FROM financial_obligations WHERE id = ?
+      `).get(janSlot!.id) as {
+        status: string;
+        paid_amount: number;
+        paid_date: string;
+        paid_from_account: string;
+        paid_from_tx_hash: string;
+      };
+
+      expect(row.status).toBe('paid');
+      expect(row.paid_amount).toBeCloseTo(2123.24, 2);
+      expect(row.paid_from_account).toBe('barclaycard');
+      expect(row.paid_from_tx_hash).toMatch(/^sa-hash-/);
+    });
+
+    it('does not match SA payment more than 120 days after due date', () => {
+      insertDividend('2024-10-01', 'DAVID MORRISON', 60000);
+
+      deriveAndInsertAutoSaObligations();
+      const janSlot = harness.db.prepare(`
+        SELECT id, due_date FROM financial_obligations
+        WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
+        ORDER BY due_date ASC LIMIT 1
+      `).get() as { id: string; due_date: string } | undefined;
+      expect(janSlot).toBeDefined();
+
+      const tooLateDate = shiftIsoDate(janSlot!.due_date, SA_MATCH_LATE_DAYS + 1);
+      insertSaPayment({
+        date: tooLateDate,
+        amount: 2123.24,
+        account: 'barclaycard',
+      });
+      deriveAndInsertAutoSaObligations();
+
+      const row = harness.db.prepare(`
+        SELECT status, paid_from_tx_hash FROM financial_obligations WHERE id = ?
+      `).get(janSlot!.id) as { status: string; paid_from_tx_hash: string | null };
+
+      expect(row.status).toBe('pending');
+      expect(row.paid_from_tx_hash).toBeNull();
+    });
+
+    it('propagates a late match onto a superseding manual SA obligation', () => {
+      insertDividend('2024-10-01', 'DAVID MORRISON', 60000);
+
+      deriveAndInsertAutoSaObligations();
+      const janSlot = harness.db.prepare(`
+        SELECT due_date FROM financial_obligations
+        WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
+        ORDER BY due_date ASC LIMIT 1
+      `).get() as { due_date: string } | undefined;
+      expect(janSlot).toBeDefined();
+
+      insertManualSaObligation({
+        id: 'manual-sa-supersede',
+        personId: 'david',
+        dueDate: janSlot!.due_date,
+        expectedAmount: 2123.24,
+      });
+
+      insertSaPayment({
+        date: '2026-05-14',
+        amount: 2123.24,
+        account: 'barclaycard',
+      });
+      deriveAndInsertAutoSaObligations();
+
+      const manual = harness.db.prepare(`
+        SELECT status, paid_from_account, paid_from_tx_hash FROM financial_obligations
+        WHERE id = 'manual-sa-supersede'
+      `).get() as { status: string; paid_from_account: string; paid_from_tx_hash: string };
+
+      expect(manual.status).toBe('paid');
+      expect(manual.paid_from_account).toBe('barclaycard');
+      expect(manual.paid_from_tx_hash).toMatch(/^sa-hash-/);
+
+      const autoCount = harness.db.prepare(`
+        SELECT COUNT(*) AS n FROM financial_obligations
+        WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
+          AND due_date = ?
+      `).get(janSlot!.due_date) as { n: number };
+      expect(autoCount.n).toBe(0);
+    });
+
+    it('does not attach a May payment to the Jul POA2 slot', () => {
+      insertDividend('2024-10-01', 'DAVID MORRISON', 60000);
+
+      deriveAndInsertAutoSaObligations();
+      const julSlot = harness.db.prepare(`
+        SELECT id, due_date FROM financial_obligations
+        WHERE source = 'auto' AND type = 'self-assessment' AND person_id = 'david'
+          AND due_date LIKE '%-07-31'
+        ORDER BY due_date ASC LIMIT 1
+      `).get() as { id: string; due_date: string } | undefined;
+      expect(julSlot).toBeDefined();
+
+      insertSaPayment({ date: '2026-05-14', amount: 5000, account: 'barclaycard' });
+      deriveAndInsertAutoSaObligations();
+
+      const row = harness.db.prepare(`
+        SELECT status FROM financial_obligations WHERE id = ?
+      `).get(julSlot!.id) as { status: string };
+      expect(row.status).not.toBe('paid');
     });
   });
 });
