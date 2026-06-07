@@ -7,7 +7,7 @@ import {
   getOverdueObligations,
   getUpcomingObligations,
 } from './obligations.js';
-import { shiftIsoDate, todayIsoLocal, todayIsoInTimeZone } from '../../../shared/iso-date.js';
+import { shiftIsoDate, todayIsoInTimeZone } from '../../../shared/iso-date.js';
 
 let testDb: Database.Database;
 
