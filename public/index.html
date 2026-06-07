@@ -27,6 +27,7 @@
       <button class="tab" data-tab="debt">Debt</button>
       <button class="tab" data-tab="strategy">Strategy</button>
       <button class="tab" data-tab="warnings">Warnings</button>
+      <button class="tab" data-tab="logs">Logs</button>
       <button class="tab" data-tab="statements">Statements</button>
       <button class="tab" data-tab="upload">Upload</button>
     </nav>
@@ -1128,6 +1129,23 @@
           <p class="inter-company-movements__loading">Loading…</p>
         </div>
       </section>
+    </section>
+
+    <!-- Feed sync logs -->
+    <section id="logs" class="tab-content" aria-label="Feed sync logs">
+      <div class="logs-header">
+        <h2>Feed sync logs</h2>
+        <p class="logs-subtitle">
+          Scheduled bank feed sync runs (16:00 and 23:00 Europe/London) and manual sync-all actions.
+        </p>
+        <div class="logs-actions">
+          <button type="button" class="btn btn-primary" id="feed-logs-sync-all">Sync all now</button>
+        </div>
+        <div id="feed-logs-action-status" class="logs-action-status" aria-live="polite"></div>
+      </div>
+      <div id="feed-logs-root" class="feed-logs-root" aria-live="polite">
+        <div class="logs-empty">Loading sync logs…</div>
+      </div>
     </section>
 
     <!-- Statements Tab -->

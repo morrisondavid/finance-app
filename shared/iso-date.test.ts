@@ -6,6 +6,8 @@ import {
   daysUntil,
   daysLabel,
   todayIsoLocal,
+  todayIsoInTimeZone,
+  daysUntilInTimeZone,
   isoWeekRange,
   monthRange,
   parseIsoFromDDMMYYYY,
@@ -123,6 +125,22 @@ describe('daysLabel', () => {
   it('formats multiple days in future / past', () => {
     expect(daysLabel(5)).toBe('5 days');
     expect(daysLabel(-5)).toBe('5 days overdue');
+  });
+});
+
+describe('todayIsoInTimeZone', () => {
+  it('returns the calendar day in Europe/London', () => {
+    const instant = new Date('2026-06-07T23:30:00.000Z');
+    expect(todayIsoInTimeZone(instant, 'Europe/London')).toBe('2026-06-08');
+    expect(todayIsoInTimeZone(instant, 'UTC')).toBe('2026-06-07');
+  });
+});
+
+describe('daysUntilInTimeZone', () => {
+  it('matches daysUntil against the timezone calendar day', () => {
+    const now = new Date('2026-06-08T00:30:00.000Z');
+    expect(daysUntilInTimeZone('2026-06-07', 'Europe/London', now)).toBe(-1);
+    expect(daysUntilInTimeZone('2026-06-08', 'Europe/London', now)).toBe(0);
   });
 });
 

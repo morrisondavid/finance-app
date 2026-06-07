@@ -91,36 +91,39 @@ Optional legacy cron: **`11-s3-sync-push.sh`** only synced `data/` + `statements
 
 ### Scheduled bank feed sync (16:00 + 23:00 Europe/London)
 
-Automated TrueLayer/Enable sync runs on the **EC2 host** (not inside the Dockerfile). Cron calls a bash wrapper that **`docker exec`s** the same CLI as manual ops — **not** `curl` to `/api/feed/sync`.
+Automated TrueLayer/Enable sync runs **inside the app process** via **`node-cron`** when the **`bank`** container starts. No host crontab is required.
 
 | Piece | Location |
 |-------|----------|
-| Wrapper | [`cron/feed-sync-all.sh`](cron/feed-sync-all.sh) → `docker exec bank npx tsx /app/scripts/feed-sync-all.ts` |
-| One-time install | [`cron/install-feed-sync-cron.sh`](cron/install-feed-sync-cron.sh) — **not** run by **`09`** |
-| App CLI | `scripts/feed-sync-all.ts` (shipped in the image) |
-| Status / warnings | `data/feed-sync-scheduled-status.json` → Warnings tab (`feed-sync-scheduled-failed`) |
-| Logs | `/var/log/bank-feed-sync.log` on the host |
+| Scheduler | [`server/ingestion/feeds/feed-sync-scheduler.ts`](../../server/ingestion/feeds/feed-sync-scheduler.ts) — started from [`server/index.ts`](../../server/index.ts) |
+| Guarded entry | [`server/ingestion/feeds/feed-sync-guard.ts`](../../server/ingestion/feeds/feed-sync-guard.ts) — lock + cooldown |
+| Manual / fallback CLI | `scripts/feed-sync-all.ts` (same guarded path) |
+| Run history | `data/feed-sync-runs.json` → **Logs** tab (`GET /api/feed/sync-runs`) |
+| Last run / warnings | `data/feed-sync-scheduled-status.json` → Warnings tab (`feed-sync-scheduled-failed`, `feed-sync-overdue`) |
 
-**Prerequisite:** Amazon Linux 2023 often ships without cron. [`install-feed-sync-cron.sh`](cron/install-feed-sync-cron.sh) installs **`cronie`** and starts **`crond`** when `crontab` is missing. Manual fix: `sudo dnf install -y cronie && sudo systemctl enable --now crond`.
+**Env (container):**
 
-**After first deploy** (or when `deploy/aws/cron/` changes: `copy-deploy-to-ec2.sh`, then on EC2):
+- **`FEED_SYNC_SCHEDULE_ENABLED`** — default **on** in production (`NODE_ENV=production`); set `false` to disable the in-process schedule.
+- **`FEED_SYNC_COOLDOWN_SECONDS`** — default **60**; prevents duplicate sync-all within the cooldown window (scheduler + manual button + CLI share this).
+- **`FEED_SYNC_LOOKBACK_DAYS`** — default **3** (1–14).
 
-```bash
-cd ~/bank-deploy-aws
-chmod +x cron/feed-sync-all.sh cron/install-feed-sync-cron.sh
-./cron/install-feed-sync-cron.sh
-```
-
-**Manual test** (same as cron):
+**Manual test:**
 
 ```bash
 docker exec bank npx tsx /app/scripts/feed-sync-all.ts
-# or: ~/bank-deploy-aws/cron/feed-sync-all.sh
+# or use the Logs tab → "Sync all now" (POST /api/feed/sync-all)
 ```
 
-**App code updates:** rebuild with **`07`**, run **`09`** — cron lines stay the same; the new image is picked up on the next `docker exec`. Re-run **`install-feed-sync-cron.sh`** only if the schedule or wrapper path changes.
+**App code updates:** rebuild with **`07`**, run **`09`** — the new image picks up schedule + logging on container start.
 
-**Windows Task Scheduler analogy:** crontab = task triggers; `feed-sync-all.sh` = action that starts the program; Docker image = the program that changes when you deploy.
+**Migrating from host cron:** if you previously ran [`cron/install-feed-sync-cron.sh`](cron/install-feed-sync-cron.sh), remove the old crontab fragment on EC2:
+
+```bash
+crontab -l | grep -v 'bank-feed-sync-all' | crontab -
+# or: crontab -r   # only if this was the only entry
+```
+
+Host log file **`/var/log/bank-feed-sync.log`** is no longer written by the app; use the **Logs** tab or `data/feed-sync-runs.json` instead.
 
 ### Multi-instance Enable Banking (future)
 

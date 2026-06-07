@@ -54,7 +54,7 @@ import {
 } from '../reporting/index.js';
 import { deriveAdHocSpendWarnings } from './ad-hoc-spend.js';
 import { deriveMortgageRateResetWarnings } from './mortgage-rate-reset.js';
-import { deriveFeedSyncScheduledWarnings } from './feed-sync-scheduled.js';
+import { deriveAllFeedSyncScheduledWarnings } from './feed-sync-scheduled.js';
 import { deriveDebtUnregisteredWarnings } from './debt-unregistered.js';
 import { deriveAccountCreditCardConfigMissingWarnings } from './account-credit-card-config-missing.js';
 import { deriveCreditCardRecurringSpendWarnings } from './credit-card-recurring-spend.js';
@@ -348,7 +348,7 @@ export function buildConsolidatedWarningsResponse(
     ...targetReachedWarnings,
     ...planTransferWarnings,
     ...accountantPackWarnings,
-    ...deriveFeedSyncScheduledWarnings(),
+    ...deriveAllFeedSyncScheduledWarnings(),
   ];
 
   const previousAt = findPreviousSnapshotAt(db, nowIso);

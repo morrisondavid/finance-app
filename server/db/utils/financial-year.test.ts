@@ -187,7 +187,7 @@ describe('buildFYWhereClause', () => {
 
 describe('getObligationsPageWindow', () => {
   it('returns a ±12 calendar-month window around the anchor date', () => {
-    const anchor = new Date(2026, 3, 16); // 16 Apr 2026 (local)
+    const anchor = new Date('2026-04-16T12:00:00.000Z');
     const win = getObligationsPageWindow(anchor);
     expect(win.today).toBe('2026-04-16');
     expect(win.startDate).toBe('2025-04-16');
@@ -201,8 +201,7 @@ describe('getObligationsPageWindow', () => {
   });
 
   it('clamps day-of-month when the target month is shorter', () => {
-    // 31 Mar anchored → 12 months back (+/-) must not roll into another month.
-    const anchor = new Date(2025, 2, 31); // 31 Mar 2025
+    const anchor = new Date('2025-03-31T12:00:00.000Z');
     const win = getObligationsPageWindow(anchor);
     expect(win.today).toBe('2025-03-31');
     expect(win.startDate).toBe('2024-03-31');
@@ -210,7 +209,7 @@ describe('getObligationsPageWindow', () => {
   });
 
   it('handles 29 Feb (leap day) by clamping to 28 Feb on non-leap years', () => {
-    const anchor = new Date(2024, 1, 29); // 29 Feb 2024 (leap)
+    const anchor = new Date('2024-02-29T12:00:00.000Z');
     const win = getObligationsPageWindow(anchor);
     expect(win.today).toBe('2024-02-29');
     expect(win.startDate).toBe('2023-02-28');

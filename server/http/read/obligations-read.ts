@@ -52,7 +52,7 @@ export function readObligationsRegistry(query: Record<string, unknown>): JsonRea
 export function readObligationsOverdue(): JsonReadResult {
   try {
     const window = getObligationsPageWindow();
-    const rows = getOverdueObligations({ minDueDate: window.startDate });
+    const rows = getOverdueObligations({ minDueDate: window.startDate }, window.today);
     const payload: OverdueObligationsResponse = { obligations: rows.map(toApiObligation) };
     return jsonReadOk(payload);
   } catch {
@@ -101,7 +101,8 @@ export function readUpcomingObligations(query: Record<string, unknown>): JsonRea
   try {
     const daysMaybe = Reflect.get(query, 'days');
     const days = parseInt(String(daysMaybe ?? '90'), 10) || 90;
-    const rows = getUpcomingObligations(days);
+    const window = getObligationsPageWindow();
+    const rows = getUpcomingObligations(days, window.today);
     const payload: UpcomingObligationsResponse = { obligations: rows.map(toApiObligation) };
     return jsonReadOk(payload);
   } catch {
@@ -115,9 +116,10 @@ export function readUpcomingPaymentsMerged(query: Record<string, unknown>): Json
   try {
     const daysMaybe = Reflect.get(query, 'days');
     const days = parseInt(String(daysMaybe ?? '365'), 10) || 365;
+    const window = getObligationsPageWindow();
 
     const obligationItems: UpcomingPaymentItem[] = [];
-    for (const row of getUpcomingObligations(days)) {
+    for (const row of getUpcomingObligations(days, window.today)) {
       const dueDate = row.due_date;
       if (dueDate === null) continue;
       obligationItems.push({

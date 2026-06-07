@@ -25,6 +25,7 @@ import { initClients, loadClients } from './modules/clients';
 import { initDebt, loadDebt } from './modules/debt';
 import { initDebtStrategy, reloadDebtStrategy } from './modules/debt-strategy';
 import { initWarnings, loadWarnings } from './modules/warnings';
+import { initFeedLogs, loadFeedLogs } from './modules/feed-logs';
 import { initRecurring } from './modules/recurring';
 import { fetchAccountConfig } from './utils/api';
 
@@ -125,6 +126,8 @@ function initializeTabNavigation(): void {
         reloadDebtStrategy();
       } else if (target === 'warnings') {
         void loadWarnings();
+      } else if (target === 'logs') {
+        void loadFeedLogs();
       } else if (target === 'statements') {
         loadStatements();
       }
@@ -182,6 +185,7 @@ async function initializeApp(): Promise<void> {
   initDebt();
   void initDebtStrategy();
   initWarnings();
+  initFeedLogs();
   initStatements();
   initReportingReadiness();
   initUpload({

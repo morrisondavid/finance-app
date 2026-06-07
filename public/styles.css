@@ -7827,3 +7827,178 @@ body {
   white-space: nowrap;
   border: 0;
 }
+
+/* Feed sync logs tab */
+.logs-header {
+  margin-bottom: 1.25rem;
+}
+
+.logs-header h2 {
+  margin-bottom: 0.35rem;
+}
+
+.logs-subtitle {
+  color: var(--color-text-muted);
+  margin-bottom: 1rem;
+}
+
+.logs-actions {
+  margin-bottom: 0.75rem;
+}
+
+.logs-action-status {
+  min-height: 1.25rem;
+}
+
+.logs-status {
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.logs-status-error {
+  color: var(--color-expense);
+}
+
+.logs-status-info {
+  color: var(--color-text-muted);
+}
+
+.logs-overdue-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: var(--radius);
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.logs-summary {
+  margin-bottom: 1rem;
+}
+
+.logs-summary-line {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.logs-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.logs-run-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.logs-run-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.logs-run-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.logs-run-time {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.logs-run-meta {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.logs-outcome-badge,
+.logs-trigger-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.logs-outcome-ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.logs-outcome-partial {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.logs-outcome-failed {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.logs-trigger-badge {
+  background: #e2e8f0;
+  color: var(--color-text);
+}
+
+.logs-run-error {
+  color: var(--color-expense);
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.logs-account-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.logs-account-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+.logs-account-name {
+  font-weight: 600;
+  min-width: 10rem;
+}
+
+.logs-account-ok .logs-account-detail {
+  color: var(--color-income);
+}
+
+.logs-account-failed .logs-account-detail {
+  color: var(--color-expense);
+}
+
+.logs-account-skipped .logs-account-detail {
+  color: var(--color-text-muted);
+}
+
+.logs-empty {
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--color-text-muted);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+}
+
+.logs-empty-error {
+  color: var(--color-expense);
+}
+

@@ -1,5 +1,5 @@
 /**
- * Scheduled bank feed sync for all linked accounts (cron via docker exec).
+ * Scheduled bank feed sync for all linked accounts.
  *
  * Usage: tsx scripts/feed-sync-all.ts
  * Env: FEED_SYNC_LOOKBACK_DAYS (1–14, default 3)
@@ -8,26 +8,39 @@
 import { loadEnvLocal } from '../server/load-env-local.js';
 import { initDatabase } from '../server/db/index.js';
 import { autoReconcileHighConfidence } from '../server/domain/invoices/auto-reconcile.js';
-import { runScheduledFeedSyncAll } from '../server/ingestion/feeds/run-scheduled-feed-sync-all.js';
+import { runFeedSyncAllGuarded } from '../server/ingestion/feeds/feed-sync-guard.js';
 
 loadEnvLocal();
 
 async function main(): Promise<void> {
   await initDatabase();
 
-  const { status, hadLinkedFailure, syncedCount, skippedUnlinkedCount } =
-    await runScheduledFeedSyncAll();
+  const result = await runFeedSyncAllGuarded({ trigger: 'scheduled' });
 
+  if (result.state === 'in-progress') {
+    console.log(`[feed:sync-all] already in progress since ${result.startedAt}`);
+    process.exitCode = 2;
+    return;
+  }
+
+  if (result.state === 'deduped') {
+    console.log(
+      `[feed:sync-all] deduped — last run ${result.run.finishedAt} outcome=${result.run.outcome}`,
+    );
+    process.exitCode = 0;
+    return;
+  }
+
+  const { run } = result;
   console.log(
-    `[feed:sync-all] ${status.lastRunAt} lookback=${status.lookbackDays} ` +
-      `synced=${syncedCount} skipped_unlinked=${skippedUnlinkedCount} ` +
-      `results=${status.accounts.length}`,
+    `[feed:sync-all] ${run.finishedAt} lookback=${String(run.lookbackDays)} ` +
+      `outcome=${run.outcome} accounts=${String(run.accounts.length)}`,
   );
 
-  for (const row of status.accounts) {
+  for (const row of run.accounts) {
     if (row.status === 'ok') {
       console.log(
-        `  ${row.account}: ok rows=${row.rowsFetched} skipped=${row.skipped}`,
+        `  ${row.account}: ok rows=${String(row.rowsFetched)} skipped=${String(row.skipped)}`,
       );
     } else if (row.status === 'failed') {
       console.error(`  ${row.account}: failed ${row.code ?? ''} ${row.error}`);
@@ -48,7 +61,7 @@ async function main(): Promise<void> {
     }
   }
 
-  if (hadLinkedFailure) {
+  if (run.outcome === 'partial' || run.outcome === 'failed') {
     process.exitCode = 1;
   }
 }

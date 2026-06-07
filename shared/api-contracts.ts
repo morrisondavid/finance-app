@@ -1777,11 +1777,64 @@ export type FeedSyncScheduledAccountResult = z.infer<typeof FeedSyncScheduledAcc
 
 export const FeedSyncScheduledStatusSchema = z.object({
   lastRunAt: z.string().datetime(),
-  lastRunKind: z.literal('scheduled'),
+  lastRunKind: z.enum(['scheduled', 'manual']),
   lookbackDays: z.number().int().min(1).max(14),
   accounts: z.array(FeedSyncScheduledAccountResultSchema),
 });
 export type FeedSyncScheduledStatus = z.infer<typeof FeedSyncScheduledStatusSchema>;
+
+/** Relative path under repo root — append-only feed sync run history (newest first). */
+export const FEED_SYNC_RUNS_REL_PATH = 'data/feed-sync-runs.json';
+
+export const FeedSyncRunOutcomeSchema = z.enum(['ok', 'partial', 'failed']);
+export type FeedSyncRunOutcome = z.infer<typeof FeedSyncRunOutcomeSchema>;
+
+export const FeedSyncRunTriggerSchema = z.enum(['scheduled', 'manual']);
+export type FeedSyncRunTrigger = z.infer<typeof FeedSyncRunTriggerSchema>;
+
+export const FeedSyncRunSchema = z.object({
+  id: z.string().min(1),
+  startedAt: z.string().datetime(),
+  finishedAt: z.string().datetime(),
+  trigger: FeedSyncRunTriggerSchema,
+  lookbackDays: z.number().int().min(1).max(14),
+  outcome: FeedSyncRunOutcomeSchema,
+  durationMs: z.number().int().nonnegative(),
+  accounts: z.array(FeedSyncScheduledAccountResultSchema),
+  error: z.string().optional(),
+});
+export type FeedSyncRun = z.infer<typeof FeedSyncRunSchema>;
+
+export const FeedSyncRunLogSchema = z.object({
+  runs: z.array(FeedSyncRunSchema),
+});
+export type FeedSyncRunLog = z.infer<typeof FeedSyncRunLogSchema>;
+
+/** `GET /api/feed/sync-runs` — run history + scheduler health. */
+export const FeedSyncRunsResponseSchema = z.object({
+  runs: z.array(FeedSyncRunSchema),
+  lastRunAt: z.string().datetime().nullable(),
+  overdue: z.boolean(),
+  nextScheduledRunAt: z.string().datetime().nullable(),
+});
+export type FeedSyncRunsResponse = z.infer<typeof FeedSyncRunsResponseSchema>;
+
+/** `POST /api/feed/sync-all` — idempotent guarded sync-all result. */
+export const FeedSyncAllResponseSchema = z.discriminatedUnion('state', [
+  z.object({
+    state: z.literal('completed'),
+    run: FeedSyncRunSchema,
+  }),
+  z.object({
+    state: z.literal('deduped'),
+    run: FeedSyncRunSchema,
+  }),
+  z.object({
+    state: z.literal('in-progress'),
+    startedAt: z.string().datetime(),
+  }),
+]);
+export type FeedSyncAllResponse = z.infer<typeof FeedSyncAllResponseSchema>;
 
 /** Error payload from `POST /api/feed/sync` on non-2xx (see `server/routes/feed.ts`). */
 export const FeedSyncHttpErrorBodySchema = z.object({
@@ -3391,8 +3444,9 @@ export const EntityFoundationWarningCodeSchema = z.enum([
   // reporting readiness packs
   'accountant-pack-incomplete-vat',
   'accountant-pack-incomplete-ct',
-  // scheduled AISP feed sync (cron CLI)
+  // scheduled AISP feed sync (in-process scheduler)
   'feed-sync-scheduled-failed',
+  'feed-sync-overdue',
 ]);
 export type EntityFoundationWarningCode = z.infer<typeof EntityFoundationWarningCodeSchema>;
 

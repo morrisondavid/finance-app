@@ -40,6 +40,7 @@ import {
   type UpdateObligationBody,
   type ObligationRow,
 } from '../../../shared/api-contracts.js';
+import { shiftIsoDate, todayIsoInTimeZone } from '../../../shared/iso-date.js';
 
 /**
  * Statuses that indicate an obligation has been resolved and doesn't need further action.
@@ -228,11 +229,13 @@ export interface OverdueObligationsFilters {
   minDueDate?: string;
 }
 
-export function getOverdueObligations(filters?: OverdueObligationsFilters): ObligationDbRow[] {
+export function getOverdueObligations(
+  filters?: OverdueObligationsFilters,
+  todayIso: string = todayIsoInTimeZone(),
+): ObligationDbRow[] {
   const db = getDb();
-  const todayStr = new Date().toISOString().slice(0, 10);
   const conditions: string[] = ['due_date IS NOT NULL', 'due_date < ?'];
-  const params: unknown[] = [todayStr];
+  const params: unknown[] = [todayIso];
   if (filters?.minDueDate !== undefined) {
     conditions.push('due_date >= ?');
     params.push(filters.minDueDate);
@@ -246,13 +249,12 @@ export function getOverdueObligations(filters?: OverdueObligationsFilters): Obli
   `).all(...params) as ObligationDbRow[];
 }
 
-export function getUpcomingObligations(days: number): ObligationDbRow[] {
+export function getUpcomingObligations(
+  days: number,
+  todayIso: string = todayIsoInTimeZone(),
+): ObligationDbRow[] {
   const db = getDb();
-  const today = new Date();
-  const future = new Date(today);
-  future.setDate(future.getDate() + days);
-  const todayStr = today.toISOString().slice(0, 10);
-  const futureStr = future.toISOString().slice(0, 10);
+  const futureIso = shiftIsoDate(todayIso, days);
 
   return db.prepare(`
     SELECT * FROM financial_obligations
@@ -260,7 +262,7 @@ export function getUpcomingObligations(days: number): ObligationDbRow[] {
       AND due_date >= ? AND due_date <= ?
       AND status NOT IN (${COMPLETED_PLACEHOLDERS})
     ORDER BY due_date ASC
-  `).all(todayStr, futureStr, ...COMPLETED_STATUSES) as ObligationDbRow[];
+  `).all(todayIso, futureIso, ...COMPLETED_STATUSES) as ObligationDbRow[];
 }
 
 /**

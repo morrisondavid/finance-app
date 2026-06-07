@@ -89,6 +89,37 @@ export function todayIsoLocal(now: Date = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
+/** UK company tax / HMRC obligations use the Europe/London calendar day. */
+export const UK_BUSINESS_TIMEZONE = 'Europe/London';
+
+/**
+ * Calendar `YYYY-MM-DD` for `now` in an IANA timezone (default UK business).
+ * Use for obligation due-date bucketing so server (often UTC) and UI agree.
+ */
+export function todayIsoInTimeZone(
+  now: Date = new Date(),
+  timeZone: string = UK_BUSINESS_TIMEZONE,
+): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
+/**
+ * Whole days from `today` in `timeZone` to `dateStr`. Negative when overdue
+ * on that calendar (same semantics as {@link daysUntil}).
+ */
+export function daysUntilInTimeZone(
+  dateStr: string,
+  timeZone: string = UK_BUSINESS_TIMEZONE,
+  now: Date = new Date(),
+): number {
+  return daysBetween(dateStr, todayIsoInTimeZone(now, timeZone));
+}
+
 /**
  * Inclusive ISO date bounds for a calendar month (`month` is 1–12).
  */

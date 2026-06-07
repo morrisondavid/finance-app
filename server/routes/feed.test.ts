@@ -14,8 +14,10 @@ import type { AddressInfo } from 'net';
 import type { Server } from 'http';
 import type { FeedSyncResponse } from '../../shared/api-contracts.js';
 
-const { runFeedSyncMock } = vi.hoisted(() => ({
+const { runFeedSyncMock, runFeedSyncAllGuardedMock, buildFeedSyncRunsResponseMock } = vi.hoisted(() => ({
   runFeedSyncMock: vi.fn(),
+  runFeedSyncAllGuardedMock: vi.fn(),
+  buildFeedSyncRunsResponseMock: vi.fn(),
 }));
 
 vi.mock('../ingestion/feeds/sync.js', async () => {
@@ -27,6 +29,14 @@ vi.mock('../ingestion/feeds/sync.js', async () => {
     runFeedSync: runFeedSyncMock,
   };
 });
+
+vi.mock('../ingestion/feeds/feed-sync-guard.js', () => ({
+  runFeedSyncAllGuarded: runFeedSyncAllGuardedMock,
+}));
+
+vi.mock('../ingestion/feeds/feed-sync-runs-response.js', () => ({
+  buildFeedSyncRunsResponse: buildFeedSyncRunsResponseMock,
+}));
 
 const { default: feedRouter } = await import('./feed.js');
 const { FeedSyncError } = await vi.importActual<typeof import('../ingestion/feeds/sync.js')>(
@@ -60,6 +70,8 @@ afterAll(async () => {
 
 beforeEach(() => {
   runFeedSyncMock.mockReset();
+  runFeedSyncAllGuardedMock.mockReset();
+  buildFeedSyncRunsResponseMock.mockReset();
 });
 
 const SUCCESS_BODY: FeedSyncResponse = {
@@ -206,5 +218,79 @@ describe('POST /api/feed/sync — error mapping', () => {
       body: JSON.stringify({ account: 'barclays-current', dateFrom: '2026-04-15' }),
     });
     expect(res.status).toBe(500);
+  });
+});
+
+describe('GET /api/feed/sync-runs', () => {
+  it('200 + returns run history payload', async () => {
+    buildFeedSyncRunsResponseMock.mockReturnValue({
+      runs: [],
+      lastRunAt: null,
+      overdue: true,
+      nextScheduledRunAt: '2026-06-03T23:00:00.000Z',
+    });
+
+    const res = await fetch(`${baseUrl}/api/feed/sync-runs`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { overdue: boolean };
+    expect(body.overdue).toBe(true);
+    expect(buildFeedSyncRunsResponseMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe('POST /api/feed/sync-all', () => {
+  it('200 when completed', async () => {
+    runFeedSyncAllGuardedMock.mockResolvedValue({
+      state: 'completed',
+      run: {
+        id: 'run-1',
+        startedAt: '2026-06-03T16:00:00.000Z',
+        finishedAt: '2026-06-03T16:00:05.000Z',
+        trigger: 'manual',
+        lookbackDays: 3,
+        outcome: 'ok',
+        durationMs: 5000,
+        accounts: [],
+      },
+    });
+
+    const res = await fetch(`${baseUrl}/api/feed/sync-all`, { method: 'POST' });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { state: string };
+    expect(body.state).toBe('completed');
+    expect(runFeedSyncAllGuardedMock).toHaveBeenCalledWith({ trigger: 'manual' });
+  });
+
+  it('200 when deduped', async () => {
+    runFeedSyncAllGuardedMock.mockResolvedValue({
+      state: 'deduped',
+      run: {
+        id: 'run-1',
+        startedAt: '2026-06-03T16:00:00.000Z',
+        finishedAt: '2026-06-03T16:00:05.000Z',
+        trigger: 'manual',
+        lookbackDays: 3,
+        outcome: 'ok',
+        durationMs: 5000,
+        accounts: [],
+      },
+    });
+
+    const res = await fetch(`${baseUrl}/api/feed/sync-all`, { method: 'POST' });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { state: string };
+    expect(body.state).toBe('deduped');
+  });
+
+  it('409 when in-progress', async () => {
+    runFeedSyncAllGuardedMock.mockResolvedValue({
+      state: 'in-progress',
+      startedAt: '2026-06-03T16:00:00.000Z',
+    });
+
+    const res = await fetch(`${baseUrl}/api/feed/sync-all`, { method: 'POST' });
+    expect(res.status).toBe(409);
+    const body = await res.json() as { state: string };
+    expect(body.state).toBe('in-progress');
   });
 });

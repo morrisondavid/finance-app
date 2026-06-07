@@ -1,4 +1,5 @@
 import { getDb } from '../connection.js';
+import { todayIsoInTimeZone } from '../../../shared/iso-date.js';
 
 /**
  * Company Accounting Period: May 1 to end of April
@@ -191,7 +192,7 @@ export function getObligationsPageWindow(now: Date = new Date()): ObligationsPag
   return {
     startDate: formatCalendarDateLocal(start),
     endDate: formatCalendarDateLocal(end),
-    today: formatCalendarDateLocal(now),
+    today: todayIsoInTimeZone(now),
     label: `${shortMonthYearLabel(start)} – ${shortMonthYearLabel(end)}`,
   };
 }

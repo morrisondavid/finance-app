@@ -5,6 +5,7 @@
 import type {
   FeedSyncScheduledAccountResult,
   FeedSyncScheduledStatus,
+  FeedSyncRunTrigger,
 } from '../../../shared/api-contracts.js';
 import { computeFeedSyncDateFromNewestTransaction } from '../../../shared/feed-sync-window.js';
 import { EnableBankingError } from './enable-banking.js';
@@ -62,6 +63,7 @@ export interface RunScheduledFeedSyncAllResult {
 export interface RunScheduledFeedSyncAllOpts {
   readonly lookbackDays?: number;
   readonly repoRoot?: string;
+  readonly trigger?: FeedSyncRunTrigger;
 }
 
 export async function runScheduledFeedSyncAll(
@@ -72,6 +74,8 @@ export async function runScheduledFeedSyncAll(
       ? opts
       : (opts.lookbackDays ?? parseFeedSyncLookbackDaysFromEnv());
   const repoRoot = typeof opts === 'number' ? REPO_ROOT : (opts.repoRoot ?? REPO_ROOT);
+  const trigger =
+    typeof opts === 'number' ? 'scheduled' : (opts.trigger ?? 'scheduled');
   const lastRunAt = new Date().toISOString();
   const accountResults: FeedSyncScheduledAccountResult[] = [];
   let hadLinkedFailure = false;
@@ -121,7 +125,7 @@ export async function runScheduledFeedSyncAll(
 
   const status: FeedSyncScheduledStatus = {
     lastRunAt,
-    lastRunKind: 'scheduled',
+    lastRunKind: trigger,
     lookbackDays,
     accounts: accountResults,
   };

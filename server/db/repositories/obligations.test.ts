@@ -5,7 +5,9 @@ import {
   COMPLETED_STATUSES,
   getAllObligations,
   getOverdueObligations,
+  getUpcomingObligations,
 } from './obligations.js';
+import { shiftIsoDate, todayIsoLocal, todayIsoInTimeZone } from '../../../shared/iso-date.js';
 
 let testDb: Database.Database;
 
@@ -210,9 +212,10 @@ function insertObligation(o: {
   );
 }
 
-const YESTERDAY = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-const TODAY = new Date().toISOString().slice(0, 10);
-const NEXT_WEEK = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+const pinnedToday = todayIsoInTimeZone();
+const YESTERDAY = shiftIsoDate(pinnedToday, -1);
+const TODAY = pinnedToday;
+const NEXT_WEEK = shiftIsoDate(pinnedToday, 7);
 
 describe('getOverdueObligations + getAllObligations filters', () => {
   beforeAll(() => {
@@ -275,6 +278,28 @@ describe('getOverdueObligations + getAllObligations filters', () => {
       insertObligation({ id: 'on-boundary', dueDate: boundary, status: 'pending' });
       const rows = getOverdueObligations({ minDueDate: boundary });
       expect(rows.map(r => r.id)).toEqual(['on-boundary']);
+    });
+  });
+
+  describe('getUpcomingObligations', () => {
+    it('includes today and future due dates within the horizon', () => {
+      insertObligation({ id: 'past', dueDate: YESTERDAY, status: 'pending' });
+      insertObligation({ id: 'today', dueDate: TODAY, status: 'pending' });
+      insertObligation({ id: 'next', dueDate: NEXT_WEEK, status: 'pending' });
+
+      const rows = getUpcomingObligations(30, TODAY);
+      expect(rows.map(r => r.id).sort()).toEqual(['next', 'today']);
+    });
+
+    it('uses UK business calendar todayIso for overdue vs upcoming split', () => {
+      const calendarToday = '2026-06-08';
+      insertObligation({ id: 'due-yesterday', dueDate: '2026-06-07', status: 'pending' });
+      insertObligation({ id: 'due-today', dueDate: calendarToday, status: 'pending' });
+
+      expect(getOverdueObligations(undefined, calendarToday).map(r => r.id)).toEqual([
+        'due-yesterday',
+      ]);
+      expect(getUpcomingObligations(365, calendarToday).map(r => r.id)).toEqual(['due-today']);
     });
   });
 

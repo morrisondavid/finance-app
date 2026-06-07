@@ -28,10 +28,16 @@
 
 import express, { Request, Response } from 'express';
 import {
+  FeedSyncAllResponseSchema,
   FeedSyncBodySchema,
   FeedSyncResponseSchema,
+  FeedSyncRunsResponseSchema,
+  type FeedSyncAllResponse,
   type FeedSyncResponse,
+  type FeedSyncRunsResponse,
 } from '../../shared/api-contracts.js';
+import { buildFeedSyncRunsResponse } from '../ingestion/feeds/feed-sync-runs-response.js';
+import { runFeedSyncAllGuarded } from '../ingestion/feeds/feed-sync-guard.js';
 import { runFeedSync, FeedSyncError } from '../ingestion/feeds/sync.js';
 import { EnableBankingError } from '../ingestion/feeds/enable-banking.js';
 import { TrueLayerError } from '../ingestion/feeds/truelayer/truelayer-error.js';
@@ -102,6 +108,20 @@ router.post('/sync', async (req: Request, res: Response<FeedSyncResponse | Error
     const mapped = mapError(err);
     res.status(mapped.status).json(mapped.body);
   }
+});
+
+router.get('/sync-runs', (_req: Request, res: Response<FeedSyncRunsResponse>) => {
+  res.json(FeedSyncRunsResponseSchema.parse(buildFeedSyncRunsResponse()));
+});
+
+router.post('/sync-all', async (_req: Request, res: Response<FeedSyncAllResponse>) => {
+  const result = await runFeedSyncAllGuarded({ trigger: 'manual' });
+  const body = FeedSyncAllResponseSchema.parse(result);
+  if (body.state === 'in-progress') {
+    res.status(409).json(body);
+    return;
+  }
+  res.json(body);
 });
 
 export default router;

@@ -33,6 +33,8 @@ import {
   InterCompanyMovementsResponseSchema,
   FeedSyncBodySchema,
   FeedSyncResponseSchema,
+  FeedSyncAllResponseSchema,
+  FeedSyncRunsResponseSchema,
   FeedSyncHttpErrorBodySchema,
   FeedToolbarStateSchema,
   EnableFeedStartBodySchema,
@@ -43,6 +45,8 @@ import {
   type InterCompanyClassifyRequest,
   type FeedSyncBody,
   type FeedSyncResponse,
+  type FeedSyncAllResponse,
+  type FeedSyncRunsResponse,
   type AiFinancialSafetyResponse,
   type AiLiquidityResponse,
   type AiAvailableFundsResponse,
@@ -117,6 +121,42 @@ export async function syncBankFeed(body: FeedSyncBody): Promise<FeedSyncResponse
   }
 
   return FeedSyncResponseSchema.parse(json);
+}
+
+/** Fetch feed sync run history for the Logs tab. */
+export async function fetchFeedSyncRuns(): Promise<FeedSyncRunsResponse> {
+  const response = await fetch('/api/feed/sync-runs');
+  return validateResponse(response, FeedSyncRunsResponseSchema);
+}
+
+/** Trigger idempotent sync-all (lock + cooldown). */
+export async function triggerSyncAll(): Promise<FeedSyncAllResponse> {
+  const response = await fetch('/api/feed/sync-all', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  let json: unknown;
+  try {
+    json = await response.json();
+  } catch {
+    json = null;
+  }
+
+  if (response.status === 409) {
+    return FeedSyncAllResponseSchema.parse(json);
+  }
+
+  if (!response.ok) {
+    const parsed = json !== null ? FeedSyncHttpErrorBodySchema.safeParse(json) : null;
+    const message =
+      parsed !== null && parsed.success
+        ? parsed.data.error
+        : `Sync all failed (${String(response.status)})`;
+    throw new FeedSyncRequestError(message, response.status);
+  }
+
+  return FeedSyncAllResponseSchema.parse(json);
 }
 
 /** Failed Enable / TrueLayer `POST …/feed/…/start` (OAuth kick-off). */

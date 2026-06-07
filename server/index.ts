@@ -33,6 +33,7 @@ import siteAuthRouter from './routes/site-auth.js';
 import { siteAccessGateMiddleware } from './auth/site-access.js';
 import { normalizeAllFiles } from './utils/filename-normalizer.js';
 import { initDatabase, closeDatabase } from './db/index.js';
+import { startFeedSyncScheduler } from './ingestion/feeds/feed-sync-scheduler.js';
 import {
   MCP_HTTP_MOUNT_PATH,
   mountStreamableHttpMcp,
@@ -161,6 +162,8 @@ async function start(): Promise<void> {
   normalizeAllFiles();
 
   await initDatabase();
+
+  startFeedSyncScheduler();
 
   try {
     const mcpBearer = resolveMcpHttpBearerToken();

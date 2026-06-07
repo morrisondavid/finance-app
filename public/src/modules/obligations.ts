@@ -1,6 +1,6 @@
 import { escapeHtml, openModal as openModalEl, closeModal as closeModalEl } from '../utils/dom';
 import { formatCurrency, formatAccountName, formatIsoDateUkLong } from '../utils/formatting';
-import { daysUntil, daysLabel, todayIsoLocal } from '../../../shared/iso-date.js';
+import { daysUntilInTimeZone, daysLabel, todayIsoLocal, UK_BUSINESS_TIMEZONE } from '../../../shared/iso-date.js';
 import { ACCOUNTS, type EntityFoundationWarning } from '../../../shared/api-contracts';
 
 type PersonId = 'david' | 'heena';
@@ -89,6 +89,11 @@ function statusBadge(status: string): string {
 
 function upcomingItemDate(item: UpcomingPaymentItem): string {
   return item.kind === 'obligation' ? item.dueDate : item.nextExpectedDate;
+}
+
+/** HMRC / Ltd obligations use the UK business calendar, not browser local time. */
+function obligationDaysUntil(dueDate: string): number {
+  return daysUntilInTimeZone(dueDate, UK_BUSINESS_TIMEZONE);
 }
 
 /**
@@ -182,7 +187,7 @@ function renderOverdue(obligations: ObligationItem[]): void {
 
   panel.style.display = '';
   const rows = obligations.map(o => {
-    const days = o.dueDate ? Math.abs(daysUntil(o.dueDate)) : 0;
+    const days = o.dueDate ? Math.abs(obligationDaysUntil(o.dueDate)) : 0;
     const action = supportsStateOverride(o)
       ? `<button type="button" class="btn btn-sm obligations-mark-paid-btn" data-id="${escapeHtml(o.id)}">Mark paid</button>`
       : '';
@@ -215,9 +220,16 @@ function renderUpcomingPayments(items: UpcomingPaymentItem[]): void {
   const container = document.getElementById('obligations-upcoming-list');
   const countBadge = document.getElementById('obligations-upcoming-count');
   if (!container) return;
-  if (countBadge) countBadge.textContent = items.length > 0 ? String(items.length) : '';
 
-  if (items.length === 0) {
+  const visibleItems = items.filter(item => {
+    if (item.kind === 'obligation') {
+      return obligationDaysUntil(item.dueDate) >= 0;
+    }
+    return daysUntilInTimeZone(upcomingItemDate(item), UK_BUSINESS_TIMEZONE) >= 0;
+  });
+  if (countBadge) countBadge.textContent = visibleItems.length > 0 ? String(visibleItems.length) : '';
+
+  if (visibleItems.length === 0) {
     container.innerHTML = '<p class="obligations-empty">No upcoming payments.</p>';
     return;
   }
@@ -227,9 +239,11 @@ function renderUpcomingPayments(items: UpcomingPaymentItem[]): void {
   // urgency colours, status badges, or kind chips, all of which competed
   // with the amber ground and diluted the "things I need to worry about"
   // read.
-  const rows = items.map(item => {
+  const rows = visibleItems.map(item => {
     const date = upcomingItemDate(item);
-    const days = daysUntil(date);
+    const days = item.kind === 'obligation'
+      ? obligationDaysUntil(date)
+      : daysUntilInTimeZone(date, UK_BUSINESS_TIMEZONE);
 
     if (item.kind === 'obligation') {
       const isEstimate = isAutoSaEstimate(item);
