@@ -31,7 +31,7 @@ describe('deriveFeedSyncScheduledWarnings', () => {
     expect(warnings[0]?.context?.account).toBe('barclays-current');
   });
 
-  it('omits ok and skipped rows', () => {
+  it('omits ingested and skipped rows', () => {
     const status: FeedSyncScheduledStatus = {
       lastRunAt: '2026-06-03T16:00:00.000Z',
       lastRunKind: 'scheduled',
@@ -39,9 +39,11 @@ describe('deriveFeedSyncScheduledWarnings', () => {
       accounts: [
         {
           account: 'barclays-current',
-          status: 'ok',
+          status: 'ingested',
           rowsFetched: 2,
-          skipped: false,
+          window: { dateFrom: '2026-06-01', dateTo: '2026-06-03' },
+          ingestOutcome: 'ingested',
+          initDatabaseRan: true,
         },
       ],
     };

@@ -1,5 +1,5 @@
 import fs from 'fs';
-import path from 'path';
+import { writeDurableFileSync } from '../storage/durable-fs.js';
 
 export function escapeCsvField(value: string): string {
   if (/[",\n\r]/.test(value)) {
@@ -15,9 +15,5 @@ export function ensureDir(dirPath: string): void {
 }
 
 export function atomicWriteCsv(csvPath: string, content: string): void {
-  const dir = path.dirname(csvPath);
-  ensureDir(dir);
-  const tmp = `${csvPath}.tmp`;
-  fs.writeFileSync(tmp, content, 'utf8');
-  fs.renameSync(tmp, csvPath);
+  writeDurableFileSync(csvPath, content);
 }

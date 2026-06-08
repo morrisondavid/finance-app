@@ -34,6 +34,7 @@ import {
   FeedSyncBodySchema,
   FeedSyncResponseSchema,
   FeedSyncAllResponseSchema,
+  FeedSyncEventsResponseSchema,
   FeedSyncRunsResponseSchema,
   FeedSyncHttpErrorBodySchema,
   FeedToolbarStateSchema,
@@ -46,6 +47,7 @@ import {
   type FeedSyncBody,
   type FeedSyncResponse,
   type FeedSyncAllResponse,
+  type FeedSyncEventsResponse,
   type FeedSyncRunsResponse,
   type AiFinancialSafetyResponse,
   type AiLiquidityResponse,
@@ -129,6 +131,12 @@ export async function fetchFeedSyncRuns(): Promise<FeedSyncRunsResponse> {
   return validateResponse(response, FeedSyncRunsResponseSchema);
 }
 
+/** Fetch operational events for one sync run. */
+export async function fetchFeedSyncRunEvents(runId: string): Promise<FeedSyncEventsResponse> {
+  const response = await fetch(`/api/feed/sync-runs/${encodeURIComponent(runId)}/events`);
+  return validateResponse(response, FeedSyncEventsResponseSchema);
+}
+
 /** Trigger idempotent sync-all (lock + cooldown). */
 export async function triggerSyncAll(): Promise<FeedSyncAllResponse> {
   const response = await fetch('/api/feed/sync-all', {
@@ -143,7 +151,7 @@ export async function triggerSyncAll(): Promise<FeedSyncAllResponse> {
     json = null;
   }
 
-  if (response.status === 409) {
+  if (response.status === 409 || response.status === 202) {
     return FeedSyncAllResponseSchema.parse(json);
   }
 

@@ -30,13 +30,17 @@ import express, { Request, Response } from 'express';
 import {
   FeedSyncAllResponseSchema,
   FeedSyncBodySchema,
+  FeedSyncEventsResponseSchema,
   FeedSyncResponseSchema,
   FeedSyncRunsResponseSchema,
   type FeedSyncAllResponse,
+  type FeedSyncEventsResponse,
   type FeedSyncResponse,
   type FeedSyncRunsResponse,
 } from '../../shared/api-contracts.js';
 import { buildFeedSyncRunsResponse } from '../ingestion/feeds/feed-sync-runs-response.js';
+import { readFeedSyncEventsForRun } from '../ingestion/feeds/feed-sync-event-log.js';
+import { readFeedSyncRunLog } from '../ingestion/feeds/feed-sync-run-log.js';
 import { runFeedSyncAllGuarded } from '../ingestion/feeds/feed-sync-guard.js';
 import { runFeedSync, FeedSyncError } from '../ingestion/feeds/sync.js';
 import { EnableBankingError } from '../ingestion/feeds/enable-banking.js';
@@ -114,11 +118,34 @@ router.get('/sync-runs', (_req: Request, res: Response<FeedSyncRunsResponse>) =>
   res.json(FeedSyncRunsResponseSchema.parse(buildFeedSyncRunsResponse()));
 });
 
+router.get('/sync-runs/:runId/events', (req: Request, res: Response<FeedSyncEventsResponse | ErrorBody>) => {
+  const rawRunId = req.params.runId;
+  const runId = Array.isArray(rawRunId) ? rawRunId[0] : rawRunId;
+  if (runId === undefined || runId.trim() === '') {
+    res.status(400).json({ error: 'Missing run id' });
+    return;
+  }
+
+  const log = readFeedSyncRunLog();
+  const runExists = log.runs.some(run => run.id === runId);
+  if (!runExists) {
+    res.status(404).json({ error: 'Sync run not found' });
+    return;
+  }
+
+  const events = readFeedSyncEventsForRun(runId);
+  res.json(FeedSyncEventsResponseSchema.parse({ events }));
+});
+
 router.post('/sync-all', async (_req: Request, res: Response<FeedSyncAllResponse>) => {
-  const result = await runFeedSyncAllGuarded({ trigger: 'manual' });
+  const result = await runFeedSyncAllGuarded({ trigger: 'manual', detached: true });
   const body = FeedSyncAllResponseSchema.parse(result);
   if (body.state === 'in-progress') {
     res.status(409).json(body);
+    return;
+  }
+  if (body.state === 'started') {
+    res.status(202).json(body);
     return;
   }
   res.json(body);

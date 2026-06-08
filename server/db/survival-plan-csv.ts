@@ -9,7 +9,6 @@ import { parse } from 'csv-parse/sync';
 import { BUDGETS_DIR } from './connection.js';
 import { escapeCsvField, atomicWriteCsv } from '../utils/csv-helpers.js';
 import { recomputeAndPersistDataManifest } from '../data-manifest.js';
-import { uploadDurableRelPathsToS3 } from '../storage/s3-durable-sync.js';
 
 export const SURVIVAL_PLAN_CSV_FILENAME = 'survival-plan.csv';
 
@@ -96,7 +95,6 @@ export function writeSurvivalPlanCsvFile(csvPath: string, row: SurvivalPlanRow):
 export function persistSurvivalPlan(row: SurvivalPlanRow, csvPath: string = getSurvivalPlanCsvPath()): void {
   writeSurvivalPlanCsvFile(csvPath, row);
   recomputeAndPersistDataManifest();
-  void uploadDurableRelPathsToS3(['budgets/survival-plan.csv', 'data/manifest.json'], 'survival-plan');
 }
 
 export function clearSurvivalPlan(csvPath: string = getSurvivalPlanCsvPath()): void {

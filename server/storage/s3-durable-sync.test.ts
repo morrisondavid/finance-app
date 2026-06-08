@@ -3,7 +3,17 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { uploadDurableRelPathsToS3 } from './s3-durable-sync.js';
+import { isDurableRepoRelativePath, uploadDurableRelPathsToS3 } from './s3-durable-sync.js';
+
+describe('isDurableRepoRelativePath', () => {
+  it('rejects paths outside durable roots (assertSafeRepoRelative guard)', () => {
+    expect(isDurableRepoRelativePath('dist/not-durable.js')).toBe(false);
+  });
+
+  it('includes debt-strategy paths', () => {
+    expect(isDurableRepoRelativePath('debt-strategy/plans.csv')).toBe(true);
+  });
+});
 
 describe('s3-durable-sync OAuth paths', () => {
   let prevBucket: string | undefined;

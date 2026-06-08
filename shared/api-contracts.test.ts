@@ -23,6 +23,7 @@ import {
   TransactionListingDateModesSchema,
   AiTransactionDrillQuerySchema,
   DashboardTransactionsQuerySchema,
+  FeedSyncAllResponseSchema,
 } from './api-contracts.js';
 
 describe('HmrcPaymentMatchSchema', () => {
@@ -1089,5 +1090,19 @@ describe('DashboardTransactionsQuerySchema', () => {
         includeTransfers: 'false',
       }).data?.includeTransfers,
     ).toBeUndefined();
+  });
+});
+
+describe('FeedSyncAllResponseSchema', () => {
+  it('parses started async response', () => {
+    const parsed = FeedSyncAllResponseSchema.safeParse({
+      state: 'started',
+      runId: 'abc-123',
+      startedAt: '2026-06-03T16:00:00.000Z',
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.state).toBe('started');
+    }
   });
 });

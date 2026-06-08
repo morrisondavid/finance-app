@@ -7978,8 +7978,23 @@ body {
   min-width: 10rem;
 }
 
-.logs-account-ok .logs-account-detail {
+.logs-outcome-no-op {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.logs-account-ingested .logs-account-detail {
   color: var(--color-income);
+}
+
+.logs-account-unchanged .logs-account-detail {
+  color: var(--color-text-muted);
+}
+
+.logs-run-empty {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  margin: 0;
 }
 
 .logs-account-failed .logs-account-detail {
@@ -8000,5 +8015,91 @@ body {
 
 .logs-empty-error {
   color: var(--color-expense);
+}
+
+.logs-show-details {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.logs-run-events {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.logs-events-loading,
+.logs-events-empty,
+.logs-events-error {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.logs-events-error {
+  color: var(--color-expense);
+}
+
+.logs-event-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.logs-event-row {
+  font-size: 0.8125rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: var(--radius);
+  background: var(--color-surface-muted, rgba(0, 0, 0, 0.03));
+}
+
+.logs-event-error {
+  border-left: 3px solid var(--color-expense);
+}
+
+.logs-event-warn {
+  border-left: 3px solid var(--color-warning, #c97a00);
+}
+
+.logs-event-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+  color: var(--color-text-muted);
+}
+
+.logs-event-kind {
+  font-family: var(--font-mono, monospace);
+  text-transform: lowercase;
+}
+
+.logs-event-message {
+  margin: 0;
+}
+
+.logs-event-detail {
+  margin: 0.25rem 0 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  word-break: break-all;
+}
+
+.logs-stack {
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.625rem;
+  overflow-x: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: var(--radius);
+  max-height: 16rem;
+  overflow-y: auto;
 }
 

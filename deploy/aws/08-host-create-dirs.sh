@@ -5,7 +5,7 @@ set -euo pipefail
 BASE=(
   data statements invoices secrets
   budgets obligations debts deadlines net-worth
-  autonize-it clients working-days reserves
+  autonize-it clients working-days reserves debt-strategy
 )
 
 paths=()

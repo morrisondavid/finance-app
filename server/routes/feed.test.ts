@@ -14,10 +14,12 @@ import type { AddressInfo } from 'net';
 import type { Server } from 'http';
 import type { FeedSyncResponse } from '../../shared/api-contracts.js';
 
-const { runFeedSyncMock, runFeedSyncAllGuardedMock, buildFeedSyncRunsResponseMock } = vi.hoisted(() => ({
+const { runFeedSyncMock, runFeedSyncAllGuardedMock, buildFeedSyncRunsResponseMock, readFeedSyncRunLogMock, readFeedSyncEventsForRunMock } = vi.hoisted(() => ({
   runFeedSyncMock: vi.fn(),
   runFeedSyncAllGuardedMock: vi.fn(),
   buildFeedSyncRunsResponseMock: vi.fn(),
+  readFeedSyncRunLogMock: vi.fn(),
+  readFeedSyncEventsForRunMock: vi.fn(),
 }));
 
 vi.mock('../ingestion/feeds/sync.js', async () => {
@@ -36,6 +38,14 @@ vi.mock('../ingestion/feeds/feed-sync-guard.js', () => ({
 
 vi.mock('../ingestion/feeds/feed-sync-runs-response.js', () => ({
   buildFeedSyncRunsResponse: buildFeedSyncRunsResponseMock,
+}));
+
+vi.mock('../ingestion/feeds/feed-sync-run-log.js', () => ({
+  readFeedSyncRunLog: readFeedSyncRunLogMock,
+}));
+
+vi.mock('../ingestion/feeds/feed-sync-event-log.js', () => ({
+  readFeedSyncEventsForRun: readFeedSyncEventsForRunMock,
 }));
 
 const { default: feedRouter } = await import('./feed.js');
@@ -72,6 +82,8 @@ beforeEach(() => {
   runFeedSyncMock.mockReset();
   runFeedSyncAllGuardedMock.mockReset();
   buildFeedSyncRunsResponseMock.mockReset();
+  readFeedSyncRunLogMock.mockReset();
+  readFeedSyncEventsForRunMock.mockReset();
 });
 
 const SUCCESS_BODY: FeedSyncResponse = {
@@ -238,27 +250,67 @@ describe('GET /api/feed/sync-runs', () => {
   });
 });
 
-describe('POST /api/feed/sync-all', () => {
-  it('200 when completed', async () => {
-    runFeedSyncAllGuardedMock.mockResolvedValue({
-      state: 'completed',
-      run: {
-        id: 'run-1',
-        startedAt: '2026-06-03T16:00:00.000Z',
-        finishedAt: '2026-06-03T16:00:05.000Z',
+describe('GET /api/feed/sync-runs/:runId/events', () => {
+  it('404 when run id is unknown', async () => {
+    readFeedSyncRunLogMock.mockReturnValue({ runs: [] });
+
+    const res = await fetch(`${baseUrl}/api/feed/sync-runs/missing-run/events`);
+    expect(res.status).toBe(404);
+    expect(readFeedSyncEventsForRunMock).not.toHaveBeenCalled();
+  });
+
+  it('200 + returns events for a known run', async () => {
+    readFeedSyncRunLogMock.mockReturnValue({
+      runs: [
+        {
+          id: 'run-1',
+          startedAt: '2026-06-03T16:00:00.000Z',
+          finishedAt: '2026-06-03T16:00:05.000Z',
+          trigger: 'manual',
+          lookbackDays: 3,
+          outcome: 'ok',
+          durationMs: 5000,
+          accounts: [],
+        },
+      ],
+    });
+    readFeedSyncEventsForRunMock.mockReturnValue([
+      {
+        at: '2026-06-03T16:00:00.000Z',
+        runId: 'run-1',
         trigger: 'manual',
-        lookbackDays: 3,
-        outcome: 'ok',
-        durationMs: 5000,
-        accounts: [],
+        level: 'info',
+        kind: 'run_start',
+        message: 'started',
       },
+    ]);
+
+    const res = await fetch(`${baseUrl}/api/feed/sync-runs/run-1/events`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { events: { kind: string }[] };
+    expect(body.events).toHaveLength(1);
+    expect(body.events[0]?.kind).toBe('run_start');
+    expect(readFeedSyncEventsForRunMock).toHaveBeenCalledWith('run-1');
+  });
+});
+
+describe('POST /api/feed/sync-all', () => {
+  it('202 when started (detached manual trigger)', async () => {
+    runFeedSyncAllGuardedMock.mockResolvedValue({
+      state: 'started',
+      runId: 'run-1',
+      startedAt: '2026-06-03T16:00:00.000Z',
     });
 
     const res = await fetch(`${baseUrl}/api/feed/sync-all`, { method: 'POST' });
-    expect(res.status).toBe(200);
-    const body = await res.json() as { state: string };
-    expect(body.state).toBe('completed');
-    expect(runFeedSyncAllGuardedMock).toHaveBeenCalledWith({ trigger: 'manual' });
+    expect(res.status).toBe(202);
+    const body = await res.json() as { state: string; runId: string };
+    expect(body.state).toBe('started');
+    expect(body.runId).toBe('run-1');
+    expect(runFeedSyncAllGuardedMock).toHaveBeenCalledWith({
+      trigger: 'manual',
+      detached: true,
+    });
   });
 
   it('200 when deduped', async () => {

@@ -16,7 +16,7 @@ import {
   readCsvRecords,
 } from '../../utils/csv-decoders.js';
 import { recomputeAndPersistDataManifest } from '../../data-manifest.js';
-import { uploadOAuthDurableStateToS3 } from './oauth-durable-upload.js';
+import { writeDurableFileSync } from '../../storage/durable-fs.js';
 
 export const TRUELAYER_ACCOUNT_LINKS_CSV = path.join(
   REPO_ROOT,
@@ -123,10 +123,7 @@ export function writeTrueLayerAccountLinks(
       [escapeCsvField(acct), escapeCsvField(uid)].join(','),
     );
   }
-  const tmp = `${csvPath}.tmp`;
-  fs.writeFileSync(tmp, `${lines.join('\n')}\n`, 'utf-8');
-  fs.renameSync(tmp, csvPath);
-  uploadOAuthDurableStateToS3('truelayer-account-links');
+  writeDurableFileSync(csvPath, `${lines.join('\n')}\n`);
 }
 
 /** Test helper */

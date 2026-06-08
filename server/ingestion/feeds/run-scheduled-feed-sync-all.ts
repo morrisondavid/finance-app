@@ -8,15 +8,29 @@ import type {
   FeedSyncRunTrigger,
 } from '../../../shared/api-contracts.js';
 import { computeFeedSyncDateFromNewestTransaction } from '../../../shared/feed-sync-window.js';
+import {
+  deriveFeedSyncAccountResult,
+  feedSyncSkippedCandidateResult,
+} from './feed-sync-account-result.js';
 import { EnableBankingError } from './enable-banking.js';
 import { listFeedSyncCandidates } from './feed-sync-candidates.js';
+import {
+  formatFeedSyncError,
+  type FeedSyncRunLogger,
+} from './feed-sync-event-log.js';
 import { writeFeedSyncScheduledStatus } from './feed-sync-scheduled-status.js';
-import { findLatestCsvDate, runFeedSync, FeedSyncError } from './sync.js';
+import {
+  findLatestCsvDate,
+  requireLinkedFeed,
+  runFeedSync,
+  FeedSyncError,
+} from './sync.js';
 import { TrueLayerError } from './truelayer/truelayer-error.js';
 import { uploadDurableRelPathsToS3 } from '../../storage/s3-durable-sync.js';
 import { FEED_SYNC_SCHEDULED_STATUS_REL_PATH } from '../../../shared/api-contracts.js';
 import { PARSERS } from '../../parsers/index.js';
 import { REPO_ROOT } from '../../repo-root.js';
+import { initDatabase as defaultInitDatabase } from '../../db/index.js';
 
 const DEFAULT_LOOKBACK_DAYS = 3;
 
@@ -43,11 +57,12 @@ function errorCodeFromUnknown(err: unknown): string | undefined {
   return undefined;
 }
 
-function errorMessageFromUnknown(err: unknown): string {
-  if (err instanceof Error) {
-    return err.message;
+function providerFromAccount(account: FeedSyncScheduledAccountResult['account']): 'truelayer' | 'enable' | undefined {
+  try {
+    return requireLinkedFeed(account).provider;
+  } catch {
+    return undefined;
   }
-  return 'Unknown error';
 }
 
 export interface RunScheduledFeedSyncAllResult {
@@ -64,6 +79,8 @@ export interface RunScheduledFeedSyncAllOpts {
   readonly lookbackDays?: number;
   readonly repoRoot?: string;
   readonly trigger?: FeedSyncRunTrigger;
+  readonly runLogger?: FeedSyncRunLogger;
+  readonly initDatabase?: () => Promise<void>;
 }
 
 export async function runScheduledFeedSyncAll(
@@ -76,15 +93,20 @@ export async function runScheduledFeedSyncAll(
   const repoRoot = typeof opts === 'number' ? REPO_ROOT : (opts.repoRoot ?? REPO_ROOT);
   const trigger =
     typeof opts === 'number' ? 'scheduled' : (opts.trigger ?? 'scheduled');
+  const runLogger = typeof opts === 'number' ? undefined : opts.runLogger;
+  const dbReinit =
+    typeof opts === 'number' ? defaultInitDatabase : (opts.initDatabase ?? defaultInitDatabase);
   const lastRunAt = new Date().toISOString();
   const accountResults: FeedSyncScheduledAccountResult[] = [];
   let hadLinkedFailure = false;
   let syncedCount = 0;
   let skippedUnlinkedCount = 0;
+  let anyIngested = false;
 
   for (const candidate of listFeedSyncCandidates()) {
     if (candidate.action === 'skip') {
       skippedUnlinkedCount += 1;
+      accountResults.push(feedSyncSkippedCandidateResult(candidate.account));
       continue;
     }
 
@@ -100,26 +122,58 @@ export async function runScheduledFeedSyncAll(
       });
       continue;
     }
+
+    runLogger?.logEvent({
+      kind: 'account_start',
+      level: 'info',
+      message: `Syncing ${candidate.account}`,
+      account: candidate.account,
+    });
+
     const latestCsvDate = findLatestCsvDate(candidate.account, parser);
     const dateFrom = computeFeedSyncDateFromNewestTransaction(latestCsvDate);
 
     try {
-      const result = await runFeedSync(candidate.account, { dateFrom, lookbackDays });
-      accountResults.push({
-        account: candidate.account,
-        status: 'ok',
-        rowsFetched: result.rowsFetched,
-        skipped: result.skipped,
-        ingestOutcome: result.ingestOutcome,
-      });
+      const result = await runFeedSync(
+        candidate.account,
+        { dateFrom, lookbackDays, deferDbReinit: true },
+        { runLogger },
+      );
+      if (result.ingestOutcome === 'ingested') {
+        anyIngested = true;
+      }
+      accountResults.push(deriveFeedSyncAccountResult(candidate.account, result));
     } catch (err) {
       hadLinkedFailure = true;
+      const formatted = formatFeedSyncError(err);
+      const provider = providerFromAccount(candidate.account);
+      runLogger?.logEvent({
+        kind: 'fetch_failed',
+        level: 'error',
+        message: formatted.message,
+        account: candidate.account,
+        provider,
+        code: formatted.code ?? errorCodeFromUnknown(err),
+        stack: formatted.stack,
+        detail: formatted.cause === undefined ? undefined : { cause: formatted.cause },
+      });
       accountResults.push({
         account: candidate.account,
         status: 'failed',
-        error: errorMessageFromUnknown(err),
-        code: errorCodeFromUnknown(err),
+        error: formatted.message,
+        code: formatted.code ?? errorCodeFromUnknown(err),
+        stack: formatted.stack,
+        provider,
       });
+    }
+  }
+
+  if (anyIngested) {
+    await dbReinit();
+    try {
+      await uploadDurableRelPathsToS3(['data/manifest.json'], 'feed-sync-manifest');
+    } catch (err) {
+      console.error('[feed:sync-all] manifest S3 upload failed:', err);
     }
   }
 

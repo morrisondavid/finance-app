@@ -8,6 +8,7 @@ import type Database from 'better-sqlite3';
 import { REPO_ROOT } from '../repo-root.js';
 import { escapeCsvField } from '../utils/csv-helpers.js';
 import { createCsvDecoders, readCsvRecords } from '../utils/csv-decoders.js';
+import { writeDurableFileSync } from '../storage/durable-fs.js';
 
 const decoders = createCsvDecoders('WarningUserStateCsv');
 const { requireNonEmpty } = decoders;
@@ -111,7 +112,5 @@ export function exportWarningUserStateFromDbToCsv(db: Database.Database): void {
       ].join(','),
     );
   }
-  const tmp = `${csvPath}.tmp`;
-  fs.writeFileSync(tmp, `${lines.join('\n')}\n`, 'utf-8');
-  fs.renameSync(tmp, csvPath);
+  writeDurableFileSync(csvPath, `${lines.join('\n')}\n`);
 }

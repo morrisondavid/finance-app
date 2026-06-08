@@ -7,6 +7,7 @@ import type { Database } from 'better-sqlite3';
 import { REPO_ROOT } from '../repo-root.js';
 import { readCsvRecords } from '../utils/csv-decoders.js';
 import { recomputeAndPersistDataManifest } from '../data-manifest.js';
+import { writeDurableFileSync } from '../storage/durable-fs.js';
 
 const CSV_PATH = path.join(REPO_ROOT, 'data', 'fixed-expense-simulation-exclusions.csv');
 
@@ -29,9 +30,7 @@ export function writeFixedExpenseSimulationExclusionsCsv(lineKeys: readonly stri
   const uniq = [...new Set(lineKeys.map(k => k.trim()).filter(k => k !== ''))].sort();
   const lines = ['line_key', ...uniq];
   const content = `${lines.join('\n')}\n`;
-  const tmp = `${CSV_PATH}.tmp`;
-  fs.writeFileSync(tmp, content, 'utf-8');
-  fs.renameSync(tmp, CSV_PATH);
+  writeDurableFileSync(CSV_PATH, content);
 }
 
 export function applyFixedExpenseExclusionsCsvToDb(db: Database): void {

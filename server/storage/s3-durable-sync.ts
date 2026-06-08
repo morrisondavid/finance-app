@@ -60,33 +60,55 @@ function ssePutExtras(cfg: BankS3DurableSyncResolvedConfig): Record<string, stri
   return {};
 }
 
-/** Allowed relative posix paths rooted at repo — reject `..` and secrets. */
-function assertSafeRepoRelative(rel: string): void {
-  const norm = path.posix.normalize(rel.replace(/\\/g, '/')).replace(/^\/+/, '');
-  if (norm === '' || norm.startsWith('../') || norm.includes('/../')) {
-    throw new Error(`[S3Sync] Refusing unsafe durable path: ${rel}`);
-  }
-  if (
+function normalizeRepoRelativePath(rel: string): string {
+  return path.posix.normalize(rel.replace(/\\/g, '/')).replace(/^\/+/, '');
+}
+
+function isForbiddenDurablePath(norm: string): boolean {
+  return (
     norm === 'secrets' ||
     norm.startsWith('secrets/') ||
     norm.startsWith('node_modules/')
-  ) {
-    throw new Error(`[S3Sync] Refusing forbidden durable path: ${rel}`);
+  );
+}
+
+/** True when `rel` points at an uploadable durable file under repo root. */
+export function isDurableRepoRelativePath(rel: string): boolean {
+  const norm = normalizeRepoRelativePath(rel);
+  if (norm === '' || norm.startsWith('../') || norm.includes('/../')) {
+    return false;
+  }
+  if (isForbiddenDurablePath(norm)) {
+    return false;
   }
 
   const first = norm.split('/', 2)[0] ?? '';
-  const underData =
-    norm === 'data' || norm.startsWith('data/');
+  const underData = norm === 'data' || norm.startsWith('data/');
   const underDurableRoot = (DURABLE_TOP_LEVEL_DIRS as readonly string[]).includes(first);
 
   if (!underData && !underDurableRoot) {
-    throw new Error(`[S3Sync] Path not under durable roots: ${rel}`);
+    return false;
   }
   if (underData) {
     const base = path.posix.basename(norm);
     if (DATA_SYNC_EXCLUDED_BASENAMES.has(base)) {
-      throw new Error(`[S3Sync] Cannot upload excluded basename: ${base}`);
+      return false;
     }
+  }
+  return true;
+}
+
+/** Allowed relative posix paths rooted at repo — reject `..` and secrets. */
+function assertSafeRepoRelative(rel: string): void {
+  const norm = normalizeRepoRelativePath(rel);
+  if (norm === '' || norm.startsWith('../') || norm.includes('/../')) {
+    throw new Error(`[S3Sync] Refusing unsafe durable path: ${rel}`);
+  }
+  if (isForbiddenDurablePath(norm)) {
+    throw new Error(`[S3Sync] Refusing forbidden durable path: ${rel}`);
+  }
+  if (!isDurableRepoRelativePath(rel)) {
+    throw new Error(`[S3Sync] Path not under durable roots: ${rel}`);
   }
 }
 

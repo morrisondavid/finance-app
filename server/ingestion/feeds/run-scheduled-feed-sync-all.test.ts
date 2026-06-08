@@ -64,18 +64,112 @@ describe('runScheduledFeedSyncAll', () => {
     expect(hadLinkedFailure).toBe(false);
     expect(syncedCount).toBe(1);
     expect(skippedUnlinkedCount).toBe(1);
-    expect(mocks.runFeedSyncMock).toHaveBeenCalledWith('barclays-current', {
-      dateFrom: '2026-05-02',
-      lookbackDays: 3,
-    });
+    expect(mocks.runFeedSyncMock).toHaveBeenCalledWith(
+      'barclays-current',
+      { dateFrom: '2026-05-02', lookbackDays: 3, deferDbReinit: true },
+      { runLogger: undefined },
+    );
 
     const written = readFeedSyncScheduledStatus(tmpRoot);
-    expect(written?.accounts).toHaveLength(1);
+    expect(written?.accounts).toHaveLength(2);
     expect(written?.accounts[0]).toMatchObject({
+      account: 'wise-ltd',
+      status: 'skipped',
+      reason: 'not_linked',
+    });
+    expect(written?.accounts[1]).toMatchObject({
       account: 'barclays-current',
-      status: 'ok',
+      status: 'ingested',
       rowsFetched: 1,
     });
+  });
+
+  it('records duplicate fetch as unchanged, not ingested', async () => {
+    mocks.listFeedSyncCandidatesMock.mockReturnValue([
+      { account: 'barclays-current', action: 'sync' },
+    ]);
+    mocks.runFeedSyncMock.mockResolvedValue({
+      account: 'barclays-current',
+      skipped: false,
+      rowsFetched: 2,
+      csvWritten: false,
+      ingestOutcome: 'duplicate',
+      window: { dateFrom: '2026-06-05', dateTo: '2026-06-08' },
+      partitionedFiles: [],
+      initDatabaseRan: false,
+    });
+
+    await runScheduledFeedSyncAll({ lookbackDays: 3, repoRoot: tmpRoot });
+    const written = readFeedSyncScheduledStatus(tmpRoot);
+    expect(written?.accounts[0]).toMatchObject({
+      status: 'unchanged',
+      reason: 'duplicate_csv',
+      rowsFetched: 2,
+    });
+  });
+
+  it('calls initDatabase once when at least one account ingests', async () => {
+    const initDatabaseMock = vi.fn().mockResolvedValue(undefined);
+    mocks.listFeedSyncCandidatesMock.mockReturnValue([
+      { account: 'barclays-current', action: 'sync' },
+      { account: 'monzo-joint', action: 'sync' },
+    ]);
+    mocks.runFeedSyncMock
+      .mockResolvedValueOnce({
+        account: 'barclays-current',
+        skipped: false,
+        rowsFetched: 1,
+        csvWritten: true,
+        ingestOutcome: 'ingested',
+        window: { dateFrom: '2026-05-02', dateTo: '2026-06-03' },
+        partitionedFiles: [],
+        initDatabaseRan: false,
+      })
+      .mockResolvedValueOnce({
+        account: 'monzo-joint',
+        skipped: false,
+        rowsFetched: 0,
+        csvWritten: false,
+        ingestOutcome: undefined,
+        window: { dateFrom: '2026-05-02', dateTo: '2026-06-03' },
+        partitionedFiles: [],
+        initDatabaseRan: false,
+      });
+
+    await runScheduledFeedSyncAll({
+      lookbackDays: 3,
+      repoRoot: tmpRoot,
+      initDatabase: initDatabaseMock,
+    });
+
+    expect(initDatabaseMock).toHaveBeenCalledOnce();
+    expect(mocks.uploadMock).toHaveBeenCalledWith(['data/manifest.json'], 'feed-sync-manifest');
+  });
+
+  it('does not call initDatabase when nothing ingests', async () => {
+    const initDatabaseMock = vi.fn().mockResolvedValue(undefined);
+    mocks.listFeedSyncCandidatesMock.mockReturnValue([
+      { account: 'barclays-current', action: 'sync' },
+    ]);
+    mocks.runFeedSyncMock.mockResolvedValue({
+      account: 'barclays-current',
+      skipped: false,
+      rowsFetched: 2,
+      csvWritten: false,
+      ingestOutcome: 'duplicate',
+      window: { dateFrom: '2026-06-05', dateTo: '2026-06-08' },
+      partitionedFiles: [],
+      initDatabaseRan: false,
+    });
+
+    await runScheduledFeedSyncAll({
+      lookbackDays: 3,
+      repoRoot: tmpRoot,
+      initDatabase: initDatabaseMock,
+    });
+
+    expect(initDatabaseMock).not.toHaveBeenCalled();
+    expect(mocks.uploadMock).not.toHaveBeenCalledWith(['data/manifest.json'], 'feed-sync-manifest');
   });
 
   it('returns hadLinkedFailure when sync throws', async () => {

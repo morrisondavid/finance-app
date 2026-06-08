@@ -22,7 +22,7 @@ echo "Seeding ${DEST_ROOT} from ${REPO}"
 
 DIRS=(
   statements budgets obligations debts deadlines net-worth
-  autonize-it clients working-days reserves invoices data
+  autonize-it clients working-days reserves invoices debt-strategy data
 )
 
 for d in "${DIRS[@]}"; do

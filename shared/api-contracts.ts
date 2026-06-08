@@ -1747,8 +1747,14 @@ export const FeedSyncResponseSchema = z.object({
   partitionedFiles: z.array(z.string()).default([]),
   /** True iff `initDatabase()` ran (only when ingest succeeded). */
   initDatabaseRan: z.boolean(),
+  /** Set when ingest detected a duplicate of an existing `_originals/` file. */
+  duplicateOriginalName: z.string().optional(),
+  duplicateExistingPath: z.string().optional(),
 });
 export type FeedSyncResponse = z.infer<typeof FeedSyncResponseSchema>;
+
+export const FeedSyncAispProviderSchema = z.enum(['truelayer', 'enable']);
+export type FeedSyncAispProvider = z.infer<typeof FeedSyncAispProviderSchema>;
 
 /** Relative path under repo root — last scheduled `feed:sync-all` run. */
 export const FEED_SYNC_SCHEDULED_STATUS_REL_PATH = 'data/feed-sync-scheduled-status.json';
@@ -1756,10 +1762,22 @@ export const FEED_SYNC_SCHEDULED_STATUS_REL_PATH = 'data/feed-sync-scheduled-sta
 export const FeedSyncScheduledAccountResultSchema = z.discriminatedUnion('status', [
   z.object({
     account: AccountNameSchema,
-    status: z.literal('ok'),
+    status: z.literal('ingested'),
     rowsFetched: z.number().int().nonnegative(),
-    skipped: z.boolean(),
+    window: FeedSyncWindowSchema,
+    ingestOutcome: z.literal('ingested'),
+    initDatabaseRan: z.boolean(),
+    partitionedFiles: z.array(z.string()).optional(),
+  }),
+  z.object({
+    account: AccountNameSchema,
+    status: z.literal('unchanged'),
+    reason: z.string(),
+    rowsFetched: z.number().int().nonnegative(),
+    window: FeedSyncWindowSchema.optional(),
     ingestOutcome: FeedSyncIngestOutcomeSchema.optional(),
+    duplicateOriginalName: z.string().optional(),
+    duplicateExistingPath: z.string().optional(),
   }),
   z.object({
     account: AccountNameSchema,
@@ -1771,6 +1789,8 @@ export const FeedSyncScheduledAccountResultSchema = z.discriminatedUnion('status
     status: z.literal('failed'),
     error: z.string(),
     code: z.string().optional(),
+    stack: z.string().optional(),
+    provider: FeedSyncAispProviderSchema.optional(),
   }),
 ]);
 export type FeedSyncScheduledAccountResult = z.infer<typeof FeedSyncScheduledAccountResultSchema>;
@@ -1786,7 +1806,7 @@ export type FeedSyncScheduledStatus = z.infer<typeof FeedSyncScheduledStatusSche
 /** Relative path under repo root — append-only feed sync run history (newest first). */
 export const FEED_SYNC_RUNS_REL_PATH = 'data/feed-sync-runs.json';
 
-export const FeedSyncRunOutcomeSchema = z.enum(['ok', 'partial', 'failed']);
+export const FeedSyncRunOutcomeSchema = z.enum(['ok', 'partial', 'failed', 'no_op']);
 export type FeedSyncRunOutcome = z.infer<typeof FeedSyncRunOutcomeSchema>;
 
 export const FeedSyncRunTriggerSchema = z.enum(['scheduled', 'manual']);
@@ -1802,8 +1822,54 @@ export const FeedSyncRunSchema = z.object({
   durationMs: z.number().int().nonnegative(),
   accounts: z.array(FeedSyncScheduledAccountResultSchema),
   error: z.string().optional(),
+  errorStack: z.string().optional(),
 });
 export type FeedSyncRun = z.infer<typeof FeedSyncRunSchema>;
+
+/** Relative path under repo root — append-only operational feed sync event log. */
+export const FEED_SYNC_EVENTS_REL_PATH = 'data/feed-sync-events.jsonl';
+
+export const FeedSyncEventLevelSchema = z.enum(['info', 'warn', 'error']);
+export type FeedSyncEventLevel = z.infer<typeof FeedSyncEventLevelSchema>;
+
+export const FeedSyncEventKindSchema = z.enum([
+  'run_start',
+  'account_start',
+  'window',
+  'fetch_ok',
+  'fetch_failed',
+  'ingest',
+  'run_end',
+  'run_fatal',
+]);
+export type FeedSyncEventKind = z.infer<typeof FeedSyncEventKindSchema>;
+
+export const FeedSyncEventDetailSchema = z.record(
+  z.string(),
+  z.union([z.string(), z.number(), z.boolean()]),
+);
+export type FeedSyncEventDetail = z.infer<typeof FeedSyncEventDetailSchema>;
+
+export const FeedSyncEventSchema = z.object({
+  at: z.string().datetime(),
+  runId: z.string().min(1),
+  trigger: FeedSyncRunTriggerSchema,
+  level: FeedSyncEventLevelSchema,
+  kind: FeedSyncEventKindSchema,
+  message: z.string(),
+  account: AccountNameSchema.optional(),
+  provider: FeedSyncAispProviderSchema.optional(),
+  detail: FeedSyncEventDetailSchema.optional(),
+  stack: z.string().optional(),
+  code: z.string().optional(),
+});
+export type FeedSyncEvent = z.infer<typeof FeedSyncEventSchema>;
+
+/** `GET /api/feed/sync-runs/:runId/events` — operational events for one run. */
+export const FeedSyncEventsResponseSchema = z.object({
+  events: z.array(FeedSyncEventSchema),
+});
+export type FeedSyncEventsResponse = z.infer<typeof FeedSyncEventsResponseSchema>;
 
 export const FeedSyncRunLogSchema = z.object({
   runs: z.array(FeedSyncRunSchema),
@@ -1831,6 +1897,11 @@ export const FeedSyncAllResponseSchema = z.discriminatedUnion('state', [
   }),
   z.object({
     state: z.literal('in-progress'),
+    startedAt: z.string().datetime(),
+  }),
+  z.object({
+    state: z.literal('started'),
+    runId: z.string().min(1),
     startedAt: z.string().datetime(),
   }),
 ]);

@@ -88,7 +88,7 @@ force_pull_s3_object() {
 
 DIRS=(
   statements budgets obligations debts deadlines net-worth
-  autonize-it clients working-days reserves invoices
+  autonize-it clients working-days reserves invoices debt-strategy
 )
 
 for d in "${DIRS[@]}"; do
@@ -172,6 +172,7 @@ docker run -d --name bank --restart unless-stopped --pull=always \
   -v /opt/bank-app/clients:/app/clients \
   -v /opt/bank-app/working-days:/app/working-days \
   -v /opt/bank-app/reserves:/app/reserves \
+  -v /opt/bank-app/debt-strategy:/app/debt-strategy \
   -v /opt/bank-app/secrets:/opt/bank-app/secrets:ro \
   -e NODE_ENV \
   -e "ENABLE_BANKING_APP_ID=${ENABLE_BANKING_APP_ID:-}" \

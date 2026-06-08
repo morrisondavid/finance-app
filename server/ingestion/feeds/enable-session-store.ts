@@ -12,7 +12,7 @@ import fs from 'fs';
 import path from 'path';
 import { z } from 'zod';
 import { REPO_ROOT } from '../../repo-root.js';
-import { uploadOAuthDurableStateToS3 } from './oauth-durable-upload.js';
+import { writeDurableFileSync } from '../../storage/durable-fs.js';
 
 export const EnableAccountSessionSchema = z.object({
   sessionId: z.string().min(1).optional(),
@@ -80,10 +80,7 @@ export class FileEnableSessionStore implements EnableSessionStore {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    const tmp = `${filePath}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(sessions, null, 2), 'utf-8');
-    fs.renameSync(tmp, filePath);
-    uploadOAuthDurableStateToS3('enable-sessions');
+    writeDurableFileSync(filePath, JSON.stringify(sessions, null, 2));
   }
 }
 

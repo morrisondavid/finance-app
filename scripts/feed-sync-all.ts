@@ -23,6 +23,10 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (result.state === 'started') {
+    return;
+  }
+
   if (result.state === 'deduped') {
     console.log(
       `[feed:sync-all] deduped — last run ${result.run.finishedAt} outcome=${result.run.outcome}`,
@@ -38,10 +42,14 @@ async function main(): Promise<void> {
   );
 
   for (const row of run.accounts) {
-    if (row.status === 'ok') {
+    if (row.status === 'ingested') {
       console.log(
-        `  ${row.account}: ok rows=${String(row.rowsFetched)} skipped=${String(row.skipped)}`,
+        `  ${row.account}: ingested rows=${String(row.rowsFetched)}`,
       );
+    } else if (row.status === 'unchanged') {
+      console.log(`  ${row.account}: unchanged ${row.reason} rows=${String(row.rowsFetched)}`);
+    } else if (row.status === 'skipped') {
+      console.log(`  ${row.account}: skipped ${row.reason}`);
     } else if (row.status === 'failed') {
       console.error(`  ${row.account}: failed ${row.code ?? ''} ${row.error}`);
     }

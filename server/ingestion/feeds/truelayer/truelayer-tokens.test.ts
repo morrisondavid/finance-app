@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
+import { REPO_ROOT } from '../../../repo-root.js';
 import {
   resolveTrueLayerRefreshToken,
   resolveTrueLayerRefreshTokenSource,
@@ -9,27 +9,35 @@ import {
   setTrueLayerRefreshToken,
 } from './truelayer-tokens.js';
 
-const uploadOAuthMock = vi.fn();
+const uploadMock = vi.fn().mockResolvedValue(undefined);
 
-vi.mock('../oauth-durable-upload.js', () => ({
-  uploadOAuthDurableStateToS3: (...args: unknown[]) => uploadOAuthMock(...args),
-}));
+vi.mock('../../../storage/s3-durable-sync.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../storage/s3-durable-sync.js')>(
+    '../../../storage/s3-durable-sync.js',
+  );
+  return {
+    ...actual,
+    uploadDurableRelPathsToS3: (...args: unknown[]) => uploadMock(...args),
+  };
+});
 
 describe('resolveTrueLayerRefreshToken', () => {
-  let tmpDir: string;
+  let tokenPath: string;
   let prevEnv: string | undefined;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-tokens-'));
+    tokenPath = path.join(REPO_ROOT, 'data', `.vitest-tl-tokens-${String(Date.now())}.json`);
     prevEnv = process.env.TRUELAYER_TOKENS_PATH;
-    process.env.TRUELAYER_TOKENS_PATH = path.join(tmpDir, 'tokens.json');
-    uploadOAuthMock.mockClear();
+    process.env.TRUELAYER_TOKENS_PATH = tokenPath;
+    uploadMock.mockClear();
   });
 
   afterEach(() => {
     if (prevEnv === undefined) delete process.env.TRUELAYER_TOKENS_PATH;
     else process.env.TRUELAYER_TOKENS_PATH = prevEnv;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    if (fs.existsSync(tokenPath)) {
+      fs.unlinkSync(tokenPath);
+    }
   });
 
   it('returns own token when present', () => {
@@ -56,9 +64,15 @@ describe('resolveTrueLayerRefreshToken', () => {
     expect(resolveTrueLayerRefreshToken('barclays-savings')).toBe('savings-rt');
   });
 
-  it('uploads OAuth durable state after persisting a refresh token', () => {
+  it('auto-uploads token file after persisting a refresh token', async () => {
     setTrueLayerRefreshToken('barclays-current', 'persist-me');
-    expect(uploadOAuthMock).toHaveBeenCalledWith('truelayer-tokens');
+    await new Promise<void>(resolve => {
+      setTimeout(resolve, 0);
+    });
+    expect(uploadMock).toHaveBeenCalledWith(
+      [path.relative(REPO_ROOT, tokenPath).split(path.sep).join('/')],
+      'data',
+    );
   });
 
   it('removeTrueLayerRefreshToken deletes the owning token row only', () => {
@@ -68,6 +82,5 @@ describe('resolveTrueLayerRefreshToken', () => {
     expect(resolveTrueLayerRefreshToken('barclays-savings')).toBeUndefined();
     expect(resolveTrueLayerRefreshToken('barclays-current')).toBeUndefined();
     expect(resolveTrueLayerRefreshToken('natwest')).toBe('natwest-rt');
-    expect(uploadOAuthMock).toHaveBeenCalledWith('truelayer-tokens');
   });
 });

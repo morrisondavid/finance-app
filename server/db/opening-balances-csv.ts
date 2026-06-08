@@ -10,7 +10,7 @@ import { AccountNameSchema } from '../../shared/api-contracts.js';
 import { escapeCsvField } from '../utils/csv-helpers.js';
 import { createCsvDecoders, readCsvRecords } from '../utils/csv-decoders.js';
 import { recomputeAndPersistDataManifest } from '../data-manifest.js';
-import { uploadDurableRelPathsToS3 } from '../storage/s3-durable-sync.js';
+import { writeDurableFileSync } from '../storage/durable-fs.js';
 
 /**
  * Default path: `data/opening-balances.csv`. Tests may set
@@ -101,9 +101,7 @@ export function writeOpeningBalancesCsv(
       ].join(','),
     );
   }
-  const tmp = `${csvPath}.tmp`;
-  fs.writeFileSync(tmp, `${lines.join('\n')}\n`, 'utf-8');
-  fs.renameSync(tmp, csvPath);
+  writeDurableFileSync(csvPath, `${lines.join('\n')}\n`);
 }
 
 export function ensureOpeningBalancesCsvExists(): OpeningBalanceRow[] {
@@ -179,5 +177,4 @@ export function upsertOpeningBalanceRowAndPersist(
       updated_at = CURRENT_TIMESTAMP
   `).run(account, openingBalance, openingBalanceDate ?? null);
   recomputeAndPersistDataManifest();
-  void uploadDurableRelPathsToS3(['data/opening-balances.csv', 'data/manifest.json'], 'opening-balance');
 }

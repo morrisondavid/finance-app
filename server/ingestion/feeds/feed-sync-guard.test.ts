@@ -18,12 +18,14 @@ function scheduledResult(at: string): RunScheduledFeedSyncAllResult {
     lastRunKind: 'scheduled',
     lookbackDays: 3,
     accounts: [
-      {
-        account: 'barclays-current',
-        status: 'ok',
-        rowsFetched: 1,
-        skipped: false,
-      },
+        {
+          account: 'barclays-current',
+          status: 'ingested',
+          rowsFetched: 1,
+          window: { dateFrom: '2026-06-05', dateTo: '2026-06-08' },
+          ingestOutcome: 'ingested',
+          initDatabaseRan: true,
+        },
     ],
   };
   return {
@@ -84,6 +86,52 @@ describe('feed-sync-guard', () => {
     expect(runScheduled).toHaveBeenCalledOnce();
   });
 
+  it('returns started immediately when detached while work continues', async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const runScheduled = vi.fn(async () => {
+      await gate;
+      return scheduledResult(now.toISOString());
+    });
+
+    const started = await runFeedSyncAllGuarded({
+      trigger: 'manual',
+      repoRoot: tmpRoot,
+      detached: true,
+      deps: {
+        clock: { now: clockNow },
+        runScheduled,
+        uploadRuns: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    expect(started.state).toBe('started');
+    if (started.state !== 'started') {
+      return;
+    }
+
+    const blocked = await runFeedSyncAllGuarded({
+      trigger: 'manual',
+      repoRoot: tmpRoot,
+      deps: { clock: { now: clockNow } },
+    });
+    expect(blocked.state).toBe('in-progress');
+
+    release?.();
+    await new Promise<void>(resolve => {
+      setTimeout(resolve, 0);
+    });
+    await new Promise<void>(resolve => {
+      setTimeout(resolve, 0);
+    });
+
+    expect(runScheduled).toHaveBeenCalledOnce();
+    const log = readFeedSyncRunLog(tmpRoot);
+    expect(log.runs).toHaveLength(1);
+  });
+
   it('returns in-progress while a run is active', async () => {
     let release: (() => void) | undefined;
     const gate = new Promise<void>(resolve => {
@@ -134,6 +182,96 @@ describe('feed-sync-guard', () => {
     expect(log.runs).toHaveLength(1);
     expect(log.runs[0]?.trigger).toBe('scheduled');
     expect(log.runs[0]?.outcome).toBe('ok');
+  });
+
+  it('writes operational events with the same run id', async () => {
+    const { readFeedSyncEventsForRun } = await import('./feed-sync-event-log.js');
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const result = await runFeedSyncAllGuarded({
+      trigger: 'manual',
+      repoRoot: tmpRoot,
+      deps: {
+        clock: { now: clockNow },
+        runScheduled: async () => scheduledResult(now.toISOString()),
+        uploadRuns: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    expect(result.state).toBe('completed');
+    if (result.state !== 'completed') {
+      return;
+    }
+    const events = readFeedSyncEventsForRun(result.run.id, tmpRoot);
+    expect(events.some(event => event.kind === 'run_start')).toBe(true);
+    expect(events.some(event => event.kind === 'run_end')).toBe(true);
+    expect(events.every(event => event.runId === result.run.id)).toBe(true);
+  });
+
+  it('records errorStack when scheduled runner throws', async () => {
+    const { readFeedSyncEventsForRun } = await import('./feed-sync-event-log.js');
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await runFeedSyncAllGuarded({
+      trigger: 'scheduled',
+      repoRoot: tmpRoot,
+      deps: {
+        clock: { now: clockNow },
+        runScheduled: async () => {
+          throw new Error('scheduled runner exploded');
+        },
+        uploadRuns: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    expect(result.state).toBe('completed');
+    if (result.state !== 'completed') {
+      return;
+    }
+    expect(result.run.outcome).toBe('failed');
+    expect(result.run.error).toBe('scheduled runner exploded');
+    expect(result.run.errorStack).toContain('Error: scheduled runner exploded');
+
+    const events = readFeedSyncEventsForRun(result.run.id, tmpRoot);
+    expect(events.some(event => event.kind === 'run_fatal')).toBe(true);
+  });
+
+  it('records no_op when sync ran but nothing ingested', async () => {
+    const runScheduled = vi.fn(async () => ({
+      status: {
+        lastRunAt: now.toISOString(),
+        lastRunKind: 'scheduled' as const,
+        lookbackDays: 3,
+        accounts: [
+          {
+            account: 'barclays-current' as const,
+            status: 'unchanged' as const,
+            reason: 'duplicate_csv',
+            rowsFetched: 2,
+            window: { dateFrom: '2026-06-05', dateTo: '2026-06-08' },
+          },
+        ],
+      },
+      hadLinkedFailure: false,
+      syncedCount: 1,
+      skippedUnlinkedCount: 0,
+    }));
+
+    const result = await runFeedSyncAllGuarded({
+      trigger: 'manual',
+      repoRoot: tmpRoot,
+      deps: {
+        clock: { now: clockNow },
+        runScheduled,
+        uploadRuns: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    expect(result.state).toBe('completed');
+    if (result.state === 'completed') {
+      expect(result.run.outcome).toBe('no_op');
+    }
   });
 });
 

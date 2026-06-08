@@ -7,9 +7,7 @@ import type { WarningUserState, WarningUserStateUpsertBody } from '../../../shar
 import { recomputeAndPersistDataManifest } from '../../data-manifest.js';
 import {
   exportWarningUserStateFromDbToCsv,
-  WARNING_USER_STATE_CSV_RELATIVE,
 } from '../warning-user-state-csv.js';
-import { uploadDurableRelPathsToS3 } from '../../storage/s3-durable-sync.js';
 
 export interface WarningUserStateRow {
   readonly fingerprint: string;
@@ -74,8 +72,4 @@ export function upsertWarningUserState(db: Database.Database, input: WarningUser
 
   exportWarningUserStateFromDbToCsv(db);
   recomputeAndPersistDataManifest();
-  void uploadDurableRelPathsToS3(
-    [WARNING_USER_STATE_CSV_RELATIVE, 'data/manifest.json'],
-    'warning-user-state',
-  );
 }

@@ -16,6 +16,7 @@ export const DURABLE_TOP_LEVEL_DIRS = [
   'working-days',
   'reserves',
   'invoices',
+  'debt-strategy',
 ] as const;
 
 export type DurableTopLevelDir = (typeof DURABLE_TOP_LEVEL_DIRS)[number];
@@ -32,8 +33,7 @@ export const DURABLE_DATA_CSV_RELATIVE_PATHS = [
 /**
  * Basenames under `data/` excluded from S3 sync (SQLite artefacts only —
  * rebuilt from CSVs, never authoritative in the bucket).
- * OAuth token files are uploaded via {@link ../ingestion/feeds/oauth-durable-upload.ts}
- * on write and pulled by `09-docker-run-production.sh`.
+ * OAuth token files auto-upload via {@link ./durable-fs.ts} on write and are pulled by `09-docker-run-production.sh`.
  */
 export const DATA_SYNC_EXCLUDED_BASENAMES = new Set<string>([
   'transactions.db',

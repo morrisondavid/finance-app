@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { REPO_ROOT } from './repo-root.js';
+import { writeDurableFileSync } from './storage/durable-fs.js';
 import {
   DATA_DIGEST_SKIP_BASENAMES,
   DURABLE_DATA_CSV_RELATIVE_PATHS,
@@ -93,17 +94,14 @@ export function readPersistedManifest(): DataManifestFile | null {
 }
 
 export function persistDataManifest(digest: string): void {
-  const dir = path.dirname(DATA_MANIFEST_PATH);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
   const payload: DataManifestFile = {
     digest,
     computedAt: new Date().toISOString(),
   };
-  const tmp = `${DATA_MANIFEST_PATH}.tmp`;
-  fs.writeFileSync(tmp, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
-  fs.renameSync(tmp, DATA_MANIFEST_PATH);
+  writeDurableFileSync(
+    DATA_MANIFEST_PATH,
+    `${JSON.stringify(payload, null, 2)}\n`,
+  );
 }
 
 /**

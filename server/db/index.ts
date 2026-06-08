@@ -51,6 +51,7 @@ import { loadDeadlinesFromCsv } from './repositories/deadlines.js';
 import { syncContractRenewalDeadlines } from '../domain/contracts/deadline-seeder.js';
 import { maybeCaptureNetWorthSnapshots } from '../domain/net-worth/snapshot.js';
 import { loadWarningUserStateFromCsvIntoDb } from './warning-user-state-csv.js';
+import { setDurableUploadsSuppressed } from '../storage/durable-fs.js';
 
 // Re-export from connection
 export { 
@@ -139,6 +140,15 @@ function runSchemaMigrations(): void {
 export async function initDatabase(): Promise<void> {
   console.log('[Database] Initializing...');
 
+  setDurableUploadsSuppressed(true);
+  try {
+    await initDatabaseInner();
+  } finally {
+    setDurableUploadsSuppressed(false);
+  }
+}
+
+async function initDatabaseInner(): Promise<void> {
   // Validate the declared-obligations registry ownership splits early —
   // misconfigured rental shares would otherwise silently skew SA estimates.
   const {

@@ -22,9 +22,10 @@ cp config.example.sh config.sh   # first time only
 - **`data/transactions.db`** (and `-wal`/`-shm`) are **not** sources of truth and **must not** be treated as backup objects in S3. The host **`09`** script **`--exclude`s** `transactions.db*` on **`data/`** sync and **`rm -f`s** any local SQLite files under the bind mount before starting Docker so the container always rebuilds the DB from CSVs. **`12-s3-seed-durable-from-local.sh`** also excludes `transactions.db*` from upload.
 - **One-time bucket hygiene:** if older syncs left **`…/data/transactions.db*`** in the bucket, remove them so nobody restores SQLite by mistake (ops task; not automated).
 - **Pull / run:** [`09-docker-run-production.sh`](09-docker-run-production.sh) prefetch **`docker pull`**s, stops **`bank`** (**`docker rm -f bank`** so SQLite releases files on mounts), runs **`aws s3 sync … --delete`** from S3 **per durable top-level folder** under **`/opt/bank-app`** (same trees as **`DURABLE_TOP_LEVEL_DIRS`** in [`server/storage/durable-paths.ts`](../server/storage/durable-paths.ts) plus **`data/`**), then **`docker pull`** again and **`docker run --pull=always`**. The instance **needs [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)** on PATH; IAM uses the instance profile. **`--delete`** removes files under those subtrees only if they were removed remotely (nothing under **`/opt/bank-app/secrets/`** — not in sync list — is touched by sync).
-- **OAuth token durability:** **`data/truelayer-tokens.local.json`**, **`data/enable-sessions.json`**, and **`data/truelayer-account-links.csv`** are **uploaded to S3** on connect / token rotation via [`oauth-durable-upload.ts`](../server/ingestion/feeds/oauth-durable-upload.ts) when **`BANK_S3_DURABLE_BUCKET`** is set, and **restored on deploy** by **`09`** (`aws s3 sync` on **`data/`**). **`12-s3-seed-durable-from-local.sh`** still **excludes** OAuth JSON from laptop → S3 so empty local files never overwrite production tokens.
+- **OAuth token durability:** **`data/truelayer-tokens.local.json`**, **`data/enable-sessions.json`**, **`data/truelayer-account-links.csv`**, and **`data/enable-account-links.csv`** auto-upload on write (same primitive as other durable files) when **`BANK_S3_DURABLE_BUCKET`** is set, and **restore on deploy** via **`09`** (`aws s3 sync` on **`data/`**). **`12-s3-seed-durable-from-local.sh`** still **excludes** OAuth JSON from laptop → S3 so empty local files never overwrite production tokens.
 - **Portable financial CSVs are not portable live OAuth session state:** if you run multiple app instances (Lambda/Fargate, `desiredCount > 1`), you need a **single shared, strongly consistent store** for refresh tokens (S3 conditional writes, DynamoDB, etc.) — see **Multi-instance Enable Banking** below.
-- **Push:** when **`BANK_S3_DURABLE_BUCKET`** is set, the Node process **uploads only the repo paths touched** by a mutation (CSV ingest, feed sync, opening-balance updates, warning user-state CSV, OAuth connect, etc.), plus **`data/manifest.json`** after a full rebuild, via `@aws-sdk` PutObject. There is **no** periodic or shutdown bulk push. Omit the bucket env on your laptop → no pushes during dev.
+- **Push:** when **`BANK_S3_DURABLE_BUCKET`** is set, every production write under a durable root goes through [`writeDurableFileSync`](../server/storage/durable-fs.ts) (via [`atomicWriteCsv`](../server/utils/csv-helpers.ts) and direct JSON/CSV writers). That **automatically uploads the touched file** to S3 via `@aws-sdk` PutObject. **`initDatabase`** suppresses uploads during bootstrap (deterministic seeder/matcher writes); **post-startup mutations always upload**. Batched paths (statement/invoice PDF bundles, feed-sync run log + events) still use explicit multi-path uploads where one operation touches many files. Omit the bucket env on your laptop → no pushes during dev.
+- **Recovery:** **`09`** makes S3 authoritative on deploy (`aws s3 sync … --delete`). If disk had newer edits that were **never uploaded**, restoring from the current bucket **will not** bring them back — S3 holds the stale copy. After this fix ships, verify **`[S3Sync] Upload`** in logs on mutation before redeploying; S3 versioning only helps if an object was uploaded after your edits.
 
 **Container init:** **`09`** sets **`BANK_STATEMENTS_SKIP_INIT_WHEN_MANIFEST_UNCHANGED=0`** so production always runs a **full SQLite rebuild** after sync (deterministic from files), regardless of manifest digest shortcuts that are useful on dev machines.
 
@@ -87,7 +88,7 @@ Requires buckets from `./01-s3-buckets.sh` and AWS CLI credentials (same profile
 - **ECR digest:** **`[09] Registry digest for …`** line — compare to your laptop’s **`docker image inspect <image> --format '{{index .RepoDigests 0}}'`** after push, or the ECR console manifest for the tag you run.
 - **Optional guard:** set **`BANK_EXPECT_SOURCE_SHA256`** (64-char hex) in **`production-env.local.sh`**; **`09`** **`docker pull`** then **`docker run --rm … node -e …`** verifies **`/app/dist/source-hash.json`** before S3 sync and starting the **`bank`** container. See [`production-env.local.example.sh`](production-env.local.example.sh).
 
-Optional legacy cron: **`11-s3-sync-push.sh`** only synced `data/` + `statements/` to legacy bucket layouts; **`09`** + targeted SDK uploads mirror the **full durable tree** under **`BANK_S3_DURABLE_PREFIX`** for new installs.
+Optional legacy cron: **`11-s3-sync-push.sh`** is **deprecated/incomplete** — it only pushed `data/` + `statements/` to legacy bucket layouts and missed obligations, budgets, debts, etc. Do **not** rely on it. Durable state is pushed automatically on mutation via **`writeDurableFileSync`**; deploy pulls the full tree with **`09`**.
 
 ### Scheduled bank feed sync (16:00 + 23:00 Europe/London)
 
@@ -96,9 +97,10 @@ Automated TrueLayer/Enable sync runs **inside the app process** via **`node-cron
 | Piece | Location |
 |-------|----------|
 | Scheduler | [`server/ingestion/feeds/feed-sync-scheduler.ts`](../../server/ingestion/feeds/feed-sync-scheduler.ts) — started from [`server/index.ts`](../../server/index.ts) |
-| Guarded entry | [`server/ingestion/feeds/feed-sync-guard.ts`](../../server/ingestion/feeds/feed-sync-guard.ts) — lock + cooldown |
-| Manual / fallback CLI | `scripts/feed-sync-all.ts` (same guarded path) |
+| Guarded entry | [`server/ingestion/feeds/feed-sync-guard.ts`](../../server/ingestion/feeds/feed-sync-guard.ts) — lock + cooldown; manual HTTP uses **detached** mode (returns **202** immediately) |
+| Manual / fallback CLI | `scripts/feed-sync-all.ts` (same guarded path, blocking) |
 | Run history | `data/feed-sync-runs.json` → **Logs** tab (`GET /api/feed/sync-runs`) |
+| Operational log | `data/feed-sync-events.jsonl` → **Logs** tab “Show details” (`GET /api/feed/sync-runs/:runId/events`); each line also mirrored to container stdout (`docker logs bank`) |
 | Last run / warnings | `data/feed-sync-scheduled-status.json` → Warnings tab (`feed-sync-scheduled-failed`, `feed-sync-overdue`) |
 
 **Env (container):**
@@ -107,11 +109,13 @@ Automated TrueLayer/Enable sync runs **inside the app process** via **`node-cron
 - **`FEED_SYNC_COOLDOWN_SECONDS`** — default **60**; prevents duplicate sync-all within the cooldown window (scheduler + manual button + CLI share this).
 - **`FEED_SYNC_LOOKBACK_DAYS`** — default **3** (1–14).
 
+**Behaviour:** sync-all loops linked accounts sequentially. CSV ingest runs per account, but **`initDatabase()` runs once at the end** of the run (only if at least one account ingested new data) — not after every account. That keeps the web server responsive during long fetches. Manual **Logs → Sync all now** calls **`POST /api/feed/sync-all`**, which returns **`202 { state: "started", runId, startedAt }`** immediately; the UI polls **`GET /api/feed/sync-runs`** until the run appears in history. Scheduled runs use the same engine (blocking inside the process, but no HTTP client waits).
+
 **Manual test:**
 
 ```bash
 docker exec bank npx tsx /app/scripts/feed-sync-all.ts
-# or use the Logs tab → "Sync all now" (POST /api/feed/sync-all)
+# or use the Logs tab → "Sync all now" (POST /api/feed/sync-all → 202, poll run history)
 ```
 
 **App code updates:** rebuild with **`07`**, run **`09`** — the new image picks up schedule + logging on container start.
@@ -123,7 +127,7 @@ crontab -l | grep -v 'bank-feed-sync-all' | crontab -
 # or: crontab -r   # only if this was the only entry
 ```
 
-Host log file **`/var/log/bank-feed-sync.log`** is no longer written by the app; use the **Logs** tab or `data/feed-sync-runs.json` instead.
+Host log file **`/var/log/bank-feed-sync.log`** is no longer written by the app; use the **Logs** tab (summary + “Show details” for stacks and pipeline steps), **`data/feed-sync-runs.json`**, or **`data/feed-sync-events.jsonl`**. Container stdout still receives `[feed-sync]` lines for `docker logs`.
 
 ### Multi-instance Enable Banking (future)
 
@@ -210,7 +214,7 @@ On the **server** (after `cd ~/bank-deploy-aws`):
 
 If **`aws s3 sync`** in **09** reports **`Permission denied`** under **`/opt/bank-app`**, the mounts had **root-owned** files left by Docker while sync runs as **`ec2-user`**. Current **09** runs **`sudo chown -R ec2-user:ec2-user /opt/bank-app`** before sync; on an older copy of the script, fix once with that **`chown`**, then re-run **09**.
 
-Optional backup cron: **`11-s3-sync-push.sh`** (needs instance profile / AWS creds on host).
+Optional backup cron: **`11-s3-sync-push.sh`** is deprecated (see S3 durable state above). Prefer relying on automatic mutation uploads + **`09`** pull on deploy.
 
 ## Enable Banking (registration, ASPSPs, Barclays live feed)
 

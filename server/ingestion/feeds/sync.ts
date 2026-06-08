@@ -43,6 +43,7 @@ import {
   durableRelPathsAfterCsvIngest,
   type IngestResult,
 } from '../ingest-csv-file.js';
+import type { FeedSyncRunLogger } from './feed-sync-event-log.js';
 import { fetchEnableTransactions as defaultFetchEnableTransactions } from './enable-banking.js';
 import { fetchTrueLayerTransactions as defaultFetchTrueLayerTransactions } from './truelayer/truelayer-transactions.js';
 import { TrueLayerError } from './truelayer/truelayer-error.js';
@@ -259,6 +260,8 @@ export interface RunFeedSyncOptions {
   readonly dateTo?: string;
   readonly force?: boolean;
   readonly lookbackDays?: number;
+  /** When true, skip per-account DB rebuild (sync-all batches one rebuild at end). */
+  readonly deferDbReinit?: boolean;
 }
 
 export interface RunFeedSyncDeps {
@@ -278,6 +281,8 @@ export interface RunFeedSyncDeps {
   readonly findLatestCsvDate?: (account: AccountName, parser: BankParser) => string | null;
   /** Override the temp-dir factory (tests redirect to a temp folder they own). */
   readonly tmpDir?: () => string;
+  /** Operational event logger (sync-all runs only). */
+  readonly runLogger?: FeedSyncRunLogger;
 }
 
 /**
@@ -299,6 +304,7 @@ export async function runFeedSync(
   const tmpDirFn = deps.tmpDir ?? os.tmpdir;
   const findLatest = deps.findLatestCsvDate
     ?? ((acc: AccountName, p: BankParser) => findLatestCsvDate(acc, p, statementsDir));
+  const runLogger = deps.runLogger;
 
   const linked = requireLinkedFeed(account);
 
@@ -314,6 +320,18 @@ export async function runFeedSync(
   );
 
   if (window.skipped) {
+    runLogger?.logEvent({
+      kind: 'window',
+      level: 'info',
+      message: `Window skipped: ${window.reason ?? 'already_up_to_date'}`,
+      account,
+      provider: linked.provider,
+      detail: {
+        dateFrom: window.dateFrom,
+        dateTo: window.dateTo,
+        skipped: true,
+      },
+    });
     return {
       account,
       skipped: true,
@@ -325,6 +343,19 @@ export async function runFeedSync(
       initDatabaseRan: false,
     };
   }
+
+  runLogger?.logEvent({
+    kind: 'window',
+    level: 'info',
+    message: `Fetch window ${window.dateFrom} → ${window.dateTo}`,
+    account,
+    provider: linked.provider,
+    detail: {
+      dateFrom: window.dateFrom,
+      dateTo: window.dateTo,
+      skipped: false,
+    },
+  });
 
   const feedCurrency = linked.feedCurrency;
 
@@ -366,6 +397,14 @@ export async function runFeedSync(
   // the rest of the pipeline rather than emit an empty file that would
   // pollute `_originals/` with zero-row evidence.
   if (internal.rows.length === 0) {
+    runLogger?.logEvent({
+      kind: 'fetch_ok',
+      level: 'info',
+      message: 'Bank returned no transactions in window',
+      account,
+      provider: linked.provider,
+      detail: { rowsFetched: 0 },
+    });
     return {
       account,
       skipped: false,
@@ -390,6 +429,15 @@ export async function runFeedSync(
   }
   const csv = linked.parser.emitFeedTransactionsAsCsv(internal);
 
+  runLogger?.logEvent({
+    kind: 'fetch_ok',
+    level: 'info',
+    message: `Fetched ${String(internal.rows.length)} transaction(s) from ${linked.provider}`,
+    account,
+    provider: linked.provider,
+    detail: { rowsFetched: internal.rows.length },
+  });
+
   const fileName = `feed_${window.dateFrom}_${window.dateTo}.csv`;
   const tmpPath = path.join(tmpDirFn(), fileName);
   fs.writeFileSync(tmpPath, csv, 'utf-8');
@@ -402,25 +450,78 @@ export async function runFeedSync(
     statementsDir,
   );
 
+  if (ingestResult.outcome === 'duplicate') {
+    runLogger?.logEvent({
+      kind: 'ingest',
+      level: 'warn',
+      message: `Duplicate CSV — matches existing original ${ingestResult.originalName}`,
+      account,
+      provider: linked.provider,
+      detail: {
+        outcome: 'duplicate',
+        originalName: ingestResult.originalName,
+        existingPath: ingestResult.existingPath,
+        rowsFetched: internal.rows.length,
+      },
+    });
+  } else if (ingestResult.outcome === 'invalid') {
+    runLogger?.logEvent({
+      kind: 'ingest',
+      level: 'error',
+      message: 'CSV failed validation during ingest',
+      account,
+      provider: linked.provider,
+      detail: {
+        outcome: 'invalid',
+        errorCount: ingestResult.errors.length,
+      },
+    });
+  } else if (ingestResult.outcome === 'ingested') {
+    runLogger?.logEvent({
+      kind: 'ingest',
+      level: 'info',
+      message: 'CSV ingested and database refreshed',
+      account,
+      provider: linked.provider,
+      detail: {
+        outcome: 'ingested',
+        rowsFetched: internal.rows.length,
+        initDatabaseRan: opts.deferDbReinit !== true,
+      },
+    });
+  }
+
   const partitionedFiles = ingestResult.outcome === 'ingested' && ingestResult.partition.deleted
     ? [...ingestResult.partition.filesCreated]
     : [];
 
   let initDatabaseRan = false;
   if (ingestResult.outcome === 'ingested') {
-    await dbReinit();
+    if (opts.deferDbReinit !== true) {
+      await dbReinit();
+      initDatabaseRan = true;
+    }
     const canonicalStatements =
       path.resolve(statementsDir) === path.resolve(STATEMENTS_DIR);
     if (canonicalStatements) {
       const rels = durableRelPathsAfterCsvIngest(account, ingestResult);
+      const uploadPaths =
+        opts.deferDbReinit === true ? rels : [...rels, 'data/manifest.json'];
       try {
-        await uploadDurableRelPathsToS3([...rels, 'data/manifest.json'], 'feed-sync');
+        await uploadDurableRelPathsToS3(uploadPaths, 'feed-sync');
       } catch (err) {
         console.error('[FeedSync] S3 durable upload failed:', err);
       }
     }
-    initDatabaseRan = true;
   }
+
+  const duplicateFields =
+    ingestResult.outcome === 'duplicate'
+      ? {
+          duplicateOriginalName: ingestResult.originalName,
+          duplicateExistingPath: ingestResult.existingPath,
+        }
+      : {};
 
   return {
     account,
@@ -431,5 +532,6 @@ export async function runFeedSync(
     ingestOutcome: ingestResult.outcome,
     partitionedFiles,
     initDatabaseRan,
+    ...duplicateFields,
   };
 }

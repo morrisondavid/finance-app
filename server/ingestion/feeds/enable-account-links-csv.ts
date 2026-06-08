@@ -15,6 +15,7 @@ import {
   readCsvRecords,
 } from '../../utils/csv-decoders.js';
 import { recomputeAndPersistDataManifest } from '../../data-manifest.js';
+import { writeDurableFileSync } from '../../storage/durable-fs.js';
 
 export const ENABLE_ACCOUNT_LINKS_CSV = path.join(
   REPO_ROOT,
@@ -123,7 +124,5 @@ export function writeEnableAccountLinks(
       [escapeCsvField(acct), escapeCsvField(uid)].join(','),
     );
   }
-  const tmp = `${csvPath}.tmp`;
-  fs.writeFileSync(tmp, `${lines.join('\n')}\n`, 'utf-8');
-  fs.renameSync(tmp, csvPath);
+  writeDurableFileSync(csvPath, `${lines.join('\n')}\n`);
 }
