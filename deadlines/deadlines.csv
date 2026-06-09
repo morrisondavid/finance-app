@@ -1,7 +1,7 @@
 id,type,title,due_date,recurrence,notes,url,completed_date,updated_at
 companies-house-confirmation-statement,companies-house,Companies House confirmation statement,2026-11-01,annual,Filed annually via Companies House WebFiling. Adjust due_date to your company's actual made-up date; CH allows a 14-day filing window after that.,https://www.gov.uk/file-your-confirmation-statement-with-companies-house,,2026-04-21T00:00:00.000Z
 contract-renewal-dc-sow-2026,contract-renewal,Delta Capita renewal (Delta Capita · 01 Jan 2026–30 Apr 2026),2026-03-01,one-off,,,,2026-05-27T15:51:46.927Z
-contract-renewal-dc-sow-jun-2026,contract-renewal,Delta Capita renewal (Delta Capita · 01 May 2026–30 Jun 2026),2026-05-01,one-off,,,,2026-06-09T20:35:54.365Z
+contract-renewal-dc-sow-jun-2026,contract-renewal,Delta Capita renewal (Delta Capita · 01 May 2026–30 Jun 2026),2026-05-01,one-off,,,,2026-06-09T21:32:03.461Z
 contract-renewal-lf-2026-apr,contract-renewal,La Fosse renewal (La Fosse · 02 Mar 2026–30 Apr 2026),2026-03-31,one-off,,,,2026-05-27T15:51:46.929Z
 contract-renewal-lf-2026-mar,contract-renewal,La Fosse renewal (La Fosse · 06 Jan 2026–31 Mar 2026),2026-01-30,one-off,,,,2026-04-24T00:24:18.805Z
 contract-renewal-lf-2026-may,contract-renewal,La Fosse renewal (La Fosse · 01 May 2026–31 May 2026),2026-05-01,one-off,,,,2026-05-31T20:01:17.534Z

@@ -44,6 +44,11 @@ const DEFAULT_ROWS: readonly OpeningBalanceRow[] = [
   { account: 'capital-on-tap', openingBalance: 30000, openingBalanceDate: '2023-01-01' },
   { account: 'barclaycard', openingBalance: 9100, openingBalanceDate: '2023-07-01' },
   { account: 'barclays-current', openingBalance: 63035.54, openingBalanceDate: '2022-04-19' },
+  /**
+   * Barclays Savings tax-reserve account — £0 on 2024-01-01 per bank statement.
+   * Ledger must include all movements from that date (not only a partial export).
+   */
+  { account: 'barclays-savings', openingBalance: 0, openingBalanceDate: '2024-01-01' },
   { account: 'natwest', openingBalance: 3256.79, openingBalanceDate: '2021-01-03' },
   { account: 'natwest-savings', openingBalance: 0.32, openingBalanceDate: '2025-06-12' },
   { account: 'emirates-islamic', openingBalance: 0, openingBalanceDate: '2026-02-22' },
@@ -107,11 +112,19 @@ export function writeOpeningBalancesCsv(
 
 export function ensureOpeningBalancesCsvExists(): OpeningBalanceRow[] {
   const p = getOpeningBalancesCsvPath();
-  if (fs.existsSync(p)) {
-    return readOpeningBalancesFromCsv(p);
+  if (!fs.existsSync(p)) {
+    writeOpeningBalancesCsv(DEFAULT_ROWS, p);
+    return [...DEFAULT_ROWS];
   }
-  writeOpeningBalancesCsv(DEFAULT_ROWS, p);
-  return [...DEFAULT_ROWS];
+  const current = readOpeningBalancesFromCsv(p);
+  const present = new Set(current.map(r => r.account));
+  const missing = DEFAULT_ROWS.filter(r => !present.has(r.account));
+  if (missing.length === 0) {
+    return current;
+  }
+  const merged = [...current, ...missing];
+  writeOpeningBalancesCsv(merged, p);
+  return merged;
 }
 
 /**

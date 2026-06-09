@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { canonicalTrueLayerDebitPurchase } from '../ingestion/feeds/truelayer/truelayer-transaction-fixtures.js';
 import mbnaParser from './mbna.js';
 import { parseCSVFile } from './index.js';
 
@@ -72,6 +73,22 @@ describe('mbna parser', () => {
         amount: -25,
         type: 'income',
       });
+    });
+  });
+
+  describe('mapTrueLayerTransaction', () => {
+    it('maps TrueLayer card rows via the shared default mapper', () => {
+      const mapped = mbnaParser.mapTrueLayerTransaction!(canonicalTrueLayerDebitPurchase, {
+        currency: 'GBP',
+        resourceSegment: 'cards',
+      });
+      expect(mapped).toMatchObject({
+        currency: 'GBP',
+        date: '2026-04-15',
+        description: canonicalTrueLayerDebitPurchase.description,
+        externalId: canonicalTrueLayerDebitPurchase.transaction_id,
+      });
+      expect(Number.isFinite(mapped.amount)).toBe(true);
     });
   });
 

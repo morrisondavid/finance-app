@@ -201,6 +201,8 @@ async function initDatabaseInner(): Promise<void> {
 
   if (allowManifestSkip && shouldSkipFullDatabaseRebuild()) {
     console.log('[Database] Skipping full rebuild (data manifest digest unchanged).');
+    ensureOpeningBalancesCsvExists();
+    applyOpeningBalancesToDb(getDb(), readOpeningBalancesFromCsv());
     loadWarningUserStateFromCsvIntoDb(getDb());
     runSchemaMigrations();
     migrateObligationsIfNeeded();

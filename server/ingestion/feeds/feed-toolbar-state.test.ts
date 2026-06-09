@@ -142,6 +142,28 @@ describe('deriveFeedToolbarState', () => {
     });
   });
 
+  it('mbna (TrueLayer linked) → sync truelayer', () => {
+    const linked: LinkedFeed = {
+      config: ACCOUNT_CONFIG_DATA['mbna'],
+      parser: PARSERS['mbna'],
+      feedCurrency: 'GBP',
+      provider: 'truelayer',
+      trueLayer: { dataAccountId: 'tl-mbna-card-id' },
+    };
+    const state = deriveFeedToolbarState(
+      'mbna',
+      mockDeps({
+        requireLinkedFeedFn: () => linked,
+      }),
+    );
+    assertParses(state);
+    expect(state).toEqual({
+      kind: 'sync',
+      account: 'mbna',
+      activeProvider: 'truelayer',
+    });
+  });
+
   it('not-linked TrueLayer with configured dataAccountId → connect reconnect', () => {
     const base = ACCOUNT_CONFIG_DATA['monzo-joint'];
     const mockCfg: AccountConfig = {
