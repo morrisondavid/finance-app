@@ -28,6 +28,7 @@ vi.mock('../../db/repositories/balance.js', () => ({
     'emirates-islamic-gbp': { currentBalance: 0 },
     'emirates-islamic-usd': { currentBalance: 0 },
     'santander-everyday': { currentBalance: 0 },
+    mbna: { currentBalance: 9758.39 },
   })),
 }));
 vi.mock('../../db/repositories/obligations.js', () => ({

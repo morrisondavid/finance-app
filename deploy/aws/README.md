@@ -248,9 +248,9 @@ Discover **Barclays Business**: open the dump and locate the Barclays **business
 1. **`TRUELAYER_CLIENT_ID`** + **`TRUELAYER_CLIENT_SECRET`** on the container (see repo **`.env.example`**); **`TRUELAYER_AUTH_BASE`** / **`TRUELAYER_API_BASE`** default to TrueLayer production hosts when unset.
 2. Redirect allowlist: **`https://<your-domain>/api/feed/truelayer/callback`** must match **`TRUELAYER_REDIRECT_URL`** exactly (**`09-docker-run-production.sh`** passes this through from **`config.sh`** / **`production-env.local.sh`**).
 3. Console scopes (**`info`**, **`accounts`**, **`cards`**, **`balance`**, **`transactions`**, **`offline_access`**).
-4. **`POST /api/feed/truelayer/start`** → open **`url`** → callback persists **`data/truelayer-tokens.local.json`** and uploads to S3 (plus **`data/truelayer-account-links.csv`** when a single TL account or card is returned). Multi-resource: map rows in **`truelayer-account-links.csv`** manually (account ids for current/savings; card ids for **`barclaycard`** / **`santander-everyday`**).
+4. **`POST /api/feed/truelayer/start`** → open **`url`** → callback persists **`data/truelayer-tokens.local.json`** and uploads to S3 (plus **`data/truelayer-account-links.csv`** when a single TL account or card is returned). Multi-resource: map rows in **`truelayer-account-links.csv`** manually (account ids for current/savings; card ids for **`barclaycard`** / **`santander-everyday`** / **`mbna`**).
 
-**Link all TrueLayer-configured accounts (6 OAuth ceremonies, 8 ledger rows):**
+**Link all TrueLayer-configured accounts (7 OAuth ceremonies, 9 ledger rows):**
 
 | Start OAuth with | Provider | Map in `truelayer-account-links.csv` |
 |------------------|----------|--------------------------------------|
@@ -260,6 +260,7 @@ Discover **Barclays Business**: open the dump and locate the Barclays **business
 | `wise-ltd` | `ob-transferwise` | `wise-ltd` |
 | `barclaycard` | `ob-barclaycard` | `barclaycard` (cards API) |
 | `santander-everyday` | `ob-santander-personal` | `santander-everyday` (cards API) |
+| `mbna` | `ob-mbna` | `mbna` (cards API) |
 
 CSV-only (not on TrueLayer): **`capital-on-tap`**, **`emirates-islamic`**, **`emirates-islamic-gbp`**, **`emirates-islamic-usd`**.
 

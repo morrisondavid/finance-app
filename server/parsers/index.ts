@@ -7,6 +7,7 @@ import barclaycardParser from './barclaycard.js';
 import monzoParser from './monzo.js';
 import emiratesIslamicParser from './emirates-islamic.js';
 import santanderEverydayParser from './santander-everyday.js';
+import mbnaParser from './mbna.js';
 import wiseParser from './wise.js';
 import type { BankParser, ParserMap, Transaction, CSVRow } from '../types.js';
 import { isCreditCard, isValidAccountName } from '../domain/accounts/index.js';
@@ -28,7 +29,8 @@ export const PARSERS: ParserMap = {
   'emirates-islamic': emiratesIslamicParser,
   'emirates-islamic-gbp': emiratesIslamicParser,
   'emirates-islamic-usd': emiratesIslamicParser,
-  'santander-everyday': santanderEverydayParser
+  'santander-everyday': santanderEverydayParser,
+  'mbna': mbnaParser,
 };
 
 /**

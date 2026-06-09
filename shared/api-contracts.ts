@@ -50,7 +50,8 @@ export const AccountNameSchema = z.enum([
   'emirates-islamic',
   'emirates-islamic-gbp',
   'emirates-islamic-usd',
-  'santander-everyday'
+  'santander-everyday',
+  'mbna'
 ]);
 
 /**

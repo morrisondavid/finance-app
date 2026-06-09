@@ -50,6 +50,7 @@ const DEFAULT_ROWS: readonly OpeningBalanceRow[] = [
   { account: 'emirates-islamic-gbp', openingBalance: 0, openingBalanceDate: '2026-05-20' },
   { account: 'emirates-islamic-usd', openingBalance: 0, openingBalanceDate: null },
   { account: 'santander-everyday', openingBalance: 0, openingBalanceDate: '2025-03-19' },
+  { account: 'mbna', openingBalance: 10000, openingBalanceDate: null },
 ];
 
 function csvCell(raw: Record<string, unknown>, key: string): string | undefined {

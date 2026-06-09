@@ -94,13 +94,18 @@ describe('AccountConfigSchema integration', () => {
     expect(() => AccountConfigSchema.parse(enriched)).not.toThrow();
   });
 
-  it('Barclaycard and Santander Everyday still lack creditCard blocks; Capital on Tap is populated from facility agreement', () => {
+  it('Barclaycard and Santander Everyday still lack creditCard blocks; Capital on Tap and MBNA are populated', () => {
     expect(ACCOUNT_CONFIG_DATA['barclaycard'].creditCard).toBeUndefined();
     expect(ACCOUNT_CONFIG_DATA['santander-everyday'].creditCard).toBeUndefined();
     expect(ACCOUNT_CONFIG_DATA['capital-on-tap'].creditCard).toEqual({
       standardApr: 0.0718,
       minPaymentPct: 0.1,
       minPaymentFloorGbp: 100,
+    });
+    expect(ACCOUNT_CONFIG_DATA['mbna'].creditCard).toEqual({
+      standardApr: 0.21726,
+      minPaymentPct: 0.025,
+      minPaymentFloorGbp: 25,
     });
   });
 

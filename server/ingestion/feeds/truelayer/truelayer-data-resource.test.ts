@@ -17,6 +17,7 @@ describe('trueLayerDataResourceSegment', () => {
   it('returns cards for credit-card ledger accounts', () => {
     expect(trueLayerDataResourceSegment('barclaycard')).toBe('cards');
     expect(trueLayerDataResourceSegment('santander-everyday')).toBe('cards');
+    expect(trueLayerDataResourceSegment('mbna')).toBe('cards');
     expect(trueLayerDataResourceSegment('capital-on-tap')).toBe('cards');
   });
 });

@@ -277,4 +277,32 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
       },
     },
   },
+  'mbna': {
+    name: 'mbna',
+    label: 'MBNA',
+    type: 'credit-card',
+    currency: 'GBP',
+    entityId: null,
+    category: 'personal',
+    canMakeOutgoingPayments: true,
+    excludeTransfersFromIncome: false,
+    showTaxLiabilities: false,
+    deployableForStrategy: false,
+    aispFeed: {
+      trueLayer: {
+        /** Confirm in TrueLayer Console Supported Providers (cards / AIS). */
+        providerId: 'ob-mbna',
+      },
+    },
+    /**
+     * Credit Card Agreement update letter (Apr 2025, effective 30 Jun 2025):
+     * standard simple APR 21.726% (Base Rate-linked), min payment higher of
+     * £25 or 2.5% of balance + interest/fees. Promo terms appear on statements.
+     */
+    creditCard: {
+      standardApr: 0.21726,
+      minPaymentPct: 0.025,
+      minPaymentFloorGbp: 25,
+    },
+  },
 };

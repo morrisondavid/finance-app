@@ -106,10 +106,20 @@ describe('allAccountBalancesForApi', () => {
       'emirates-islamic-gbp': { ...base, account: 'emirates-islamic-gbp' },
       'emirates-islamic-usd': { ...base, account: 'emirates-islamic-usd' },
       'santander-everyday': { ...base, account: 'santander-everyday', openingBalance: 0, currentBalance: -1 },
+      mbna: {
+        ...base,
+        account: 'mbna',
+        openingBalance: 10000,
+        transactionTotal: -241.61,
+        currentBalance: 9758.39,
+      },
     };
     const out = allAccountBalancesForApi(map);
     expect(out.barclaycard.balanceSemantics).toBe('credit-remaining');
     expect(out.natwest.balanceSemantics).toBe('cash');
     expect(out['santander-everyday'].balanceSemantics).toBe('debt-owed');
+    expect(out.mbna.balanceSemantics).toBe('credit-remaining');
+    expect(out.mbna.creditLimit).toBe(10000);
+    expect(out.mbna.debtOwed).toBe(241.61);
   });
 });

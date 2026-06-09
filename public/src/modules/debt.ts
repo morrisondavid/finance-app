@@ -55,7 +55,7 @@ function knownAccountNames(): string[] {
   const cfg = getState('accountConfig');
   return Object.keys(cfg).length > 0
     ? Object.keys(cfg)
-    : ['barclays-current', 'barclays-savings', 'capital-on-tap', 'barclaycard', 'natwest', 'monzo-joint', 'santander-everyday'];
+    : ['barclays-current', 'barclays-savings', 'capital-on-tap', 'barclaycard', 'natwest', 'monzo-joint', 'santander-everyday', 'mbna'];
 }
 
 function slugify(input: string): string {

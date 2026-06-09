@@ -69,6 +69,7 @@ const CURRENCY_BY_ACCOUNT: ReadonlyMap<AccountName, CurrencyCode> = new Map([
   ['monzo-joint', 'GBP'],
   ['emirates-islamic', 'AED'],
   ['santander-everyday', 'GBP'],
+  ['mbna', 'GBP'],
 ]);
 
 function preLoaded(over: Partial<LoadedForecastInputs> = {}): LoadedForecastInputs {

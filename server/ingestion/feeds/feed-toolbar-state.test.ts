@@ -125,6 +125,23 @@ describe('deriveFeedToolbarState', () => {
     });
   });
 
+  it('mbna (TrueLayer configured) → connect truelayer when not linked', () => {
+    const state = deriveFeedToolbarState(
+      'mbna',
+      mockDeps({
+        requireLinkedFeedFn: () => {
+          throw new FeedSyncError('not-linked', 'x');
+        },
+      }),
+    );
+    assertParses(state);
+    expect(state).toEqual({
+      kind: 'connect',
+      account: 'mbna',
+      connectProvider: 'truelayer',
+    });
+  });
+
   it('not-linked TrueLayer with configured dataAccountId → connect reconnect', () => {
     const base = ACCOUNT_CONFIG_DATA['monzo-joint'];
     const mockCfg: AccountConfig = {

@@ -23,7 +23,7 @@ describe('indexes.business', () => {
   });
 
   it('excludes every personal account', () => {
-    for (const name of ['natwest', 'natwest-savings', 'monzo-joint', 'santander-everyday']) {
+    for (const name of ['natwest', 'natwest-savings', 'monzo-joint', 'santander-everyday', 'mbna']) {
       expect(reg.indexes.business).not.toContain(name);
     }
   });
@@ -32,7 +32,7 @@ describe('indexes.business', () => {
 describe('indexes.personal', () => {
   it('includes every account with category === personal', () => {
     expect(reg.indexes.personal).toEqual(
-      expect.arrayContaining(['natwest', 'natwest-savings', 'monzo-joint', 'santander-everyday']),
+      expect.arrayContaining(['natwest', 'natwest-savings', 'monzo-joint', 'santander-everyday', 'mbna']),
     );
   });
 
@@ -195,7 +195,7 @@ describe('indexes.outgoingPaymentsCapable', () => {
 describe('indexes.creditCards', () => {
   it('includes every account with type === credit-card', () => {
     expect(reg.indexes.creditCards).toEqual(
-      expect.arrayContaining(['capital-on-tap', 'barclaycard', 'santander-everyday']),
+      expect.arrayContaining(['capital-on-tap', 'barclaycard', 'santander-everyday', 'mbna']),
     );
   });
 

@@ -73,7 +73,7 @@ describe('locked snapshot — payment account enumerations', () => {
 
   it('personalPaymentAccounts', () => {
     expect([...personalPaymentAccounts()].sort()).toEqual(
-      ['monzo-joint', 'natwest', 'santander-everyday'],
+      ['mbna', 'monzo-joint', 'natwest', 'santander-everyday'],
     );
   });
 
@@ -86,6 +86,7 @@ describe('locked snapshot — payment account enumerations', () => {
         'emirates-islamic',
         'emirates-islamic-gbp',
         'emirates-islamic-usd',
+        'mbna',
         'monzo-joint',
         'natwest',
         'santander-everyday',
@@ -97,7 +98,7 @@ describe('locked snapshot — payment account enumerations', () => {
 
 describe('locked snapshot — accountsForEntity', () => {
   const cases: readonly { scope: EntityId | null; expected: readonly string[] }[] = [
-    { scope: null, expected: ['monzo-joint', 'natwest', 'natwest-savings', 'santander-everyday'] },
+    { scope: null, expected: ['mbna', 'monzo-joint', 'natwest', 'natwest-savings', 'santander-everyday'] },
     {
       scope: 'autonize-it-ltd',
       expected: ['barclaycard', 'barclays-current', 'barclays-savings', 'capital-on-tap', 'wise-ltd'],
@@ -125,6 +126,7 @@ describe('locked snapshot — per-account predicates', () => {
       'emirates-islamic-gbp': 'autonize-it-fzco',
       'emirates-islamic-usd': 'autonize-it-fzco',
       'santander-everyday': null,
+      'mbna': null,
       'wise-ltd': 'autonize-it-ltd',
     };
     for (const a of ACCOUNTS) {
@@ -145,6 +147,7 @@ describe('locked snapshot — per-account predicates', () => {
       'emirates-islamic-gbp': true,
       'emirates-islamic-usd': true,
       'santander-everyday': false,
+      'mbna': false,
       'wise-ltd': true,
     };
     for (const a of ACCOUNTS) {
@@ -171,6 +174,7 @@ describe('locked snapshot — per-account predicates', () => {
       'emirates-islamic-gbp': false,
       'emirates-islamic-usd': false,
       'santander-everyday': true,
+      'mbna': true,
       'wise-ltd': false,
     };
     for (const a of ACCOUNTS) {
