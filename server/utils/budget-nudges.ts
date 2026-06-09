@@ -4,15 +4,13 @@
  * category. No DB, no Express — fully testable and reusable.
  */
 
-import { CATEGORY_CONFIG } from './categorizer.js';
 import type { CategoryName } from './categorizer.js';
 import type { RawTransaction, PipelineResult } from './recurring-pipeline.js';
-import { accumulationFromTxn, classifyTransactionSide, recurringKey } from './recurring-pipeline.js';
+import { buildRecurringExpenseKeySet, classifyAdHocExpense } from './ad-hoc-spend-classifier.js';
 import { expenseTxnMatchesMerchantModal } from './merchant-drill-search.js';
 import { round2 } from './math.js';
 import { getMerchantLogoUrl } from './merchant-logos.js';
 import type { Debt } from '../db/repositories/debts.js';
-import { transactionMatchesAnyActiveDebt } from '../domain/debts/match-transaction.js';
 
 export interface BudgetNudgeRow {
   merchant: string;
@@ -51,55 +49,33 @@ export function computeBudgetNudges(input: BudgetNudgesInput): BudgetNudgeRow[] 
   const minTotal = options?.minTotal ?? DEFAULT_MIN_TOTAL;
   const maxRows = options?.maxRows ?? DEFAULT_MAX_ROWS;
 
-  const recurringKeys = new Set<string>();
-  for (const e of pipeline.monthlyExpenseRecurring) {
-    recurringKeys.add(recurringKey(e));
-  }
-  for (const e of pipeline.annualExpenseRecurring) {
-    recurringKeys.add(recurringKey(e));
-  }
+  const recurringKeys = buildRecurringExpenseKeySet(pipeline);
 
   const buckets = new Map<string, MerchantBucket>();
 
   for (const txn of expenseTransactions) {
-    const side = classifyTransactionSide(txn);
-    if (side !== 'expense') continue;
-    if (
-      activeDebts !== undefined &&
-      activeDebts.length > 0 &&
-      transactionMatchesAnyActiveDebt(txn, activeDebts)
-    ) {
-      continue;
-    }
+    const adHoc = classifyAdHocExpense(txn, { recurringKeys, activeDebts });
+    if (adHoc === null) continue;
+    if (!expenseTxnMatchesMerchantModal(txn, adHoc.displayMerchant)) continue;
 
-    const acc = accumulationFromTxn(txn, 'expense');
-    if (!acc) continue;
-    if (!expenseTxnMatchesMerchantModal(txn, acc.displayMerchant)) continue;
-    if (recurringKeys.has(acc.key)) continue;
-    const catConfig = CATEGORY_CONFIG[acc.category];
-    if (!catConfig || !catConfig.budgetable) continue;
-
-    const absAmount = Math.abs(txn.amount);
-    const merchant = acc.displayMerchant;
-
-    let bucket = buckets.get(merchant);
+    let bucket = buckets.get(adHoc.displayMerchant);
     if (!bucket) {
       bucket = {
-        merchant,
+        merchant: adHoc.displayMerchant,
         totalSpend: 0,
         count: 0,
         lastDate: txn.date,
         categoryTotals: new Map(),
       };
-      buckets.set(merchant, bucket);
+      buckets.set(adHoc.displayMerchant, bucket);
     }
 
-    bucket.totalSpend += absAmount;
+    bucket.totalSpend += adHoc.absAmount;
     bucket.count += 1;
     if (txn.date > bucket.lastDate) bucket.lastDate = txn.date;
     bucket.categoryTotals.set(
-      acc.category,
-      (bucket.categoryTotals.get(acc.category) ?? 0) + absAmount,
+      adHoc.category,
+      (bucket.categoryTotals.get(adHoc.category) ?? 0) + adHoc.absAmount,
     );
   }
 

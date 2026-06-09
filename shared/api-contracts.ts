@@ -3518,6 +3518,8 @@ export const EntityFoundationWarningCodeSchema = z.enum([
   'tax-reserve-trajectory-missing',
   'tax-reserve-pool-underfunded',
   'ad-hoc-spend-escalating',
+  'category-spend-surge',
+  'discretionary-burn-elevated',
   'warning-improved',
   'warning-cleared',
   // §1.9 — Debt Strategy Advisor

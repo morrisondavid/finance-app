@@ -242,10 +242,17 @@ function rowForAccumulation(
       { description: txn.description, account, amount: txn.amount, type: txn.type },
       debts,
     );
-    // Mortgages only — consumer debts (BBL, BPF, etc.) keep the heuristic
-    // detector so gradually-drifting payments still cluster by amount bucket.
-    if (matchedDebt !== null && matchedDebt.kind === 'mortgage') {
-      category = 'Housing';
+    // Declaration-first for mortgages and exact-amount consumer debts. Amortizing
+    // loans with tolerance bands (e.g. BBL) stay on the heuristic detector so
+    // gradually-drifting payments still cluster by amount bucket. Exact-amount
+    // multi-loan creditors (e.g. two Barclays Partner Finance DDs) surface
+    // reliably without the heuristic staleness gate dropping the quieter stream.
+    if (
+      matchedDebt !== null
+      && matchedDebt.matchAmounts.length > 0
+      && (matchedDebt.kind === 'mortgage' || matchedDebt.matchTolerancePct === 0)
+    ) {
+      category = matchedDebt.kind === 'mortgage' ? 'Housing' : 'Debt Repayment';
       displayMerchant = matchedDebt.name;
       keyAmount = 0;
       debtId = matchedDebt.id;
@@ -622,8 +629,8 @@ function buildDeclaredDebtExpenseRows(
 
   for (const debt of debts) {
     if (debt.archived) continue;
-    if (debt.kind !== 'mortgage') continue;
     if (debt.matchAmounts.length === 0) continue;
+    if (debt.kind !== 'mortgage' && debt.matchTolerancePct !== 0) continue;
 
     const accumulator = declaredByDebtId.get(debt.id);
     if (accumulator === undefined) continue;
@@ -658,7 +665,7 @@ function buildDeclaredDebtExpenseRow(
   sourceAccount: string,
 ): RecurringExpense {
   const monthlyAmount = debt.matchAmounts[0];
-  const category: CategoryName = 'Housing';
+  const category: CategoryName = debt.kind === 'mortgage' ? 'Housing' : 'Debt Repayment';
   const billingDayOfMonth = resolveRentalBillingDay(accumulator);
 
   return {

@@ -754,6 +754,108 @@ describe('buildRecurringPipeline', () => {
     ).toBe(false);
   });
 
+  it('emits both Barclays Partner Finance bathroom loans even when the quieter DD is stale to the heuristic', () => {
+    function bathroomLoanA(): Debt {
+      return {
+        id: 'bathroom-loan-a',
+        name: 'Bathroom Loan (A)',
+        merchantPattern: 'Barclays Partner Finance',
+        sourceAccounts: ['monzo-joint'],
+        originalLoanAmount: 9191.26,
+        originalLoanDate: null,
+        openingBalance: 3850.2,
+        openingBalanceDate: '2026-04-19',
+        archived: false,
+        matchAmounts: [232.22],
+        matchTolerancePct: 0,
+        kind: 'consumer',
+        interestRate: null,
+        fixedRateEndDate: null,
+        repaymentType: null,
+        propertyValueEstimate: null,
+        propertyId: null,
+        updatedAt: '2026-01-01',
+      };
+    }
+
+    function bathroomLoanB(): Debt {
+      return {
+        id: 'bathroom-loan-b',
+        name: 'Bathroom Loan (B)',
+        merchantPattern: 'Barclays Partner Finance',
+        sourceAccounts: ['monzo-joint'],
+        originalLoanAmount: 7917.04,
+        originalLoanDate: null,
+        openingBalance: 3678.52,
+        openingBalanceDate: '2026-04-19',
+        archived: false,
+        matchAmounts: [192.66],
+        matchTolerancePct: 0,
+        kind: 'consumer',
+        interestRate: null,
+        fixedRateEndDate: null,
+        repaymentType: null,
+        propertyValueEstimate: null,
+        propertyId: null,
+        updatedAt: '2026-01-01',
+      };
+    }
+
+    const pairs: Array<[number, string]> = [
+      [232.22, '2026-04-08'],
+      [192.66, '2026-03-12'],
+      [232.22, '2026-03-04'],
+      [192.66, '2026-02-12'],
+      [232.22, '2026-02-04'],
+      [192.66, '2026-01-13'],
+      [232.22, '2026-01-06'],
+      [192.66, '2025-12-12'],
+      [232.22, '2025-12-04'],
+      [192.66, '2025-11-12'],
+      [232.22, '2025-11-04'],
+    ];
+    const txns: RawTransaction[] = pairs.map(([amount, date], index) =>
+      makeTxn({
+        id: index + 1,
+        date,
+        description: 'Barclays Partner Finance',
+        amount: -amount,
+        account: 'monzo-joint',
+      }),
+    );
+
+    const result = buildRecurringPipeline({
+      scopedTransactions: txns,
+      allTimeTransactions: txns,
+      includeIncome: false,
+      debts: [bathroomLoanA(), bathroomLoanB()],
+    });
+
+    const bpfRows = result.monthlyExpenseRecurring.filter(
+      e => e.declaredDebtId === 'bathroom-loan-a' || e.declaredDebtId === 'bathroom-loan-b',
+    );
+    expect(bpfRows).toHaveLength(2);
+    expect(bpfRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          declaredDebtId: 'bathroom-loan-a',
+          merchant: 'Bathroom Loan (A)',
+          amount: 232.22,
+          category: 'Debt Repayment',
+        }),
+        expect.objectContaining({
+          declaredDebtId: 'bathroom-loan-b',
+          merchant: 'Bathroom Loan (B)',
+          amount: 192.66,
+          category: 'Debt Repayment',
+        }),
+      ]),
+    );
+    expect(
+      result.monthlyExpenseRecurring.some(e => e.merchant === 'Barclays Partner Finance'),
+    ).toBe(false);
+  });
+
   // =========================================================================
   // Config-driven fixed bill overrides (EE mobile)
   // =========================================================================

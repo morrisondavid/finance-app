@@ -11,16 +11,7 @@ import { categoryColour } from './categorizer.js';
 import type { CategoryName } from './categorizer.js';
 import { SPECIAL_CATEGORY } from './category-constants.js';
 import { getMerchantLogoUrl } from './merchant-logos.js';
-import { round2 } from './math.js';
-
-function median(values: number[]): number {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 !== 0
-    ? sorted[mid]
-    : (sorted[mid - 1] + sorted[mid]) / 2;
-}
+import { median, round2 } from './math.js';
 
 function stddev(values: number[]): number {
   if (values.length < 2) return 0;

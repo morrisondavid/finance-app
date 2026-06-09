@@ -53,6 +53,10 @@ import {
   mostRecentlyEndedVatQuarterLabel,
 } from '../reporting/index.js';
 import { deriveAdHocSpendWarnings } from './ad-hoc-spend.js';
+import {
+  deriveCategorySpendSurgeWarnings,
+  deriveDiscretionaryBurnWarnings,
+} from './discretionary-spend.js';
 import { deriveMortgageRateResetWarnings } from './mortgage-rate-reset.js';
 import { deriveAllFeedSyncScheduledWarnings } from './feed-sync-scheduled.js';
 import { deriveDebtUnregisteredWarnings } from './debt-unregistered.js';
@@ -208,6 +212,15 @@ export function buildConsolidatedWarningsResponse(
     budgetedCategories,
     activeDebts: debts,
   });
+  const discretionarySpendInput = {
+    today: todayIso,
+    expenseTransactions: expenseTxns,
+    pipeline,
+    budgetedCategories,
+    activeDebts: debts,
+  };
+  const categorySpendSurgeWarnings = deriveCategorySpendSurgeWarnings(discretionarySpendInput);
+  const discretionaryBurnWarnings = deriveDiscretionaryBurnWarnings(discretionarySpendInput);
   const accounts: readonly AccountConfig[] = Object.values(ACCOUNT_CONFIG_DATA);
 
   const mortgageRateResetWarnings = deriveMortgageRateResetWarnings({
@@ -339,6 +352,8 @@ export function buildConsolidatedWarningsResponse(
     ...runwayWarnings,
     ...taxReserveWarnings,
     ...adHocSpendWarnings,
+    ...categorySpendSurgeWarnings,
+    ...discretionaryBurnWarnings,
     ...mortgageRateResetWarnings,
     ...debtUnregisteredWarnings,
     ...accountCcConfigMissingWarnings,

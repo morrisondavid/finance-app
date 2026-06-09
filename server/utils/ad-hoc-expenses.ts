@@ -1,5 +1,8 @@
 /**
  * Ad hoc (non–fixed-recurring) expense groups vs the same pipeline as /overview.
+ *
+ * Per-account grouping differs from {@link ./ad-hoc-spend-classifier.js} (canonical
+ * ad-hoc discretionary gate shared by budget nudges and discretionary-spend warnings).
  */
 
 import type { AccountName } from '../types.js';

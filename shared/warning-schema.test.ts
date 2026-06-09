@@ -82,6 +82,14 @@ describe('EntityFoundationWarningSchema (1.8 additive)', () => {
     }
   });
 
+  it('accepts the discretionary-spend codes', () => {
+    const codes = ['category-spend-surge', 'discretionary-burn-elevated'] as const;
+    for (const code of codes) {
+      const parsed = EntityFoundationWarningSchema.parse({ ...legacyRow, code });
+      expect(parsed.code).toBe(code);
+    }
+  });
+
   it('accepts every new §1.9 Debt Strategy code', () => {
     const newCodes = [
       'account-credit-card-config-missing',
