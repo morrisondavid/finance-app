@@ -22,24 +22,45 @@ import { convertAmountSync } from '../config/exchange-rates.js';
 import type { CurrencyCode } from '../types.js';
 import { getObligationRegistry, type ObligationRegistry } from '../domain/obligations/registry.js';
 import type { OutgoingObligation, IncomingObligation } from '../../shared/api-contracts.js';
+import { obligationActiveForProjection } from '../domain/obligations/obligation-active.js';
 import { assertNever } from './assert-never.js';
 
+type RentalIncomeObligation = Extract<IncomingObligation, { category: 'rental-income' }>;
+
+/** Same payee rule as {@link sumRentalIncomeForPerson}: `description LIKE %merchant%`. */
+function rentalTxnMatchesObligation(
+  description: string,
+  obligation: RentalIncomeObligation,
+  account: string,
+): boolean {
+  if (obligation.account !== account) return false;
+  return description.toUpperCase().includes(obligation.merchant.toUpperCase());
+}
+
+function rentalCandidatesForTxn(
+  registry: ObligationRegistry,
+  description: string,
+  account: string,
+  activeOnly: boolean,
+): readonly RentalIncomeObligation[] {
+  return registry
+    .listByCategory('rental-income')
+    .filter(c => (activeOnly ? obligationActiveForProjection(c) : !obligationActiveForProjection(c)))
+    .filter(c => rentalTxnMatchesObligation(description, c, account));
+}
+
 /**
- * Amount-aware rental selector: a single (merchant, account) pair can host
+ * Amount-aware rental selector: a single payee on one account can host
  * multiple rental properties (multi-unit portfolios), so we pick the one
- * whose declared amount is closest to the observed transaction. Narrow to
- * `rental-income` at the call site rather than routing through a generic
- * lookup helper — the branch is both short and the only caller.
+ * whose declared amount is closest to the observed transaction.
  */
 function closestRentalIncome(
   registry: ObligationRegistry,
-  merchant: string,
+  description: string,
   account: string,
   amount: number,
-): Extract<IncomingObligation, { category: 'rental-income' }> | null {
-  const candidates = registry
-    .listByCategory('rental-income')
-    .filter(c => c.merchant === merchant && c.account !== undefined && c.account === account);
+): RentalIncomeObligation | null {
+  const candidates = rentalCandidatesForTxn(registry, description, account, true);
   if (candidates.length === 0) return null;
   let best = candidates[0];
   let bestDiff = Math.abs(amount - best.amount);
@@ -172,15 +193,21 @@ function rowForAccumulation(txn: RawTransaction, side: 'expense' | 'income'): Ac
 
   // Registry-first rental-income resolution: a matching `rental-income`
   // obligation drives both the category and display, even when the
-  // string heuristic missed. The heuristic remains a fallback for
-  // undeclared rentals. Boot-time {@link assertRentalMerchantsClassify}
+  // string heuristic missed. Ended lets (`active=false`) are excluded
+  // from Fixed Expenses forward income — historical SA sums still use
+  // {@link sumRentalIncomeForPerson}. Boot-time {@link assertRentalMerchantsClassify}
   // keeps the two sources from diverging silently.
   if (side === 'income') {
-    const prop = closestRentalIncome(getObligationRegistry(), merchant, account, absAmount);
+    const registry = getObligationRegistry();
+    if (rentalCandidatesForTxn(registry, txn.description, account, false).length > 0) {
+      return null;
+    }
+    const prop = closestRentalIncome(registry, txn.description, account, absAmount);
     if (prop) {
       category = SPECIAL_CATEGORY.property;
       displayMerchant = prop.displayName ?? prop.merchant;
       keyAmount = 0;
+      obligationId = prop.id;
     }
   }
 
@@ -271,6 +298,15 @@ function partitionExpenseAccumulators(
     }
   }
   return { declaredByObligationId, residual };
+}
+
+function partitionIncomeAccumulators(
+  accumulators: Map<string, Accumulator>,
+): {
+  declaredByObligationId: Map<string, Accumulator>;
+  residual: Map<string, Accumulator>;
+} {
+  return partitionExpenseAccumulators(accumulators);
 }
 
 function accumulatorsToCandidates(
@@ -381,28 +417,32 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
   // row for the same underlying bill.
   const { declaredByObligationId, residual: residualExpenseAccumulators } =
     partitionExpenseAccumulators(expenseAccumulators);
+  const { declaredByObligationId: declaredRentalById, residual: residualIncomeAccumulators } =
+    includeIncome
+      ? partitionIncomeAccumulators(incomeAccumulators)
+      : { declaredByObligationId: new Map<string, Accumulator>(), residual: new Map<string, Accumulator>() };
 
   const expenseCandidates = accumulatorsToCandidates(residualExpenseAccumulators);
   const incomeCandidates = includeIncome
-    ? accumulatorsToCandidates(incomeAccumulators)
+    ? accumulatorsToCandidates(residualIncomeAccumulators)
     : [];
 
   const { monthly: detectedMonthlyExpense, annual: detectedAnnualExpense } =
     classifyRecurring(expenseCandidates, monthsCovered);
-  const { monthly: monthlyIncomeRecurring, annual: annualIncomeRecurring } = includeIncome
+  const { monthly: detectedMonthlyIncome, annual: annualIncomeRecurring } = includeIncome
     ? classifyRecurring(incomeCandidates, monthsCovered, new Date(), true)
     : { monthly: [], annual: [] };
 
-  const rentals = registry.listByCategory('rental-income');
-  for (const e of monthlyIncomeRecurring) {
-    if (e.category === SPECIAL_CATEGORY.property) {
-      const prop = rentals.find(p => (p.displayName ?? p.merchant) === e.merchant);
-      if (prop) e.amount = round2(prop.amount);
-    }
-  }
-
   const { monthly: declaredMonthlyExpense, annual: declaredAnnualExpense } =
     buildDeclaredOutgoingRows(registry, declaredByObligationId, accountScope);
+  const declaredMonthlyRentalIncome = includeIncome
+    ? buildDeclaredRentalIncomeRows(registry, declaredRentalById, accountScope)
+    : [];
+
+  const monthlyIncomeRecurring: RecurringExpense[] = [
+    ...declaredMonthlyRentalIncome,
+    ...detectedMonthlyIncome,
+  ];
 
   const monthlyExpenseRecurring: RecurringExpense[] = [
     ...declaredMonthlyExpense,
@@ -438,6 +478,72 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
  * accounts are skipped (prevents cross-account leakage on single-account
  * views like the dashboard).
  */
+/**
+ * Declaration-first rental income: one row per active `rental-income`
+ * obligation on Fixed Expenses (mirrors {@link buildDeclaredOutgoingRows}).
+ * Ended lets stay in CSV for history but are omitted here.
+ */
+function buildDeclaredRentalIncomeRows(
+  registry: ObligationRegistry,
+  declaredByObligationId: Map<string, Accumulator>,
+  accountScope: readonly string[] | undefined,
+): RecurringExpense[] {
+  const monthly: RecurringExpense[] = [];
+
+  for (const obligation of registry.listByCategory('rental-income')) {
+    if (!obligationActiveForProjection(obligation)) continue;
+    if (obligation.frequency !== 'monthly') continue;
+    if (obligation.account === undefined) continue;
+    if (accountScope !== undefined && !accountScope.includes(obligation.account)) continue;
+
+    const accumulator = declaredByObligationId.get(obligation.id) ?? null;
+    monthly.push(buildDeclaredRentalIncomeRow(obligation, accumulator));
+  }
+
+  return monthly;
+}
+
+function buildDeclaredRentalIncomeRow(
+  obligation: RentalIncomeObligation,
+  accumulator: Accumulator | null,
+): RecurringExpense {
+  const currency: CurrencyCode = obligation.currency;
+  const gbpAmount = currency === 'GBP'
+    ? obligation.amount
+    : convertAmountSync(obligation.amount, currency, 'GBP');
+  const merchantLabel = obligation.displayName ?? obligation.merchant;
+
+  const billingDayOfMonth = resolveRentalBillingDay(accumulator);
+
+  const expense: RecurringExpense = {
+    merchant: merchantLabel,
+    category: SPECIAL_CATEGORY.property,
+    colour: categoryColour(SPECIAL_CATEGORY.property),
+    amount: round2(gbpAmount),
+    frequency: 'monthly',
+    monthsActive: accumulator?.monthlyTotals.size ?? 0,
+    annualTotal: round2(gbpAmount * 12),
+    logoUrl: getMerchantLogoUrl(merchantLabel),
+    sourceAccount: obligation.account ?? '',
+    billingDayOfMonth,
+    billingMonth: null,
+    declaredObligationId: obligation.id,
+  };
+  if (currency !== 'GBP') {
+    expense.nativeAmount = round2(obligation.amount);
+    expense.nativeCurrency = currency;
+  }
+  return expense;
+}
+
+function resolveRentalBillingDay(accumulator: Accumulator | null): number | null {
+  if (!accumulator || accumulator.transactions.length === 0) return null;
+  const mostRecent = accumulator.transactions.reduce((a, b) => (a.date > b.date ? a : b));
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(mostRecent.date);
+  if (!match) return null;
+  return parseInt(match[3], 10);
+}
+
 function buildDeclaredOutgoingRows(
   registry: ObligationRegistry,
   declaredByObligationId: Map<string, Accumulator>,

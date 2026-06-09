@@ -128,7 +128,14 @@ describe('buildRecurringPipeline', () => {
       e => e.declaredObligationId === undefined,
     );
     expect(transactionDriven).toHaveLength(0);
-    expect(result.monthlyIncomeRecurring).toHaveLength(0);
+    const declaredRentalIncome = result.monthlyIncomeRecurring.filter(
+      e => e.declaredObligationId !== undefined,
+    );
+    expect(declaredRentalIncome.length).toBeGreaterThan(0);
+    expect(
+      declaredRentalIncome.some(e => e.merchant === '56 Thorney House'),
+    ).toBe(false);
+    expect(result.monthlyIncomeRecurring.every(e => e.declaredObligationId !== undefined)).toBe(true);
     expect(result.monthsCovered).toBe(1);
   });
 
@@ -397,14 +404,14 @@ describe('buildRecurringPipeline', () => {
   // =========================================================================
 
   it('Property income credits preserve real category (not overridden to Income)', () => {
-    const txns = monthlyIncomeTxns('PROSPECT HOLDINGS', 1900, 10);
+    const txns = monthlyIncomeTxns('STONESHAW ESTATES', 1292.72, 10, 'monzo-joint');
     const result = buildRecurringPipeline({
       scopedTransactions: txns,
       allTimeTransactions: txns,
       includeIncome: true,
     });
     const acc = [...result.incomeAccumulators.values()].find(
-      a => a.merchant === '56 Thorney House',
+      a => a.merchant === '78 Hunters Square',
     );
     expect(acc).toBeDefined();
     expect(acc!.category).toBe('Property');
@@ -425,14 +432,14 @@ describe('buildRecurringPipeline', () => {
   });
 
   it('Property income with 3 months of data appears in monthlyIncomeRecurring', () => {
-    const txns = monthlyIncomeTxns('PROSPECT HOLDINGS', 1900, 3);
+    const txns = monthlyIncomeTxns('STONESHAW ESTATES', 1292.72, 3, 'monzo-joint');
     const result = buildRecurringPipeline({
       scopedTransactions: txns,
       allTimeTransactions: txns,
       includeIncome: true,
     });
     expect(result.monthlyIncomeRecurring.length).toBeGreaterThan(0);
-    const rent = result.monthlyIncomeRecurring.find(e => e.merchant === '56 Thorney House');
+    const rent = result.monthlyIncomeRecurring.find(e => e.merchant === '78 Hunters Square');
     expect(rent).toBeDefined();
     expect(rent!.category).toBe('Property');
   });
@@ -559,7 +566,7 @@ describe('buildRecurringPipeline', () => {
     expect(stoneshaw[0].monthlyTotals.size).toBe(6);
   });
 
-  it('Prospect credits merge into one accumulator named after the property', () => {
+  it('ended Thorney Prospect credits are excluded from fixed monthly income', () => {
     const amounts = [979.20, 804.52, 979.20, 750.00];
     const txns: RawTransaction[] = amounts.map((amt, i) => {
       const totalMonth = 2026 * 12 + 3 - i;
@@ -579,13 +586,15 @@ describe('buildRecurringPipeline', () => {
       includeIncome: true,
     });
     const prospect = [...result.incomeAccumulators.values()].filter(
-      a => a.category === 'Property',
+      a => a.category === 'Property' && a.merchant === '56 Thorney House',
     );
-    expect(prospect).toHaveLength(1);
-    expect(prospect[0].merchant).toBe('56 Thorney House');
+    expect(prospect).toHaveLength(0);
+    expect(
+      result.monthlyIncomeRecurring.some(e => e.merchant === '56 Thorney House'),
+    ).toBe(false);
   });
 
-  it('two different Property merchants produce two separate accumulators', () => {
+  it('active and ended rentals only accumulate the active property from credits', () => {
     const txns: RawTransaction[] = [];
     for (let i = 0; i < 6; i++) {
       const totalMonth = 2026 * 12 + 3 - i;
@@ -603,9 +612,23 @@ describe('buildRecurringPipeline', () => {
     const props = [...result.incomeAccumulators.values()].filter(
       a => a.category === 'Property',
     );
-    expect(props).toHaveLength(2);
-    const names = props.map(p => p.merchant).sort();
-    expect(names).toEqual(['56 Thorney House', '78 Hunters Square']);
+    expect(props).toHaveLength(1);
+    expect(props[0].merchant).toBe('78 Hunters Square');
+    expect(
+      result.monthlyIncomeRecurring.some(e => e.merchant === '53 Heath Park Road'),
+    ).toBe(true);
+  });
+
+  it('declares Heath Park rental income before matching credits land', () => {
+    const result = buildRecurringPipeline({
+      scopedTransactions: [],
+      allTimeTransactions: [],
+      includeIncome: true,
+    });
+    const heath = result.monthlyIncomeRecurring.find(e => e.merchant === '53 Heath Park Road');
+    expect(heath).toBeDefined();
+    expect(heath!.amount).toBe(2850);
+    expect(heath!.declaredObligationId).toBe('manual-heath-park-rental');
   });
 
   // =========================================================================
