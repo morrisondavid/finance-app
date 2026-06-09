@@ -7,6 +7,7 @@ import {
   type RawTransaction,
 } from './recurring-pipeline.js';
 import type { RecurringExpense } from '../../shared/api-contracts.js';
+import type { Debt } from '../db/repositories/debts.js';
 
 function makeTxn(overrides: Partial<RawTransaction> & { date: string; description: string; amount: number }): RawTransaction {
   return {
@@ -36,6 +37,52 @@ function monthlyExpenseTxns(
     }));
   }
   return txns;
+}
+
+function thorneyMortgageDebt(): Debt {
+  return {
+    id: 'mortgage-thorney-house',
+    name: '56 Thorney House Mortgage',
+    merchantPattern: 'NatWest',
+    sourceAccounts: ['monzo-joint'],
+    originalLoanAmount: 121785.99,
+    originalLoanDate: null,
+    openingBalance: 121785.99,
+    openingBalanceDate: '2021-11-30',
+    archived: false,
+    matchAmounts: [683.38, 630.99, 174.44],
+    matchTolerancePct: 0,
+    kind: 'mortgage',
+    interestRate: 6.74,
+    fixedRateEndDate: null,
+    repaymentType: 'interest-only',
+    propertyValueEstimate: 188085.56,
+    propertyId: 'thorney-house-56',
+    updatedAt: '2026-01-01',
+  };
+}
+
+function huntersMortgageDebt(): Debt {
+  return {
+    id: 'mortgage-hunters-square',
+    name: '78 Hunters Square Mortgage',
+    merchantPattern: 'NatWest',
+    sourceAccounts: ['monzo-joint'],
+    originalLoanAmount: 214757.15,
+    originalLoanDate: null,
+    openingBalance: 214757.15,
+    openingBalanceDate: '2021-11-30',
+    archived: false,
+    matchAmounts: [801.35, 1054.64, 306.35],
+    matchTolerancePct: 0,
+    kind: 'mortgage',
+    interestRate: 4.48,
+    fixedRateEndDate: '2028-04-30',
+    repaymentType: 'interest-only',
+    propertyValueEstimate: 315553.21,
+    propertyId: 'hunters-square-78',
+    updatedAt: '2026-01-01',
+  };
 }
 
 describe('amountBucket', () => {
@@ -93,6 +140,26 @@ describe('recurringKey', () => {
     };
     const expected = accKey('Entertainment', 'Netflix', 'barclays-current', 15.99);
     expect(recurringKey(item)).toBe(expected);
+  });
+
+  it('uses zero amount bucket for declared debt mortgages (stable key across rate changes)', () => {
+    const item: RecurringExpense = {
+      merchant: '56 Thorney House Mortgage',
+      category: 'Housing',
+      amount: 683.38,
+      frequency: 'monthly',
+      sourceAccount: 'monzo-joint',
+      billingDayOfMonth: 14,
+      billingMonth: null,
+      colour: '#6366F1',
+      monthsActive: 4,
+      annualTotal: 8200.56,
+      logoUrl: null,
+      declaredDebtId: 'mortgage-thorney-house',
+    };
+    expect(recurringKey(item)).toBe(
+      accKey('Housing', '56 Thorney House Mortgage', 'monzo-joint', 0),
+    );
   });
 
   it('uses zero amount bucket for Payroll (stable key like Property)', () => {
@@ -629,6 +696,62 @@ describe('buildRecurringPipeline', () => {
     expect(heath).toBeDefined();
     expect(heath!.amount).toBe(2850);
     expect(heath!.declaredObligationId).toBe('manual-heath-park-rental');
+  });
+
+  // =========================================================================
+  // Exact-amount debt matching (mortgages on monzo-joint)
+  // =========================================================================
+
+  it('merges Thorney rate-change amounts into one declared mortgage row', () => {
+    const debts = [thorneyMortgageDebt(), huntersMortgageDebt()];
+    const txns: RawTransaction[] = [
+      makeTxn({ date: '2026-01-14', description: 'NatWest', amount: -630.99, account: 'monzo-joint' }),
+      makeTxn({ date: '2026-02-14', description: 'NatWest', amount: -630.99, account: 'monzo-joint' }),
+      makeTxn({ date: '2026-03-14', description: 'NatWest', amount: -683.38, account: 'monzo-joint' }),
+      makeTxn({ date: '2026-04-14', description: 'NatWest', amount: -683.38, account: 'monzo-joint' }),
+    ];
+    const result = buildRecurringPipeline({
+      scopedTransactions: txns,
+      allTimeTransactions: txns,
+      includeIncome: false,
+      debts,
+    });
+    const thorneyAcc = [...result.expenseAccumulators.values()].filter(
+      a => a.debtId === 'mortgage-thorney-house',
+    );
+    expect(thorneyAcc).toHaveLength(1);
+    expect(thorneyAcc[0].monthlyTotals.size).toBe(4);
+
+    const thorneyRow = result.monthlyExpenseRecurring.find(
+      e => e.declaredDebtId === 'mortgage-thorney-house',
+    );
+    expect(thorneyRow).toBeDefined();
+    expect(thorneyRow!.merchant).toBe('56 Thorney House Mortgage');
+    expect(thorneyRow!.amount).toBe(683.38);
+    expect(thorneyRow!.category).toBe('Housing');
+  });
+
+  it('emits separate rows for Thorney and Hunters NatWest mortgages', () => {
+    const debts = [thorneyMortgageDebt(), huntersMortgageDebt()];
+    const txns: RawTransaction[] = [
+      makeTxn({ date: '2026-03-14', description: 'NatWest', amount: -683.38, account: 'monzo-joint' }),
+      makeTxn({ date: '2026-03-14', description: 'NatWest', amount: -801.35, account: 'monzo-joint' }),
+    ];
+    const result = buildRecurringPipeline({
+      scopedTransactions: txns,
+      allTimeTransactions: txns,
+      includeIncome: false,
+      debts,
+    });
+    const debtRows = result.monthlyExpenseRecurring.filter(e => e.declaredDebtId !== undefined);
+    expect(debtRows).toHaveLength(2);
+    expect(debtRows.map(r => r.declaredDebtId).sort()).toEqual([
+      'mortgage-hunters-square',
+      'mortgage-thorney-house',
+    ]);
+    expect(
+      result.monthlyExpenseRecurring.some(e => e.merchant === 'NatWest Mortgage'),
+    ).toBe(false);
   });
 
   // =========================================================================

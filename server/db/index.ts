@@ -37,7 +37,7 @@ import {
 import { applyFixedExpenseExclusionsCsvToDb } from './fixed-expense-simulation-exclusions-csv.js';
 import { populateFromCSVs } from './repositories/files.js';
 import { shouldSkipFullDatabaseRebuild, recomputeAndPersistDataManifest } from '../data-manifest.js';
-import { detectTransfers } from './repositories/transactions.js';
+import { detectTransfers, resetTransferClassification } from './repositories/transactions.js';
 import { loadBudgetsFromFileIntoDb } from './repositories/budgets.js';
 import { loadDebtsFromFileIntoDb, reconcileDebtOpeningDates } from './repositories/debts.js';
 import { loadManualObligationsFromCsv } from './repositories/obligations.js';
@@ -148,6 +148,40 @@ export async function initDatabase(): Promise<void> {
   }
 }
 
+/**
+ * Re-derive transfer pairing and auto-seeded obligations from the current
+ * `transactions` table. Idempotent — safe on every startup when the CSV
+ * manifest is unchanged but SQLite already holds the latest rows.
+ */
+function refreshDerivedLedgerState(): number {
+  resetTransferClassification();
+  const transferPairs = detectTransfers();
+
+  try {
+    deriveAndWriteAutoObligationStates();
+  } catch (err) {
+    console.error('[Database] Obligation state auto-matcher failed:', err);
+  }
+  deriveAndInsertAutoObligations();
+  try {
+    deriveAndInsertAutoSaObligations();
+  } catch (err) {
+    console.error('[Database] Self Assessment auto-seed failed:', err);
+  }
+  try {
+    deriveAndInsertAutoCtObligations();
+  } catch (err) {
+    console.error('[Database] Corporation Tax auto-seed failed:', err);
+  }
+  try {
+    deriveAndInsertAutoTtpObligations();
+  } catch (err) {
+    console.error('[Database] HMRC TTP auto-seed failed:', err);
+  }
+
+  return transferPairs;
+}
+
 async function initDatabaseInner(): Promise<void> {
   // Validate the declared-obligations registry ownership splits early —
   // misconfigured rental shares would otherwise silently skew SA estimates.
@@ -172,6 +206,8 @@ async function initDatabaseInner(): Promise<void> {
     migrateObligationsIfNeeded();
     migrateObligationDismissalsIfNeeded();
     migrateDeadlinesIfNeeded();
+    const transferPairs = refreshDerivedLedgerState();
+    console.log(`[Database] Refreshed derived ledger state (${transferPairs} transfer pair(s) detected)`);
     try {
       const nw = maybeCaptureNetWorthSnapshots();
       if (nw.skipped) {
@@ -199,9 +235,6 @@ async function initDatabaseInner(): Promise<void> {
   // Populate from CSV files
   const result = await populateFromCSVs();
 
-  // Detect and mark transfers
-  const transferPairs = detectTransfers();
-
   loadBudgetsFromFileIntoDb();
   loadDebtsFromFileIntoDb();
   // Shift each debt's opening-balance date back before its earliest matching
@@ -216,43 +249,8 @@ async function initDatabaseInner(): Promise<void> {
   // already respects hidden slots (otherwise the dismissed rows flash
   // into `financial_obligations` until the next mutation triggers a reseed).
   loadDismissalsFromCsv();
-  // Auto-derive `source=auto` state rows for one-off / annual
-  // obligations (renewal debits) BEFORE projecting the manual obligations
-  // into `financial_obligations`. The projection reads obligation-state.csv
-  // to apply status overrides, so the matcher's writes must land first
-  // or they won't be visible until the next reload cycle. Fault-tolerant
-  // for the same reason as the HMRC seeders: a matcher bug must never
-  // block the core obligations registry from loading.
-  try {
-    deriveAndWriteAutoObligationStates();
-  } catch (err) {
-    console.error('[Database] Obligation state auto-matcher failed:', err);
-  }
   loadManualObligationsFromCsv();
-  deriveAndInsertAutoObligations();
-  // SA seeding runs after VAT. If it throws we log and continue so a bug
-  // in SA never blocks VAT visibility (the original Obligations MVP).
-  try {
-    deriveAndInsertAutoSaObligations();
-  } catch (err) {
-    console.error('[Database] Self Assessment auto-seed failed:', err);
-  }
-  // CT seeding follows SA. Same fault-tolerance contract — a CT bug must
-  // never prevent VAT or SA rows from surfacing.
-  try {
-    deriveAndInsertAutoCtObligations();
-  } catch (err) {
-    console.error('[Database] Corporation Tax auto-seed failed:', err);
-  }
-  // HMRC Time-To-Pay / NDDS detection runs last. It piggybacks on the
-  // recurring-expense pipeline so nothing new is inferred here — it
-  // simply promotes HMRC-narrative monthly recurring groups into proper
-  // obligations that the orphan feed's NOT EXISTS clause can match.
-  try {
-    deriveAndInsertAutoTtpObligations();
-  } catch (err) {
-    console.error('[Database] HMRC TTP auto-seed failed:', err);
-  }
+  const transferPairs = refreshDerivedLedgerState();
 
   migrateDeadlinesIfNeeded();
   loadDeadlinesFromCsv();

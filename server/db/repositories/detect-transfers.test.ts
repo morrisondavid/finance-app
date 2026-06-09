@@ -153,3 +153,89 @@ describe('detectTransfers — HMRC same-account exclusion', () => {
     expect(hmrc.linkedId).not.toBe(optionalFtId);
   });
 });
+
+describe('detectTransfers — HMRC cross-account exclusion', () => {
+  it('does not pair HMRC VAT on current with a savings inbound of the same amount', async () => {
+    const { detectTransfers } = await import('./transactions.js');
+
+    const hmrcId = insertTxn(
+      'barclays-current',
+      '2026-06-08',
+      -5924.81,
+      'HMRC VAT SOUTHEND 292146596 BBP',
+    );
+    const savingsInId = insertTxn(
+      'barclays-savings',
+      '2026-06-08',
+      5924.81,
+      'AUTONIZE IT LTD F STO',
+    );
+
+    detectTransfers();
+
+    const hmrc = harness.current!.db
+      .prepare(`SELECT type, linked_transaction_id AS linkedId FROM transactions WHERE id = ?`)
+      .get(hmrcId) as { type: string; linkedId: number | null };
+    const savingsIn = harness.current!.db
+      .prepare(`SELECT type, linked_transaction_id AS linkedId FROM transactions WHERE id = ?`)
+      .get(savingsInId) as { type: string; linkedId: number | null };
+
+    expect(hmrc.type).toBe('expense');
+    expect(hmrc.linkedId).toBeNull();
+    expect(savingsIn.type).toBe('income');
+    expect(savingsIn.linkedId).toBeNull();
+  });
+});
+
+describe('detectTransfers — savings inbound stays income', () => {
+  it('pairs current→savings funding but keeps the savings credit as income', async () => {
+    const { detectTransfers } = await import('./transactions.js');
+
+    const currentOutId = insertTxn(
+      'barclays-current',
+      '2026-06-08',
+      -2500,
+      'BUSINESS PREMIUM STO',
+    );
+    const savingsInId = insertTxn(
+      'barclays-savings',
+      '2026-06-08',
+      2500,
+      'BUSINESS PREMIUM STO',
+    );
+
+    detectTransfers();
+
+    const currentOut = harness.current!.db
+      .prepare(`SELECT type, linked_transaction_id AS linkedId FROM transactions WHERE id = ?`)
+      .get(currentOutId) as { type: string; linkedId: number | null };
+    const savingsIn = harness.current!.db
+      .prepare(`SELECT type, linked_transaction_id AS linkedId FROM transactions WHERE id = ?`)
+      .get(savingsInId) as { type: string; linkedId: number | null };
+
+    expect(currentOut.type).toBe('transfer');
+    expect(currentOut.linkedId).toBe(savingsInId);
+    expect(savingsIn.type).toBe('income');
+    expect(savingsIn.linkedId).toBeNull();
+  });
+
+  it('does not downgrade standalone savings inbound OPTIONAL FT to transfer', async () => {
+    const { detectTransfers } = await import('./transactions.js');
+
+    const savingsInId = insertTxn(
+      'barclays-savings',
+      '2026-06-08',
+      2500,
+      '202519 60878820 TAX SAVINGS FT',
+    );
+
+    detectTransfers();
+
+    const savingsIn = harness.current!.db
+      .prepare(`SELECT type, linked_transaction_id AS linkedId FROM transactions WHERE id = ?`)
+      .get(savingsInId) as { type: string; linkedId: number | null };
+
+    expect(savingsIn.type).toBe('income');
+    expect(savingsIn.linkedId).toBeNull();
+  });
+});

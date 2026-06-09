@@ -765,6 +765,12 @@ export const RecurringExpenseSchema = z.object({
    * obligation.
    */
   declaredObligationId: z.string().optional(),
+  /**
+   * Back-reference to the debt row that produced this entry when the
+   * recurring expense was driven by exact `matchAmounts` matching from
+   * `debts.csv` (Fixed Expenses declaration-first path).
+   */
+  declaredDebtId: z.string().optional(),
 });
 
 export const RecurringExpensesResponseSchema = z.object({

@@ -25,6 +25,30 @@ function accountCurrency(account: string): CurrencyCode {
   return getAccountConfig(account as AccountName).currency;
 }
 
+/**
+ * Savings (and similar) accounts treat inbound internal transfers as real
+ * income for balance / cash-flow views, while still excluding them from
+ * VAT-applicable ledgers via `vat.applicable`.
+ */
+function preserveInboundAsIncome(account: string): boolean {
+  if (!isValidAccountName(account)) return false;
+  return !getAccountConfig(account as AccountName).excludeTransfersFromIncome;
+}
+
+/**
+ * Clear transfer pairing so {@link detectTransfers} can re-derive
+ * classification from current rules (e.g. after an HMRC exclusion fix).
+ */
+export function resetTransferClassification(): void {
+  const db = getDb();
+  db.prepare(`
+    UPDATE transactions
+    SET type = CASE WHEN amount >= 0 THEN 'income' ELSE 'expense' END,
+        linked_transaction_id = NULL
+    WHERE type = 'transfer'
+  `).run();
+}
+
 import {
   expenseTxnMatchesMerchantModal,
   merchantDrillSearchSql,
@@ -252,15 +276,20 @@ export function detectTransfers(): number {
         // Business → personal (or unknown account): not an internal transfer
         continue;
       }
+
+      // HMRC tax settlements are never legs of an internal transfer pair.
+      if (isHmrcTaxPaymentDescription(expense.description)) continue;
+      if (isHmrcTaxPaymentDescription(income.description)) continue;
       
       // Found a match! Mark both as transfers
       // EXCEPT: For credit cards, keep the credit card side as income (debt repayment)
       const incomeIsCreditCard = isCreditCard(income.account as AccountName);
+      const keepIncomeAsIncome = preserveInboundAsIncome(income.account);
       console.log(`[Transfer Detection] Matching ${expense.account} -> ${income.account}, income is credit card: ${incomeIsCreditCard}`);
       db.transaction(() => {
         // updateStmt.run(linkedId, id) - updates transaction with `id`, links to `linkedId`
-        // Only mark income as transfer if it's NOT a credit card
-        if (!incomeIsCreditCard) {
+        // Only mark income as transfer if it's NOT a credit card / savings inbound
+        if (!incomeIsCreditCard && !keepIncomeAsIncome) {
           updateStmt.run(expense.id, income.id); // Mark income as transfer, link to expense
         }
         // Always mark expense as transfer
@@ -364,6 +393,9 @@ export function detectTransfers(): number {
     
     // Skip hardcoded detection for credit card accounts
     if (isCreditCard(transfer.account as AccountName)) continue;
+
+    // Inbound credits on savings stay `income` for balance / cash-flow views.
+    if (transfer.amount > 0 && preserveInboundAsIncome(transfer.account)) continue;
     
     updateSingleStmt.run(transfer.id);
     matchedIds.add(transfer.id);
@@ -402,6 +434,9 @@ export function detectTransfers(): number {
     
     // Skip hardcoded detection for credit card accounts - payments to credit cards are income, not transfers
     if (isCreditCard(income.account as AccountName)) continue;
+
+    // Savings inbound draws (OPTIONAL FT, etc.) remain `income`.
+    if (preserveInboundAsIncome(income.account)) continue;
     
     updateSingleStmt.run(income.id);
     matchedIds.add(income.id);

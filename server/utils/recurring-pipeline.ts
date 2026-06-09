@@ -24,8 +24,15 @@ import { getObligationRegistry, type ObligationRegistry } from '../domain/obliga
 import type { OutgoingObligation, IncomingObligation } from '../../shared/api-contracts.js';
 import { obligationActiveForProjection } from '../domain/obligations/obligation-active.js';
 import { assertNever } from './assert-never.js';
+import { findMatchingDebt, type DebtMatchable } from '../domain/debts/match-transaction.js';
+import { readDebtsFromCsvFile, getDebtsCsvPath } from '../db/debts-csv.js';
+import { DEBTS_DIR } from '../db/connection.js';
 
 type RentalIncomeObligation = Extract<IncomingObligation, { category: 'rental-income' }>;
+
+function loadActiveDebtsFromCsv(): readonly DebtMatchable[] {
+  return readDebtsFromCsvFile(getDebtsCsvPath(DEBTS_DIR)).filter(d => !d.archived);
+}
 
 /** Same payee rule as {@link sumRentalIncomeForPerson}: `description LIKE %merchant%`. */
 function rentalTxnMatchesObligation(
@@ -102,6 +109,11 @@ export interface Accumulator {
    * the accumulator as already declared without a second fuzzy lookup.
    */
   obligationId?: string;
+  /**
+   * Debt id linked at accumulation time when the transaction matches an
+   * exact `matchAmounts` entry from `debts.csv`.
+   */
+  debtId?: string;
 }
 
 export interface PipelineResult {
@@ -130,6 +142,11 @@ export interface PipelineConfig {
    * on a Barclays-only view).
    */
   accountScope?: readonly string[];
+  /**
+   * Active debts for exact-amount matching. When omitted, loaded from the
+   * debts registry ({@link listDebts}). Tests inject fixtures here.
+   */
+  debts?: readonly DebtMatchable[];
 }
 
 export function amountBucket(amount: number): number {
@@ -143,7 +160,9 @@ export function accKey(category: string, merchant: string, account: string, amou
 
 export function recurringKey(e: RecurringExpense): string {
   const skipAmount =
-    e.category === SPECIAL_CATEGORY.property || e.category === SPECIAL_CATEGORY.payroll;
+    e.declaredDebtId !== undefined
+    || e.category === SPECIAL_CATEGORY.property
+    || e.category === SPECIAL_CATEGORY.payroll;
   return accKey(e.category, e.merchant, e.sourceAccount, skipAmount ? 0 : e.amount);
 }
 
@@ -160,10 +179,16 @@ interface AccumulationRow {
   keyAmount: number;
   /** Obligation id when the transaction maps to a declared outgoing obligation. */
   obligationId?: string;
+  /** Debt id when the transaction matches a declared debt payment amount. */
+  debtId?: string;
 }
 
 /** Registry category + payroll config override + rental display (same loop as Pass 1 / Pass 2). */
-function rowForAccumulation(txn: RawTransaction, side: 'expense' | 'income'): AccumulationRow | null {
+function rowForAccumulation(
+  txn: RawTransaction,
+  side: 'expense' | 'income',
+  debts: readonly DebtMatchable[],
+): AccumulationRow | null {
   const merchant = normalizeMerchant(txn.description);
   const absAmount = Math.abs(txn.amount);
   const account = txn.account;
@@ -185,6 +210,7 @@ function rowForAccumulation(txn: RawTransaction, side: 'expense' | 'income'): Ac
   let displayMerchant = merchant;
   let keyAmount = absAmount;
   let obligationId: string | undefined;
+  let debtId: string | undefined;
   if (payrollHit) {
     displayMerchant = payrollHit.displayName ?? payrollHit.merchant;
     keyAmount = 0;
@@ -212,6 +238,21 @@ function rowForAccumulation(txn: RawTransaction, side: 'expense' | 'income'): Ac
   }
 
   if (side === 'expense' && obligationId === undefined) {
+    const matchedDebt = findMatchingDebt(
+      { description: txn.description, account, amount: txn.amount, type: txn.type },
+      debts,
+    );
+    // Mortgages only — consumer debts (BBL, BPF, etc.) keep the heuristic
+    // detector so gradually-drifting payments still cluster by amount bucket.
+    if (matchedDebt !== null && matchedDebt.kind === 'mortgage') {
+      category = 'Housing';
+      displayMerchant = matchedDebt.name;
+      keyAmount = 0;
+      debtId = matchedDebt.id;
+    }
+  }
+
+  if (side === 'expense' && obligationId === undefined && debtId === undefined) {
     // Amount-aware lookup so two obligations sharing a (merchant, account)
     // pair (e.g. two Orient Insurance policies) route to the right one.
     const declared = getObligationRegistry().matchByMerchantAccount(merchant, account, absAmount);
@@ -223,7 +264,7 @@ function rowForAccumulation(txn: RawTransaction, side: 'expense' | 'income'): Ac
     }
   }
 
-  return { category, displayMerchant, keyAmount, obligationId };
+  return { category, displayMerchant, keyAmount, obligationId, debtId };
 }
 
 export interface AccumulationBucket {
@@ -232,14 +273,16 @@ export interface AccumulationBucket {
   displayMerchant: string;
   keyAmount: number;
   obligationId?: string;
+  debtId?: string;
 }
 
 /** Same bucketing as Pass 1 / Pass 2; use for tooling that must stay aligned with the pipeline. */
 export function accumulationFromTxn(
   txn: RawTransaction,
   side: 'expense' | 'income',
+  debts: readonly DebtMatchable[] = [],
 ): AccumulationBucket | null {
-  const row = rowForAccumulation(txn, side);
+  const row = rowForAccumulation(txn, side, debts);
   if (!row) return null;
   return {
     key: accKey(row.category, row.displayMerchant, txn.account, row.keyAmount),
@@ -247,11 +290,16 @@ export function accumulationFromTxn(
     displayMerchant: row.displayMerchant,
     keyAmount: row.keyAmount,
     obligationId: row.obligationId,
+    debtId: row.debtId,
   };
 }
 
-export function accumulatorKeyForTxn(txn: RawTransaction, side: 'expense' | 'income'): string | null {
-  return accumulationFromTxn(txn, side)?.key ?? null;
+export function accumulatorKeyForTxn(
+  txn: RawTransaction,
+  side: 'expense' | 'income',
+  debts: readonly DebtMatchable[] = [],
+): string | null {
+  return accumulationFromTxn(txn, side, debts)?.key ?? null;
 }
 
 /**
@@ -286,18 +334,22 @@ function partitionExpenseAccumulators(
   accumulators: Map<string, Accumulator>,
 ): {
   declaredByObligationId: Map<string, Accumulator>;
+  declaredByDebtId: Map<string, Accumulator>;
   residual: Map<string, Accumulator>;
 } {
   const declaredByObligationId = new Map<string, Accumulator>();
+  const declaredByDebtId = new Map<string, Accumulator>();
   const residual = new Map<string, Accumulator>();
   for (const [key, acc] of accumulators) {
     if (acc.obligationId !== undefined && !declaredByObligationId.has(acc.obligationId)) {
       declaredByObligationId.set(acc.obligationId, acc);
+    } else if (acc.debtId !== undefined && !declaredByDebtId.has(acc.debtId)) {
+      declaredByDebtId.set(acc.debtId, acc);
     } else {
       residual.set(key, acc);
     }
   }
-  return { declaredByObligationId, residual };
+  return { declaredByObligationId, declaredByDebtId, residual };
 }
 
 function partitionIncomeAccumulators(
@@ -344,6 +396,7 @@ function accumulatorsToCandidates(
  */
 export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
   const { scopedTransactions, allTimeTransactions, passThroughIds, includeIncome, accountScope } = config;
+  const debts = config.debts ?? loadActiveDebtsFromCsv();
 
   const expenseAccumulators = new Map<string, Accumulator>();
   const incomeAccumulators = new Map<string, Accumulator>();
@@ -357,10 +410,10 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
     if (!side) continue;
     if (side === 'income' && !includeIncome) continue;
 
-    const bucket = accumulationFromTxn(txn, side);
+    const bucket = accumulationFromTxn(txn, side, debts);
     if (!bucket) continue;
 
-    const { key, category, displayMerchant, obligationId } = bucket;
+    const { key, category, displayMerchant, obligationId, debtId } = bucket;
     const account = txn.account;
     const accountCategory = isValidAccountName(account)
       ? getAccountConfig(account).category
@@ -382,6 +435,7 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
         transactions: [],
       };
       if (obligationId !== undefined) acc.obligationId = obligationId;
+      if (debtId !== undefined) acc.debtId = debtId;
       map.set(key, acc);
     }
 
@@ -395,7 +449,7 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
     if (!side) continue;
     if (side === 'income' && !includeIncome) continue;
 
-    const bucket = accumulationFromTxn(txn, side);
+    const bucket = accumulationFromTxn(txn, side, debts);
     if (!bucket) continue;
 
     const { key } = bucket;
@@ -415,8 +469,11 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
   // `buildDeclaredOutgoingRows`. The detector sees only residual accumulators
   // (merchants with no matching declaration), so it cannot emit a duplicate
   // row for the same underlying bill.
-  const { declaredByObligationId, residual: residualExpenseAccumulators } =
-    partitionExpenseAccumulators(expenseAccumulators);
+  const {
+    declaredByObligationId,
+    declaredByDebtId,
+    residual: residualExpenseAccumulators,
+  } = partitionExpenseAccumulators(expenseAccumulators);
   const { declaredByObligationId: declaredRentalById, residual: residualIncomeAccumulators } =
     includeIncome
       ? partitionIncomeAccumulators(incomeAccumulators)
@@ -435,6 +492,11 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
 
   const { monthly: declaredMonthlyExpense, annual: declaredAnnualExpense } =
     buildDeclaredOutgoingRows(registry, declaredByObligationId, accountScope);
+  const declaredMonthlyDebtExpense = buildDeclaredDebtExpenseRows(
+    debts,
+    declaredByDebtId,
+    accountScope,
+  );
   const declaredMonthlyRentalIncome = includeIncome
     ? buildDeclaredRentalIncomeRows(registry, declaredRentalById, accountScope)
     : [];
@@ -446,6 +508,7 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
 
   const monthlyExpenseRecurring: RecurringExpense[] = [
     ...declaredMonthlyExpense,
+    ...declaredMonthlyDebtExpense,
     ...detectedMonthlyExpense,
   ];
   const annualExpenseRecurring: RecurringExpense[] = [
@@ -542,6 +605,76 @@ function resolveRentalBillingDay(accumulator: Accumulator | null): number | null
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(mostRecent.date);
   if (!match) return null;
   return parseInt(match[3], 10);
+}
+
+/**
+ * Declaration-first debt expenses: one row per debt whose transactions
+ * matched exact `matchAmounts` entries. The heuristic detector never sees
+ * these accumulators (partitioned out), so rate changes and multi-amount
+ * mortgages surface reliably.
+ */
+function buildDeclaredDebtExpenseRows(
+  debts: readonly DebtMatchable[],
+  declaredByDebtId: Map<string, Accumulator>,
+  accountScope: readonly string[] | undefined,
+): RecurringExpense[] {
+  const monthly: RecurringExpense[] = [];
+
+  for (const debt of debts) {
+    if (debt.archived) continue;
+    if (debt.kind !== 'mortgage') continue;
+    if (debt.matchAmounts.length === 0) continue;
+
+    const accumulator = declaredByDebtId.get(debt.id);
+    if (accumulator === undefined) continue;
+
+    const sourceAccount = pickDebtSourceAccount(debt, accumulator, accountScope);
+    if (sourceAccount === null) continue;
+
+    monthly.push(buildDeclaredDebtExpenseRow(debt, accumulator, sourceAccount));
+  }
+
+  return monthly;
+}
+
+function pickDebtSourceAccount(
+  debt: DebtMatchable,
+  accumulator: Accumulator,
+  accountScope: readonly string[] | undefined,
+): string | null {
+  const candidates = debt.sourceAccounts.filter(
+    account => accountScope === undefined || accountScope.includes(account),
+  );
+  if (candidates.length === 0) return null;
+  if (candidates.some(account => account === accumulator.sourceAccount)) {
+    return accumulator.sourceAccount;
+  }
+  return candidates[0] ?? null;
+}
+
+function buildDeclaredDebtExpenseRow(
+  debt: DebtMatchable,
+  accumulator: Accumulator,
+  sourceAccount: string,
+): RecurringExpense {
+  const monthlyAmount = debt.matchAmounts[0];
+  const category: CategoryName = 'Housing';
+  const billingDayOfMonth = resolveRentalBillingDay(accumulator);
+
+  return {
+    merchant: debt.name,
+    category,
+    colour: categoryColour(category),
+    amount: round2(monthlyAmount),
+    frequency: 'monthly',
+    monthsActive: accumulator.monthlyTotals.size,
+    annualTotal: round2(monthlyAmount * 12),
+    logoUrl: getMerchantLogoUrl(debt.name),
+    sourceAccount,
+    billingDayOfMonth,
+    billingMonth: null,
+    declaredDebtId: debt.id,
+  };
 }
 
 function buildDeclaredOutgoingRows(
