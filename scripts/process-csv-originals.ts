@@ -18,11 +18,25 @@ import { ACCOUNTS, type AccountName } from '../server/types.js';
 import { ingestCsvFile } from '../server/ingestion/ingest-csv-file.js';
 import { initDatabase } from '../server/db/index.js';
 import { recomputeAndPersistDataManifest } from '../server/data-manifest.js';
+import { isNormalizedMonthlyFilename } from '../server/utils/csv-partitioner.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATEMENTS_DIR = path.resolve(__dirname, '../statements');
 
 const accountFilter = process.argv[2];
+
+/** Remove stray `feed_*` / `data (N).csv` working copies from the active csv/ directory. */
+function removeNonNormalizedCsvFiles(csvDir: string): string[] {
+  if (!fs.existsSync(csvDir)) return [];
+  const removed: string[] = [];
+  for (const name of fs.readdirSync(csvDir)) {
+    if (!name.endsWith('.csv') || name.startsWith('.')) continue;
+    if (isNormalizedMonthlyFilename(name)) continue;
+    fs.unlinkSync(path.join(csvDir, name));
+    removed.push(name);
+  }
+  return removed;
+}
 
 function accountsToProcess(): AccountName[] {
   if (accountFilter) {
@@ -40,7 +54,13 @@ async function main(): Promise<void> {
   let skipped = 0;
 
   for (const account of accountsToProcess()) {
-    const originalsDir = path.join(STATEMENTS_DIR, account, 'csv', '_originals');
+    const csvDir = path.join(STATEMENTS_DIR, account, 'csv');
+    const removed = removeNonNormalizedCsvFiles(csvDir);
+    if (removed.length > 0) {
+      console.log(`\n🧹 ${account}: removed ${removed.length} non-normalized file(s) from csv/: ${removed.join(', ')}`);
+    }
+
+    const originalsDir = path.join(csvDir, '_originals');
     if (!fs.existsSync(originalsDir)) {
       continue;
     }
@@ -62,8 +82,8 @@ async function main(): Promise<void> {
 
       if (result.ok) {
         const detail =
-          result.partition.deleted
-            ? `partitioned → ${result.partition.filesCreated.join(', ')}`
+          result.partition.filesCreated.length > 0
+            ? `merged → ${result.partition.filesCreated.join(', ')}`
             : `active → ${result.normalizedFilename}`;
         console.log(`   ✅ ${name} (${detail})`);
         ingested += 1;

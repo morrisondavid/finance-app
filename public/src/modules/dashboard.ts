@@ -6,7 +6,7 @@ import type { DashboardSummary, AccountSummary } from '../types';
 import { state, setState, getSelectedCurrency, getAccountConfig } from './state';
 import { fetchDashboard, fetchTransactions, syncBankFeed, FeedSyncRequestError, fetchFeedToolbarState, startTrueLayerOAuthConnect, startEnableOAuthConnect, FeedOAuthStartRequestError } from '../utils/api';
 import { computeFeedSyncDateFromNewestTransaction } from '../../../shared/feed-sync-window.js';
-import { formatCurrency } from '../utils/formatting';
+import { formatCurrency, transactionAmountClass, transactionAmountPrefix } from '../utils/formatting';
 import { escapeHtml, escapeAttribute } from '../utils/dom';
 import { loadRecurring } from './recurring.js';
 import { loadAdHocExpenses } from './ad-hoc-expenses.js';
@@ -614,8 +614,8 @@ async function loadRecentTransactions(): Promise<void> {
           <div class="transaction-desc">${escapeHtml(t.description || 'No description')}</div>
           <div class="transaction-meta">${escapeHtml(t.date)}</div>
         </div>
-        <div class="transaction-amount ${t.type}">
-          ${t.type === 'income' ? '+' : ''}${formatCurrency(t.amount, cur)}
+        <div class="transaction-amount ${transactionAmountClass(t.type, t.amount)}">
+          ${transactionAmountPrefix(t.type, t.amount)}${formatCurrency(t.amount, cur)}
         </div>
       </div>
     `).join('');

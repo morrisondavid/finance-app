@@ -185,7 +185,7 @@ export const DEFAULT_DEBT_ROWS: readonly DebtCsvRow[] = [
     openingBalanceDate: '2024-03-14',
     archived: false,
     // [0] is current; [1] is the post-reset stress scenario.
-    matchAmounts: [2221.63, 3431.96],
+    matchAmounts: [2200, 3431.96],
     matchTolerancePct: 0,
     kind: 'mortgage',
     interestRate: 4.4,

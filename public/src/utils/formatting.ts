@@ -36,6 +36,19 @@ export function formatAccountName(account: string): string {
     .join(' ');
 }
 
+/** CSS class for transaction amount: positive inflows use income styling. */
+export function transactionAmountClass(type: string, amount: number): string {
+  if (type === 'income' || (type === 'transfer' && amount > 0)) return 'income';
+  if (type === 'expense' || (type === 'transfer' && amount < 0)) return 'expense';
+  return type;
+}
+
+/** Prefix for transaction amount display (`+` for inflows). */
+export function transactionAmountPrefix(type: string, amount: number): string {
+  if (type === 'income' || (type === 'transfer' && amount > 0)) return '+';
+  return '';
+}
+
 export function formatBillingDay(
   dayOfMonth: number | null,
   month: number | null,

@@ -24,6 +24,7 @@ import type {
 import { isContractCurrent } from '../../../shared/contract-display.js';
 import { SPECIAL_CATEGORY } from '../../../shared/special-category.js';
 import { contractWeekdayMask } from '../working-days/weekday-mask.js';
+import { obligationActiveForProjection } from '../obligations/obligation-active.js';
 import { INCOME_ACTIVITY_CLASS, type ActivityClass, type IncomeKind } from './activity-class.js';
 
 export interface IncomeSource {
@@ -126,9 +127,10 @@ export function listAllIncomeSources(input: ListAllIncomeSourcesInput): IncomeSo
     });
   }
 
-  // 2. Rental-income obligations.
+  // 2. Rental-income obligations (active only — ended lets stay in CSV for history).
   for (const o of input.obligations) {
     if (o.category !== 'rental-income') continue;
+    if (!obligationActiveForProjection(o)) continue;
     out.push({
       kind: 'rental-income',
       id: o.id,

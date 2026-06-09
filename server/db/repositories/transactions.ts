@@ -13,6 +13,7 @@ import {
   isTransferDescription,
   isBounceDescription,
   bounceDescriptionSqlPrefilter,
+  isHmrcTaxPaymentDescription,
 } from '../../config/transfer-patterns.js';
 import { 
   shouldIncludeTransfersAsIncome,
@@ -243,6 +244,8 @@ export function detectTransfers(): number {
       // - OR the income side is a bounced payment (REV, insufficient funds)
       if (expense.account === income.account) {
         if (!incomeIsTransferLike && !expenseIsTransferLike && !incomeIsBounce) continue;
+        if (isHmrcTaxPaymentDescription(expense.description)) continue;
+        if (isHmrcTaxPaymentDescription(income.description)) continue;
       } else if (
         !isCrossAccountBusinessToBusinessTransfer(expense.account, income.account)
       ) {
@@ -464,10 +467,6 @@ export function compileTransactionFilterSql(filters: TransactionFilters): Transa
   }
 
   const includeTransfers = shouldIncludeTransfersAsIncome(sqlFilters.account);
-
-  if (!sqlFilters.includeTransfers && !sqlFilters.type && !includeTransfers) {
-    sql += ' AND type != \'transfer\'';
-  }
 
   if (sqlFilters.account) {
     sql += ' AND account = ?';

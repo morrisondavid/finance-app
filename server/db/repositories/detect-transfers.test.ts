@@ -120,3 +120,36 @@ describe('detectTransfers — Barclays ↔ Wise within-entity pairing', () => {
     expect(barclays.linkedId).toBe(wiseId);
   });
 });
+
+describe('detectTransfers — HMRC same-account exclusion', () => {
+  it('does not pair HMRC VAT with OPTIONAL FT on the same day and amount', async () => {
+    const { detectTransfers } = await import('./transactions.js');
+
+    const hmrcId = insertTxn(
+      'barclays-current',
+      '2026-06-08',
+      -5924.81,
+      'HMRC VAT SOUTHEND 292146596 BBP',
+    );
+    const optionalFtId = insertTxn(
+      'barclays-current',
+      '2026-06-08',
+      5924.81,
+      'ACCOUNT 60878820 AT 20-25-19 OPTIONAL FT',
+    );
+
+    detectTransfers();
+
+    const hmrc = harness.current!.db
+      .prepare(`SELECT type, linked_transaction_id AS linkedId FROM transactions WHERE id = ?`)
+      .get(hmrcId) as { type: string; linkedId: number | null };
+    const optionalFt = harness.current!.db
+      .prepare(`SELECT type, linked_transaction_id AS linkedId FROM transactions WHERE id = ?`)
+      .get(optionalFtId) as { type: string; linkedId: number | null };
+
+    expect(hmrc.type).toBe('expense');
+    expect(hmrc.linkedId).toBeNull();
+    expect(optionalFt.linkedId).not.toBe(hmrcId);
+    expect(hmrc.linkedId).not.toBe(optionalFtId);
+  });
+});

@@ -47,7 +47,7 @@ export type IngestResult =
       readonly normalizedFilename: string;
       /** True iff `normalizeFileOnDisk` actually renamed the file. */
       readonly renamed: boolean;
-      /** Result from `partitionByMonth` — `deleted: false` means the input was a single-month file kept as-is. */
+      /** Result from `partitionByMonth` — working copy is always merged into monthly file(s). */
       readonly partition: PartitionResult;
     }
   | {
@@ -159,8 +159,8 @@ export function ingestCsvFile(
   const finalPath = normalize.newPath ?? workingPath;
   const normalizedFilename = normalize.normalized;
 
-  // Step 6: partition (no-op if single-month; multi-month → per-month files)
-  const partition = partitionByMonth(finalPath, account);
+  // Step 6: merge into canonical YYYY-MM monthly file(s); consume working copy
+  const partition = partitionByMonth(finalPath, account, { sourceFilename: originalName });
 
   return {
     ok: true,

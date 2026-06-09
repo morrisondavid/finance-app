@@ -26,8 +26,11 @@ import {
   HouseholdFinancialPostureResponseSchema,
   IncomeCompositionResponseSchema,
   AccountBalanceSchema,
+  AccountBalanceAsOfQuerySchema,
+  AccountBalanceResponseSchema,
   type AccountBalance,
 } from '../../shared/api-contracts.js';
+import { todayIsoLocal } from '../../shared/iso-date.js';
 import { getDb } from '../db/connection.js';
 import { runFeedSync, FeedSyncError } from '../ingestion/feeds/sync.js';
 import { EnableBankingError } from '../ingestion/feeds/enable-banking.js';
@@ -513,6 +516,32 @@ function spendPeriodFromValidated(data: z.infer<typeof SpendByCurrencyQuerySchem
   return { kind: 'financialYear', financialYear: data.financialYear! };
 }
 
+/** @internal — running balance for one account on/before `asOfDate` (defaults to today). */
+export function runAnalyticsGetBalanceAsOfMcpTool(args: unknown): McpJsonToolReturn {
+  const parsed = AccountBalanceAsOfQuerySchema.safeParse(args ?? {});
+  if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
+  try {
+    const asOfDate = parsed.data.asOfDate ?? todayIsoLocal();
+    const result = readDashboardBalance(parsed.data.account, {
+      financialYear: parsed.data.financialYear,
+      asOfDate,
+    });
+    if (!result.ok) {
+      return {
+        isError: true,
+        content: [{ type: 'text' as const, text: JSON.stringify(result.body, null, 2) }],
+      };
+    }
+    const structuredContent = AccountBalanceResponseSchema.parse(result.body);
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (err) {
+    return mcpAiInternalError(err instanceof Error ? err.message : 'Unknown error');
+  }
+}
+
 /** @internal */
 export function runGetAiSpendByCurrencyMcpTool(args: unknown): McpJsonToolReturn {
   const parsed = SpendByCurrencyQuerySchema.safeParse(args);
@@ -586,7 +615,7 @@ export function createBankStatementsMcpServer(): McpServer {
         '**Survival & insights:** `analytics_get_available_funds` (future income, next/last payment date, projected available), `analytics_get_spend_rate` (daily/weekly/monthly burn split personal/business), `analytics_get_upcoming` (N-month expense/income buckets), `analytics_get_survival` (safe £/day + how long money lasts), `survival_get_allowance` (today\'s rollover budget), `survival_plan_commit` / `survival_plan_get` / `survival_plan_clear`.\n\n' +
         '**Canonical registry:** grouped prefixed tool ids live in `server/mcp/canonical-mcp-tool-registry.ts` (`CANONICAL_MCP_TOOL_GROUPS`) — use it as the Appendix A–style checklist for automation and reviews.\n\n' +
         '**Canonical naming:** tools use `{domain}_{action}` snake_case (`invoices_list`, `deadlines_create`, `financial_obligations_*`, …). The **first path segment** must be an approved domain token (see that registry). **`get_http_*` / `post_http_*` / `get_ai_*` / verb-first names remain as temporary aliases** registered alongside the canonical tool and will be removed after a deprecation window — always prefer the prefixed name in new automation.\n\n' +
-        '**Analytics / §2.0:** `analytics_get_liquidity`, `analytics_get_pipeline`, `analytics_get_runway`, `analytics_get_snapshot`, `analytics_get_financial_snapshot`, `analytics_get_financial_safety`, `analytics_get_spend_by_currency` mirror `GET /api/ai/*` with the same Zod query shapes as legacy `get_ai_*` tools.\n\n' +
+        '**Analytics / §2.0:** `analytics_get_liquidity`, `analytics_get_pipeline`, `analytics_get_runway`, `analytics_get_snapshot`, `analytics_get_financial_snapshot`, `analytics_get_financial_safety`, `analytics_get_spend_by_currency` mirror `GET /api/ai/*` with the same Zod query shapes as legacy `get_ai_*` tools. **`analytics_get_balance_as_of`** — running balance for one account on/before a date (`account`, optional `asOfDate` ISO yyyy-mm-dd default today); use when reconciling against a bank statement or asking "what was the balance on …".\n\n' +
         '**Feeds & motion:** `bank_feed_sync` (alias `sync_bank_feed`); `transactions_drill_query` (alias `query_transactions`); OAuth starts: `feed_oauth_enable_start` / `feed_oauth_truelayer_start` (return `url`+`state` only — human browser completes redirects).\n\n' +
         '**Net worth:** `net_worth_capture_snapshot` (alias `capture_net_worth_snapshot`).\n\n' +
         '**Monthly invoices:** `invoices_preview_monthly` / `invoices_commit_monthly` (`previewFingerprint` on commit for drift QA — not a substitute for human approval).\n\n' +
@@ -840,6 +869,17 @@ export function createBankStatementsMcpServer(): McpServer {
       outputSchema: AiSpendByCurrencyResponseSchema.shape,
     },
     args => runGetAiSpendByCurrencyMcpTool(args),
+  );
+
+  server.registerTool(
+    'analytics_get_balance_as_of',
+    {
+      description:
+        'Running balance for one account on or before a calendar date. **`account`** required; **`asOfDate`** optional ISO yyyy-mm-dd (defaults to today). Sums `openingBalance` plus all ledger rows with `date <= asOfDate` (respecting `opening_balance_date`). For cash accounts read **`cashBalance`**; credit cards use `balanceSemantics` / `creditRemaining` / `debtOwed`. **Use when reconciling against a bank export or asking "what was my balance on 29 May".**',
+      inputSchema: AccountBalanceAsOfQuerySchema.shape,
+      outputSchema: AccountBalanceResponseSchema.shape,
+    },
+    args => runAnalyticsGetBalanceAsOfMcpTool(args),
   );
 
   server.registerTool(

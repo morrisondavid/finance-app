@@ -20,6 +20,8 @@ import {
 } from '../domain/ai/index.js';
 import { assembleRunway } from '../domain/forecast/index.js';
 import { runwayResponseFromAssembled } from '../domain/forecast/runway-api-response.js';
+import { todayIsoLocal } from '../../shared/iso-date.js';
+import { readDashboardBalance } from '../http/read/dashboard.js';
 import {
   runGetAiFinancialSafetyMcpTool,
   runGetAiFinancialSnapshotMcpTool,
@@ -29,6 +31,7 @@ import {
   runGetAiSnapshotMcpTool,
   runGetAiSpendByCurrencyMcpTool,
   runAnalyticsGetAvailableFundsMcpTool,
+  runAnalyticsGetBalanceAsOfMcpTool,
 } from './bank-mcp-server.js';
 
 /** Drop top-level `generatedAt` so two sequential composer runs compare stably. */
@@ -188,5 +191,45 @@ describe('MCP analytics_get_* §2.0 tools match /api/ai composers (`get_ai_*` ar
     const { generatedAt: _gt, ...withoutToolTime } = sc;
     const { generatedAt: _ge, ...withoutExpectedTime } = expected;
     expect(withoutToolTime).toEqual(withoutExpectedTime);
+  });
+
+  it('analytics_get_balance_as_of rejects invalid asOfDate', () => {
+    const r = runAnalyticsGetBalanceAsOfMcpTool({
+      account: 'barclays-current',
+      asOfDate: '29/05/2026',
+    });
+    expect(r.isError).toBe(true);
+    const body = JSON.parse(r.content[0].text);
+    expect(body.error).toBe('invalid-params');
+  });
+
+  it('analytics_get_balance_as_of matches readDashboardBalance for a fixed date', () => {
+    const asOfDate = '2026-03-28';
+    const expected = readDashboardBalance('barclays-current', { asOfDate });
+    expect(expected.ok).toBe(true);
+    if (!expected.ok) {
+      expect.fail('readDashboardBalance failed');
+    }
+
+    const r = runAnalyticsGetBalanceAsOfMcpTool({
+      account: 'barclays-current',
+      asOfDate,
+    });
+    expect(r.isError).toBeUndefined();
+    expect(r.structuredContent).toEqual(expected.body);
+    expect(typeof r.structuredContent?.cashBalance).toBe('number');
+  });
+
+  it('analytics_get_balance_as_of defaults asOfDate to today', () => {
+    const today = todayIsoLocal();
+    const expected = readDashboardBalance('barclays-current', { asOfDate: today });
+    expect(expected.ok).toBe(true);
+    if (!expected.ok) {
+      expect.fail('readDashboardBalance failed');
+    }
+
+    const r = runAnalyticsGetBalanceAsOfMcpTool({ account: 'barclays-current' });
+    expect(r.isError).toBeUndefined();
+    expect(r.structuredContent).toEqual(expected.body);
   });
 });

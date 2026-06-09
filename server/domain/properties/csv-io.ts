@@ -7,7 +7,7 @@
  */
 
 import path from 'path';
-import { PropertySchema, type Property } from './schema.js';
+import { PropertySchema, PropertyStatusSchema, type Property } from './schema.js';
 import {
   createCsvDecoders,
   nullIfEmpty,
@@ -25,6 +25,8 @@ export const PROPERTY_CSV_HEADERS = [
   'ownership_david',
   'ownership_heena',
   'notes',
+  'status',
+  'sold_at',
   'updated_at',
 ] as const;
 
@@ -34,12 +36,16 @@ export function getPropertiesCsvPath(propertiesDir: string): string {
 
 export function parsePropertyRow(row: Record<string, string>): Property {
   const rowId = nullIfEmpty(row.id) ?? '<missing-id>';
+  const statusRaw = nullIfEmpty(row.status);
+  const soldAtRaw = nullIfEmpty(row.sold_at);
   return PropertySchema.parse({
     id: requireNonEmpty(row.id, 'id', rowId),
     address: requireNonEmpty(row.address, 'address', rowId),
     ownership_david: decodeNumber(row.ownership_david, 'ownership_david', rowId),
     ownership_heena: decodeNumber(row.ownership_heena, 'ownership_heena', rowId),
     notes: nullIfEmpty(row.notes),
+    status: statusRaw === null ? 'owned' : PropertyStatusSchema.parse(statusRaw),
+    sold_at: soldAtRaw === null ? null : decodeIsoDate(row.sold_at, 'sold_at', rowId),
     updated_at: decodeIsoDate(row.updated_at, 'updated_at', rowId),
   });
 }

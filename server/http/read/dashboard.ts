@@ -48,6 +48,7 @@ import { jsonReadFail, jsonReadOk, type JsonReadResult } from './types.js';
 interface SummaryQuery {
   financialYear?: string | undefined;
   account?: string | undefined;
+  asOfDate?: string | undefined;
 }
 
 /** GET /api/dashboard/summary */
@@ -97,6 +98,8 @@ export function readDashboardSummaryFromQuery(
       });
     }
 
+    const accountBalanceRow = getAccountBalance(selectedAccount);
+
     const sharedCore = {
       totals: getDashboardTotals(filters),
       monthly: getMonthlySummary(filters),
@@ -104,7 +107,7 @@ export function readDashboardSummaryFromQuery(
       feedLinkByAccount: feedLinkIndicatorsForAllAccounts(),
       currentAccountBalance: accountBalanceForApi(
         selectedAccount,
-        getAccountBalance(selectedAccount),
+        accountBalanceRow,
       ),
       taxLiabilities: getTaxLiabilities(filters),
       transferCount: getTransferCount(filters),
@@ -147,15 +150,18 @@ export function readDashboardSummaryFromQuery(
 /** GET /api/dashboard/balance/:account */
 export function readDashboardBalance(
   accountParam: string | undefined,
-  query: Pick<SummaryQuery, 'financialYear'>,
+  query: Pick<SummaryQuery, 'financialYear' | 'asOfDate'>,
 ): JsonReadResult {
   try {
     if (accountParam === undefined || accountParam === '') {
       return jsonReadFail(400, { error: 'Missing account' });
     }
     const validatedAccount = validateAccount(accountParam);
-    const { financialYear } = query;
-    const balance = getAccountBalance(validatedAccount, { financialYear });
+    const { financialYear, asOfDate } = query;
+    const balance = getAccountBalance(validatedAccount, {
+      financialYear,
+      ...(asOfDate !== undefined && asOfDate !== '' ? { asOfDate } : {}),
+    });
     return jsonReadOk(accountBalanceForApi(validatedAccount, balance));
   } catch {
     console.error('Error fetching balance');

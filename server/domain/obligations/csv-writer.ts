@@ -61,6 +61,8 @@ function obligationToCsvRow(c: Obligation): string {
     hasDueDate(c) ? escapeCsvField(c.dueDate ?? '') : '',
     hasTaxType(c) ? escapeCsvField(c.taxType ?? '') : '',
     escapeCsvField(c.propertyId ?? ''),
+    c.active === false ? 'false' : 'true',
+    escapeCsvField(c.endedAt ?? ''),
   ];
   return cells.join(',');
 }

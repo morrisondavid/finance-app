@@ -15,6 +15,8 @@ const fx: readonly Property[] = [
     ownership_david: 0.5,
     ownership_heena: 0.5,
     notes: null,
+    status: 'owned',
+    sold_at: null,
     updated_at: '2026-01-01',
   },
 ];

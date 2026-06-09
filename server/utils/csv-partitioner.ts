@@ -314,6 +314,98 @@ export function needsPartitioning(rows: CSVRow[], parser: BankParser): boolean {
   return monthGroups.size > 1;
 }
 
+/** Canonical monthly statement filename: `YYYY-MM_transactions_<account>.csv`. */
+export const NORMALIZED_MONTHLY_CSV_PATTERN = /^\d{4}-\d{2}_transactions_/;
+
+export function isNormalizedMonthlyFilename(filename: string): boolean {
+  return NORMALIZED_MONTHLY_CSV_PATTERN.test(path.basename(filename));
+}
+
+/** Bank feed pulls are named `feed_<from>_<to>.csv`. */
+export function isFeedSourceFilename(filename: string): boolean {
+  return /^feed_/.test(path.basename(filename));
+}
+
+export type MergeStrategy = 'row-dedupe' | 'date-precedence';
+
+/**
+ * How incoming rows are merged into an existing monthly file.
+ * - Feeds and already-normalized monthly files: row-level dedupe (hash key).
+ * - Full-statement uploads (`data (N).csv`, etc.): date precedence — only
+ *   import rows on dates the monthly file does not already cover.
+ */
+export function resolveMergeStrategy(sourceFilename: string | undefined): MergeStrategy {
+  if (sourceFilename === undefined) {
+    return 'row-dedupe';
+  }
+  const base = path.basename(sourceFilename);
+  if (isFeedSourceFilename(base) || isNormalizedMonthlyFilename(base)) {
+    return 'row-dedupe';
+  }
+  return 'date-precedence';
+}
+
+/**
+ * PURE - ISO calendar date (YYYY-MM-DD) for a row, or null when unparseable.
+ */
+export function rowIsoDate(row: CSVRow, parser: BankParser): string | null {
+  const dateStr = getColumnValue(row, parser.dateColumn);
+  const date = parser.parseDate(dateStr);
+  if (date === null) return null;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * PURE - Distinct ISO dates present in a row set.
+ */
+export function getCoveredIsoDates(rows: CSVRow[], parser: BankParser): Set<string> {
+  const dates = new Set<string>();
+  for (const row of rows) {
+    const iso = rowIsoDate(row, parser);
+    if (iso !== null) dates.add(iso);
+  }
+  return dates;
+}
+
+/**
+ * PURE - Keep only rows whose date is not already in `coveredDates`.
+ */
+export function filterRowsToUncoveredDates(
+  rows: CSVRow[],
+  parser: BankParser,
+  coveredDates: Set<string>,
+): CSVRow[] {
+  return rows.filter(row => {
+    const iso = rowIsoDate(row, parser);
+    return iso !== null && !coveredDates.has(iso);
+  });
+}
+
+/**
+ * PURE - Merge incoming month rows into an existing monthly file.
+ */
+export function mergeMonthRows(
+  existingRows: CSVRow[],
+  incomingRows: CSVRow[],
+  parser: BankParser,
+  strategy: MergeStrategy,
+): CSVRow[] {
+  if (strategy === 'date-precedence') {
+    const covered = getCoveredIsoDates(existingRows, parser);
+    const filtered = filterRowsToUncoveredDates(incomingRows, parser, covered);
+    return deduplicateRows([...existingRows, ...filtered], parser);
+  }
+  return deduplicateRows([...existingRows, ...incomingRows], parser);
+}
+
+export interface PartitionOptions {
+  /** Original ingest name (e.g. `feed_*.csv`, `data (2).csv`) — selects merge strategy. */
+  readonly sourceFilename?: string;
+}
+
 // ============================================
 // I/O INTERFACES (for dependency injection)
 // ============================================
@@ -381,7 +473,8 @@ export interface PartitionResult {
 export function partitionCSVFile(
   filePath: string,
   account: string,
-  fileSystem: FileSystem = defaultFileSystem
+  fileSystem: FileSystem = defaultFileSystem,
+  options: PartitionOptions = {},
 ): PartitionResult {
   const parser = PARSERS[account];
   if (!parser) {
@@ -390,6 +483,8 @@ export function partitionCSVFile(
   
   const directory = path.dirname(filePath);
   const originalFilename = path.basename(filePath);
+  const resolvedFilePath = path.resolve(filePath);
+  const mergeStrategy = resolveMergeStrategy(options.sourceFilename);
   
   // Read and preprocess
   const content = fileSystem.readFile(filePath);
@@ -412,51 +507,51 @@ export function partitionCSVFile(
     throw new Error(errorMsg);
   }
   
-  // Check if partitioning is needed
-  if (!needsPartitioning(rowsWithOccurrence, parser)) {
+  const monthGroups = groupRowsByMonth(rowsWithOccurrence, parser);
+  if (monthGroups.size === 0) {
+    fileSystem.deleteFile(filePath);
     return {
       originalFile: originalFilename,
       filesCreated: [],
       totalRows: rowsWithOccurrence.length,
       rowsByMonth: new Map(),
-      deleted: false
+      deleted: true,
     };
   }
+
+  const outputPaths = [...monthGroups.keys()].map(month =>
+    path.resolve(path.join(directory, `${month}_transactions_${account}.csv`)),
+  );
+  const collidesWithInput = outputPaths.some(p => p === resolvedFilePath);
+
+  // Delete the input file BEFORE writing partitions to avoid filename collision,
+  // unless the input IS the monthly output file (in-place dedupe).
+  if (!collidesWithInput) {
+    fileSystem.deleteFile(filePath);
+  }
   
-  // Core logic - PURE
-  const monthGroups = groupRowsByMonth(rowsWithOccurrence, parser);
-  
-  // Delete the input file BEFORE writing partitions to avoid filename collision.
-  // The normalizer renames raw uploads to YYYY-MM_transactions_ACCOUNT.csv,
-  // which is the same pattern the partitioner uses for output files.
-  // The caller (upload route) is responsible for saving the original beforehand.
-  fileSystem.deleteFile(filePath);
-  
-  // Write output files (input file deleted, no collision possible)
   const filesCreated: string[] = [];
   const rowsByMonth = new Map<string, number>();
   
   for (const [month, monthRows] of monthGroups) {
     const filename = `${month}_transactions_${account}.csv`;
-    
     const outputPath = path.join(directory, filename);
-    if (fileSystem.exists(outputPath)) {
+    const isInPlace = path.resolve(outputPath) === resolvedFilePath;
+
+    let uniqueRows: CSVRow[];
+    if (isInPlace) {
+      uniqueRows = deduplicateRows(monthRows, parser);
+    } else if (fileSystem.exists(outputPath)) {
       const existingContent = fileSystem.readFile(outputPath);
       const existingRows = parseCSVContent(existingContent);
-      
-      const allRows = [...existingRows, ...monthRows];
-      
-      const uniqueRows = deduplicateRows(allRows, parser);
-      const mergedContent = rowsToCSV(parser.headers, uniqueRows);
-      fileSystem.writeFile(outputPath, mergedContent);
-      rowsByMonth.set(month, uniqueRows.length);
+      uniqueRows = mergeMonthRows(existingRows, monthRows, parser, mergeStrategy);
     } else {
-      const uniqueRows = deduplicateRows(monthRows, parser);
-      const csvContent = rowsToCSV(parser.headers, uniqueRows);
-      fileSystem.writeFile(outputPath, csvContent);
-      rowsByMonth.set(month, uniqueRows.length);
+      uniqueRows = deduplicateRows(monthRows, parser);
     }
-    
+
+    const mergedContent = rowsToCSV(parser.headers, uniqueRows);
+    fileSystem.writeFile(outputPath, mergedContent);
+    rowsByMonth.set(month, uniqueRows.length);
     filesCreated.push(filename);
   }
   
@@ -465,13 +560,17 @@ export function partitionCSVFile(
     filesCreated,
     totalRows: rowsWithOccurrence.length,
     rowsByMonth,
-    deleted: true
+    deleted: true,
   };
 }
 
 /**
  * Convenience function that uses default file system
  */
-export function partitionByMonth(filePath: string, account: string): PartitionResult {
-  return partitionCSVFile(filePath, account, defaultFileSystem);
+export function partitionByMonth(
+  filePath: string,
+  account: string,
+  options: PartitionOptions = {},
+): PartitionResult {
+  return partitionCSVFile(filePath, account, defaultFileSystem, options);
 }

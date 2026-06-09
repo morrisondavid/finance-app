@@ -22,6 +22,9 @@ export const PropertyIdSchema = z.string().regex(/^[a-z][a-z0-9-]*$/, {
 });
 export type PropertyId = z.infer<typeof PropertyIdSchema>;
 
+export const PropertyStatusSchema = z.enum(['owned', 'let', 'primary-residence', 'sold']);
+export type PropertyStatus = z.infer<typeof PropertyStatusSchema>;
+
 export const PropertySchema = z.object({
   /** Stable id. Kebab-case; used as foreign key in obligations.csv and debts.csv. */
   id: PropertyIdSchema,
@@ -33,6 +36,10 @@ export const PropertySchema = z.object({
   ownership_heena: z.number().min(0).max(1),
   /** Free-form notes. Optional. */
   notes: z.string().nullable(),
+  /** Lifecycle status for display and filtering; row is never deleted. */
+  status: PropertyStatusSchema.default('owned'),
+  /** ISO date when the property was sold; meaningful when `status === 'sold'`. */
+  sold_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
   /** ISO-date this row was last edited. */
   updated_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 }).readonly();

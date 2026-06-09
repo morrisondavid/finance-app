@@ -281,7 +281,7 @@ describe('partitionCSVFile', () => {
     expect(mockFs.deleteFile).toHaveBeenCalledWith('/path/to/file.csv');
   });
 
-  it('does not partition single-month file', () => {
+  it('merges single-month file into canonical monthly CSV', () => {
     const csvContent = `Date,Amount
 15/01/2025,100
 20/01/2025,200`;
@@ -290,9 +290,11 @@ describe('partitionCSVFile', () => {
 
     const result = partitionCSVFile('/path/to/file.csv', 'test', mockFs);
 
-    expect(result.deleted).toBe(false);
-    expect(result.filesCreated.length).toBe(0);
-    expect(mockFs.writeFile).not.toHaveBeenCalled();
+    expect(result.deleted).toBe(true);
+    expect(result.filesCreated).toEqual(['2025-01_transactions_test.csv']);
+    expect(result.rowsByMonth.get('2025-01')).toBe(2);
+    expect(mockFs.writeFile).toHaveBeenCalledTimes(1);
+    expect(mockFs.deleteFile).toHaveBeenCalledWith('/path/to/file.csv');
   });
 
   it('handles file with all columns', () => {

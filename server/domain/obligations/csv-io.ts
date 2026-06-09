@@ -44,6 +44,8 @@ export const OBLIGATION_CSV_HEADERS = [
   'due_date',
   'tax_type',
   'property_id',
+  'active',
+  'ended_at',
 ] as const;
 
 export function getObligationsSeedCsvPath(obligationsDir: string): string {
@@ -88,6 +90,19 @@ function buildOwnership(row: Record<string, string>, rowId: string): Partial<Rec
   return ownership;
 }
 
+function parseBooleanColumn(
+  value: string | undefined,
+  field: string,
+  rowId: string,
+  defaultValue: boolean,
+): boolean {
+  const raw = nonEmpty(value);
+  if (raw === undefined) return defaultValue;
+  if (raw === 'true' || raw === '1') return true;
+  if (raw === 'false' || raw === '0') return false;
+  throw new Error(`Obligation ${rowId}: ${field} must be true/false, got '${raw}'`);
+}
+
 function buildCommonFields(row: Record<string, string>, rowId: string) {
   const amount = parseNumber(row.amount, 'amount', rowId);
   if (amount === undefined) {
@@ -103,6 +118,8 @@ function buildCommonFields(row: Record<string, string>, rowId: string) {
     currency: nonEmpty(row.currency) ?? 'GBP',
     notes: nonEmpty(row.notes),
     propertyId: nonEmpty(row.property_id),
+    active: parseBooleanColumn(row.active, 'active', rowId, true),
+    endedAt: nonEmpty(row.ended_at),
   };
 }
 

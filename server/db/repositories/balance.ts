@@ -56,6 +56,10 @@ export function setOpeningBalance(account: AccountName, balance: number, date?: 
  *
  * Optional `financialYear` further restricts to that FY’s `[startDate, endDate]`,
  * intersecting with the opening-date window when both apply.
+ *
+ * Optional `asOfDate` (inclusive) caps the window: only transactions with
+ * `date <= asOfDate` are summed. When earlier than `opening_balance_date`,
+ * the result is the opening balance alone (no in-window rows).
  */
 export function getAccountBalance(account: AccountName, filters: DashboardFilters = {}): AccountBalance {
   const db = getDb();
@@ -74,7 +78,12 @@ export function getAccountBalance(account: AccountName, filters: DashboardFilter
     whereClause += ' AND date >= ? AND date <= ?';
     params.push(range.startDate, range.endDate);
   }
-  
+
+  if (filters.asOfDate !== undefined && filters.asOfDate !== '') {
+    whereClause += ' AND date <= ?';
+    params.push(filters.asOfDate);
+  }
+
   // Get transaction totals and date range
   const stats = db.prepare(`
     SELECT 
@@ -86,7 +95,7 @@ export function getAccountBalance(account: AccountName, filters: DashboardFilter
     ${whereClause}
   `).get(...params) as { total: number; oldest: string | null; newest: string | null; count: number };
   
-  return {
+  const result = {
     account,
     openingBalance: opening.balance,
     openingBalanceDate: opening.date,
@@ -96,6 +105,8 @@ export function getAccountBalance(account: AccountName, filters: DashboardFilter
     newestTransaction: stats.newest,
     transactionCount: stats.count
   };
+
+  return result;
 }
 
 /**

@@ -129,4 +129,30 @@ describe('getAccountBalance', () => {
       expect(b.newestTransaction).toBe('2025-03-01');
     });
   });
+
+  describe('asOfDate ceiling', () => {
+    it('sums only transactions on or before asOfDate (inclusive)', () => {
+      setOpeningBalance(account, 1000, '2024-01-01');
+      insertTxn({ hash: 'a', date: '2024-01-01', description: 'start', amount: 100, type: 'income' });
+      insertTxn({ hash: 'b', date: '2024-06-01', description: 'mid', amount: -50, type: 'expense' });
+      insertTxn({ hash: 'c', date: '2024-12-01', description: 'late', amount: -25, type: 'expense' });
+
+      const b = getAccountBalance(account, { asOfDate: '2024-06-01' });
+      expect(b.transactionTotal).toBe(50);
+      expect(b.currentBalance).toBe(1050);
+      expect(b.transactionCount).toBe(2);
+      expect(b.newestTransaction).toBe('2024-06-01');
+    });
+
+    it('returns opening balance only when asOfDate is before opening_balance_date', () => {
+      setOpeningBalance(account, 1000, '2024-01-01');
+      insertTxn({ hash: 'a', date: '2024-06-01', description: 'later', amount: -50, type: 'expense' });
+
+      const b = getAccountBalance(account, { asOfDate: '2023-12-31' });
+      expect(b.transactionTotal).toBe(0);
+      expect(b.currentBalance).toBe(1000);
+      expect(b.transactionCount).toBe(0);
+      expect(b.newestTransaction).toBeNull();
+    });
+  });
 });

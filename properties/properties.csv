@@ -1,4 +1,4 @@
-id,address,ownership_david,ownership_heena,notes,updated_at
-hunters-square-78,"78 Hunters Square, London",0.5,0.5,Buy-to-let; mortgage with NatWest (interest-only),2026-04-25
-thorney-house-56,"56 Thorney House, London",0.5,0.5,Buy-to-let; mortgage with NatWest (interest-only),2026-04-25
-heath-park-road-53,"53 Heath Park Road, London",0.5,0.5,Primary residence (not rental); mortgage with Coventry Building Society (repayment),2026-04-25
+id,address,ownership_david,ownership_heena,notes,status,sold_at,updated_at
+hunters-square-78,"78 Hunters Square, London",0.5,0.5,Buy-to-let; mortgage with NatWest (interest-only),let,,2026-04-25
+thorney-house-56,"56 Thorney House, London",0.5,0.5,Buy-to-let; let ended 2026 — pending sale; mortgage with NatWest (interest-only),owned,,2026-06-10
+heath-park-road-53,"53 Heath Park Road, London",0.5,0.5,Buy-to-let from 2026; mortgage with Coventry Building Society (repayment),let,,2026-06-10

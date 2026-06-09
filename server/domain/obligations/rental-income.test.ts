@@ -15,7 +15,7 @@ function mkRegistry(rows: string[]) {
   const header = [
     'id', 'category', 'frequency', 'merchant', 'display_name', 'account', 'amount',
     'currency', 'notes', 'ownership_david', 'ownership_heena', 'person_id',
-    'amount_tolerance', 'due_date', 'tax_type', 'property_id',
+    'amount_tolerance', 'due_date', 'tax_type', 'property_id', 'active', 'ended_at',
   ].join(',');
   fs.writeFileSync(path.join(tmpDir, 'obligations-seed.csv'), [header, ...rows].join('\n'));
   return { registry: buildObligationRegistry(tmpDir), cleanup: () => fs.rmSync(tmpDir, { recursive: true, force: true }) };
@@ -110,6 +110,17 @@ describe('sumRentalIncomeForPerson', () => {
     try {
       insert(db, '2024-05-01', 'Rent Stoneshaw', 1000, 'barclays-current');
       expect(sumRentalIncomeForPerson(db, 'david', '2024-04-06', '2025-04-05', registry)).toBe(0);
+    } finally { db.close(); cleanup(); }
+  });
+
+  it('still attributes historical rent when obligation is inactive', () => {
+    const { registry, cleanup } = mkRegistry([
+      'r1,rental-income,monthly,Prospect Holdings,,monzo-joint,979.2,GBP,,0.5,0.5,,,,,thorney-house-56,false,2026-06-01',
+    ]);
+    const db = makeDb();
+    try {
+      insert(db, '2025-05-01', 'Prospect Holdings rent', 979.2, 'monzo-joint');
+      expect(sumRentalIncomeForPerson(db, 'david', '2024-04-06', '2026-04-05', registry)).toBeCloseTo(489.6, 2);
     } finally { db.close(); cleanup(); }
   });
 });

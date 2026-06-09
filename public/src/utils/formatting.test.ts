@@ -8,6 +8,8 @@ import {
   formatQuarterName,
   formatIsoDateUk,
   formatIsoDateUkLong,
+  transactionAmountClass,
+  transactionAmountPrefix,
 } from './formatting.js';
 import * as sharedFormatting from '../../../shared/formatting.js';
 
@@ -50,6 +52,33 @@ describe('round2', () => {
   it('documents floating-point limits around binary representation (not true bank rounding)', () => {
     expect(round2(1.005)).toBe(1);
     expect(round2(2.675)).toBe(2.68);
+  });
+});
+
+describe('transactionAmountClass', () => {
+  it('maps positive transfers to income styling', () => {
+    expect(transactionAmountClass('transfer', 5924.81)).toBe('income');
+  });
+
+  it('maps negative transfers to expense styling', () => {
+    expect(transactionAmountClass('transfer', -100)).toBe('expense');
+  });
+
+  it('preserves income and expense types', () => {
+    expect(transactionAmountClass('income', 50)).toBe('income');
+    expect(transactionAmountClass('expense', -50)).toBe('expense');
+  });
+});
+
+describe('transactionAmountPrefix', () => {
+  it('prefixes positive transfers and income with +', () => {
+    expect(transactionAmountPrefix('income', 50)).toBe('+');
+    expect(transactionAmountPrefix('transfer', 5924.81)).toBe('+');
+  });
+
+  it('does not prefix expenses or outbound transfers', () => {
+    expect(transactionAmountPrefix('expense', -50)).toBe('');
+    expect(transactionAmountPrefix('transfer', -100)).toBe('');
   });
 });
 

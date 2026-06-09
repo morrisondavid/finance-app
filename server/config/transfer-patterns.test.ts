@@ -3,6 +3,7 @@ import {
   isTransferDescription,
   isBounceDescription,
   isInterCompanyExcludedDescription,
+  isHmrcTaxPaymentDescription,
   TRANSFER_PATTERNS,
   PAIRING_TRANSFER_PATTERNS,
   BOUNCE_PATTERNS,
@@ -152,6 +153,19 @@ describe('Transfer Pattern Detection', () => {
       expect(isInterCompanyExcludedDescription('Wise: to Autonize IT - FZCO (4824 AED @ 4.84)')).toBe(false);
       expect(isInterCompanyExcludedDescription('INWARD REMITTANCE AUTONIZE')).toBe(false);
       expect(isInterCompanyExcludedDescription('Intercompany transfer')).toBe(false);
+    });
+  });
+
+  describe('isHmrcTaxPaymentDescription', () => {
+    it('matches HMRC VAT and corporation tax payments', () => {
+      expect(isHmrcTaxPaymentDescription('HMRC VAT SOUTHEND')).toBe(true);
+      expect(isHmrcTaxPaymentDescription('VAT RETURN 2026')).toBe(true);
+      expect(isHmrcTaxPaymentDescription('Corporation Tax Q1')).toBe(true);
+    });
+
+    it('does not match salary or generic transfers', () => {
+      expect(isHmrcTaxPaymentDescription('DAVID MORRISON SALARY STO')).toBe(false);
+      expect(isHmrcTaxPaymentDescription('OPTIONAL FT')).toBe(false);
     });
   });
 });

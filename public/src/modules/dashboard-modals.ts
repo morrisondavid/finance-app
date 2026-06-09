@@ -6,7 +6,7 @@
 import { state, getAccountConfig, getSelectedCurrency } from './state';
 import { applyBalancePanelLabelsForAccountType } from './balance-panel-labels';
 import { fetchTransactions, fetchVATPayments } from '../utils/api';
-import { formatCurrency } from '../utils/formatting';
+import { formatCurrency, transactionAmountClass, transactionAmountPrefix } from '../utils/formatting';
 import { escapeHtml } from '../utils/dom';
 import { loadDashboard } from './dashboard';
 import { loadLiquidityDashboard } from './liquidity-dashboard';
@@ -117,8 +117,8 @@ function renderTransactionList(
           <div class="transaction-desc">${escapeHtml(t.description || 'No description')}</div>
           <div class="transaction-meta">${escapeHtml(t.date)}</div>
         </div>
-        <div class="transaction-amount ${t.type}">
-          ${t.type === 'income' ? '+' : ''}${formatCurrency(t.amount, cur)}
+        <div class="transaction-amount ${transactionAmountClass(t.type, t.amount)}">
+          ${transactionAmountPrefix(t.type, t.amount)}${formatCurrency(t.amount, cur)}
         </div>
       </div>
     `).join('');

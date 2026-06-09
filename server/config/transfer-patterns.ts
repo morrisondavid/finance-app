@@ -62,6 +62,17 @@ export function isInterCompanyExcludedDescription(description: string): boolean 
   return INTER_COMPANY_EXCLUSION_PATTERNS.some(p => p.test(description));
 }
 
+const HMRC_TAX_PAYMENT_PATTERNS: RegExp[] = [
+  /\bHMRC\b/i,
+  /VAT RETURN/i,
+  /CORPORATION TAX/i,
+];
+
+/** `true` for HMRC / VAT / corporation-tax payment descriptions (not salary/PAYE alone). */
+export function isHmrcTaxPaymentDescription(description: string): boolean {
+  return HMRC_TAX_PAYMENT_PATTERNS.some(p => p.test(description));
+}
+
 /**
  * How many days apart transactions can be to be considered a transfer pair
  */

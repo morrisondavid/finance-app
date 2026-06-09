@@ -534,6 +534,14 @@ export const TransactionsResponseSchema = z.array(TransactionSchema);
 // POST /api/dashboard/balance/:account (response)
 export const AccountBalanceResponseSchema = AccountBalanceSchema;
 
+/** MCP `analytics_get_balance_as_of` — running balance for one account on/before a date. */
+export const AccountBalanceAsOfQuerySchema = z.object({
+  account: AccountNameSchema,
+  asOfDate: IsoDateSchema.optional(),
+  financialYear: z.string().optional(),
+});
+export type AccountBalanceAsOfQuery = z.infer<typeof AccountBalanceAsOfQuerySchema>;
+
 // GET /api/tax/vat-payments — returns HMRC payment matches (not full Transaction rows)
 export const HmrcPaymentMatchSchema = z.object({
   date: z.string(),
@@ -977,6 +985,13 @@ const ObligationBase = z.object({
    * §1.7 in ROADMAP.md for the rent ↔ mortgage join rationale.
    */
   propertyId: z.string().optional(),
+  /**
+   * When `false`, obligation is historical only — excluded from forward income
+   * composition / leverage. Defaults to `true` when omitted in CSV.
+   */
+  active: z.boolean().default(true),
+  /** ISO date when a recurring obligation ended (e.g. letting stopped). */
+  endedAt: IsoDateSchema.optional(),
 });
 
 /**

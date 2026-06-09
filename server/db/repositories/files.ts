@@ -4,6 +4,7 @@ import { getDb, STATEMENTS_DIR } from '../connection.js';
 import { ACCOUNTS } from '../../types.js';
 import { parseCSVFile } from '../../parsers/index.js';
 import { insertTransactions, detectTransfers } from './transactions.js';
+import { isNormalizedMonthlyFilename } from '../../utils/csv-partitioner.js';
 
 /**
  * Record that a file has been processed
@@ -29,7 +30,7 @@ export function getAllCSVFiles(): Array<{ account: string; filePath: string; fil
     if (!fs.existsSync(csvDir)) continue;
     
     const files = fs.readdirSync(csvDir)
-      .filter(f => f.endsWith('.csv') && !f.startsWith('.'));
+      .filter(f => f.endsWith('.csv') && !f.startsWith('.') && isNormalizedMonthlyFilename(f));
     
     for (const file of files) {
       csvFiles.push({

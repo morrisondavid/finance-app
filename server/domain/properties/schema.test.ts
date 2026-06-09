@@ -9,6 +9,8 @@ describe('PropertySchema', () => {
       ownership_david: 0.5,
       ownership_heena: 0.5,
       notes: 'Buy-to-let',
+      status: 'let',
+      sold_at: null,
       updated_at: '2026-04-25',
     };
     expect(() => PropertySchema.parse(valid)).not.toThrow();

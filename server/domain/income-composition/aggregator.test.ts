@@ -125,6 +125,22 @@ describe('listAllIncomeSources', () => {
     expect(out[0].activityClass).toBe('passive');
   });
 
+  it('skips inactive rental-income obligations from forward income sources', () => {
+    const out = listAllIncomeSources({
+      today: TODAY,
+      contracts: [],
+      obligations: [
+        makeRentalObligation({ id: 'ended-let', active: false, endedAt: '2026-06-01' }),
+        makeRentalObligation({ id: 'active-let', amount: 2850, propertyId: 'heath-park-road-53' }),
+      ],
+      monthlyIncomeRecurring: [],
+      clientLabelById,
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].id).toBe('active-let');
+    expect(out[0].monthlyAmount).toBe(2850);
+  });
+
   it('skips recurring income whose category is already represented (Property/Payroll/Transfers/Income/Dividends)', () => {
     const out = listAllIncomeSources({
       today: TODAY,

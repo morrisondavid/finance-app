@@ -257,7 +257,7 @@ describe('debts CSV', () => {
     expect(m3.repaymentType).toBe('repayment');
     expect(m3.propertyValueEstimate).toBe(630000);
     expect(m3.propertyId).toBe('heath-park-road-53');
-    expect(m3.matchAmounts).toEqual([2221.63, 3431.96]);
+    expect(m3.matchAmounts).toEqual([2200, 3431.96]);
   });
 
   it('ensureDebtsCsvWithDefaults is a no-op when the file already exists', () => {

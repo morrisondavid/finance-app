@@ -16,6 +16,7 @@ import { todayIsoLocal } from '../../../shared/iso-date.js';
 import { isMandatoryCategory } from '../../../shared/expenses-insight.js';
 import { listCurrentContracts } from '../contracts/queries.js';
 import { allClients } from '../clients/queries.js';
+import { obligationActiveForProjection } from '../obligations/obligation-active.js';
 import { getObligationRegistry } from '../obligations/registry.js';
 import { runExpensesOverviewPipeline } from '../../utils/expenses-overview-pipeline.js';
 import type { PipelineResult } from '../../utils/recurring-pipeline.js';
@@ -155,10 +156,13 @@ export function assembleIncomeComposition(): AssembledIncomeComposition {
   });
 
   const propertyLeverage = buildPropertyLeverageInputs({
-    rentals: obligations.listByCategory('rental-income').map(r => ({
-      propertyId: r.propertyId,
-      amount: r.amount,
-    })),
+    rentals: obligations
+      .listByCategory('rental-income')
+      .filter(obligationActiveForProjection)
+      .map(r => ({
+        propertyId: r.propertyId,
+        amount: r.amount,
+      })),
     debts: listDebts(),
   });
   const riskSignals = computeRiskSignals({

@@ -486,6 +486,7 @@ export const STATIC_MERCHANT_DATA: readonly MerchantEntry[] = [
   { pattern: /FLOOR REPAIR/i, category: 'Property', displayName: null },
   { pattern: /STONESHAW/i, category: 'Property', displayName: null },
   { pattern: /PROSPECT HOLDING/i, category: 'Property', displayName: 'Prospect Holdings' },
+  { pattern: /SALAH/i, category: 'Property', displayName: null },
   { pattern: /SHURGARD|STORAGE/i, category: 'Property', displayName: 'Storage' },
   { pattern: /ALBO PLUMBING/i, category: 'Property', displayName: null },
   { pattern: /RM2 FLOORING/i, category: 'Property', displayName: null },

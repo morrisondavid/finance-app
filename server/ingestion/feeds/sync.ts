@@ -16,9 +16,8 @@
  *   5. `fs.writeFileSync(os.tmpdir()/feed_<from>_<to>.csv, csv)`.
  *   6. {@link ingestCsvFile} with `overwrite: opts.force` — same function
  *      the manual upload route calls; performs validation, `_originals/`
- *      save, normalisation, partitioning. Single-month feeds may leave a
- *      `feed_*.csv` next to the canonical monthly file in `csv/`; the
- *      DB-level dedup handles this transparently.
+ *      save, normalisation, and merge into canonical monthly CSV(s) in
+ *      `csv/` (no `feed_*.csv` working copies remain in `csv/`).
  *   7. `initDatabase()` once, only if anything actually landed.
  *
  * The Enable adapter, ingest function, and DB call are all dependency-

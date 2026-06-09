@@ -30,6 +30,7 @@ export const CANONICAL_MCP_TOOL_GROUPS = [
       'analytics_get_financial_snapshot',
       'analytics_get_financial_safety',
       'analytics_get_spend_by_currency',
+      'analytics_get_balance_as_of',
     ],
   ],
   ['Feeds', ['bank_feed_sync', 'feed_oauth_enable_start', 'feed_oauth_truelayer_start']],

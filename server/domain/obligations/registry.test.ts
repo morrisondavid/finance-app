@@ -13,7 +13,7 @@ function writeCsv(dir: string, filename: string, rows: string[]): void {
   const header = [
     'id', 'category', 'frequency', 'merchant', 'display_name', 'account', 'amount',
     'currency', 'notes', 'ownership_david', 'ownership_heena', 'person_id',
-    'amount_tolerance', 'due_date', 'tax_type', 'property_id',
+    'amount_tolerance', 'due_date', 'tax_type', 'property_id', 'active', 'ended_at',
   ].join(',');
   fs.writeFileSync(path.join(dir, filename), [header, ...rows].join('\n'));
 }
@@ -49,7 +49,8 @@ describe('parseObligationRow', () => {
       merchant: 'Stoneshaw Estates', display_name: '78 Hunters Square',
       account: 'monzo-joint', amount: '1292.72', currency: '', notes: '',
       ownership_david: '0.5', ownership_heena: '0.5', person_id: '',
-      amount_tolerance: '', due_date: '',
+      amount_tolerance: '', due_date: '', tax_type: '', property_id: 'hunters-square-78',
+      active: 'true', ended_at: '',
     });
     expect(result.category).toBe('rental-income');
     if (result.category === 'rental-income') {
@@ -57,6 +58,19 @@ describe('parseObligationRow', () => {
       expect(result.ownership.heena).toBe(0.5);
     }
     expect(result.displayName).toBe('78 Hunters Square');
+  });
+
+  it('parses active=false and ended_at on a rental-income row', () => {
+    const result = parseObligationRow({
+      id: 'seed-thorney-house-56', category: 'rental-income', frequency: 'monthly',
+      merchant: 'Prospect Holdings', display_name: '56 Thorney House',
+      account: 'monzo-joint', amount: '979.2', currency: 'GBP', notes: '',
+      ownership_david: '0.5', ownership_heena: '0.5', person_id: '',
+      amount_tolerance: '', due_date: '', tax_type: '', property_id: 'thorney-house-56',
+      active: 'false', ended_at: '2026-06-01',
+    });
+    expect(result.active).toBe(false);
+    expect(result.endedAt).toBe('2026-06-01');
   });
 
   it('parses a payroll row with personId + tolerance', () => {

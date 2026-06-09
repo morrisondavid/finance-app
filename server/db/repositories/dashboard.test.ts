@@ -12,7 +12,7 @@ vi.mock('../connection.js', () => ({
   },
 }));
 
-import { getAccountSummary } from './dashboard.js';
+import { getAccountSummary, getDashboardTotals, getMonthlySummary } from './dashboard.js';
 
 function createSchema(): void {
   hoisted.db!.exec(`
@@ -80,5 +80,46 @@ describe('getAccountSummary', () => {
     });
     expect(byAccount['barclays-current'].income).toBe(100);
     expect(byAccount['barclays-current'].transactionCount).toBe(1);
+  });
+});
+
+describe('transfer totals exclusion for barclays-current', () => {
+  beforeAll(() => {
+    hoisted.db = new Database(':memory:');
+    createSchema();
+  });
+
+  afterAll(() => {
+    hoisted.db?.close();
+  });
+
+  beforeEach(() => {
+    hoisted.db!.exec('DELETE FROM transactions;');
+  });
+
+  it('excludes transfers from income and expense totals while reporting them separately', () => {
+    hoisted.db!.prepare(
+      `INSERT INTO transactions (hash, date, description, amount, account, type)
+       VALUES (?, ?, ?, ?, 'barclays-current', 'income')`,
+    ).run('inc', '2026-06-01', 'Client payment', 1000);
+    hoisted.db!.prepare(
+      `INSERT INTO transactions (hash, date, description, amount, account, type)
+       VALUES (?, ?, ?, ?, 'barclays-current', 'expense')`,
+    ).run('exp', '2026-06-08', 'HMRC VAT', -5924.81);
+    hoisted.db!.prepare(
+      `INSERT INTO transactions (hash, date, description, amount, account, type)
+       VALUES (?, ?, ?, ?, 'barclays-current', 'transfer')`,
+    ).run('xfer', '2026-06-08', 'OPTIONAL FT', 5924.81);
+
+    const totals = getDashboardTotals({ account: 'barclays-current' });
+    expect(totals.income).toBe(1000);
+    expect(totals.expenses).toBe(5924.81);
+    expect(totals.transfersIn).toBe(5924.81);
+    expect(totals.transfersOut).toBe(0);
+
+    const monthly = getMonthlySummary({ account: 'barclays-current' });
+    const june = monthly.find(m => m.month === '2026-06');
+    expect(june?.income).toBe(1000);
+    expect(june?.expenses).toBe(5924.81);
   });
 });

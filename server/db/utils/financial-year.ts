@@ -29,6 +29,8 @@ export interface FinancialYearRange {
 export interface DashboardFilters {
   account?: string;
   financialYear?: string;
+  /** Inclusive ceiling: only transactions with `date <= asOfDate` count toward balance. */
+  asOfDate?: string;
 }
 
 /** Canonical form: "2024/25" (slash-separated). Accepts "2024-25" or "2024/25". */
