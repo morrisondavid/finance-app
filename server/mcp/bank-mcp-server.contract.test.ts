@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   type EntityFoundationWarning,
   type AiTransactionDrillResponse,
   AiTransactionDrillQuerySchema,
 } from '../../shared/api-contracts.js';
-import { initDatabase, closeDatabase } from '../db/index.js';
+import { usePopulatedIntegrationDatabase } from '../db/test-harness/use-populated-integration-db.js';
 import {
   composeAiLiquidity,
   composeAiPipeline,
@@ -44,13 +44,7 @@ function warningsIgnoringTimeline(warnings: readonly EntityFoundationWarning[]) 
 }
 
 describe('MCP resource payloads vs composers', () => {
-  beforeAll(async () => {
-    await initDatabase();
-  }, 120_000);
-
-  afterAll(() => {
-    closeDatabase();
-  });
+  usePopulatedIntegrationDatabase(import.meta.url);
 
   it('liquidity resource matches composeAiLiquidity', () => {
     const fromMcp = JSON.parse(readBankStatementsAiResource(BankStatementsAiResourceUris.liquidity));

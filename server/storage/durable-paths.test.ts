@@ -27,6 +27,6 @@ describe('durable-paths', () => {
   it('lists every top-level durable directory mirrored to S3', () => {
     expect(DURABLE_TOP_LEVEL_DIRS).toContain('statements');
     expect(DURABLE_TOP_LEVEL_DIRS).toContain('invoices');
-    expect(DURABLE_TOP_LEVEL_DIRS.length).toBe(11);
+    expect(DURABLE_TOP_LEVEL_DIRS.length).toBe(12);
   });
 });

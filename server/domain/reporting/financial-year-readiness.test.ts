@@ -24,6 +24,7 @@ const allPresentDeps: ReadinessDeps = {
   monthsOnDisk: allMonthsForUkLtdFy202526(),
   invoicesForEntity: () => [],
   invoicePdfExists: () => true,
+  hasTransactionsInMonth: () => true,
 };
 
 describe('computeFinancialYearReadinessOverview', () => {

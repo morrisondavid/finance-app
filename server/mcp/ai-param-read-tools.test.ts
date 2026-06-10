@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { initDatabase, closeDatabase } from '../db/index.js';
+import { describe, it, expect } from 'vitest';
+import { usePopulatedIntegrationDatabase } from '../db/test-harness/use-populated-integration-db.js';
 import { getDb } from '../db/connection.js';
 import {
   FinancialSnapshotQuerySchema,
@@ -40,13 +40,7 @@ function withoutTopLevelGeneratedAt(body: object): Record<string, unknown> {
 }
 
 describe('MCP analytics_get_* §2.0 tools match /api/ai composers (`get_ai_*` are deprecated aliases)', () => {
-  beforeAll(async () => {
-    await initDatabase();
-  }, 120_000);
-
-  afterAll(() => {
-    closeDatabase();
-  });
+  usePopulatedIntegrationDatabase(import.meta.url);
 
   it('analytics_get_liquidity: {} matches composeAiLiquidity(LiquidityQuerySchema defaults)', () => {
     const query = LiquidityQuerySchema.parse({});

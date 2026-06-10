@@ -53,6 +53,10 @@ const buildReconciliationPlanMock = vi.fn<
 >();
 const recordInvoicePaymentsMock = vi.fn<(input: unknown) => RecordInvoicePaymentsResult>();
 
+vi.mock('../domain/invoices/invoice-generate-monthly-guards.js', () => ({
+  violationForMonthlySupplierInvoiceGenerate: () => undefined,
+}));
+
 vi.mock('../domain/invoices/index.js', async () => {
   const actual =
     await vi.importActual<typeof import('../domain/invoices/index.js')>(
@@ -192,8 +196,8 @@ describe('GET /api/invoices/draft', () => {
     expect(draft.status).toBe('draft');
     expect(draft.contract_id).toBe('dc-sow-2026');
     expect(draft.id).toMatch(/^DC-\d{3}$/);
-    expect(draft.invoice_number).toBe('DC-011');
-    expect(draft.payment_reference).toBe('DC-011');
+    expect(draft.invoice_number).toBe('DC-012');
+    expect(draft.payment_reference).toBe('DC-012');
   });
 
   it('400 when contract is self-bill (supplier draft does not apply)', async () => {

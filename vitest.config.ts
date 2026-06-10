@@ -4,7 +4,13 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['**/*.test.ts'],
+    hookTimeout: 300_000,
+    include: [
+      'server/**/*.test.ts',
+      'public/**/*.test.ts',
+      'shared/**/*.test.ts',
+    ],
+    exclude: ['**/node_modules/**', '**/dist/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

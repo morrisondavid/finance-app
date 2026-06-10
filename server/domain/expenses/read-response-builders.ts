@@ -46,7 +46,7 @@ function clampInt(n: number, min: number, max: number): number {
 }
 
 export function buildExpensesOverviewSheetResponse(): ExpensesSheetResponse {
-  const pipeline = runExpensesOverviewPipeline();
+  const pipeline = runExpensesOverviewPipeline({ includeSimulationExcluded: true });
   const sheetInput = buildExpensesSheetInputFromPipeline(pipeline);
   const baseline = buildExpensesSheetResponse(sheetInput);
   const persisted = new Set(getFixedExpenseSimulationExclusions());

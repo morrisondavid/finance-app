@@ -1,19 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { LeaveListResponseSchema } from '../../shared/api-contracts.js';
-import { initDatabase, closeDatabase } from '../db/index.js';
+import { usePopulatedIntegrationDatabase } from '../db/test-harness/use-populated-integration-db.js';
 import { leaveForContract } from '../domain/leave/index.js';
 import { readContractLeave } from '../http/read/contracts.js';
 import { readWarningsConsolidatedFeed } from '../http/read/warnings-read.js';
 import { httpJsonReadToMcpToolResult } from './http-json-read-mcp-tools.js';
 
 describe('HTTP JSON read → MCP envelope (parity)', () => {
-  beforeAll(async () => {
-    await initDatabase();
-  }, 120_000);
-
-  afterAll(() => {
-    closeDatabase();
-  });
+  usePopulatedIntegrationDatabase(import.meta.url);
 
   it('readContractLeave body matches canonical LeaveListResponse (+ MCP envelope)', () => {
     const id = 'dc-sow-2026';

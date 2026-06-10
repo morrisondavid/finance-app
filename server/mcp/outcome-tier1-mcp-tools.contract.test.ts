@@ -2,7 +2,7 @@
  * Tier-1 outcome MCP tools ({@link canonical-mcp-tool-registry} cross-domain slice).
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import type { z } from 'zod';
 import {
   IncomeCompositionResponseSchema,
@@ -13,7 +13,9 @@ import {
 } from '../../shared/api-contracts.js';
 import { HouseholdFinancialPostureQuerySchema } from '../domain/ai/ai-get-query-schemas.js';
 import { composeAiFinancialSafety, composeAiIncomeComposition } from '../domain/ai/index.js';
-import { initDatabase, closeDatabase } from '../db/index.js';
+import { getDb } from '../db/connection.js';
+import { usePopulatedIntegrationDatabase } from '../db/test-harness/use-populated-integration-db.js';
+import { loadForecastInputs } from '../domain/forecast/load-inputs.js';
 import { readDashboardSummaryFromQuery } from '../http/read/dashboard.js';
 import {
   runAccountantReadinessSnapshotMcpTool,
@@ -86,13 +88,7 @@ function withStableAvailableFundsTimestamp(
 }
 
 describe('outcome MCP — income composition + posture + accountant readiness', () => {
-  beforeAll(async () => {
-    await initDatabase();
-  }, 120_000);
-
-  afterAll(() => {
-    closeDatabase();
-  });
+  usePopulatedIntegrationDatabase(import.meta.url);
 
   it('income_get_composition runner matches composer (IncomeCompositionResponseSchema)', () => {
     const expected = IncomeCompositionResponseSchema.parse(composeAiIncomeComposition());
@@ -105,9 +101,21 @@ describe('outcome MCP — income composition + posture + accountant readiness', 
     'household_financial_posture {} orchestrates safety + dashboard summary',
     () => {
       const query = HouseholdFinancialPostureQuerySchema.parse({});
+      const loaded = loadForecastInputs({
+        horizonDays: query.days,
+        filterEntityId: query.entityId,
+      });
+      const safetyOpts = {
+        ...financialSafetyOptsFromHouseholdParsed(query),
+        forecastInputs: loaded,
+      };
+      // §1.8 snapshots are write-on-read; reset so composer baseline matches MCP tool.
+      getDb().exec('DELETE FROM warning_snapshots;');
+      const expectedSafety = composeAiFinancialSafety(safetyOpts);
+      getDb().exec('DELETE FROM warning_snapshots;');
+
       const r = runHouseholdFinancialPostureMcpTool({});
       expect(r.isError).toBeUndefined();
-      const expectedSafety = composeAiFinancialSafety(financialSafetyOptsFromHouseholdParsed(query));
       const dash = readDashboardSummaryFromQuery({
         account: query.account,
         financialYear: query.financialYear,

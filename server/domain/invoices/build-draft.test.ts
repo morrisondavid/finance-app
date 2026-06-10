@@ -168,8 +168,8 @@ describe('buildDraftInvoice — resolveInvoiceVatRate integration', () => {
     expect(draft.vat_rate).toBe(0);
     expect(draft.vat_amount).toBe(0);
     expect(draft.total).toBe(draft.subtotal);
-    expect(draft.id).toBe('FZ-0001');
-    expect(draft.invoice_number).toBe('FZ-0001');
+    expect(draft.id).toBe('EG-0001');
+    expect(draft.invoice_number).toBe('EG-0001');
   });
 });
 

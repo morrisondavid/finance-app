@@ -47,6 +47,7 @@ const NON_REGISTRY_DIRS = new Set<string>([
   'expenses',
   'statements',
   'reporting',
+  'debts',
 ]);
 
 /**

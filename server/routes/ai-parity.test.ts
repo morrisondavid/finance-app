@@ -30,6 +30,10 @@ vi.mock('../db/connection.js', () => ({
     if (!harness.current) throw new Error('test db not initialised');
     return harness.current.obligationsDir;
   },
+  get DEBTS_DIR() {
+    if (!harness.current) throw new Error('test db not initialised');
+    return harness.current.debtsDir;
+  },
 }));
 
 import aiRouter from './ai.js';

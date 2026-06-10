@@ -88,7 +88,7 @@ export function deriveAndInsertAutoTtpObligations(referenceDate: Date = new Date
   const db = getDb();
   db.prepare("DELETE FROM financial_obligations WHERE source = 'auto' AND type = 'hmrc-ttp'").run();
 
-  const pipeline = runExpensesOverviewPipeline();
+  const pipeline = runExpensesOverviewPipeline({ includeSimulationExcluded: true });
   const hmrcRecurring = pipeline.monthlyExpenseRecurring.filter(
     e => e.merchant === HMRC_MERCHANT,
   );

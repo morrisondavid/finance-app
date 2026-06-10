@@ -1,19 +1,21 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { initDatabase, closeDatabase } from '../db/index.js';
+import { describe, it, expect, afterAll, vi } from 'vitest';
+import { createInMemoryTestDb } from '../db/test-harness/in-memory-db.js';
 import { mutateDebtsCreate } from '../http/mutation/debts.js';
 import { mutateBudgetDelete } from '../http/mutation/budgets.js';
 import { mutateInvoiceReconcile } from '../http/mutation/invoices.js';
 import { httpMutationToMcpToolResult } from './mcp-mutation-result.js';
 
+const harness = createInMemoryTestDb();
+
+vi.mock('../db/connection.js', () => ({
+  getDb: () => harness.db,
+}));
+
+afterAll(() => {
+  harness.cleanup();
+});
+
 describe('HTTP JSON mutation → MCP envelope (parity helpers)', () => {
-  beforeAll(async () => {
-    await initDatabase();
-  }, 120_000);
-
-  afterAll(() => {
-    closeDatabase();
-  });
-
   it('httpMutationToMcpToolResult treats 204 as success with synthetic structuredContent', () => {
     const mcp = httpMutationToMcpToolResult({ status: 204, body: null });
     expect(mcp.isError).toBeUndefined();

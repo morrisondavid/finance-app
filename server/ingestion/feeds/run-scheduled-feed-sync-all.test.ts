@@ -43,6 +43,7 @@ describe('runScheduledFeedSyncAll', () => {
   });
 
   it('skips unlinked accounts silently and syncs linked ones', async () => {
+    const initDatabaseMock = vi.fn().mockResolvedValue(undefined);
     mocks.listFeedSyncCandidatesMock.mockReturnValue([
       { account: 'wise-ltd', action: 'skip' },
       { account: 'barclays-current', action: 'sync' },
@@ -59,7 +60,11 @@ describe('runScheduledFeedSyncAll', () => {
     });
 
     const { hadLinkedFailure, syncedCount, skippedUnlinkedCount } =
-      await runScheduledFeedSyncAll({ lookbackDays: 3, repoRoot: tmpRoot });
+      await runScheduledFeedSyncAll({
+        lookbackDays: 3,
+        repoRoot: tmpRoot,
+        initDatabase: initDatabaseMock,
+      });
 
     expect(hadLinkedFailure).toBe(false);
     expect(syncedCount).toBe(1);
@@ -82,6 +87,7 @@ describe('runScheduledFeedSyncAll', () => {
       status: 'ingested',
       rowsFetched: 1,
     });
+    expect(initDatabaseMock).toHaveBeenCalledOnce();
   });
 
   it('records duplicate fetch as unchanged, not ingested', async () => {

@@ -39,6 +39,10 @@ vi.mock('../db/connection.js', () => ({
     if (!harness.current) throw new Error('test db not initialised');
     return harness.current.obligationsDir;
   },
+  get DEBTS_DIR() {
+    if (!harness.current) throw new Error('test db not initialised');
+    return harness.current.debtsDir;
+  },
 }));
 
 import warningsRouter from './warnings.js';
@@ -290,8 +294,8 @@ describe('§1.9 Debt Strategy emitters wired into /api/warnings', () => {
     const body = await resp.json();
     const parsed = EntityFoundationWarningsResponseSchema.parse(body);
     const ccConfig = parsed.warnings.filter(w => w.code === 'account-credit-card-config-missing');
-    // Three credit-card accounts in the seed → three warnings.
-    expect(ccConfig.length).toBeGreaterThanOrEqual(3);
+    // Barclaycard and Santander Everyday lack creditCard terms; Capital on Tap and MBNA are configured.
+    expect(ccConfig.length).toBe(2);
   });
 
   it('does NOT crash when no §1.9 plans exist in the seed (graceful empty-state)', async () => {

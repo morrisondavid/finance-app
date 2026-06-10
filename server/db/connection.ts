@@ -10,6 +10,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export const DB_PATH = path.join(__dirname, '../../data/transactions.db');
+
+/** Active SQLite path — overridable in tests so workers do not share one file. */
+export function resolveConnectionDbPath(): string {
+  const fromEnv = process.env.BANK_STATEMENTS_DB_PATH?.trim();
+  return fromEnv !== undefined && fromEnv !== '' ? fromEnv : DB_PATH;
+}
 export const STATEMENTS_DIR = path.join(__dirname, '../../statements');
 /** Canonical category budgets CSV lives here (see budgets-csv.ts). */
 export const BUDGETS_DIR = path.join(__dirname, '../../budgets');
@@ -55,14 +61,13 @@ export function getDb(): Database.Database {
  * Initialize the database connection
  */
 export function initConnection(): void {
-  // Ensure data directory exists
-  const dataDir = path.dirname(DB_PATH);
+  const dbPath = resolveConnectionDbPath();
+  const dataDir = path.dirname(dbPath);
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }
 
-  // Open database connection
-  db = new Database(DB_PATH);
+  db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
 
   // Enables `column REGEXP pattern` in queries (used for merchant drill-down word boundaries).

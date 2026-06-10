@@ -55,7 +55,7 @@ function getAnnualVariance(
   return out;
 }
 
-function makeLineKey(
+export function recurringLineKey(
   direction: 'expense' | 'income',
   frequency: 'monthly' | 'annual',
   e: RecurringExpense,
@@ -71,7 +71,7 @@ function toLineItem(
   direction: 'expense' | 'income',
 ): ExpensesLineItem {
   return {
-    lineKey: makeLineKey(direction, frequency, e),
+    lineKey: recurringLineKey(direction, frequency, e),
     merchant: e.merchant,
     category: e.category,
     amount: e.amount,
