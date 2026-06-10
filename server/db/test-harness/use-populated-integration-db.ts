@@ -1,6 +1,4 @@
 import { beforeAll } from 'vitest';
-import { fileURLToPath } from 'url';
-import path from 'path';
 import { initConnection } from '../connection.js';
 import {
   ensurePopulatedLedgerForVitest,
