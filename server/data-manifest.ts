@@ -113,8 +113,13 @@ export function recomputeAndPersistDataManifest(): string {
   return digest;
 }
 
+function activeDatabasePath(): string {
+  const fromEnv = process.env.BANK_STATEMENTS_DB_PATH?.trim();
+  return fromEnv !== undefined && fromEnv !== '' ? fromEnv : path.join(REPO_ROOT, 'data', 'transactions.db');
+}
+
 export function shouldSkipFullDatabaseRebuild(): boolean {
-  const dbPath = path.join(REPO_ROOT, 'data', 'transactions.db');
+  const dbPath = activeDatabasePath();
   if (!fs.existsSync(dbPath)) return false;
   const live = computeDataManifestDigest();
   const persisted = readPersistedManifest();

@@ -7,13 +7,13 @@
  * Each vitest worker receives its own DB file so parallel runs never overwrite
  * `data/transactions.db` while another worker has it open.
  */
+import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { REPO_ROOT } from '../../repo-root.js';
 import { computeDataManifestDigest } from '../../data-manifest.js';
 import { initDatabase, closeDatabase } from '../index.js';
-import { DB_PATH } from '../connection.js';
 
 const CACHE_DIR = path.join(REPO_ROOT, 'data', '.vitest-ledger-cache');
 const LOCK_PATH = path.join(CACHE_DIR, '.ensure-populated.lock');
@@ -32,16 +32,40 @@ function removeSqliteSidecars(dbPath: string): void {
 
 function copyLedgerSnapshot(source: string, target: string): void {
   fs.mkdirSync(path.dirname(target), { recursive: true });
+  removeSqliteSidecars(target);
   fs.copyFileSync(source, target);
   removeSqliteSidecars(target);
 }
 
+function isHealthySqliteFile(dbPath: string): boolean {
+  if (!fs.existsSync(dbPath)) {
+    return false;
+  }
+  removeSqliteSidecars(dbPath);
+  try {
+    const db = new Database(dbPath, { readonly: true });
+    const quickCheck = db.pragma('quick_check', { simple: true });
+    db.close();
+    return quickCheck === 'ok';
+  } catch {
+    return false;
+  }
+}
+
+function deleteSqliteFile(dbPath: string): void {
+  removeSqliteSidecars(dbPath);
+  if (fs.existsSync(dbPath)) {
+    fs.unlinkSync(dbPath);
+  }
+}
+
 function installLedgerFromCache(cached: string, targetPath: string): boolean {
-  if (!fs.existsSync(cached)) {
+  if (!isHealthySqliteFile(cached)) {
+    deleteSqliteFile(cached);
     return false;
   }
   copyLedgerSnapshot(cached, targetPath);
-  return true;
+  return isHealthySqliteFile(targetPath);
 }
 
 function isAlreadyExistsError(err: unknown): boolean {
@@ -60,13 +84,39 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function buildAndCacheLedger(cached: string): Promise<void> {
-  delete process.env.BANK_STATEMENTS_DB_PATH;
+  const staging = `${cached}.build-staging`;
+  deleteSqliteFile(staging);
+
+  const prevDbPath = process.env.BANK_STATEMENTS_DB_PATH;
+  const prevSkip = process.env.BANK_STATEMENTS_SKIP_INIT_WHEN_MANIFEST_UNCHANGED;
+  process.env.BANK_STATEMENTS_DB_PATH = staging;
+  process.env.BANK_STATEMENTS_SKIP_INIT_WHEN_MANIFEST_UNCHANGED = '0';
+
   console.log('[Test harness] Ledger cache miss — running initDatabase()');
-  await initDatabase();
-  closeDatabase();
+  try {
+    await initDatabase();
+  } finally {
+    closeDatabase();
+    if (prevDbPath === undefined) {
+      delete process.env.BANK_STATEMENTS_DB_PATH;
+    } else {
+      process.env.BANK_STATEMENTS_DB_PATH = prevDbPath;
+    }
+    if (prevSkip === undefined) {
+      delete process.env.BANK_STATEMENTS_SKIP_INIT_WHEN_MANIFEST_UNCHANGED;
+    } else {
+      process.env.BANK_STATEMENTS_SKIP_INIT_WHEN_MANIFEST_UNCHANGED = prevSkip;
+    }
+  }
+
+  if (!isHealthySqliteFile(staging)) {
+    deleteSqliteFile(staging);
+    throw new Error('[Test harness] Staging ledger failed integrity check after initDatabase()');
+  }
 
   fs.mkdirSync(CACHE_DIR, { recursive: true });
-  copyLedgerSnapshot(DB_PATH, cached);
+  copyLedgerSnapshot(staging, cached);
+  deleteSqliteFile(staging);
   console.log(`[Test harness] Wrote ledger cache (${path.basename(cached, '.db').slice(0, 12)}…)`);
 }
 

@@ -6,7 +6,8 @@
  * and only one — place that declares rental properties.
  */
 
-import type { PersonId } from '../../../shared/api-contracts.js';
+import type { PersonId, RecurringExpense } from '../../../shared/api-contracts.js';
+import type { PipelineResult } from '../../utils/recurring-pipeline.js';
 import {
   getObligationRegistry,
   type ObligationRegistry,
@@ -80,6 +81,23 @@ export function assertRentalMerchantsClassify(
  * ownership share to matched inbound transactions on the configured
  * account + payee.
  */
+/**
+ * Declared rental rows from the recurring pipeline — the subset of
+ * `monthlyIncomeRecurring` backed by active `rental-income` obligations.
+ */
+export function selectDeclaredRentalIncomeRows(
+  pipeline: PipelineResult,
+  registry: ObligationRegistry = getObligationRegistry(),
+): RecurringExpense[] {
+  const rentalIds = new Set(
+    registry.listByCategory('rental-income').map(o => o.id),
+  );
+  return pipeline.monthlyIncomeRecurring.filter(
+    row => row.declaredObligationId !== undefined
+      && rentalIds.has(row.declaredObligationId),
+  );
+}
+
 export function sumRentalIncomeForPerson(
   db: PreparableDb,
   personId: PersonId,

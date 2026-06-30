@@ -29,6 +29,7 @@ import {
   getAllAccountBalances,
   getAccountBalance,
   getTaxLiabilities,
+  resolveFinancialYearForTax,
 } from '../../db/index.js';
 import { categoryColour } from '../../utils/categorizer.js';
 import { transactionCategoryWithPayroll } from '../../domain/payroll/index.js';
@@ -68,7 +69,7 @@ export function readDashboardSummaryFromQuery(
 
     const filters = {
       account: selectedAccount,
-      financialYear: selectedFY,
+      financialYear: resolveFinancialYearForTax(selectedFY),
     };
 
     const fyNormalized = selectedFY !== undefined ? normalizeFinancialYear(selectedFY) : undefined;

@@ -177,6 +177,31 @@ interface SandboxIncomeSourcesPayload {
   recurring: SandboxIncomeRecurringRow[];
 }
 
+interface SalaryRedirectOpportunityPayload {
+  kind: 'cut-budgets' | 'needs-budget-caps';
+  bucketKey: string;
+  salaryMonthlyTotal: number;
+  salaryEntries: readonly { id: string; payee: string; amount: number }[];
+  salaryDetectedAsHouseholdIncome: boolean;
+  redirectableMonthly: number;
+  baselineAvailableHeadroom: number;
+  whatIfAvailableHeadroom: number;
+  whatIfIntensityOptions: {
+    aggressive: { monthlyAllocation: number; projectedCompletionDate: string | null };
+    medium: { monthlyAllocation: number; projectedCompletionDate: string | null };
+    passive: { monthlyAllocation: number; projectedCompletionDate: string | null };
+    feasible: boolean;
+  };
+  topTarget: {
+    debtId: string;
+    name: string;
+    apr: number;
+    currentBalance: number;
+    projectedPayoffDateMedium: string | null;
+    projectedPayoffDateAggressive: string | null;
+  } | null;
+}
+
 /** GET /api/runway → fixed-expenses insight (monthly total). */
 interface RunwayInsightLite {
   totalFixedMonthlyExpenses: number;
@@ -209,6 +234,7 @@ interface DebtStrategyStateResponse {
   creditCardPaydownHints: CreditCardPaydownHintRow[];
   crossScopeTransferPreview: CrossScopeTransferPreview;
   sandboxIncomeSources?: SandboxIncomeSourcesPayload;
+  salaryRedirectOpportunity?: SalaryRedirectOpportunityPayload | null;
 }
 
 interface DebtStrategyTabState {
@@ -309,6 +335,38 @@ function renderEl5Strip(state: DebtStrategyStateResponse): string {
     )}</strong> that could go toward debt (all accounts combined, shown in ${escapeHtml(displayCur)}).</p>
     <p class="debt-strategy-debt-pointer">For who you owe and raw balances, open the <button type="button" class="btn-link debt-strategy-debt-tab-btn" data-action="go-debt-tab">Debt</button> tab.</p>
   </div>`;
+}
+
+function renderSalaryRedirectUnlockCard(opp: SalaryRedirectOpportunityPayload): string {
+  const salaryLabel = formatCurrency(opp.salaryMonthlyTotal, 'GBP');
+  if (opp.kind === 'needs-budget-caps') {
+    return `<article class="debt-strategy-unlock-card">
+      <h4 class="debt-strategy-unlock-title">Unlock debt repayment from your salaries</h4>
+      <p>You draw <strong>${escapeHtml(salaryLabel)}</strong>/mo in director salaries that could be redirected to debt instead of spending.</p>
+      <p>Set monthly caps on your household spending categories so the planner can compute honest headroom — that salary is the money to redirect.</p>
+      <button type="button" class="btn btn-primary btn-sm" data-action="go-budget-tab">Set household budgets</button>
+    </article>`;
+  }
+  const target = opp.topTarget;
+  const redirectLabel = formatCurrency(opp.redirectableMonthly, 'GBP');
+  const targetLine =
+    target !== null
+      ? `Cut budgets by <strong>${escapeHtml(redirectLabel)}</strong> and redirect it to <strong>${escapeHtml(target.name)}</strong>${
+          target.projectedPayoffDateMedium !== null
+            ? ` — paid off by ${escapeHtml(formatIsoDateUkLong(target.projectedPayoffDateMedium))} (medium pace)`
+            : ''
+        }${
+          target.projectedPayoffDateAggressive !== null &&
+          target.projectedPayoffDateAggressive !== target.projectedPayoffDateMedium
+            ? ` or ${escapeHtml(formatIsoDateUkLong(target.projectedPayoffDateAggressive))} (aggressive)`
+            : ''
+        }.`
+      : `Cut budgets by <strong>${escapeHtml(redirectLabel)}</strong> to free headroom for household debt.`;
+  return `<article class="debt-strategy-unlock-card">
+    <h4 class="debt-strategy-unlock-title">Unlock debt repayment from your salaries</h4>
+    <p>Your director salaries (${escapeHtml(salaryLabel)}/mo) are currently absorbed by spending budgets. ${targetLine}</p>
+    <button type="button" class="btn btn-primary btn-sm" id="debt-strategy-salary-redirect-preview">Preview in scenario</button>
+  </article>`;
 }
 
 function renderSuggestedGrid(state: DebtStrategyStateResponse): string {
@@ -493,6 +551,7 @@ function render(state: DebtStrategyStateResponse): string {
       <div class="debt-strategy-active-grid">${active}</div>
 
       <h4 class="debt-strategy-subhead">Suggested plans</h4>
+      ${state.salaryRedirectOpportunity ? renderSalaryRedirectUnlockCard(state.salaryRedirectOpportunity) : ''}
       <div class="debt-strategy-suggested-grid">${renderSuggestedGrid(state)}</div>
 
       ${paused ? `<h4 class="debt-strategy-subhead">Paused plans</h4><div class="debt-strategy-paused-grid">${paused}</div>` : ''}
@@ -631,13 +690,17 @@ function renderSandboxIncomeToggles(state: DebtStrategyStateResponse): void {
 function readSandboxExclusions(): {
   excludedContractIds: string[];
   excludedRecurringIncomeKeys: string[];
+  redirectSalaryToDebt: boolean;
 } {
   const modal = document.getElementById('debt-strategy-sandbox-modal');
   const excludedContractIds: string[] = [];
   const excludedRecurringIncomeKeys: string[] = [];
+  let redirectSalaryToDebt = false;
   if (modal === null) {
-    return { excludedContractIds, excludedRecurringIncomeKeys };
+    return { excludedContractIds, excludedRecurringIncomeKeys, redirectSalaryToDebt };
   }
+  const salaryRedirectEl = modal.querySelector<HTMLInputElement>('#debt-strategy-sandbox-salary-redirect');
+  redirectSalaryToDebt = salaryRedirectEl?.checked === true;
   for (const el of modal.querySelectorAll<HTMLInputElement>('input[data-sandbox-contract]')) {
     if (!el.checked && el.dataset.sandboxContract !== undefined) {
       excludedContractIds.push(el.dataset.sandboxContract);
@@ -648,7 +711,23 @@ function readSandboxExclusions(): {
       excludedRecurringIncomeKeys.push(el.dataset.sandboxRecurring);
     }
   }
-  return { excludedContractIds, excludedRecurringIncomeKeys };
+  return { excludedContractIds, excludedRecurringIncomeKeys, redirectSalaryToDebt };
+}
+
+function renderSandboxHeadroomOutcome(state: DebtStrategyStateResponse): void {
+  const out = document.getElementById('debt-strategy-sandbox-headroom-out');
+  if (out === null) return;
+  const household = state.headroomByBucket.find(r => r.key === 'GBP::household');
+  const householdSuggestions = state.suggestedPlans.filter(sp => sp.scope === 'household');
+  if (household === undefined) {
+    out.innerHTML = '';
+    out.hidden = true;
+    return;
+  }
+  out.hidden = false;
+  out.innerHTML = `<p class="debt-strategy-sandbox-scenario-detail">Household headroom after scenario: <strong>${escapeHtml(
+    formatCurrency(household.availableHeadroom, 'GBP'),
+  )}</strong>/mo · ${householdSuggestions.length} household suggestion${householdSuggestions.length === 1 ? '' : 's'}.</p>`;
 }
 
 function renderSandboxScenarioRunway(scenario: ScenarioHolisticGbpRunwayPayload): void {
@@ -676,12 +755,12 @@ async function runSandboxScenario(): Promise<void> {
     return;
   }
   const reqId = ++sandboxScenarioRequestGen;
-  const { excludedContractIds, excludedRecurringIncomeKeys } = readSandboxExclusions();
+  const { excludedContractIds, excludedRecurringIncomeKeys, redirectSalaryToDebt } = readSandboxExclusions();
   const res = await fetch('/api/debt-strategy/sandbox', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      scenario: { excludedContractIds, excludedRecurringIncomeKeys },
+      scenario: { excludedContractIds, excludedRecurringIncomeKeys, redirectSalaryToDebt },
     }),
   });
   if (reqId !== sandboxScenarioRequestGen) return;
@@ -705,6 +784,15 @@ async function runSandboxScenario(): Promise<void> {
   };
   if (reqId !== sandboxScenarioRequestGen) return;
   renderSandboxScenarioRunway(body.scenarioHolisticGbpRunway);
+  if (redirectSalaryToDebt) {
+    renderSandboxHeadroomOutcome(body);
+  } else {
+    const headroomOut = document.getElementById('debt-strategy-sandbox-headroom-out');
+    if (headroomOut !== null) {
+      headroomOut.hidden = true;
+      headroomOut.innerHTML = '';
+    }
+  }
 }
 
 function scheduleSandboxRecalc(): void {
@@ -737,7 +825,9 @@ function wireSandboxModal(): void {
     const t = e.target;
     if (
       t instanceof HTMLInputElement &&
-      (t.hasAttribute('data-sandbox-contract') || t.hasAttribute('data-sandbox-recurring'))
+      (t.hasAttribute('data-sandbox-contract') ||
+        t.hasAttribute('data-sandbox-recurring') ||
+        t.id === 'debt-strategy-sandbox-salary-redirect')
     ) {
       scheduleSandboxRecalc();
     }
@@ -748,12 +838,21 @@ function wireSandboxModal(): void {
   });
 }
 
-function openSandboxModal(): void {
+function openSandboxModal(options?: { redirectSalary?: boolean }): void {
   wireSandboxModal();
   const result = document.getElementById('debt-strategy-sandbox-result');
   if (result !== null) result.hidden = true;
   const out = document.getElementById('debt-strategy-sandbox-scenario-out');
   if (out !== null) out.innerHTML = '';
+  const headroomOut = document.getElementById('debt-strategy-sandbox-headroom-out');
+  if (headroomOut !== null) {
+    headroomOut.hidden = true;
+    headroomOut.innerHTML = '';
+  }
+  const salaryRedirectEl = document.querySelector<HTMLInputElement>('#debt-strategy-sandbox-salary-redirect');
+  if (salaryRedirectEl !== null) {
+    salaryRedirectEl.checked = options?.redirectSalary === true;
+  }
   if (tabState.data !== null) {
     renderSandboxIncomeToggles(tabState.data);
   }
@@ -790,6 +889,10 @@ function attachHandlers(container: HTMLElement): void {
       void deletePlan(planId);
     } else if (action === 'acknowledge' && planId && movementId) {
       void acknowledgeMovement(planId, movementId);
+    } else if (action === 'go-budget-tab') {
+      activateTabByName('budget');
+    } else if (target.id === 'debt-strategy-salary-redirect-preview') {
+      openSandboxModal({ redirectSalary: true });
     } else if (target.id === 'debt-strategy-sandbox-btn') {
       openSandboxModal();
     }

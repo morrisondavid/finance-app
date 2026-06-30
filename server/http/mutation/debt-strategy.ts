@@ -68,6 +68,7 @@ export const DebtStrategySandboxBodySchema = z.object({
   scenario: z.object({
     excludedContractIds: z.array(z.string()).optional(),
     excludedRecurringIncomeKeys: z.array(z.string()).optional(),
+    redirectSalaryToDebt: z.boolean().optional(),
   }),
 });
 
@@ -375,16 +376,25 @@ export function mutateDebtStrategySandbox(body: unknown): JsonMutationResult {
     const sc = parsed.data.scenario;
     const excludedContractIds = sc.excludedContractIds ?? [];
     const excludedRecurringIncomeKeys = sc.excludedRecurringIncomeKeys ?? [];
+    const redirectSalaryToDebt = sc.redirectSalaryToDebt === true;
     const hasExclusions =
-      excludedContractIds.length > 0 || excludedRecurringIncomeKeys.length > 0;
+      excludedContractIds.length > 0 ||
+      excludedRecurringIncomeKeys.length > 0 ||
+      redirectSalaryToDebt;
+    const assembleInput = {
+      today,
+      ...(hasExclusions && (excludedContractIds.length > 0 || excludedRecurringIncomeKeys.length > 0)
+        ? {
+            incomeExclusions: {
+              excludedContractIds,
+              excludedRecurringIncomeKeys,
+            },
+          }
+        : {}),
+      ...(redirectSalaryToDebt ? { applySalaryRedirect: true } : {}),
+    };
     const sandbox = hasExclusions
-      ? assembleDebtStrategy({
-          today,
-          incomeExclusions: {
-            excludedContractIds,
-            excludedRecurringIncomeKeys,
-          },
-        })
+      ? assembleDebtStrategy(assembleInput)
       : live;
     const scenarioHolisticGbpRunway = assembleRunwayScenario({
       excludedContractIds,

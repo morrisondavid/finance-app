@@ -15,6 +15,8 @@ import {
   TransactionsResponseSchema,
   AccountBalanceResponseSchema,
   VATPaymentsResponseSchema,
+  TaxOverviewResponseSchema,
+  type TaxOverviewResponse,
   StatementsResponseSchema,
   StatementYearsResponseSchema,
   CheckQuarterResponseSchema,
@@ -443,6 +445,11 @@ export async function fetchVATPayments(params?: {
   
   const response = await fetch(`/api/tax/vat-payments?${query}`);
   return validateResponse(response, VATPaymentsResponseSchema);
+}
+
+export async function fetchTaxOverview(): Promise<TaxOverviewResponse> {
+  const response = await fetch('/api/tax/overview');
+  return validateResponse(response, TaxOverviewResponseSchema);
 }
 
 /**

@@ -66,7 +66,7 @@ export function composeAiFinancialSafety(opts: ComposeAiFinancialSafetyOpts = {}
     verdictKind: snapshot.verdict.kind,
     topClientShareOfActiveMonthly: topShare,
     outstandingInvoicesGbp: snapshot.income.outstandingInvoices.totalOutstandingGbp,
-    earnedReceivablesGbp: snapshot.income.earnedReceivablesGbp,
+    earnedButNotCollectedGbp: snapshot.income.earnedButNotCollectedGbp,
     budgetNudgeCount: snapshot.spendVsBudget.budgetNudgeCount,
     debtMinAvailableHeadroomRatio: debtR,
     warnings: warningInputs,

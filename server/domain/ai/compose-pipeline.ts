@@ -5,7 +5,7 @@
 
 import type { AiPipelineResponse } from '../../../shared/api-contracts.js';
 import { AiPipelineResponseSchema } from '../../../shared/api-contracts.js';
-import { composeExpectedReceipts } from '../contracts/expected-receipts.js';
+import { composeExpectedReceiptsFromLoaded } from '../contracts/expected-receipts.js';
 import { collectObligationEvents } from '../forecast/collect-events.js';
 import type {
   LoadedForecastInputs,
@@ -27,17 +27,7 @@ export function buildAiPipelineFromLoaded(loaded: LoadedForecastInputs): AiPipel
     horizon: loaded.horizon,
   });
 
-  const receipts = composeExpectedReceipts({
-    asOf: loaded.today,
-    horizon: loaded.horizon,
-    contracts: loaded.contracts,
-    leaveRows: loaded.leaveRows,
-    publicHolidayDatesByEntity: loaded.publicHolidayDatesByEntity,
-    unpaidInvoices: loaded.unpaidInvoices,
-    accountsByEntity: loaded.accountsByEntity,
-    currencyByAccount: loaded.currencyByAccount,
-    allowedAccountSet: loaded.allowedAccountSet,
-  });
+  const receipts = composeExpectedReceiptsFromLoaded(loaded);
 
   const rows: AiPipelineResponse['rows'] = [];
 
@@ -60,9 +50,10 @@ export function buildAiPipelineFromLoaded(loaded: LoadedForecastInputs): AiPipel
   }
 
   for (const r of receipts.receipts) {
-    const label =
-      r.source === 'accrual'
-        ? `Accrual ${r.contractId ?? ''}`
+    const label = r.source === 'accrual'
+      ? `Accrual ${r.contractId ?? ''}`
+      : r.source === 'rental-income'
+        ? `Rental ${r.obligationId ?? ''}`
         : `Invoice ${r.invoiceId ?? ''}`;
     rows.push({
       date: r.expectedDate,
@@ -71,7 +62,7 @@ export function buildAiPipelineFromLoaded(loaded: LoadedForecastInputs): AiPipel
       account: r.account,
       kind: 'expected-receipt',
       label,
-      obligationId: null,
+      obligationId: r.obligationId,
       receiptSource: r.source,
       obligationType: null,
       contractId: r.contractId,

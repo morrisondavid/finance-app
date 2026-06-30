@@ -13,7 +13,7 @@ export interface DeriveFinancialVerdictInput {
    * invoiced, retained). Counted alongside cash when testing whether 12-month
    * commitments are covered. `0` disables the credit. Never projected work.
    */
-  readonly earnedReceivablesGbp: number;
+  readonly earnedButNotCollectedGbp: number;
   readonly holisticGbp: RunwayHolisticGbp;
   /** Inclusive end of the near-term commitment window (obligation pipeline slice). */
   readonly commitmentWindowEndDate: string;
@@ -23,19 +23,19 @@ export function deriveFinancialVerdict(input: DeriveFinancialVerdictInput): AiFi
   const {
     today,
     cashAfter12MonthCommitmentsGbp,
-    earnedReceivablesGbp,
+    earnedButNotCollectedGbp,
     holisticGbp,
     commitmentWindowEndDate,
   } = input;
 
-  const resourcesAfterCommitmentsGbp = cashAfter12MonthCommitmentsGbp + earnedReceivablesGbp;
+  const resourcesAfterCommitmentsGbp = cashAfter12MonthCommitmentsGbp + earnedButNotCollectedGbp;
 
   if (resourcesAfterCommitmentsGbp < 0) {
     return {
       kind: 'negative_after_commitments',
       reasons: [
         `Cash after rolling 12-month commitments is ${cashAfter12MonthCommitmentsGbp.toFixed(2)} GBP; ` +
-          `even counting ${earnedReceivablesGbp.toFixed(2)} GBP of earned-but-unpaid income you are ` +
+          `even counting ${earnedButNotCollectedGbp.toFixed(2)} GBP of earned-but-unpaid income you are ` +
           `still short by ${Math.abs(resourcesAfterCommitmentsGbp).toFixed(2)} GBP.`,
       ],
       cashAfter12MonthCommitmentsGbp,

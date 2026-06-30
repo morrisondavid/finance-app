@@ -5,6 +5,7 @@ import type {
   CurrencyCode,
   EntityId,
   Invoice,
+  RecurringExpense,
 } from '../../../shared/api-contracts.js';
 import { ACCOUNTS, ExpectedReceiptsResponseSchema } from '../../../shared/api-contracts.js';
 import {
@@ -12,6 +13,7 @@ import {
   collectInvoiceReceiptEvents,
 } from '../forecast/collect-events.js';
 import { composeExpectedReceipts } from './expected-receipts.js';
+import type { PipelineResult } from '../../utils/recurring-pipeline.js';
 import { parseContractRow } from './csv-io.js';
 import { dcSowRow } from './test-helpers.js';
 
@@ -168,5 +170,119 @@ describe('composeExpectedReceipts', () => {
       allowedAccountSet: new Set<AccountName>(), // empty — drop all
     });
     expect(body.receipts).toHaveLength(0);
+  });
+
+  it('includes declared rental-income receipts projected through the horizon', () => {
+    const rentalRow: RecurringExpense = {
+      merchant: '53 Heath Park Road',
+      category: 'Property',
+      colour: '#888',
+      amount: 2850,
+      frequency: 'monthly',
+      monthsActive: 0,
+      annualTotal: 2850 * 12,
+      logoUrl: null,
+      sourceAccount: 'monzo-joint',
+      billingDayOfMonth: 1,
+      billingMonth: null,
+      declaredObligationId: 'manual-heath-park-rental',
+    };
+    const pipeline: PipelineResult = {
+      expenseCandidates: [],
+      incomeCandidates: [],
+      expenseAccumulators: new Map(),
+      incomeAccumulators: new Map(),
+      monthlyExpenseRecurring: [],
+      annualExpenseRecurring: [],
+      monthlyIncomeRecurring: [rentalRow],
+      annualIncomeRecurring: [],
+      monthsCovered: 12,
+    };
+
+    const body = composeExpectedReceipts({
+      asOf: AS_OF,
+      horizon: HORIZON,
+      contracts: [],
+      leaveRows: [],
+      publicHolidayDatesByEntity: new Map(),
+      unpaidInvoices: [],
+      accountsByEntity,
+      currencyByAccount: new Map<AccountName, CurrencyCode>([
+        ['monzo-joint' as AccountName, 'GBP'],
+      ]),
+      allowedAccountSet: new Set<AccountName>(['monzo-joint' as AccountName]),
+      pipeline,
+      rentalIncomeRecurring: [rentalRow],
+    });
+
+    const rentalReceipts = body.receipts.filter(r => r.source === 'rental-income');
+    expect(rentalReceipts.length).toBeGreaterThan(0);
+    expect(rentalReceipts.every(r => r.obligationId === 'manual-heath-park-rental')).toBe(true);
+    expect(rentalReceipts.every(r => r.amount === 2850)).toBe(true);
+    expect(rentalReceipts.every(r => r.account === 'monzo-joint')).toBe(true);
+    expect(() => ExpectedReceiptsResponseSchema.parse(body)).not.toThrow();
+  });
+
+  it('projects every declared rental even when only one is due this calendar month', () => {
+    const huntersRow: RecurringExpense = {
+      merchant: '78 Hunters Square',
+      category: 'Property',
+      colour: '#888',
+      amount: 1292.72,
+      frequency: 'monthly',
+      monthsActive: 24,
+      annualTotal: 1292.72 * 12,
+      logoUrl: null,
+      sourceAccount: 'monzo-joint',
+      billingDayOfMonth: 5,
+      billingMonth: null,
+      declaredObligationId: 'seed-hunters-square-78',
+    };
+    const heathRow: RecurringExpense = {
+      merchant: '53 Heath Park Road',
+      category: 'Property',
+      colour: '#888',
+      amount: 2850,
+      frequency: 'monthly',
+      monthsActive: 0,
+      annualTotal: 2850 * 12,
+      logoUrl: null,
+      sourceAccount: 'monzo-joint',
+      billingDayOfMonth: 1,
+      billingMonth: null,
+      declaredObligationId: 'manual-heath-park-rental',
+    };
+    const pipeline: PipelineResult = {
+      expenseCandidates: [],
+      incomeCandidates: [],
+      expenseAccumulators: new Map(),
+      incomeAccumulators: new Map(),
+      monthlyExpenseRecurring: [],
+      annualExpenseRecurring: [],
+      monthlyIncomeRecurring: [huntersRow, heathRow],
+      annualIncomeRecurring: [],
+      monthsCovered: 12,
+    };
+
+    const body = composeExpectedReceipts({
+      asOf: AS_OF,
+      horizon: HORIZON,
+      contracts: [],
+      leaveRows: [],
+      publicHolidayDatesByEntity: new Map(),
+      unpaidInvoices: [],
+      accountsByEntity,
+      currencyByAccount: new Map<AccountName, CurrencyCode>([
+        ['monzo-joint' as AccountName, 'GBP'],
+      ]),
+      allowedAccountSet: new Set<AccountName>(['monzo-joint' as AccountName]),
+      pipeline,
+      rentalIncomeRecurring: [huntersRow, heathRow],
+    });
+
+    const rentalReceipts = body.receipts.filter(r => r.source === 'rental-income');
+    const obligationIds = new Set(rentalReceipts.map(r => r.obligationId));
+    expect(obligationIds.has('seed-hunters-square-78')).toBe(true);
+    expect(obligationIds.has('manual-heath-park-rental')).toBe(true);
   });
 });

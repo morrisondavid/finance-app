@@ -23,6 +23,7 @@ import {
   AiUpcomingResponseSchema,
   AiSurvivalResponseSchema,
   AiSpendAllowanceResponseSchema,
+  DashboardSummaryResponseSchema,
   HouseholdFinancialPostureResponseSchema,
   IncomeCompositionResponseSchema,
   AccountBalanceSchema,
@@ -51,6 +52,7 @@ import {
   composeAiEntityLiquidityFx,
   composeAiSpendRate,
   composeAiAvailableFunds,
+  dashboardHeroFromAvailableFunds,
   composeAiUpcoming,
   composeAiSurvival,
   composeAiSpendAllowance,
@@ -356,6 +358,13 @@ export function runHouseholdFinancialPostureMcpTool(args: unknown): McpJsonToolR
         content: [{ type: 'text' as const, text: JSON.stringify(summaryResult.body, null, 2) }],
       };
     }
+    // Full-scope summary always embeds availableFunds (server/http/read/dashboard.ts);
+    // map it to the canonical hero instead of composing available funds a second time.
+    const dashboardSummary = DashboardSummaryResponseSchema.parse(summaryResult.body);
+    if (dashboardSummary.availableFunds === undefined) {
+      return mcpAiInternalError('Dashboard summary is missing availableFunds (full scope expected)');
+    }
+    const dashboardHero = dashboardHeroFromAvailableFunds(dashboardSummary.availableFunds);
 
     let balancesByAccount: Record<string, AccountBalance> | undefined;
     if (includeBalancesByAccount === true) {
@@ -394,8 +403,9 @@ export function runHouseholdFinancialPostureMcpTool(args: unknown): McpJsonToolR
 
     const structuredContent = HouseholdFinancialPostureResponseSchema.parse({
       generatedAt: new Date().toISOString(),
+      dashboardHero,
       financialSafety,
-      dashboardSummary: summaryResult.body,
+      dashboardSummary,
       ...(balancesByAccount !== undefined ? { balancesByAccount } : {}),
       ...(runway !== undefined ? { runway } : {}),
       ...(incomeComposition !== undefined ? { incomeComposition } : {}),
@@ -607,11 +617,16 @@ export function readBankStatementsAiResource(uri: string): string {
 
 export function createBankStatementsMcpServer(): McpServer {
   const server = new McpServer(
-    { name: 'bank-statements-ai', version: '2.0.0' },
+    { name: 'bank-statements-ai', version: '2.0.2' },
     {
       instructions:
         '## Outcome-first MCP (bank-statements-app)\n\n' +
-        '**Tier-1 reads:** `household_financial_posture` (financial safety + dashboard summary + optional runway/income/spend-rate/deltas via `includeRunway`, `includeIncomeComposition`, `includeSpendRate`, `includeDeltas`) and `income_get_composition`. For money anxiety / survival: also **`analytics_get_survival`**, **`analytics_get_available_funds`**, **`survival_get_allowance`**.\n\n' +
+        '**Tier-1 reads:** `household_financial_posture` (top-level `dashboardHero` + financial safety + dashboard summary + optional runway/income/spend-rate/deltas via `includeRunway`, `includeIncomeComposition`, `includeSpendRate`, `includeDeltas`) and `income_get_composition`. For money anxiety / survival: also **`analytics_get_survival`**, **`analytics_get_available_funds`**, **`survival_get_allowance`**.\n\n' +
+        '**Dashboard funds semantics (total funds / future income / credit):**\n' +
+        '- DO: read `household_financial_posture.dashboardHero` or `analytics_get_available_funds`. Cash-only: `totalFundsGbp` = cash + forward retained income (12mo default, after tax). Credit-inclusive: `totalFundsWithCreditGbp` = `totalFundsGbp` + `creditAvailableGbp`; practical net = `netAfterCommitmentsWithCreditGbp`.\n' +
+        '- DO NOT: derive total funds as `cash + income.earnedButNotCollectedGbp` (alias `earnedReceivablesGbp`) from `analytics_get_financial_snapshot` — that field is earned-to-date only (unpaid invoices + accrual) and excludes forward contract/rental income. It feeds the safety score, not the dashboard.\n' +
+        '- DO NOT: stop at cash-only `netAfterCommitmentsGbp` when credit headroom exists — the dashboard also shows a credit-inclusive combined line; read `totalFundsWithCreditGbp` and `netAfterCommitmentsWithCreditGbp` for the practical liquidity picture.\n' +
+        '- Worked example: when the dashboard shows `totalFundsGbp = cashGbp + futureIncomeRetainedGbp`, computing `cashGbp + earnedButNotCollectedGbp` instead gives a different, wrong number whenever forward income exists — always read `dashboardHero.totalFundsGbp` directly.\n\n' +
         '**Survival & insights:** `analytics_get_available_funds` (future income, next/last payment date, projected available), `analytics_get_spend_rate` (daily/weekly/monthly burn split personal/business), `analytics_get_upcoming` (N-month expense/income buckets), `analytics_get_survival` (safe £/day + how long money lasts), `survival_get_allowance` (today\'s rollover budget), `survival_plan_commit` / `survival_plan_get` / `survival_plan_clear`.\n\n' +
         '**Canonical registry:** grouped prefixed tool ids live in `server/mcp/canonical-mcp-tool-registry.ts` (`CANONICAL_MCP_TOOL_GROUPS`) — use it as the Appendix A–style checklist for automation and reviews.\n\n' +
         '**Canonical naming:** tools use `{domain}_{action}` snake_case (`invoices_list`, `deadlines_create`, `financial_obligations_*`, …). The **first path segment** must be an approved domain token (see that registry). **`get_http_*` / `post_http_*` / `get_ai_*` / verb-first names remain as temporary aliases** registered alongside the canonical tool and will be removed after a deprecation window — always prefer the prefixed name in new automation.\n\n' +
@@ -626,6 +641,7 @@ export function createBankStatementsMcpServer(): McpServer {
         '**Binary / base64:** `statements_upload_base64`, `invoices_upload_supplier_pdfs_base64`, `invoices_get_pdf_base64`, `contracts_get_signed_pdf_base64` embed PDFs as **`pdfBase64`** — decode to bytes and write `filename` locally for agents.\n\n' +
         '**Social contract:** confirm intent in chat before invoking `*_commit_*`, `*_send_*`, or destructive mutations — technical preview fingerprints (`previewFingerprint`) guard drift only, not approvals.\n\n' +
         '**Human approval & host allowlists:** Hermes Agent: `approvals.mode` (mostly **terminal** command gating — not MCP-wide) plus per-server MCP `tools.include` / `exclude` ([Security](https://hermes-agent.nousresearch.com/docs/user-guide/security), [Using MCP](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/guides/use-mcp-with-hermes.md)). **Cursor:** IDE MCP confirmation + per-tool allowlist; caveats ([hooks vs MCP](https://forum.cursor.com/t/hooks-return-allow-but-mcp-tool-still-requires-manual-approval-gets-skipped/155434), [`autoApprove` reliability](https://forum.cursor.com/t/atlassian-mcp-autoapprove-true-is-not-being-respected/139392)). Treat `*_commit_*`, `*_send_*`, and destructive tools as high blast-radius. **Outbound email (Resend)** should stay **owner-inbox-capped** in env until you widen recipients.\n\n' +
+        '**Tax snapshot (authoritative):** `tax_get_overview` — same payload as the Taxes tab and `GET /api/tax/overview` (UK Ltd VAT/CT, FZCO funds + CT scenarios, personal Self Assessment). Use this first for “what tax do I owe?”; do not stitch `dashboard_get_summary.taxLiabilities` + obligations separately. **`tax_get_vat_payments`** is for historical HMRC VAT payment drill-down only. Accountant preview/send bundles remain for pack workflows.\n\n' +
         '**UK Ltd VAT affordability:** `financial_obligations_list_upcoming` (filter type `vat`) or `financial_obligations_get_vat_reconciliation`; balances via `household_financial_posture` with `includeBalancesByAccount: true`. Ringfence pool for “cash to cover VAT” = **`barclays-current` + `barclays-savings`** (see `reserves/reserves.csv`). After paying upcoming VAT, remainder ≈ pool − obligation amount. Tax reserve warnings: `warnings_get_consolidated` codes `tax-reserve-*`.\n\n' +
         '**Not exposed:** cookie `site-login` sessions; OAuth callbacks. MCP auth here = **Bearer** on this listener.',
     },
@@ -820,7 +836,7 @@ export function createBankStatementsMcpServer(): McpServer {
     'analytics_get_financial_snapshot',
     {
       description:
-        '§2.0 — **Preferred** GET /api/ai/financial-snapshot. Same as `get_ai_financial_snapshot` (deprecated).',
+        '§2.0 — **Preferred** GET /api/ai/financial-snapshot. Same as `get_ai_financial_snapshot` (deprecated). Accounting-style snapshot: `income.earnedButNotCollectedGbp` (alias `earnedReceivablesGbp`) is earned-to-date only — NOT future income. For dashboard total funds / future income read the embedded `dashboardHero` (or `analytics_get_available_funds`).',
       inputSchema: FinancialSnapshotQuerySchema.shape,
       outputSchema: AiFinancialSnapshotResponseSchema.shape,
     },
@@ -897,7 +913,7 @@ export function createBankStatementsMcpServer(): McpServer {
     'household_financial_posture',
     {
       description:
-        'Composite decision snapshot: financial safety score + dashboard summary (includes availableFunds when scope=full). Optional `includeRunway`, `includeIncomeComposition`, `includeSpendRate`, `includeDeltas`, `includeBalancesByAccount`. **Use for holistic money health** before drilling into survival tools.',
+        'Composite decision snapshot with top-level **`dashboardHero`** — the exact dashboard hero numbers (`totalFundsGbp`, `cashGbp`, `futureIncomeRetainedGbp`, `creditAvailableGbp`, `totalFundsWithCreditGbp`, committed, net cash-only and `netAfterCommitmentsWithCreditGbp`). Read `dashboardHero` for total funds / future income / credit-inclusive liquidity; do NOT recompute from snapshot income fields. Also returns financial safety score + dashboard summary, plus optional `includeRunway`, `includeIncomeComposition`, `includeSpendRate`, `includeDeltas`, `includeBalancesByAccount`. **Use for holistic money health** before drilling into survival tools.',
       inputSchema: HouseholdFinancialPostureQuerySchema.shape,
       outputSchema: HouseholdFinancialPostureResponseSchema.shape,
     },
@@ -919,7 +935,7 @@ export function createBankStatementsMcpServer(): McpServer {
     'analytics_get_available_funds',
     {
       description:
-        'Cash now + after-tax future income, total funds, committed outflows, net after commitments; includes final contract payment date. **Use for future income, funds picture, or "what is coming in".**',
+        '**Authoritative source for dashboard total funds / future income / credit breakdown.** Cash now + after-tax future income (contracts, invoices, rentals), `totalFundsGbp`, `creditAvailableGbp`, `totalFundsWithCreditGbp`, committed outflows, net after commitments (cash-only and credit-inclusive); includes final contract payment date. **Use for future income, funds picture, or "what is coming in".** Do NOT derive these from financial-snapshot income fields.',
       inputSchema: AvailableFundsQuerySchema.shape,
       outputSchema: AiAvailableFundsResponseSchema.shape,
     },

@@ -16,7 +16,10 @@ import { convertAmountSync } from '../../config/exchange-rates.js';
 import { getAllAccountBalances } from '../../db/repositories/balance.js';
 import { getAccountConfig, isCreditCard } from '../accounts/queries.js';
 import { sumCashAndCreditByCurrency } from '../accounts/runway-credit.js';
-import { composeExpectedReceipts } from '../contracts/expected-receipts.js';
+import {
+  composeExpectedReceiptsFromLoaded,
+  expectedReceiptRowToIncomeEvent,
+} from '../contracts/expected-receipts.js';
 import {
   assembleForecastEvents,
   pickMonthlyRecurringForForecast,
@@ -211,28 +214,11 @@ function buildHolisticSeries(
   overrides: readonly SurvivalEssentialOverride[],
 ): ForecastDailyPoint[] {
   const mandatoryEvents = filterEventsToScope(buildMandatoryEvents(loaded, overrides), scope);
-  const incomeReceipts = composeExpectedReceipts({
-    asOf: loaded.today,
-    horizon: loaded.horizon,
-    contracts: loaded.contracts,
-    leaveRows: loaded.leaveRows,
-    publicHolidayDatesByEntity: loaded.publicHolidayDatesByEntity,
-    unpaidInvoices: loaded.unpaidInvoices,
-    accountsByEntity: loaded.accountsByEntity,
-    currencyByAccount: loaded.currencyByAccount,
-    allowedAccountSet: loaded.allowedAccountSet,
+  const incomeReceipts = composeExpectedReceiptsFromLoaded(loaded, {
     projectToContractEnd: true,
   });
 
-  const incomeEvents: ForecastEvent[] = incomeReceipts.receipts.map(r => ({
-    date: r.expectedDate,
-    amount: r.amount,
-    account: r.account,
-    currency: r.currency,
-    source: r.source === 'accrual' ? 'accrual' : 'invoice-receipt',
-    label: r.source === 'accrual' ? `Accrual ${r.contractId ?? ''}` : `Invoice ${r.invoiceId ?? ''}`,
-    contractId: r.contractId ?? undefined,
-  }));
+  const incomeEvents: ForecastEvent[] = incomeReceipts.receipts.map(expectedReceiptRowToIncomeEvent);
 
   const allEvents = [...mandatoryEvents, ...filterEventsToScope(incomeEvents, scope)];
   const forecast = buildForecast({
@@ -294,16 +280,7 @@ export function computeSurvival(input: ComputeSurvivalInput): ComputeSurvivalRes
   const essentialsMonthlyGbp = estimateEssentialsMonthlyGbp(mandatoryOnly, today);
   const availableCreditGbp = sumAvailableCreditGbp(scope);
 
-  const receipts = composeExpectedReceipts({
-    asOf: loaded.today,
-    horizon: loaded.horizon,
-    contracts: loaded.contracts,
-    leaveRows: loaded.leaveRows,
-    publicHolidayDatesByEntity: loaded.publicHolidayDatesByEntity,
-    unpaidInvoices: loaded.unpaidInvoices,
-    accountsByEntity: loaded.accountsByEntity,
-    currencyByAccount: loaded.currencyByAccount,
-    allowedAccountSet: loaded.allowedAccountSet,
+  const receipts = composeExpectedReceiptsFromLoaded(loaded, {
     projectToContractEnd: true,
   }).receipts.filter(r => accountInScope(r.account, scope));
 

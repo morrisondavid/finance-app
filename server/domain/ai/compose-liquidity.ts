@@ -12,7 +12,7 @@ import { buildLiquidityOverview } from '../accounts/liquidity-overview.js';
 import { buildLiquidityCommitments } from '../accounts/liquidity-commitments.js';
 import { accountsForEntity, validateAccount } from '../accounts/queries.js';
 import { allEntityIds } from '../company/queries.js';
-import { getAllAccountBalances, getAvailableFinancialYears, getTaxLiabilities } from '../../db/index.js';
+import { getAllAccountBalances, getAvailableFinancialYears, getTaxLiabilities, resolveFinancialYearForTax } from '../../db/index.js';
 
 export interface ComposeAiLiquidityOpts {
   readonly account?: string;
@@ -33,7 +33,10 @@ export function composeAiLiquidity(opts: ComposeAiLiquidityOpts = {}): AiLiquidi
     todayIso: today,
     totalCashGbp: liquidityOverview.totalCashGbp,
   });
-  const taxLiabilities = getTaxLiabilities({ account: selectedAccount, financialYear: selectedFY });
+  const taxLiabilities = getTaxLiabilities({
+    account: selectedAccount,
+    financialYear: resolveFinancialYearForTax(selectedFY),
+  });
 
   let byEntity: AiLiquidityResponse['byEntity'];
   if (opts.groupByEntity === true) {

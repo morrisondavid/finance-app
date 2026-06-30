@@ -10,11 +10,16 @@ import type {
   AiLastContractPayment,
   ClientId,
   Contract,
+  DashboardHero,
   EntityId,
   ExpectedReceiptRow,
   Invoice,
 } from '../../../shared/api-contracts.js';
-import { AiAvailableFundsResponseSchema } from '../../../shared/api-contracts.js';
+import {
+  AiAvailableFundsResponseSchema,
+  DASHBOARD_HERO_FORMULA,
+  DashboardHeroSchema,
+} from '../../../shared/api-contracts.js';
 import { isoDateAddCalendarMonths } from '../../../shared/iso-date.js';
 import { calculateRetainedReserves } from '../../config/tax-rates.js';
 import { convertAmountSync } from '../../config/exchange-rates.js';
@@ -26,6 +31,7 @@ import { findClientById } from '../clients/queries.js';
 import { findContractById } from '../contracts/queries.js';
 import { buildExpectedReceipts } from '../contracts/expected-receipts.js';
 import { loadForecastInputs } from '../forecast/load-inputs.js';
+import { getObligationRegistry } from '../obligations/registry.js';
 import { round2 } from '../../utils/math.js';
 import { AI_MANIFEST_SCHEMA_VERSION } from './constants.js';
 
@@ -35,6 +41,29 @@ export interface ComposeAiAvailableFundsOpts {
 }
 
 const OTHER_CLIENT_KEY = '__none__';
+
+/**
+ * Pure projection of the available-funds payload onto the dashboard hero-tile
+ * numbers — the canonical shelf composite MCP reads surface at top level. The
+ * display clamp mirrors the dashboard UI (`liquidity-dashboard.ts` net tile).
+ */
+export function dashboardHeroFromAvailableFunds(af: AiAvailableFundsResponse): DashboardHero {
+  return DashboardHeroSchema.parse({
+    months: af.months,
+    projectionEndDate: af.projectionEndDate,
+    cashGbp: af.availableNowGbp,
+    futureIncomeRetainedGbp: af.confirmedFutureIncomeRetainedGbp,
+    futureIncomeGrossGbp: af.confirmedFutureIncomeGrossGbp,
+    totalFundsGbp: af.totalFundsGbp,
+    committedOutflowsGbp: af.committedOutflowsGbp,
+    netAfterCommitmentsGbp: af.netAfterCommitmentsGbp,
+    netAfterCommitmentsDisplayGbp: Math.max(0, af.netAfterCommitmentsGbp),
+    creditAvailableGbp: af.creditAvailableGbp,
+    totalFundsWithCreditGbp: af.totalFundsWithCreditGbp,
+    netAfterCommitmentsWithCreditGbp: af.netAfterCommitmentsWithCreditGbp,
+    formula: DASHBOARD_HERO_FORMULA,
+  });
+}
 
 function resolveContract(
   contractId: string,
@@ -70,6 +99,9 @@ function clientIdForReceipt(
   contractById: Map<string, Contract>,
   invoiceById: ReadonlyMap<string, Invoice>,
 ): ClientId | typeof OTHER_CLIENT_KEY {
+  if (receipt.source === 'rental-income') {
+    return OTHER_CLIENT_KEY;
+  }
   if (receipt.invoiceId !== null) {
     const invoice = invoiceById.get(receipt.invoiceId);
     if (invoice !== undefined) return invoice.client_id;
@@ -79,6 +111,29 @@ function clientIdForReceipt(
     if (contract !== undefined) return contract.client_id;
   }
   return OTHER_CLIENT_KEY;
+}
+
+function sourceKeyForReceipt(
+  receipt: ExpectedReceiptRow,
+  contractById: Map<string, Contract>,
+  invoiceById: ReadonlyMap<string, Invoice>,
+): string {
+  if (receipt.source === 'rental-income' && receipt.obligationId !== null) {
+    return `rental:${receipt.obligationId}`;
+  }
+  return clientIdForReceipt(receipt, contractById, invoiceById);
+}
+
+function sourceLabelForReceipt(
+  receipt: ExpectedReceiptRow,
+  contractById: Map<string, Contract>,
+  invoiceById: ReadonlyMap<string, Invoice>,
+  obligationLabelById: ReadonlyMap<string, string>,
+): string {
+  if (receipt.source === 'rental-income' && receipt.obligationId !== null) {
+    return obligationLabelById.get(receipt.obligationId) ?? receipt.obligationId;
+  }
+  return clientLabelForClientId(clientIdForReceipt(receipt, contractById, invoiceById));
 }
 
 function clientLabelForClientId(clientId: ClientId | typeof OTHER_CLIENT_KEY): string {
@@ -142,13 +197,18 @@ export function composeAiAvailableFunds(
     invoiceById.set(invoice.id, invoice);
   }
 
+  const obligationLabelById = new Map(
+    getObligationRegistry().all.map(o => [o.id, o.displayName ?? o.merchant]),
+  );
+
   const allFutureReceipts = receipts.receipts.filter(r => r.expectedDate >= today);
   const futureIncome = allFutureReceipts.filter(r => r.expectedDate <= projectionEndDate);
 
   let confirmedFutureIncomeGrossGbp = 0;
   let invoiceCashGbp = 0;
+  let householdCashGbp = 0;
   const monthTotals = new Map<string, number>();
-  const clientTotals = new Map<string, ClientAccum>();
+  const sourceTotals = new Map<string, ClientAccum>();
   const accrualEntityNetGbp = new Map<EntityId, number>();
 
   for (const r of futureIncome) {
@@ -158,6 +218,8 @@ export function composeAiAvailableFunds(
     const entityId = entityForReceipt(r, contractById, invoiceById);
     if (r.source === 'invoice-receipt') {
       invoiceCashGbp += gbp;
+    } else if (r.source === 'rental-income') {
+      householdCashGbp += gbp;
     } else if (entityId !== null) {
       accrualEntityNetGbp.set(entityId, (accrualEntityNetGbp.get(entityId) ?? 0) + gbp);
     }
@@ -165,12 +227,12 @@ export function composeAiAvailableFunds(
     const monthKey = r.expectedDate.slice(0, 7);
     monthTotals.set(monthKey, (monthTotals.get(monthKey) ?? 0) + gbp);
 
-    const clientKey = clientIdForReceipt(r, contractById, invoiceById);
-    const label = clientLabelForClientId(clientKey);
+    const sourceKey = sourceKeyForReceipt(r, contractById, invoiceById);
+    const label = sourceLabelForReceipt(r, contractById, invoiceById, obligationLabelById);
     const retainedSlice = retainedGbpForReceipt(r, gbp, entityId);
-    const existing = clientTotals.get(clientKey);
+    const existing = sourceTotals.get(sourceKey);
     if (existing === undefined) {
-      clientTotals.set(clientKey, {
+      sourceTotals.set(sourceKey, {
         label,
         totalGbp: gbp,
         retainedGbp: retainedSlice,
@@ -182,6 +244,7 @@ export function composeAiAvailableFunds(
   }
   confirmedFutureIncomeGrossGbp = round2(confirmedFutureIncomeGrossGbp);
   invoiceCashGbp = round2(invoiceCashGbp);
+  householdCashGbp = round2(householdCashGbp);
 
   let accrualRetainedGbp = 0;
   let futureIncomeVatReserveGbp = 0;
@@ -199,7 +262,9 @@ export function composeAiAvailableFunds(
     futureIncomeCtReserveGbp += claim.ct_reserve_period;
   }
 
-  const confirmedFutureIncomeRetainedGbp = round2(invoiceCashGbp + accrualRetainedGbp);
+  const confirmedFutureIncomeRetainedGbp = round2(
+    invoiceCashGbp + accrualRetainedGbp + householdCashGbp,
+  );
   futureIncomeVatReserveGbp = round2(futureIncomeVatReserveGbp);
   futureIncomeCtReserveGbp = round2(futureIncomeCtReserveGbp);
 
@@ -207,9 +272,11 @@ export function composeAiAvailableFunds(
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([month, amount]) => ({ month, amountGbp: round2(amount) }));
 
-  const futureIncomeByClient: AiFutureIncomeClient[] = [...clientTotals.entries()]
-    .map(([clientKey, v]) => ({
-      clientId: clientKey === OTHER_CLIENT_KEY ? null : clientKey,
+  const futureIncomeByClient: AiFutureIncomeClient[] = [...sourceTotals.entries()]
+    .map(([sourceKey, v]) => ({
+      clientId: sourceKey.startsWith('rental:') || sourceKey === OTHER_CLIENT_KEY
+        ? null
+        : sourceKey,
       label: v.label,
       totalGbp: round2(v.totalGbp),
       retainedGbp: round2(v.retainedGbp),
@@ -225,11 +292,12 @@ export function composeAiAvailableFunds(
   // date, one client, the value of that payment. Receipts landing on the same
   // final date are summed (and only treated as one client when they agree).
   let lastContractPayment: AiLastContractPayment | null = null;
-  if (futureIncome.length > 0) {
-    const lastDate = futureIncome.reduce(
+  const contractFutureIncome = futureIncome.filter(r => r.source !== 'rental-income');
+  if (contractFutureIncome.length > 0) {
+    const lastDate = contractFutureIncome.reduce(
       (a, b) => (a.expectedDate >= b.expectedDate ? a : b),
     ).expectedDate;
-    const lastReceipts = futureIncome.filter(r => r.expectedDate === lastDate);
+    const lastReceipts = contractFutureIncome.filter(r => r.expectedDate === lastDate);
     const amountGbp = round2(
       lastReceipts.reduce((s, r) => s + convertAmountSync(r.amount, r.currency, 'GBP'), 0),
     );
@@ -250,7 +318,10 @@ export function composeAiAvailableFunds(
   const committedOutflowsGbp = committedOutflows.totalCommittedGbp;
 
   const totalFundsGbp = round2(availableNowGbp + confirmedFutureIncomeRetainedGbp);
+  const creditAvailableGbp = liquidity.totalCreditGbp;
+  const totalFundsWithCreditGbp = round2(totalFundsGbp + creditAvailableGbp);
   const netAfterCommitmentsGbp = round2(totalFundsGbp - committedOutflowsGbp);
+  const netAfterCommitmentsWithCreditGbp = round2(totalFundsWithCreditGbp - committedOutflowsGbp);
 
   const futureIncomeRows: ExpectedReceiptRow[] = futureIncome;
 
@@ -273,7 +344,10 @@ export function composeAiAvailableFunds(
     committedOutflowsGbp,
     committedOutflows,
     totalFundsGbp,
+    creditAvailableGbp,
+    totalFundsWithCreditGbp,
     netAfterCommitmentsGbp,
+    netAfterCommitmentsWithCreditGbp,
     lastContractPayment,
   });
 }

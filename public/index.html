@@ -20,6 +20,7 @@
       <button class="tab" data-tab="fixed-expenses">Fixed Expenses</button>
       <button class="tab" data-tab="budget">Budget</button>
       <button class="tab" data-tab="obligations">Obligations</button>
+      <button class="tab" data-tab="taxes">Taxes</button>
       <button class="tab" data-tab="deadlines">Deadlines</button>
       <button class="tab" data-tab="contracts">Contracts</button>
       <button class="tab" data-tab="invoices">Invoices</button>
@@ -577,6 +578,13 @@
       </div>
     </section>
 
+    <!-- Taxes Tab -->
+    <section id="taxes" class="tab-content" aria-live="polite">
+      <div id="taxes-headline" class="taxes-headline-shell"></div>
+      <div id="taxes-panel-uk" class="taxes-panel-shell"></div>
+      <div id="taxes-panel-fzco" class="taxes-panel-shell"></div>
+    </section>
+
     <!-- Deadlines Tab -->
     <section id="deadlines" class="tab-content">
       <div class="deadlines-header">
@@ -1078,6 +1086,16 @@
             </div>
 
             <p id="debt-strategy-sandbox-empty" class="debt-strategy-sandbox-empty" hidden>No contract or recurring income lines in the monthly run-rate — nothing to toggle.</p>
+
+            <div class="debt-strategy-sandbox-toggles-wrap">
+              <h4 class="debt-strategy-sandbox-subhead">Salary redirect</h4>
+              <label class="sandbox-toggle-row">
+                <input type="checkbox" id="debt-strategy-sandbox-salary-redirect" />
+                <span class="sandbox-toggle-label">Model redirecting director salaries to debt (cuts household spending budgets by salary amount)</span>
+              </label>
+            </div>
+
+            <div id="debt-strategy-sandbox-headroom-out" class="debt-strategy-sandbox-headroom-out" hidden></div>
 
             <div id="debt-strategy-sandbox-result" class="debt-strategy-sandbox-result" hidden>
               <h4>Scenario outcome</h4>

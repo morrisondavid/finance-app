@@ -91,5 +91,6 @@ export function debtStrategyBundleToResponseJson(
       holisticMoneyForDebtAed: bundle.debtStrategyContext.holisticMoneyForDebtAed,
     },
     sandboxIncomeSources: bundle.sandboxIncomeSources,
+    salaryRedirectOpportunity: bundle.salaryRedirectOpportunity,
   };
 }

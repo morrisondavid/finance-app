@@ -81,12 +81,30 @@ describe('MCP resource payloads vs composers', () => {
     expect(fromMcp.runway).toEqual(expected.runway);
     expect(fromMcp.commitmentWindow).toEqual(expected.commitmentWindow);
     expect(fromMcp.income).toEqual(expected.income);
+    expect(typeof fromMcp.income.earnedButNotCollectedGbp).toBe('number');
+    // Deprecated wire alias stays present and equal for one deprecation window.
     expect(typeof fromMcp.income.earnedReceivablesGbp).toBe('number');
+    expect(fromMcp.income.earnedReceivablesGbp).toBe(fromMcp.income.earnedButNotCollectedGbp);
     expect(typeof fromMcp.income.retainedAccruedToDateGbp).toBe('number');
     expect(fromMcp.discretionary).toEqual(expected.discretionary);
     expect(fromMcp.spendVsBudget).toEqual(expected.spendVsBudget);
     expect(fromMcp.verdict).toEqual(expected.verdict);
     expect(fromMcp.schemaVersion).toBe(expected.schemaVersion);
+
+    // Canonical dashboard hero matches the available-funds composer, and is NOT
+    // derivable as cash + earned-to-date receivables (the documented anti-pattern).
+    const af = composeAiAvailableFunds();
+    expect(fromMcp.dashboardHero.totalFundsGbp).toBeCloseTo(af.totalFundsGbp, 2);
+    expect(fromMcp.dashboardHero.cashGbp).toBeCloseTo(af.availableNowGbp, 2);
+    expect(fromMcp.dashboardHero.futureIncomeRetainedGbp).toBeCloseTo(
+      af.confirmedFutureIncomeRetainedGbp,
+      2,
+    );
+    const cashPlusEarned =
+      fromMcp.discretionary.totalCashGbp + fromMcp.income.earnedButNotCollectedGbp;
+    if (af.confirmedFutureIncomeRetainedGbp !== fromMcp.income.earnedButNotCollectedGbp) {
+      expect(fromMcp.dashboardHero.totalFundsGbp).not.toBeCloseTo(cashPlusEarned, 2);
+    }
   });
 
   it('available-funds resource matches composeAiAvailableFunds with defaults (except generatedAt)', () => {

@@ -29,7 +29,7 @@ import {
 } from '../http/read/obligations-read.js';
 import { readObligationPaymentCandidates } from '../http/read/obligation-payment-candidates.js';
 import { readDeadlinesRoot, readDeadlinesFeedQuery, readDeadlineById } from '../http/read/deadlines-read.js';
-import { readTaxVatPayments } from '../http/read/tax-read.js';
+import { readTaxVatPayments, readTaxOverview } from '../http/read/tax-read.js';
 import {
   readWarningsConsolidatedFeed,
   readWarningsInterCompanyMovements,
@@ -419,6 +419,13 @@ export function registerBankStatementsHttpJsonReadTools(server: McpServer): void
       }
       return httpJsonReadToMcpToolResult(readTaxVatPayments(parsed.data));
     },
+  );
+
+  reg(
+    ['tax_get_overview', 'get_http_tax_overview'],
+    'GET /api/tax/overview parity. **Authoritative tax snapshot** — same payload as the Taxes tab (UK Ltd VAT/CT, FZCO funds + CT scenarios, personal Self Assessment). Prefer this over stitching dashboard taxLiabilities + obligations.',
+    {},
+    () => httpJsonReadToMcpToolResult(readTaxOverview()),
   );
 
   reg(

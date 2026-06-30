@@ -606,11 +606,16 @@ function buildDeclaredRentalIncomeRow(
   return expense;
 }
 
-function resolveRentalBillingDay(accumulator: Accumulator | null): number | null {
-  if (!accumulator || accumulator.transactions.length === 0) return null;
+/** Day-of-month for declared rental projection; day 1 until payment history exists. */
+const RENTAL_BILLING_DAY_FALLBACK = 1;
+
+function resolveRentalBillingDay(accumulator: Accumulator | null): number {
+  if (!accumulator || accumulator.transactions.length === 0) {
+    return RENTAL_BILLING_DAY_FALLBACK;
+  }
   const mostRecent = accumulator.transactions.reduce((a, b) => (a.date > b.date ? a : b));
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(mostRecent.date);
-  if (!match) return null;
+  if (!match) return RENTAL_BILLING_DAY_FALLBACK;
   return parseInt(match[3], 10);
 }
 

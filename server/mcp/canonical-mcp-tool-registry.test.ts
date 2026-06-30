@@ -13,4 +13,11 @@ describe('CANONICAL_MCP_TOOL_GROUPS', () => {
       }
     }
   });
+
+  it('includes tax_get_overview in the Taxes canonical group', () => {
+    const taxesGroup = CANONICAL_MCP_TOOL_GROUPS.find(([label]) => label === 'Taxes');
+    expect(taxesGroup).toBeDefined();
+    if (taxesGroup === undefined) return;
+    expect(taxesGroup[1]).toContain('tax_get_overview');
+  });
 });

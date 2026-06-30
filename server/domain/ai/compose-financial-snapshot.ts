@@ -4,6 +4,7 @@
  */
 
 import type {
+  AiAvailableFundsResponse,
   AiFinancialSnapshotResponse,
   AiPipelineResponse,
 } from '../../../shared/api-contracts.js';
@@ -33,6 +34,10 @@ import type {
 import { loadForecastInputs } from '../forecast/load-inputs.js';
 import { allInvoicePayments, allInvoices, outstandingInvoicesGbpSummary } from '../invoices/index.js';
 import { AI_MANIFEST_SCHEMA_VERSION } from './constants.js';
+import {
+  composeAiAvailableFunds,
+  dashboardHeroFromAvailableFunds,
+} from './compose-available-funds.js';
 import { composeAiLiquidity } from './compose-liquidity.js';
 import { buildAiPipelineFromLoaded } from './compose-pipeline.js';
 import { deriveFinancialVerdict } from './derive-financial-verdict.js';
@@ -46,6 +51,8 @@ export interface ComposeAiFinancialSnapshotOpts extends LoadForecastInputsOpts {
   readonly groupByEntity?: boolean;
   /** When supplied, skips a redundant `loadForecastInputs` (shared composite reads). */
   readonly forecastInputs?: LoadedForecastInputs;
+  /** Pre-composed available funds (skips a redundant `composeAiAvailableFunds` for `dashboardHero`). */
+  readonly availableFunds?: AiAvailableFundsResponse;
 }
 
 function sumObligationOutflowsGbpInWindow(
@@ -111,7 +118,7 @@ export function composeAiFinancialSnapshot(
       company === null ? netGbp : calculateRetainedReserves(netGbp, company).retained_period;
   }
   retainedAccruedToDateGbp = round2(retainedAccruedToDateGbp);
-  const earnedReceivablesGbp = round2(outstanding.totalOutstandingGbp + retainedAccruedToDateGbp);
+  const earnedButNotCollectedGbp = round2(outstanding.totalOutstandingGbp + retainedAccruedToDateGbp);
 
   const selectedAccount = validateAccount(opts.account);
   const financialYears = getAvailableFinancialYears();
@@ -150,10 +157,12 @@ export function composeAiFinancialSnapshot(
   const verdict = deriveFinancialVerdict({
     today: loaded.today,
     cashAfter12MonthCommitmentsGbp: cashAfter12,
-    earnedReceivablesGbp,
+    earnedButNotCollectedGbp,
     holisticGbp: runway.holisticGbp,
     commitmentWindowEndDate: endDate,
   });
+
+  const availableFunds = opts.availableFunds ?? composeAiAvailableFunds({ filterEntityId });
 
   return AiFinancialSnapshotResponseSchema.parse({
     generatedAt: new Date().toISOString(),
@@ -173,7 +182,9 @@ export function composeAiFinancialSnapshot(
         totals: aggregateAccrual.totals,
       },
       retainedAccruedToDateGbp,
-      earnedReceivablesGbp,
+      earnedButNotCollectedGbp,
+      // Deprecated wire alias — same value, kept for one deprecation window.
+      earnedReceivablesGbp: earnedButNotCollectedGbp,
     },
     discretionary: {
       totalCashGbp: totalCash,
@@ -190,5 +201,6 @@ export function composeAiFinancialSnapshot(
       insightNote,
     },
     verdict,
+    dashboardHero: dashboardHeroFromAvailableFunds(availableFunds),
   });
 }

@@ -14,7 +14,7 @@ describe('deriveFinancialVerdict', () => {
     const v = deriveFinancialVerdict({
       today: '2026-05-01',
       cashAfter12MonthCommitmentsGbp: -100,
-      earnedReceivablesGbp: 0,
+      earnedButNotCollectedGbp: 0,
       holisticGbp: stressFree,
       commitmentWindowEndDate: '2026-07-30',
     });
@@ -29,7 +29,7 @@ describe('deriveFinancialVerdict', () => {
     const v = deriveFinancialVerdict({
       today: '2026-05-01',
       cashAfter12MonthCommitmentsGbp: 5_000,
-      earnedReceivablesGbp: 0,
+      earnedButNotCollectedGbp: 0,
       holisticGbp: stressFree,
       commitmentWindowEndDate: '2026-07-30',
     });
@@ -40,7 +40,7 @@ describe('deriveFinancialVerdict', () => {
     const v = deriveFinancialVerdict({
       today: '2026-05-01',
       cashAfter12MonthCommitmentsGbp: 5_000,
-      earnedReceivablesGbp: 0,
+      earnedButNotCollectedGbp: 0,
       holisticGbp: {
         ...stressFree,
         firstStressDateFullRecurring: '2026-06-10',
@@ -59,7 +59,7 @@ describe('deriveFinancialVerdict', () => {
     const v = deriveFinancialVerdict({
       today: '2026-05-01',
       cashAfter12MonthCommitmentsGbp: 5_000,
-      earnedReceivablesGbp: 0,
+      earnedButNotCollectedGbp: 0,
       holisticGbp: {
         ...stressFree,
         firstStressDateFullRecurring: '2027-02-01',
@@ -78,7 +78,7 @@ describe('deriveFinancialVerdict', () => {
     const v = deriveFinancialVerdict({
       today: '2026-05-01',
       cashAfter12MonthCommitmentsGbp: -100_000,
-      earnedReceivablesGbp: 30_000,
+      earnedButNotCollectedGbp: 30_000,
       holisticGbp: stressFree,
       commitmentWindowEndDate: '2026-07-30',
     });
@@ -93,7 +93,7 @@ describe('deriveFinancialVerdict', () => {
     const v = deriveFinancialVerdict({
       today: '2026-05-01',
       cashAfter12MonthCommitmentsGbp: -20_000,
-      earnedReceivablesGbp: 25_000,
+      earnedButNotCollectedGbp: 25_000,
       holisticGbp: stressFree,
       commitmentWindowEndDate: '2026-07-30',
     });

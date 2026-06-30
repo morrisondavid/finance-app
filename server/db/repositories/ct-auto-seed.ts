@@ -34,14 +34,12 @@ import { HMRC_PATTERNS } from '../../domain/payees/index.js';
 import { businessPaymentAccounts } from '../../domain/accounts/index.js';
 import { insertAutoObligation } from './obligations.js';
 import { isDismissed } from './obligation-dismissals.js';
-import { findHmrcPayments, type HmrcPaymentMatch } from './tax.js';
+import { findHmrcPayments, type HmrcPaymentMatch, sumCorpTaxIncomeForRange } from './tax.js';
 import { matchPaymentsToSlots } from '../../utils/payment-matcher.js';
 import {
   getAvailableFinancialYears,
   getFinancialYearRange,
 } from '../utils/financial-year.js';
-import { buildAccountInFilter } from '../utils/tax-account-filter.js';
-import { corpTaxApplicableAccounts } from '../../domain/accounts/index.js';
 import { round2 } from '../../utils/math.js';
 
 /**
@@ -101,27 +99,7 @@ function computeCtDueDate(fyEnd: string): string {
 }
 
 /**
- * Ledger-scoped CT income for one FY (corp-tax-applicable accounts only).
- * Matches the same "net of VAT" treatment getTaxLiabilities() uses on the
- * dashboard so the two surfaces cannot drift.
- */
-function sumCtIncomeForFy(fy: { startDate: string; endDate: string }): number {
-  const db = getDb();
-  // Roadmap 1.1 / Phase 4: UK CT seeder only — UAE CT auto-seeding is
-  // gated on QFZP election and handled separately once the status is
-  // resolved. The `corpTaxApplicable` index already excludes UAE FZCO
-  // while its QFZP status is 'TBC'; no separate entity filter needed.
-  const filter = buildAccountInFilter(corpTaxApplicableAccounts());
-  const row = db.prepare(`
-    SELECT COALESCE(SUM(amount), 0) as total
-    FROM transactions
-    WHERE type = 'income' AND date >= ? AND date <= ? ${filter.clause}
-  `).get(fy.startDate, fy.endDate, ...filter.params) as { total: number };
-  return row.total;
-}
-
-/**
- * Mirrors the manual-supersede guard on sa-auto-seed: if the user has
+ * Pull every CT-narrative HMRC debit from the ledger. Only business
  * added a manual CT obligation near the computed deadline, the auto row
  * is suppressed so the two rows cannot double-count.
  */
@@ -195,7 +173,7 @@ export function deriveAndInsertAutoCtObligations(referenceDate: Date = new Date(
     if (hasManualSupersede(slot)) continue;
 
     const range = getFinancialYearRange(slot.fyLabel);
-    const income = sumCtIncomeForFy(range);
+    const income = sumCorpTaxIncomeForRange(range.startDate, range.endDate);
     if (income <= 0) continue;
 
     // Mirror the dashboard's taxable-profit treatment: income minus

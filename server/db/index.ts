@@ -112,7 +112,10 @@ export {
 // Re-export from tax repository
 export {
   getTaxLiabilities,
-  type TaxLiabilities
+  resolveFinancialYearForTax,
+  sumCorpTaxIncomeForRange,
+  type TaxLiabilities,
+  type TaxLiabilitiesFilters,
 } from './repositories/tax.js';
 
 // Re-export from balance repository

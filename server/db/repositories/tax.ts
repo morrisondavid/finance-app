@@ -1,6 +1,12 @@
 import { getDb } from '../connection.js';
 import { formatDateISO } from '../../../shared/date-format.js';
-import { buildDashboardFilters, type DashboardFilters } from '../utils/financial-year.js';
+import {
+  buildDashboardFilters,
+  getAvailableFinancialYears,
+  getFinancialYearForDate,
+  getFinancialYearRange,
+  type DashboardFilters,
+} from '../utils/financial-year.js';
 import { 
   VAT, 
   calculateCorporationTax, 
@@ -263,6 +269,42 @@ function calculateDirectorDividendTax(salaryPaidInPeriod: number, dividends: num
   return calculateDividendTax(dividends, salaryPaidInPeriod);
 }
 
+/** Filters that always include a financial year — unscoped CT income is forbidden. */
+export interface TaxLiabilitiesFilters extends DashboardFilters {
+  financialYear: string;
+}
+
+/**
+ * Resolve the financial year for tax liability queries. Prefers an explicit
+ * value, then the first ledger FY, then the calendar FY for today.
+ */
+export function resolveFinancialYearForTax(explicit?: string): string {
+  if (explicit !== undefined && explicit.trim() !== '') {
+    return explicit;
+  }
+  const available = getAvailableFinancialYears();
+  if (available.length > 0) {
+    return available[0];
+  }
+  return getFinancialYearForDate(new Date());
+}
+
+/**
+ * Gross income on corp-tax-applicable accounts within an inclusive date range.
+ * Shared by {@link getTaxLiabilities} and the CT auto-seeder so FY CT income
+ * cannot drift between surfaces.
+ */
+export function sumCorpTaxIncomeForRange(startDate: string, endDate: string): number {
+  const db = getDb();
+  const filter = buildAccountInFilter(corpTaxApplicableAccounts());
+  const row = db.prepare(`
+    SELECT COALESCE(SUM(amount), 0) as total
+    FROM transactions
+    WHERE type = 'income' AND date >= ? AND date <= ? ${filter.clause}
+  `).get(startDate, endDate, ...filter.params) as { total: number };
+  return row.total;
+}
+
 /**
  * Calculate UK tax liabilities based on income
  * 
@@ -272,22 +314,21 @@ function calculateDirectorDividendTax(salaryPaidInPeriod: number, dividends: num
  *   - This provides a conservative/worst-case tax liability estimate
  * Director personal: dividend tax estimate vs salary paid in the selected period (PAYE on salary excluded).
  */
-export function getTaxLiabilities(filters: DashboardFilters = {}): TaxLiabilities {
+export function getTaxLiabilities(filters: TaxLiabilitiesFilters): TaxLiabilities {
+  if (filters.financialYear === undefined || filters.financialYear.trim() === '') {
+    throw new Error('getTaxLiabilities requires an explicit financialYear');
+  }
+
   const db = getDb();
   const { clause, params } = buildDashboardFilters(filters);
   // VAT/CT scope is already determined by per-account flags:
   // `vat.registered=false` (FZCO) and `corpTax.qualifyingFreeZone='TBC'`
   // (FZCO) both exclude the UAE entity from their respective indexes.
   // No separate entity filter is needed — and it would be redundant.
-  const corpTaxFilter = buildAccountInFilter(corpTaxApplicableAccounts());
   const vatFilter = buildAccountInFilter(vatApplicableAccounts());
-  
-  // Get income for the selected financial year (for Corp Tax) — always scoped to corpTax accounts
-  const incomeResult = db.prepare(`
-    SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE type = 'income'${clause} ${corpTaxFilter.clause}
-  `).get(...params, ...corpTaxFilter.params) as { total: number };
-  
-  const income = incomeResult.total;
+
+  const fyRange = getFinancialYearRange(filters.financialYear);
+  const income = sumCorpTaxIncomeForRange(fyRange.startDate, fyRange.endDate);
   
   // VAT calculation - use current VAT QUARTER, not financial year
   const vatQuarter = getCurrentVatQuarter();

@@ -42,7 +42,7 @@ import {
 import { projectMonthlyRunRate } from '../forecast/project-monthly-run-rate.js';
 import { getClientRegistry } from '../clients/registry.js';
 
-import type { Plan, PlanScope } from './schema.js';
+import type { Plan, PlanScope, SuggestedPlan } from './schema.js';
 import {
   buildSuggestedPlanPayoffOptions,
   buildActivePlanPayoffSummary,
@@ -56,8 +56,12 @@ import { computeHeadroom } from './compute-headroom.js';
 import { availableHeadroom } from './available-headroom.js';
 import {
   presentIntensityOptions,
+  projectCompletionDate,
   type IntensityOptionsResult,
 } from './present-intensity-options.js';
+import { allPayrollEntries } from '../payroll/queries.js';
+import type { ProjectedMonthlyRunRate, SandboxRecurringIncomeSource } from '../forecast/project-monthly-run-rate.js';
+import { effectiveHeadroomForStrategyPlanning } from './effective-headroom-for-strategy.js';
 import {
   checkPlanFeasibility,
   type FeasibilityReport,
@@ -107,6 +111,30 @@ export interface BucketHeadroom {
   readonly intensityOptions: IntensityOptionsResult;
 }
 
+export interface SalaryRedirectOpportunity {
+  readonly kind: 'cut-budgets' | 'needs-budget-caps';
+  readonly bucketKey: string;
+  readonly salaryMonthlyTotal: number;
+  readonly salaryEntries: readonly {
+    readonly id: string;
+    readonly payee: string;
+    readonly amount: number;
+  }[];
+  readonly salaryDetectedAsHouseholdIncome: boolean;
+  readonly redirectableMonthly: number;
+  readonly baselineAvailableHeadroom: number;
+  readonly whatIfAvailableHeadroom: number;
+  readonly whatIfIntensityOptions: IntensityOptionsResult;
+  readonly topTarget: {
+    readonly debtId: string;
+    readonly name: string;
+    readonly apr: number;
+    readonly currentBalance: number;
+    readonly projectedPayoffDateMedium: string | null;
+    readonly projectedPayoffDateAggressive: string | null;
+  } | null;
+}
+
 export interface SandboxIncomeSourcesLabeled {
   readonly contracts: readonly {
     readonly contractId: string;
@@ -148,6 +176,8 @@ export interface AssembledDebtStrategy {
   readonly debtStrategyContext: DebtStrategyContext;
   /** Income lines the sandbox can toggle (labels for UI). */
   readonly sandboxIncomeSources: SandboxIncomeSourcesLabeled;
+  /** When director salaries could unlock household debt suggestions. */
+  readonly salaryRedirectOpportunity: SalaryRedirectOpportunity | null;
 }
 
 /**
@@ -160,6 +190,12 @@ export interface AssembleDebtStrategyInput {
     readonly excludedContractIds: readonly string[];
     readonly excludedRecurringIncomeKeys: readonly string[];
   };
+  /**
+   * §1.9 salary-redirect what-if: model household budgets reduced by the
+   * redirectable director-salary amount (and salary added to household
+   * income when not already detected). Same sandbox seam as incomeExclusions.
+   */
+  readonly applySalaryRedirect?: boolean;
 }
 
 function scopeForAccount(account: AccountName): PlanScope {
@@ -234,6 +270,246 @@ function buildBudgetsByBucket(): Map<string, number> {
     out.set(key, (out.get(key) ?? 0) + monthlyAmt);
   }
   return out;
+}
+
+interface SalaryRedirectInputs {
+  readonly householdKey: string;
+  readonly salaryMonthlyTotal: number;
+  readonly salaryEntries: readonly { readonly id: string; readonly payee: string; readonly amount: number }[];
+  readonly salaryDetectedAsHouseholdIncome: boolean;
+  readonly householdBudgetCaps: number;
+  readonly redirectableMonthly: number;
+}
+
+function recurringRowMatchesPayroll(
+  row: SandboxRecurringIncomeSource,
+  salaryEntries: readonly { readonly id: string; readonly payee: string; readonly amount: number }[],
+): boolean {
+  if (row.declaredObligationId !== null) {
+    return salaryEntries.some(se => se.id === row.declaredObligationId);
+  }
+  return salaryEntries.some(se => {
+    const payeeLower = se.payee.toLowerCase();
+    const merchantLower = row.merchant.toLowerCase();
+    return merchantLower.includes(payeeLower) || payeeLower.includes(merchantLower);
+  });
+}
+
+function deriveSalaryRedirectInputs(
+  fullRunRate: ProjectedMonthlyRunRate,
+  budgetsByBucket: Map<string, number>,
+): SalaryRedirectInputs {
+  const householdKey = bucketKey('GBP', 'household');
+  const payrollRows = allPayrollEntries().filter(
+    e => e.currency === 'GBP' && e.active !== false,
+  );
+  const salaryEntries = payrollRows.map(e => ({
+    id: e.id,
+    payee: e.displayName ?? e.merchant,
+    amount: e.amount,
+  }));
+  const salaryMonthlyTotal = salaryEntries.reduce((sum, e) => sum + e.amount, 0);
+  const householdRecurring = fullRunRate.sandboxIncomeSources.recurring.filter(
+    r => r.bucketKey === householdKey,
+  );
+  const matchedSalaryIncome = householdRecurring
+    .filter(r => recurringRowMatchesPayroll(r, salaryEntries))
+    .reduce((sum, r) => sum + r.monthlyAmount, 0);
+  const salaryDetectedAsHouseholdIncome =
+    salaryMonthlyTotal > 0 && matchedSalaryIncome >= salaryMonthlyTotal * 0.9;
+  const householdBudgetCaps = budgetsByBucket.get(householdKey) ?? 0;
+  const redirectableMonthly =
+    householdBudgetCaps === 0 ? 0 : Math.min(salaryMonthlyTotal, householdBudgetCaps);
+  return {
+    householdKey,
+    salaryMonthlyTotal,
+    salaryEntries,
+    salaryDetectedAsHouseholdIncome,
+    householdBudgetCaps,
+    redirectableMonthly,
+  };
+}
+
+function applySalaryRedirectScenario(
+  incomeByBucket: Map<string, number>,
+  budgetsByBucket: Map<string, number>,
+  ctx: SalaryRedirectInputs,
+): void {
+  const caps = budgetsByBucket.get(ctx.householdKey) ?? 0;
+  budgetsByBucket.set(ctx.householdKey, Math.max(0, caps - ctx.redirectableMonthly));
+  if (!ctx.salaryDetectedAsHouseholdIncome) {
+    incomeByBucket.set(
+      ctx.householdKey,
+      (incomeByBucket.get(ctx.householdKey) ?? 0) + ctx.salaryMonthlyTotal,
+    );
+  }
+}
+
+function topHouseholdConsumerDebt(debts: readonly AutoSuggestDebt[]): AutoSuggestDebt | null {
+  const ranked = debts
+    .filter(d => d.scope === 'household' && d.kind === 'consumer' && !d.archived && d.currentBalance > 0)
+    .sort((a, b) => b.apr - a.apr || b.currentBalance - a.currentBalance);
+  return ranked[0] ?? null;
+}
+
+function householdAvailableHeadroom(
+  incomeByBucket: Map<string, number>,
+  mandatoryByBucket: Map<string, number>,
+  budgetsByBucket: Map<string, number>,
+  householdKey: string,
+  allPlans: readonly Plan[],
+): number {
+  const total = computeHeadroom({
+    currency: 'GBP',
+    forecastedMonthlyIncome: incomeByBucket.get(householdKey) ?? 0,
+    mandatoryMonthly: mandatoryByBucket.get(householdKey) ?? 0,
+    categoryBudgets: [{ category: 'aggregate', monthlyCap: budgetsByBucket.get(householdKey) ?? 0 }],
+  });
+  return availableHeadroom({
+    totalHeadroom: total,
+    currency: 'GBP',
+    scope: 'household',
+    allPlans,
+  });
+}
+
+function buildTopTargetFromDebt(
+  debt: AutoSuggestDebt,
+  intensityOptions: IntensityOptionsResult,
+  today: string,
+): SalaryRedirectOpportunity['topTarget'] {
+  const baseline = debt.baselineMonthlyFromMatching;
+  return {
+    debtId: debt.id,
+    name: debt.name,
+    apr: debt.apr,
+    currentBalance: debt.currentBalance,
+    projectedPayoffDateMedium: projectCompletionDate(
+      today,
+      baseline + intensityOptions.medium.monthlyAllocation,
+      debt.currentBalance,
+    ),
+    projectedPayoffDateAggressive: projectCompletionDate(
+      today,
+      baseline + intensityOptions.aggressive.monthlyAllocation,
+      debt.currentBalance,
+    ),
+  };
+}
+
+function computeSalaryRedirectOpportunity(input: {
+  readonly salaryCtx: SalaryRedirectInputs;
+  readonly incomeByBucket: Map<string, number>;
+  readonly mandatoryByBucket: Map<string, number>;
+  readonly budgetsByBucket: Map<string, number>;
+  readonly baselineAvailableHeadroom: number;
+  readonly suggestedPlansRaw: readonly SuggestedPlan[];
+  readonly autoSuggestInputs: readonly AutoSuggestDebt[];
+  readonly allPlans: readonly Plan[];
+  readonly today: string;
+  readonly strategyPeriodApproxMonths: number;
+  readonly holisticMoneyForDebtGbp: number;
+}): SalaryRedirectOpportunity | null {
+  const { salaryCtx, suggestedPlansRaw } = input;
+  if (salaryCtx.salaryMonthlyTotal <= 0) return null;
+
+  const topDebtBaseline = topHouseholdConsumerDebt(input.autoSuggestInputs);
+  const baselineIntensity = presentIntensityOptions({
+    availableHeadroom: input.baselineAvailableHeadroom,
+    goal: {
+      goalType: 'pay-off-debt',
+      targetDateOrAsap: 'ASAP',
+      targetAmount: topDebtBaseline?.currentBalance ?? 0,
+      baselineMonthlyTowardTarget: topDebtBaseline?.baselineMonthlyFromMatching,
+    },
+    today: input.today,
+  });
+
+  if (salaryCtx.householdBudgetCaps === 0) {
+    return {
+      kind: 'needs-budget-caps',
+      bucketKey: salaryCtx.householdKey,
+      salaryMonthlyTotal: salaryCtx.salaryMonthlyTotal,
+      salaryEntries: salaryCtx.salaryEntries,
+      salaryDetectedAsHouseholdIncome: salaryCtx.salaryDetectedAsHouseholdIncome,
+      redirectableMonthly: 0,
+      baselineAvailableHeadroom: input.baselineAvailableHeadroom,
+      whatIfAvailableHeadroom: input.baselineAvailableHeadroom,
+      whatIfIntensityOptions: baselineIntensity,
+      topTarget: topDebtBaseline === null ? null : buildTopTargetFromDebt(topDebtBaseline, baselineIntensity, input.today),
+    };
+  }
+
+  if (suggestedPlansRaw.some(sp => sp.scope === 'household')) return null;
+
+  const whatIfIncome = new Map(input.incomeByBucket);
+  const whatIfBudgets = new Map(input.budgetsByBucket);
+  applySalaryRedirectScenario(whatIfIncome, whatIfBudgets, salaryCtx);
+  const whatIfAvailableHeadroom = householdAvailableHeadroom(
+    whatIfIncome,
+    input.mandatoryByBucket,
+    whatIfBudgets,
+    salaryCtx.householdKey,
+    input.allPlans,
+  );
+  const effectiveWhatIf = effectiveHeadroomForStrategyPlanning({
+    availableHeadroom: whatIfAvailableHeadroom,
+    moneyForDebtStrategy: input.holisticMoneyForDebtGbp,
+    strategyPeriodApproxMonths: input.strategyPeriodApproxMonths,
+  });
+  const whatIfIntensityOptions = presentIntensityOptions({
+    availableHeadroom: effectiveWhatIf,
+    goal: {
+      goalType: 'pay-off-debt',
+      targetDateOrAsap: 'ASAP',
+      targetAmount: topDebtBaseline?.currentBalance ?? 0,
+      baselineMonthlyTowardTarget: topDebtBaseline?.baselineMonthlyFromMatching,
+    },
+    today: input.today,
+  });
+
+  const whatIfHeadroomByBucket = new Map<string, number>();
+  whatIfHeadroomByBucket.set(salaryCtx.householdKey, whatIfAvailableHeadroom);
+  const whatIfSuggestions = autoSuggestPlans({
+    debts: input.autoSuggestInputs,
+    persistedPlans: input.allPlans,
+    availableHeadroomByBucket: whatIfHeadroomByBucket,
+    today: input.today,
+    strategyPeriodApproxMonths: input.strategyPeriodApproxMonths,
+    holisticMoneyForDebtGbp: input.holisticMoneyForDebtGbp,
+    holisticMoneyForDebtAed: 0,
+  });
+  const topSuggestion = whatIfSuggestions.find(sp => sp.scope === 'household');
+  const topDebt =
+    topSuggestion?.target_id !== null && topSuggestion?.target_id !== undefined
+      ? input.autoSuggestInputs.find(d => d.id === topSuggestion.target_id) ?? topDebtBaseline
+      : topDebtBaseline;
+  const targetIntensity =
+    topDebt === null
+      ? whatIfIntensityOptions
+      : presentIntensityOptions({
+          availableHeadroom: effectiveWhatIf,
+          goal: {
+            goalType: 'pay-off-debt',
+            targetDateOrAsap: 'ASAP',
+            targetAmount: topDebt.currentBalance,
+            baselineMonthlyTowardTarget: topDebt.baselineMonthlyFromMatching,
+          },
+          today: input.today,
+        });
+
+  return {
+    kind: 'cut-budgets',
+    bucketKey: salaryCtx.householdKey,
+    salaryMonthlyTotal: salaryCtx.salaryMonthlyTotal,
+    salaryEntries: salaryCtx.salaryEntries,
+    salaryDetectedAsHouseholdIncome: salaryCtx.salaryDetectedAsHouseholdIncome,
+    redirectableMonthly: salaryCtx.redirectableMonthly,
+    baselineAvailableHeadroom: input.baselineAvailableHeadroom,
+    whatIfAvailableHeadroom,
+    whatIfIntensityOptions: targetIntensity,
+    topTarget: topDebt === null ? null : buildTopTargetFromDebt(topDebt, targetIntensity, input.today),
+  };
 }
 
 function debtToAutoSuggestDebt(s: DebtSummary): AutoSuggestDebt | null {
@@ -336,6 +612,10 @@ export function assembleDebtStrategy(
   //     £10k+ in the quarter they land and makes headroom useless.
   const mandatoryByBucket = buildMandatoryMonthlyByBucket(inputs);
   const budgetsByBucket = buildBudgetsByBucket();
+  const salaryCtx = deriveSalaryRedirectInputs(fullRunRate, budgetsByBucket);
+  if (input.applySalaryRedirect === true) {
+    applySalaryRedirectScenario(incomeByBucket, budgetsByBucket, salaryCtx);
+  }
 
   // 2. Compute total + available headroom per bucket.
   //    Always include the three canonical (currency, scope) buckets
@@ -436,6 +716,25 @@ export function assembleDebtStrategy(
     holisticMoneyForDebtGbp: capitalSnapshot.holistic.holistic_money_for_debt_gbp,
     holisticMoneyForDebtAed: capitalSnapshot.holistic.holistic_money_for_debt_aed,
   });
+
+  const baselineHouseholdHeadroom =
+    headroomByBucket.get(salaryCtx.householdKey)?.availableHeadroom ?? 0;
+  const salaryRedirectOpportunity =
+    input.applySalaryRedirect === true
+      ? null
+      : computeSalaryRedirectOpportunity({
+          salaryCtx,
+          incomeByBucket,
+          mandatoryByBucket,
+          budgetsByBucket,
+          baselineAvailableHeadroom: baselineHouseholdHeadroom,
+          suggestedPlansRaw,
+          autoSuggestInputs,
+          allPlans,
+          today,
+          strategyPeriodApproxMonths,
+          holisticMoneyForDebtGbp: capitalSnapshot.holistic.holistic_money_for_debt_gbp,
+        });
 
   const lumpByDebtId = new Map(
     capitalSnapshot.recommended_lump_sum_allocations.map(
@@ -582,5 +881,6 @@ export function assembleDebtStrategy(
     crossScopeTransferPreview,
     debtStrategyContext,
     sandboxIncomeSources,
+    salaryRedirectOpportunity,
   };
 }

@@ -30,7 +30,7 @@ export interface FinancialSafetyInput {
    * the liquidity side so the score credits work already done. Never includes
    * projected future work. `0` when there are no earned receivables.
    */
-  readonly earnedReceivablesGbp: number;
+  readonly earnedButNotCollectedGbp: number;
   /** Pillar B — holistic runway (months); null when not stressed in horizon. */
   readonly runwayMonthsFullRecurring: number | null;
   readonly verdictKind: FinancialSafetyVerdictKind;

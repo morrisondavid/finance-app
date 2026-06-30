@@ -6,6 +6,7 @@
 
 export const CANONICAL_MCP_TOOL_GROUPS = [
   ['Cross-domain', ['household_financial_posture', 'income_get_composition']],
+  ['Taxes', ['tax_get_overview', 'tax_get_vat_payments']],
   [
     'Survival & insights',
     [

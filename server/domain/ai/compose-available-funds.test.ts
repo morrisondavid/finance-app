@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import type { ExpectedReceiptRow } from '../../../shared/api-contracts.js';
 
 vi.mock('../../config/exchange-rates.js', () => ({
   convertAmountSync: (amount: number) => amount,
@@ -31,7 +32,7 @@ vi.mock('../accounts/liquidity-commitments.js', () => ({
 }));
 
 vi.mock('../accounts/liquidity-overview.js', () => ({
-  buildLiquidityOverview: () => ({ totalCashGbp: 45_000 }),
+  buildLiquidityOverview: () => ({ totalCashGbp: 45_000, totalCreditGbp: 12_500 }),
 }));
 
 vi.mock('../company/queries.js', async () => {
@@ -64,32 +65,53 @@ vi.mock('../forecast/load-inputs.js', () => ({
   }),
 }));
 
+const defaultContractReceipts: ExpectedReceiptRow[] = [
+  {
+    expectedDate: '2026-07-30',
+    amount: 5000,
+    currency: 'GBP',
+    account: 'barclays-current',
+    source: 'accrual',
+    contractId: 'c1',
+    invoiceId: null,
+    obligationId: null,
+  },
+  {
+    expectedDate: '2027-06-01',
+    amount: 3000,
+    currency: 'GBP',
+    account: 'barclays-current',
+    source: 'accrual',
+    contractId: 'c1',
+    invoiceId: null,
+    obligationId: null,
+  },
+];
+
+const buildExpectedReceiptsMock = vi.fn(() => ({
+  receipts: [...defaultContractReceipts],
+}));
+
 vi.mock('../contracts/expected-receipts.js', () => ({
-  buildExpectedReceipts: () => ({
-    receipts: [
-      {
-        expectedDate: '2026-07-30',
-        amount: 5000,
-        currency: 'GBP',
-        account: 'barclays-current',
-        source: 'accrual',
-        contractId: 'c1',
-        invoiceId: null,
-      },
-      {
-        expectedDate: '2027-06-01',
-        amount: 3000,
-        currency: 'GBP',
-        account: 'barclays-current',
-        source: 'accrual',
-        contractId: 'c1',
-        invoiceId: null,
-      },
-    ],
+  buildExpectedReceipts: () => buildExpectedReceiptsMock(),
+}));
+
+vi.mock('../obligations/registry.js', () => ({
+  getObligationRegistry: () => ({
+    all: [{
+      id: 'manual-heath-park-rental',
+      category: 'rental-income',
+      merchant: 'Salah',
+      displayName: '53 Heath Park Road',
+    }],
   }),
 }));
 
-import { composeAiAvailableFunds } from './compose-available-funds.js';
+import { DASHBOARD_HERO_FORMULA } from '../../../shared/api-contracts.js';
+import {
+  composeAiAvailableFunds,
+  dashboardHeroFromAvailableFunds,
+} from './compose-available-funds.js';
 import { buildLiquidityCommitments } from '../accounts/liquidity-commitments.js';
 import { calculateRetainedReserves } from '../../config/tax-rates.js';
 import { round2 } from '../../utils/math.js';
@@ -150,6 +172,34 @@ describe('composeAiAvailableFunds', () => {
     expect(result.futureIncome).toHaveLength(1);
   });
 
+  it('includes rental-income in gross, retained, and breakdown by property label', () => {
+    const rentalReceipt: ExpectedReceiptRow = {
+      expectedDate: '2026-07-01',
+      amount: 2850,
+      currency: 'GBP',
+      account: 'monzo-joint',
+      source: 'rental-income',
+      contractId: null,
+      invoiceId: null,
+      obligationId: 'manual-heath-park-rental',
+    };
+    buildExpectedReceiptsMock.mockReturnValueOnce({
+      receipts: [rentalReceipt],
+    });
+
+    const result = composeAiAvailableFunds({ months: 12 });
+    expect(result.confirmedFutureIncomeGrossGbp).toBe(2850);
+    expect(result.confirmedFutureIncomeRetainedGbp).toBe(2850);
+    expect(result.futureIncomeByClient).toEqual([
+      {
+        clientId: null,
+        label: '53 Heath Park Road',
+        totalGbp: 2850,
+        retainedGbp: 2850,
+      },
+    ]);
+  });
+
   it('committedOutflowsGbp equals buildLiquidityCommitments totalCommittedGbp', () => {
     const result = composeAiAvailableFunds();
     const commitments = buildLiquidityCommitments({
@@ -164,5 +214,53 @@ describe('composeAiAvailableFunds', () => {
     const result = composeAiAvailableFunds({ months: 12 });
     expect(result.committedOutflows.totalCommittedGbp).toBe(result.committedOutflowsGbp);
     expect(result.committedOutflows.horizonLabel).toContain('Next 12 months');
+  });
+});
+
+describe('dashboardHeroFromAvailableFunds', () => {
+  it('maps the hero-tile fields one-to-one from available funds', () => {
+    const af = composeAiAvailableFunds({ months: 12 });
+    expect(dashboardHeroFromAvailableFunds(af)).toEqual({
+      months: af.months,
+      projectionEndDate: af.projectionEndDate,
+      cashGbp: af.availableNowGbp,
+      futureIncomeRetainedGbp: af.confirmedFutureIncomeRetainedGbp,
+      futureIncomeGrossGbp: af.confirmedFutureIncomeGrossGbp,
+      totalFundsGbp: af.totalFundsGbp,
+      committedOutflowsGbp: af.committedOutflowsGbp,
+      netAfterCommitmentsGbp: af.netAfterCommitmentsGbp,
+      netAfterCommitmentsDisplayGbp: Math.max(0, af.netAfterCommitmentsGbp),
+      creditAvailableGbp: af.creditAvailableGbp,
+      totalFundsWithCreditGbp: af.totalFundsWithCreditGbp,
+      netAfterCommitmentsWithCreditGbp: af.netAfterCommitmentsWithCreditGbp,
+      formula: DASHBOARD_HERO_FORMULA,
+    });
+  });
+
+  it('derives credit-inclusive totals from cash funds and credit headroom', () => {
+    const af = composeAiAvailableFunds({ months: 12 });
+    expect(af.creditAvailableGbp).toBe(12_500);
+    expect(af.totalFundsWithCreditGbp).toBe(af.totalFundsGbp + af.creditAvailableGbp);
+    expect(af.netAfterCommitmentsWithCreditGbp).toBe(
+      af.totalFundsWithCreditGbp - af.committedOutflowsGbp,
+    );
+  });
+
+  it('clamps the display net to zero when commitments exceed total funds', () => {
+    // Default mocked commitments (184k) dwarf mocked cash + income.
+    const af = composeAiAvailableFunds({ months: 12 });
+    const hero = dashboardHeroFromAvailableFunds(af);
+    expect(af.netAfterCommitmentsGbp).toBeLessThan(0);
+    expect(hero.netAfterCommitmentsDisplayGbp).toBe(0);
+  });
+
+  it('keeps the raw net when positive and carries the fixed formula string', () => {
+    buildLiquidityCommitmentsMock.mockReturnValueOnce(commitmentsOverview(10_000));
+    const af = composeAiAvailableFunds({ months: 12 });
+    const hero = dashboardHeroFromAvailableFunds(af);
+    expect(af.netAfterCommitmentsGbp).toBeGreaterThan(0);
+    expect(hero.netAfterCommitmentsDisplayGbp).toBe(af.netAfterCommitmentsGbp);
+    expect(hero.formula).toContain('totalFundsGbp = cashGbp + futureIncomeRetainedGbp');
+    expect(hero.formula).toContain('totalFundsWithCreditGbp = totalFundsGbp + creditAvailableGbp');
   });
 });

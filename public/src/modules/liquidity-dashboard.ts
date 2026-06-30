@@ -204,7 +204,7 @@ function renderFundsRow(available: AiAvailableFundsResponse, totalCreditGbp: num
   const netStr = formatCurrency(netDisplay, 'GBP');
   const creditStr = formatCurrency(totalCreditGbp, 'GBP');
   const totalFundsCash = formatCurrency(available.totalFundsGbp, 'GBP');
-  const totalFundsWithCredit = formatCurrency(available.totalFundsGbp + totalCreditGbp, 'GBP');
+  const totalFundsWithCredit = formatCurrency(available.totalFundsWithCreditGbp, 'GBP');
   return `<div id="liquidity-funds-block">
     ${renderHorizonToggle(mo)}
     <div class="liquidity-dashboard__hero-grid liquidity-dashboard__hero-grid--funds">
@@ -225,7 +225,7 @@ function renderFundsRow(available: AiAvailableFundsResponse, totalCreditGbp: num
       <section class="liquidity-dashboard__hero-tile liquidity-dashboard__hero-tile--insight" aria-label="Total funds">
         <h3 class="liquidity-dashboard__pane-kicker">Total funds</h3>
         <p class="liquidity-dashboard__total">${totalFundsCash}</p>
-        <p class="liquidity-dashboard__insight-sub">= cash + unpaid invoices</p>
+        <p class="liquidity-dashboard__insight-sub">= cash + ${String(mo)} mo future income (after tax)</p>
         <p class="liquidity-dashboard__total liquidity-dashboard__total--with-credit">${totalFundsWithCredit}</p>
         <p class="liquidity-dashboard__insight-sub">= above + credit available</p>
       </section>
@@ -328,7 +328,7 @@ function renderInsightPods(
 
     blocks += `<section class="liquidity-dashboard__hero-tile liquidity-dashboard__hero-tile--insight" aria-label="Future income breakdown">
         <h3 class="liquidity-dashboard__pane-kicker">Future income breakdown</h3>
-        ${clientLines !== '' ? `<p class="liquidity-dashboard__insight-breakdown-heading">By client</p><ul class="liquidity-dashboard__insight-breakdown">${clientLines}</ul>` : ''}
+        ${clientLines !== '' ? `<p class="liquidity-dashboard__insight-breakdown-heading">By source</p><ul class="liquidity-dashboard__insight-breakdown">${clientLines}</ul>` : ''}
         ${monthLines !== '' ? `<p class="liquidity-dashboard__insight-breakdown-heading">By month (all clients combined)</p><ul class="liquidity-dashboard__insight-breakdown">${monthLines}</ul>` : ''}
       </section>`;
 

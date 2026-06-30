@@ -5,7 +5,7 @@ import { AI_MANIFEST_SCHEMA_VERSION } from './constants.js';
 const STATIC: AiManifestResponse = {
   schemaVersion: AI_MANIFEST_SCHEMA_VERSION,
   description:
-    '§2.0 AI slice manifest — HTTP paths and Zod export names from shared/api-contracts.ts. **Parameterized GETs**: use MCP tools in the optional **mcpTool** field (`get_ai_*`) — same payloads as GET /api/ai/* including query parity; legacy bankstatements://ai/* resources retain default-arg snapshots (see MCP server resource descriptions). Transaction drill (`GET /api/ai/transactions-drill` / MCP `query_transactions`): `account` is optional (all accounts); cross-account queries omit transfers by default unless `type`/`includeTransfers` apply.',
+    '§2.0 AI slice manifest — HTTP paths and Zod export names from shared/api-contracts.ts. **Parameterized GETs**: use MCP tools in the optional **mcpTool** field (`get_ai_*`) — same payloads as GET /api/ai/* including query parity; legacy bankstatements://ai/* resources retain default-arg snapshots (see MCP server resource descriptions). Transaction drill (`GET /api/ai/transactions-drill` / MCP `query_transactions`): `account` is optional (all accounts); cross-account queries omit transfers by default unless `type`/`includeTransfers` apply. **Dashboard funds**: total funds / future income come from `AiAvailableFundsResponseSchema` (`analytics_get_available_funds`) or the canonical `DashboardHeroSchema` slice on composite reads — NOT from `AiFinancialSnapshotIncomeSchema.earnedButNotCollectedGbp`, which is earned-to-date only.',
   slices: [
     {
       method: 'GET',
@@ -222,6 +222,7 @@ const STATIC: AiManifestResponse = {
     'AiSpendContextResponseSchema',
     'AiTransactionDrillQuerySchema',
     'AiTransactionDrillResponseSchema',
+    'DashboardHeroSchema',
     'DebtStrategyStateResponseSchema',
     'EntityFoundationWarningsResponseSchema',
     'ExpectedReceiptRowSchema',

@@ -155,14 +155,19 @@ export function collectIncomeRecurringEvents(
     let nextDate = item.nextExpectedDate;
     if (!nextDate || nextDate < today) continue;
     while (nextDate <= horizon) {
-      events.push({
+      const event: ForecastEvent = {
         date: nextDate,
         amount: Math.abs(item.amount),
         account: item.sourceAccount as AccountName,
         currency: accountCurrency(item.sourceAccount as AccountName, currencyByAccount),
         source: 'recurring',
         label: item.merchant,
-      });
+      };
+      if (item.declaredObligationId !== undefined) {
+        events.push({ ...event, obligationId: item.declaredObligationId });
+      } else {
+        events.push(event);
+      }
       nextDate = advanceMonth(nextDate, 1);
     }
   }
@@ -170,14 +175,19 @@ export function collectIncomeRecurringEvents(
   for (const item of annualRecurring) {
     if (!item.nextExpectedDate || item.nextExpectedDate > horizon) continue;
     if (item.nextExpectedDate < today) continue;
-    events.push({
+    const event: ForecastEvent = {
       date: item.nextExpectedDate,
       amount: Math.abs(item.amount),
       account: item.sourceAccount as AccountName,
       currency: accountCurrency(item.sourceAccount as AccountName, currencyByAccount),
       source: 'recurring',
       label: item.merchant,
-    });
+    };
+    if (item.declaredObligationId !== undefined) {
+      events.push({ ...event, obligationId: item.declaredObligationId });
+    } else {
+      events.push(event);
+    }
   }
 
   return events;

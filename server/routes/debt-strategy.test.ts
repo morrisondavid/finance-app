@@ -136,6 +136,7 @@ function emptyBundle(): AssembledDebtStrategy {
     }),
     debtStrategyContext,
     sandboxIncomeSources: { contracts: [], recurring: [] },
+    salaryRedirectOpportunity: null,
   };
 }
 

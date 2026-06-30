@@ -2889,7 +2889,7 @@ export type AggregateAccrualResponse = z.infer<typeof AggregateAccrualResponseSc
 // Expected receipts — shared by GET /api/contracts/expected-receipts + /api/ai/pipeline
 // ---------------------------------------------------------------------------
 
-export const ExpectedReceiptSourceSchema = z.enum(['accrual', 'invoice-receipt']);
+export const ExpectedReceiptSourceSchema = z.enum(['accrual', 'invoice-receipt', 'rental-income']);
 export type ExpectedReceiptSource = z.infer<typeof ExpectedReceiptSourceSchema>;
 
 export const ExpectedReceiptRowSchema = z.object({
@@ -2900,6 +2900,8 @@ export const ExpectedReceiptRowSchema = z.object({
   source: ExpectedReceiptSourceSchema,
   contractId: ContractIdSchema.nullable(),
   invoiceId: z.string().nullable(),
+  /** Set for `rental-income` receipts; null for contract / invoice rows. */
+  obligationId: z.string().nullable(),
 });
 export type ExpectedReceiptRow = z.infer<typeof ExpectedReceiptRowSchema>;
 
@@ -2964,7 +2966,10 @@ export const AiAvailableFundsResponseSchema = z.object({
   projectionEndDate: IsoDateSchema,
   availableNowGbp: z.number(),
   confirmedFutureIncomeGrossGbp: z.number(),
-  confirmedFutureIncomeRetainedGbp: z.number(),
+  confirmedFutureIncomeRetainedGbp: z.number().describe(
+    'Use for: dashboard future income after tax (contracts, invoices, rentals) over the projection window. '
+    + 'Do NOT confuse with earned-to-date receivables (earnedButNotCollectedGbp on the financial snapshot).',
+  ),
   futureIncomeVatReserveGbp: z.number(),
   futureIncomeCtReserveGbp: z.number(),
   futureIncome: z.array(ExpectedReceiptRowSchema),
@@ -2977,11 +2982,82 @@ export const AiAvailableFundsResponseSchema = z.object({
   committedOutflowsGbp: z.number(),
   /** Full horizon-scoped committed-outflows breakdown so the dashboard panel re-scopes with the toggle. */
   committedOutflows: LiquidityCommitmentsOverviewSchema,
-  totalFundsGbp: z.number(),
+  totalFundsGbp: z.number().describe(
+    'Use for: dashboard "Total funds" hero. Cash + forward retained income (availableNowGbp + confirmedFutureIncomeRetainedGbp). '
+    + 'Do NOT compute as cash + earnedReceivables/earnedButNotCollectedGbp.',
+  ),
+  creditAvailableGbp: z.number().describe(
+    'Use for: dashboard "Credit available" tile. Credit-card headroom in GBP (= liquidityOverview.totalCreditGbp). '
+    + 'Do NOT confuse with total funds — add via totalFundsWithCreditGbp.',
+  ),
+  totalFundsWithCreditGbp: z.number().describe(
+    'Use for: dashboard "Combined with credit" line (= totalFundsGbp + creditAvailableGbp). '
+    + 'Do NOT recompute client-side — read this field for credit-inclusive liquidity.',
+  ),
   netAfterCommitmentsGbp: z.number(),
+  netAfterCommitmentsWithCreditGbp: z.number().describe(
+    'Use for: practical net after commitments including credit headroom (= totalFundsWithCreditGbp − committedOutflowsGbp). '
+    + 'Raw value may be negative; cash-only netAfterCommitmentsGbp can look far worse when credit exists.',
+  ),
   lastContractPayment: AiLastContractPaymentSchema.nullable(),
 });
 export type AiAvailableFundsResponse = z.infer<typeof AiAvailableFundsResponseSchema>;
+
+/** Fixed wire string on {@link DashboardHeroSchema} — one-line recipe agents can quote without re-deriving. */
+export const DASHBOARD_HERO_FORMULA =
+  'totalFundsGbp = cashGbp + futureIncomeRetainedGbp (12mo forward, after tax). '
+  + 'totalFundsWithCreditGbp = totalFundsGbp + creditAvailableGbp. '
+  + 'Do NOT derive total funds from earnedButNotCollectedGbp.';
+
+/**
+ * Canonical slim projection of {@link AiAvailableFundsResponseSchema} — exactly the
+ * dashboard hero-tile numbers, surfaced at the top level of composite MCP reads so
+ * agents read the right shelf instead of improvising from snapshot income fields.
+ */
+export const DashboardHeroSchema = z.object({
+  months: z.number().int().describe('Projection window in months (3, 6, or 12; dashboard default 12).'),
+  projectionEndDate: IsoDateSchema.describe('Last date covered by the forward income projection.'),
+  cashGbp: z.number().describe(
+    'Use for: dashboard "Cash & savings" tile (= availableNowGbp). Cash banked today. '
+    + 'Do NOT treat as total funds — it excludes forward income.',
+  ),
+  futureIncomeRetainedGbp: z.number().describe(
+    'Use for: dashboard "Future income (after tax)" tile (= confirmedFutureIncomeRetainedGbp; contracts, invoices, rentals). '
+    + 'Do NOT confuse with earned-to-date receivables (earnedButNotCollectedGbp).',
+  ),
+  futureIncomeGrossGbp: z.number().describe(
+    'Forward income before VAT/CT reserves (= confirmedFutureIncomeGrossGbp). '
+    + 'Do NOT add to totals — totalFundsGbp already uses the retained figure.',
+  ),
+  totalFundsGbp: z.number().describe(
+    'Use for: dashboard "Total funds" hero. Cash + forward retained income. '
+    + 'Do NOT compute as cash + earnedReceivables/earnedButNotCollectedGbp.',
+  ),
+  committedOutflowsGbp: z.number().describe(
+    'Committed outflows scoped to the same projection window (= committedOutflowsGbp).',
+  ),
+  netAfterCommitmentsGbp: z.number().describe(
+    'Raw totalFundsGbp − committedOutflowsGbp; may be negative.',
+  ),
+  netAfterCommitmentsDisplayGbp: z.number().describe(
+    'Math.max(0, netAfterCommitmentsGbp) — what the dashboard renders. Use for UI-parity answers.',
+  ),
+  creditAvailableGbp: z.number().describe(
+    'Use for: dashboard "Credit available" tile (= creditAvailableGbp on available funds). '
+    + 'Credit-card headroom in GBP.',
+  ),
+  totalFundsWithCreditGbp: z.number().describe(
+    'Use for: dashboard "Combined with credit" line. totalFundsGbp + creditAvailableGbp.',
+  ),
+  netAfterCommitmentsWithCreditGbp: z.number().describe(
+    'Use for: practical net after commitments including credit (= totalFundsWithCreditGbp − committedOutflowsGbp). '
+    + 'Raw value may be negative.',
+  ),
+  formula: z.literal(DASHBOARD_HERO_FORMULA).describe(
+    'Fixed recipe for totalFundsGbp and totalFundsWithCreditGbp — quote it instead of re-deriving funds from snapshot income fields.',
+  ),
+});
+export type DashboardHero = z.infer<typeof DashboardHeroSchema>;
 
 export const AiUpcomingMonthBucketSchema = z.object({
   month: z.string().regex(/^\d{4}-\d{2}$/),
@@ -3090,6 +3166,8 @@ export type HouseholdFinancialPostureDeltas = z.infer<typeof HouseholdFinancialP
 
 export const HouseholdFinancialPostureResponseSchema = z.object({
   generatedAt: z.string(),
+  /** Canonical dashboard hero numbers (mapped from the embedded `dashboardSummary.availableFunds`). */
+  dashboardHero: DashboardHeroSchema,
   financialSafety: AiFinancialSafetyResponseSchema,
   dashboardSummary: DashboardSummaryResponseSchema,
   balancesByAccount: z.record(z.string(), AccountBalanceSchema).optional(),
@@ -3186,7 +3264,15 @@ export const AiFinancialSnapshotIncomeSchema = z.object({
   /** Worked-but-not-invoiced accrual (owed window, capped today), retained after VAT/CT, GBP. */
   retainedAccruedToDateGbp: z.number(),
   /** Earned-but-unbanked income: unpaid invoices (full) + retainedAccruedToDateGbp. GBP. */
-  earnedReceivablesGbp: z.number(),
+  earnedButNotCollectedGbp: z.number().describe(
+    'Earned to date but not yet collected (unpaid invoices + accrued work). '
+    + 'Do NOT use as dashboard future income or total funds — read dashboardHero / analytics_get_available_funds instead.',
+  ),
+  /** @deprecated Renamed {@link earnedButNotCollectedGbp} — same value, kept for one deprecation window. */
+  earnedReceivablesGbp: z.number().describe(
+    '@deprecated — renamed earnedButNotCollectedGbp (same value). Earned to date only; '
+    + 'do NOT use as dashboard future income or total funds.',
+  ),
 });
 
 export const AiFinancialSnapshotSpendVsBudgetSchema = z.object({
@@ -3220,7 +3306,7 @@ export const AiFinancialSnapshotVerdictSchema = z.discriminatedUnion('kind', [
     kind: z.literal('negative_after_commitments'),
     reasons: z.array(z.string()),
     cashAfter12MonthCommitmentsGbp: z.number(),
-    /** cashAfter12MonthCommitmentsGbp + earnedReceivablesGbp; still < 0 in this branch. */
+    /** cashAfter12MonthCommitmentsGbp + earnedButNotCollectedGbp; still < 0 in this branch. */
     resourcesAfterCommitmentsGbp: z.number(),
   }),
 ]);
@@ -3236,6 +3322,8 @@ export const AiFinancialSnapshotResponseSchema = z.object({
   discretionary: AiFinancialSnapshotDiscretionarySchema,
   spendVsBudget: AiFinancialSnapshotSpendVsBudgetSchema,
   verdict: AiFinancialSnapshotVerdictSchema,
+  /** Canonical dashboard hero numbers — use for total funds / future income; not derivable from `income`. */
+  dashboardHero: DashboardHeroSchema,
 });
 export type AiFinancialSnapshotResponse = z.infer<typeof AiFinancialSnapshotResponseSchema>;
 export type AiFinancialSnapshotVerdict = z.infer<typeof AiFinancialSnapshotVerdictSchema>;
@@ -3261,6 +3349,58 @@ export type AiManifestResponse = z.infer<typeof AiManifestResponseSchema>;
 /** §1.9 debt-strategy read bundle (`GET /api/debt-strategy/state`, AI mirror). */
 export const DebtStrategyStateResponseSchema = z.record(z.string(), z.unknown());
 export type DebtStrategyStateResponse = z.infer<typeof DebtStrategyStateResponseSchema>;
+
+/** Unified tax dashboard (`GET /api/tax/overview`). */
+export const TaxOverviewLineKindSchema = z.enum([
+  'vat',
+  'corporation-tax',
+  'self-assessment',
+  'hmrc-ttp',
+  'dividend-tax',
+  'vat-threshold-tracker',
+  'ct-scenario',
+  'account-balance',
+]);
+export type TaxOverviewLineKind = z.infer<typeof TaxOverviewLineKindSchema>;
+
+export const TaxOverviewReserveStatusSchema = z.enum(['funded', 'underfunded', 'none']);
+export type TaxOverviewReserveStatus = z.infer<typeof TaxOverviewReserveStatusSchema>;
+
+export const TaxOverviewLineSchema = z.object({
+  kind: TaxOverviewLineKindSchema,
+  label: z.string(),
+  amount: z.number().nullable(),
+  currency: CurrencyCodeSchema,
+  dueDate: z.string().nullable(),
+  detail: z.string().nullable(),
+  reserveStatus: TaxOverviewReserveStatusSchema.nullable(),
+});
+export type TaxOverviewLine = z.infer<typeof TaxOverviewLineSchema>;
+
+export const TaxOverviewEntityPanelSchema = z.object({
+  entityId: EntityIdSchema,
+  jurisdiction: JurisdictionSchema,
+  currency: CurrencyCodeSchema,
+  headlineTotal: z.number(),
+  headlineTotalGbp: z.number(),
+  lines: z.array(TaxOverviewLineSchema),
+});
+export type TaxOverviewEntityPanel = z.infer<typeof TaxOverviewEntityPanelSchema>;
+
+export const TaxOverviewSelfAssessmentPanelSchema = z.object({
+  currency: z.literal('GBP'),
+  headlineTotal: z.number(),
+  lines: z.array(TaxOverviewLineSchema),
+});
+export type TaxOverviewSelfAssessmentPanel = z.infer<typeof TaxOverviewSelfAssessmentPanelSchema>;
+
+export const TaxOverviewResponseSchema = z.object({
+  generatedAt: z.string(),
+  entities: z.array(TaxOverviewEntityPanelSchema),
+  selfAssessment: TaxOverviewSelfAssessmentPanelSchema,
+  combinedGbpTotal: z.number(),
+});
+export type TaxOverviewResponse = z.infer<typeof TaxOverviewResponseSchema>;
 
 /** Default overview + recurring + ad-hoc spend (`GET /api/ai/spend-context`). */
 export const AiSpendContextResponseSchema = z.object({

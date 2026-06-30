@@ -110,28 +110,60 @@ export function pickMonthlyRecurringForForecast(
   }));
 }
 
-function pickMonthlyIncomeRecurringForForecast(
+/**
+ * Horizon income projection needs every monthly pipeline row with a next date,
+ * not only lines whose next charge falls in the current calendar month (the
+ * obligations UI bucket). When one rental is due this month and another new
+ * let is due next month, returning `thisMonth` alone would drop the second.
+ */
+export function pickMonthlyIncomeRecurringForForecast(
   today: string,
   pipeline: PipelineResult,
   incomeUpcoming: UpcomingRecurringBuckets,
 ): readonly UpcomingRecurring[] {
-  if (incomeUpcoming.thisMonth.length > 0) {
-    return incomeUpcoming.thisMonth;
+  const upcomingByKey = new Map<string, UpcomingRecurring>();
+  for (const item of incomeUpcoming.thisMonth) {
+    upcomingByKey.set(upcomingRecurringStableKey(item), item);
   }
-  return pipeline.monthlyIncomeRecurring.map(e => ({
-    merchant: e.merchant,
-    category: e.category,
-    colour: e.colour,
-    logoUrl: e.logoUrl,
-    amount: e.amount,
-    frequency: 'monthly' as const,
-    sourceAccount: e.sourceAccount,
-    nextExpectedDate: shiftIsoDate(today, 1),
-    lastChargeDate: null,
-    ...(e.declaredObligationId !== undefined
-      ? { declaredObligationId: e.declaredObligationId }
-      : {}),
-  }));
+
+  const out: UpcomingRecurring[] = [];
+  for (const e of pipeline.monthlyIncomeRecurring) {
+    const key = e.declaredObligationId !== undefined
+      ? `declared:${e.declaredObligationId}`
+      : recurringKey({
+        merchant: e.merchant,
+        category: e.category,
+        colour: e.colour,
+        amount: e.amount,
+        frequency: e.frequency,
+        monthsActive: e.monthsActive,
+        annualTotal: e.annualTotal,
+        logoUrl: e.logoUrl,
+        sourceAccount: e.sourceAccount,
+        billingDayOfMonth: e.billingDayOfMonth,
+        billingMonth: e.billingMonth,
+      });
+    const bucketed = upcomingByKey.get(key);
+    if (bucketed !== undefined) {
+      out.push(bucketed);
+      continue;
+    }
+    out.push({
+      merchant: e.merchant,
+      category: e.category,
+      colour: e.colour,
+      logoUrl: e.logoUrl,
+      amount: e.amount,
+      frequency: 'monthly' as const,
+      sourceAccount: e.sourceAccount,
+      nextExpectedDate: shiftIsoDate(today, 1),
+      lastChargeDate: null,
+      ...(e.declaredObligationId !== undefined
+        ? { declaredObligationId: e.declaredObligationId }
+        : {}),
+    });
+  }
+  return out;
 }
 
 function applyRecurringFilter(

@@ -116,6 +116,21 @@ function groupObligationsByReserve(
   return [...byKey.values()].filter(g => g.obligations.length > 0);
 }
 
+/** Reserve funding status per `obligationType:entityId` for tax overview reads. */
+export function computeTaxReserveFundingStatus(
+  input: DeriveTaxReserveWarningsInput,
+): Map<string, 'funded' | 'underfunded'> {
+  const groups = groupObligationsByReserve(input.obligations, input.reserves, input.today);
+  const out = new Map<string, 'funded' | 'underfunded'>();
+  for (const g of groups) {
+    const liability = round2(g.totalDue);
+    const balance = round2(input.balanceByAccount.get(g.reserve.reserve_account) ?? 0);
+    const key = `${g.reserve.obligation_type}:${g.reserve.entity_id}`;
+    out.set(key, balance >= liability ? 'funded' : 'underfunded');
+  }
+  return out;
+}
+
 function severityForUnderfunding(gap: number, liability: number): WarningSeverity {
   if (liability <= 0) return 'info';
   const ratio = gap / liability;

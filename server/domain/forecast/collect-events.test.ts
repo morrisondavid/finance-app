@@ -194,6 +194,24 @@ describe('collectIncomeRecurringEvents', () => {
     expect(events[0].amount).toBe(500);
     expect(events[0].source).toBe('recurring');
   });
+
+  it('carries declaredObligationId through to obligationId on forecast events', () => {
+    const events = collectIncomeRecurringEvents({
+      monthlyRecurring: [
+        makeRecurring({
+          nextExpectedDate: '2026-05-01',
+          amount: 2850,
+          declaredObligationId: 'manual-heath-park-rental',
+        }),
+      ],
+      annualRecurring: [],
+      today: TODAY,
+      horizon: HORIZON,
+      currencyByAccount,
+    });
+    expect(events.length).toBeGreaterThan(0);
+    expect(events[0].obligationId).toBe('manual-heath-park-rental');
+  });
 });
 
 describe('collectInvoiceReceiptEvents', () => {

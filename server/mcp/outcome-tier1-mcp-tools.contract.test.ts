@@ -8,6 +8,7 @@ import {
   IncomeCompositionResponseSchema,
   type AiFinancialSafetyResponse,
   type DashboardSummaryResponse,
+  AiAvailableFundsResponseSchema,
   DashboardSummaryResponseSchema,
   HouseholdFinancialPostureResponseSchema,
 } from '../../shared/api-contracts.js';
@@ -23,7 +24,11 @@ import {
   runReportingListPeriodsMcpTool,
   runAccountantReadinessUpcomingMcpTool,
 } from './accountant-pack-mcp-tools.js';
-import { runHouseholdFinancialPostureMcpTool, runIncomeGetCompositionMcpTool } from './bank-mcp-server.js';
+import {
+  runAnalyticsGetAvailableFundsMcpTool,
+  runHouseholdFinancialPostureMcpTool,
+  runIncomeGetCompositionMcpTool,
+} from './bank-mcp-server.js';
 
 function financialSafetyOptsFromHouseholdParsed(
   parsed: z.infer<typeof HouseholdFinancialPostureQuerySchema>,
@@ -131,6 +136,69 @@ describe('outcome MCP — income composition + posture + accountant readiness', 
         withStableAvailableFundsTimestamp(expectedDash),
       );
       expect(typeof sc.generatedAt).toBe('string');
+    },
+    25_000,
+  );
+
+  it(
+    'dashboard read, posture dashboardHero, and analytics_get_available_funds agree on hero numbers',
+    () => {
+      // 1. Exactly what the dashboard UI renders.
+      const dash = readDashboardSummaryFromQuery({});
+      expect(dash.ok).toBe(true);
+      if (!dash.ok) {
+        expect.fail('dashboard summary expected ok');
+      }
+      const fromDashboard = DashboardSummaryResponseSchema.parse(dash.body).availableFunds;
+      expect(fromDashboard).toBeDefined();
+      if (fromDashboard === undefined) {
+        expect.fail('full-scope dashboard summary must embed availableFunds');
+      }
+
+      // 2. Composite posture tool — canonical top-level hero.
+      const posture = runHouseholdFinancialPostureMcpTool({});
+      expect(posture.isError).toBeUndefined();
+      const hero = HouseholdFinancialPostureResponseSchema.parse(
+        posture.structuredContent,
+      ).dashboardHero;
+
+      // 3. Dedicated available-funds tool.
+      const fundsTool = runAnalyticsGetAvailableFundsMcpTool({});
+      expect(fundsTool.isError).toBeUndefined();
+      const fromTool = AiAvailableFundsResponseSchema.parse(fundsTool.structuredContent);
+
+      expect(hero.totalFundsGbp).toBeCloseTo(fromDashboard.totalFundsGbp, 2);
+      expect(hero.cashGbp).toBeCloseTo(fromDashboard.availableNowGbp, 2);
+      expect(hero.futureIncomeRetainedGbp).toBeCloseTo(
+        fromDashboard.confirmedFutureIncomeRetainedGbp,
+        2,
+      );
+      expect(hero.committedOutflowsGbp).toBeCloseTo(fromDashboard.committedOutflowsGbp, 2);
+      expect(hero.netAfterCommitmentsGbp).toBeCloseTo(fromDashboard.netAfterCommitmentsGbp, 2);
+      expect(hero.creditAvailableGbp).toBeCloseTo(fromDashboard.creditAvailableGbp, 2);
+      expect(hero.totalFundsWithCreditGbp).toBeCloseTo(fromDashboard.totalFundsWithCreditGbp, 2);
+      expect(hero.netAfterCommitmentsWithCreditGbp).toBeCloseTo(
+        fromDashboard.netAfterCommitmentsWithCreditGbp,
+        2,
+      );
+
+      const dashSummary = DashboardSummaryResponseSchema.parse(dash.body);
+      expect(hero.creditAvailableGbp).toBeCloseTo(dashSummary.liquidityOverview.totalCreditGbp, 2);
+
+      expect(fromTool.totalFundsGbp).toBeCloseTo(fromDashboard.totalFundsGbp, 2);
+      expect(fromTool.availableNowGbp).toBeCloseTo(fromDashboard.availableNowGbp, 2);
+      expect(fromTool.confirmedFutureIncomeRetainedGbp).toBeCloseTo(
+        fromDashboard.confirmedFutureIncomeRetainedGbp,
+        2,
+      );
+      expect(fromTool.committedOutflowsGbp).toBeCloseTo(fromDashboard.committedOutflowsGbp, 2);
+      expect(fromTool.netAfterCommitmentsGbp).toBeCloseTo(fromDashboard.netAfterCommitmentsGbp, 2);
+      expect(fromTool.creditAvailableGbp).toBeCloseTo(fromDashboard.creditAvailableGbp, 2);
+      expect(fromTool.totalFundsWithCreditGbp).toBeCloseTo(fromDashboard.totalFundsWithCreditGbp, 2);
+      expect(fromTool.netAfterCommitmentsWithCreditGbp).toBeCloseTo(
+        fromDashboard.netAfterCommitmentsWithCreditGbp,
+        2,
+      );
     },
     25_000,
   );
