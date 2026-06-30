@@ -396,20 +396,23 @@ function allocateAcrossBands(
  * - Amounts should be annual (or the same period for both); bank salary lines are often net pay,
  *   so treat as an indicative estimate.
  */
-export function calculateDividendTax(dividends: number, salary: number = 0): number {
+export function calculateDividendTax(
+  dividends: number,
+  salary: number = 0,
+  personalAllowance: number = INCOME_TAX.PERSONAL_ALLOWANCE,
+): number {
   if (dividends <= DIVIDEND_TAX.ALLOWANCE) {
     return 0;
   }
 
-  const pa = INCOME_TAX.PERSONAL_ALLOWANCE;
   const bandWidths = getIncomeTaxBandWidths();
 
-  const taxableSalary = Math.max(0, salary - pa);
+  const taxableSalary = Math.max(0, salary - personalAllowance);
   const salaryInBasic = Math.min(taxableSalary, bandWidths.basic);
   const salaryBeyondBasic = Math.max(0, taxableSalary - bandWidths.basic);
   const salaryInHigher = Math.min(salaryBeyondBasic, bandWidths.higher);
 
-  const unusedPa = Math.max(0, pa - salary);
+  const unusedPa = Math.max(0, personalAllowance - salary);
 
   const afterDividendAllowance = dividends - DIVIDEND_TAX.ALLOWANCE;
   const taxableDividends = Math.max(0, afterDividendAllowance - unusedPa);
@@ -436,20 +439,20 @@ export function calculateDividendTax(dividends: number, salary: number = 0): num
 export function calculateIncomeTaxOnNonDividend(
   amount: number,
   salaryAlreadyTaxed: number = 0,
+  personalAllowance: number = INCOME_TAX.PERSONAL_ALLOWANCE,
 ): number {
   if (amount <= 0) return 0;
 
-  const pa = INCOME_TAX.PERSONAL_ALLOWANCE;
   const bandWidths = getIncomeTaxBandWidths();
 
-  const taxableSalary = Math.max(0, salaryAlreadyTaxed - pa);
+  const taxableSalary = Math.max(0, salaryAlreadyTaxed - personalAllowance);
   const salaryInBasic = Math.min(taxableSalary, bandWidths.basic);
   const salaryInHigher = Math.min(
     Math.max(0, taxableSalary - bandWidths.basic),
     bandWidths.higher,
   );
 
-  const unusedPa = Math.max(0, pa - salaryAlreadyTaxed);
+  const unusedPa = Math.max(0, personalAllowance - salaryAlreadyTaxed);
   const taxable = Math.max(0, amount - unusedPa);
 
   const { atBasic, atHigher, atAdditional } = allocateAcrossBands(
@@ -462,6 +465,160 @@ export function calculateIncomeTaxOnNonDividend(
     atHigher * INCOME_TAX.HIGHER_RATE +
     atAdditional * INCOME_TAX.ADDITIONAL_RATE
   );
+}
+
+// =============================================================================
+// Non-resident Self Assessment (disregarded income)
+// =============================================================================
+
+export type NonResidentSaBasisUsed =
+  | 'resident'
+  | 'non-resident-disregarded'
+  | 'non-resident-resident-basis';
+
+export interface NonResidentSaTaxInput {
+  readonly salary: number;
+  readonly dividends: number;
+  readonly rentalIncome: number;
+  readonly retainsPersonalAllowance: boolean;
+}
+
+export interface NonResidentSaTaxResult {
+  readonly tax: number;
+  readonly basisUsed: NonResidentSaBasisUsed;
+  readonly residentBasisTax: number;
+  readonly disregardedBasisTax: number;
+  readonly dividendsDisregarded: boolean;
+}
+
+/**
+ * Non-resident SA: charge the lower of resident-basis tax (with PA) vs
+ * disregarded-basis tax (UK dividends capped at tax deducted at source — £0
+ * since 2016 — and other income taxed without personal allowance).
+ */
+export function calculateNonResidentSaTax(input: NonResidentSaTaxInput): NonResidentSaTaxResult {
+  const { salary, dividends, rentalIncome, retainsPersonalAllowance } = input;
+  const personalAllowance = retainsPersonalAllowance ? INCOME_TAX.PERSONAL_ALLOWANCE : 0;
+
+  const residentBasisTax = round2(
+    calculateDividendTax(dividends, salary, personalAllowance)
+      + calculateIncomeTaxOnNonDividend(rentalIncome, salary, personalAllowance),
+  );
+
+  const disregardedBasisTax = round2(
+    calculateIncomeTaxOnNonDividend(salary + rentalIncome, 0, 0),
+  );
+
+  const useDisregarded = disregardedBasisTax <= residentBasisTax;
+  const basisUsed: NonResidentSaBasisUsed = useDisregarded
+    ? 'non-resident-disregarded'
+    : 'non-resident-resident-basis';
+
+  return {
+    tax: useDisregarded ? disregardedBasisTax : residentBasisTax,
+    basisUsed,
+    residentBasisTax,
+    disregardedBasisTax,
+    dividendsDisregarded: useDisregarded,
+  };
+}
+
+// =============================================================================
+// Non-resident Capital Gains Tax (UK residential property)
+// =============================================================================
+
+export const CAPITAL_GAINS_TAX = {
+  /** Annual exempt amount for individuals (2025/26). */
+  ANNUAL_EXEMPT_AMOUNT: 3000,
+  /** Basic rate on residential property gains (from 30 Oct 2024). */
+  BASIC_RATE: 0.18,
+  /** Higher / additional rate on residential property gains. */
+  HIGHER_RATE: 0.24,
+  /** Default rebasing date for UK residential property held before this date. */
+  REBASING_DATE: '2015-04-05',
+} as const;
+
+export interface NonResidentPropertyCgtInput {
+  readonly proceeds: number;
+  readonly acquisitionDate: string | null;
+  readonly acquisitionCost: number | null;
+  readonly april2015Value: number | null;
+  readonly enhancementCosts: number;
+  readonly sellingCosts: number;
+  readonly ownerShare: number;
+  /** Owner's estimated taxable income for band stacking (salary + rental). */
+  readonly estimatedTaxableIncome: number;
+}
+
+export interface NonResidentPropertyCgtResult {
+  readonly grossGain: number;
+  readonly taxableGain: number;
+  readonly estimatedTax: number;
+  readonly costBasisUsed: number;
+  readonly rebased: boolean;
+}
+
+function resolvePropertyCostBasis(input: NonResidentPropertyCgtInput): { costBasis: number; rebased: boolean } {
+  const rebasingEligible =
+    input.acquisitionDate !== null
+    && input.acquisitionDate < CAPITAL_GAINS_TAX.REBASING_DATE
+    && input.april2015Value !== null
+    && input.april2015Value > 0;
+
+  if (rebasingEligible) {
+    return { costBasis: input.april2015Value, rebased: true };
+  }
+
+  return {
+    costBasis: input.acquisitionCost ?? 0,
+    rebased: false,
+  };
+}
+
+/**
+ * Indicative non-resident CGT on UK residential property disposal.
+ * Uses default 5 Apr 2015 rebasing when eligible; stacks gain against
+ * estimated income for 18%/24% band split.
+ */
+export function estimateNonResidentPropertyCgt(
+  input: NonResidentPropertyCgtInput,
+): NonResidentPropertyCgtResult {
+  const { costBasis, rebased } = resolvePropertyCostBasis(input);
+  const netProceeds = input.proceeds - input.sellingCosts;
+  const totalCost = costBasis + input.enhancementCosts;
+  const fullGain = Math.max(0, netProceeds - totalCost);
+  const grossGain = round2(fullGain * input.ownerShare);
+
+  const aea = CAPITAL_GAINS_TAX.ANNUAL_EXEMPT_AMOUNT;
+  const taxableGain = round2(Math.max(0, grossGain - aea));
+
+  if (taxableGain <= 0) {
+    return {
+      grossGain,
+      taxableGain: 0,
+      estimatedTax: 0,
+      costBasisUsed: costBasis,
+      rebased,
+    };
+  }
+
+  const bandWidths = getIncomeTaxBandWidths();
+  const income = Math.max(0, input.estimatedTaxableIncome);
+  const basicBandRemaining = Math.max(0, bandWidths.basic - Math.max(0, income - INCOME_TAX.PERSONAL_ALLOWANCE));
+  const atBasic = Math.min(taxableGain, basicBandRemaining);
+  const atHigher = Math.max(0, taxableGain - atBasic);
+
+  const estimatedTax = round2(
+    atBasic * CAPITAL_GAINS_TAX.BASIC_RATE + atHigher * CAPITAL_GAINS_TAX.HIGHER_RATE,
+  );
+
+  return {
+    grossGain,
+    taxableGain,
+    estimatedTax,
+    costBasisUsed: costBasis,
+    rebased,
+  };
 }
 
 // =============================================================================

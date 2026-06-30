@@ -6,6 +6,8 @@ import {
   directors,
   getPerson,
   isPersonId,
+  getResidency,
+  isNonResidentForTaxYear,
   matchPersonInDescription,
   personAliasAlternation,
   personAliasRegex,
@@ -118,6 +120,26 @@ describe('matchPersonInDescription', () => {
 
   it('returns null when no alias matches', () => {
     expect(matchPersonInDescription('TESCO STORES 2345', reg)).toBeNull();
+  });
+});
+
+describe('residency queries', () => {
+  it('defaults to UK resident when residency is absent', () => {
+    const reg = makeTestPeopleRegistry([
+      { id: 'david', name: 'David Test', matchAliases: ['DAVID'] },
+    ]);
+    expect(getResidency('david', reg).status).toBe('uk-resident');
+  });
+
+  it('david and heena are non-resident from tax year after 2025/26', () => {
+    expect(isNonResidentForTaxYear('david', 2025)).toBe(false);
+    expect(isNonResidentForTaxYear('david', 2026)).toBe(true);
+    expect(isNonResidentForTaxYear('heena', 2026)).toBe(true);
+  });
+
+  it('getResidency returns UAE for seeded non-residents', () => {
+    expect(getResidency('david').countryOfResidence).toBe('UAE');
+    expect(getResidency('david').leftUkDate).toBe('2026-03-07');
   });
 });
 

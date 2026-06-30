@@ -40,6 +40,18 @@ export const PropertySchema = z.object({
   status: PropertyStatusSchema.default('owned'),
   /** ISO date when the property was sold; meaningful when `status === 'sold'`. */
   sold_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
+  /** ISO date of original purchase (for CGT cost basis / rebasing). */
+  acquisition_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
+  /** Original purchase price (£). Used when rebasing does not apply. */
+  acquisition_cost: z.number().min(0).nullable().default(null),
+  /** Market value at 5 Apr 2015 for non-resident CGT rebasing. */
+  april_2015_value: z.number().min(0).nullable().default(null),
+  /** Indicative current / sale proceeds for CGT estimate (£). */
+  estimated_market_value: z.number().min(0).nullable().default(null),
+  /** Allowable enhancement costs since cost basis (£). */
+  enhancement_costs: z.number().min(0).default(0),
+  /** Estimated selling costs for CGT estimate (£). */
+  selling_costs: z.number().min(0).default(0),
   /** ISO-date this row was last edited. */
   updated_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 }).readonly();

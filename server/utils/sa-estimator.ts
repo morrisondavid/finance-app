@@ -15,6 +15,8 @@
 import {
   calculateDividendTax,
   calculateIncomeTaxOnNonDividend,
+  calculateNonResidentSaTax,
+  type NonResidentSaBasisUsed,
 } from '../config/tax-rates.js';
 import {
   getDirectorPayroll,
@@ -22,6 +24,8 @@ import {
 } from '../domain/payroll/index.js';
 import {
   getPerson,
+  getResidency,
+  isNonResidentForTaxYear,
   personShortName,
   type PersonId,
 } from '../domain/people/index.js';
@@ -33,6 +37,9 @@ import {
   type DirectorPaymentsDb,
 } from '../db/repositories/tax.js';
 import { round2 } from './math.js';
+import { getSaTaxYearForDate } from './sa-tax-year.js';
+
+export { getSaTaxYearForDate, getSaTaxYearRange } from './sa-tax-year.js';
 
 /**
  * Shape of the DB handle used by the estimator. Shared with
@@ -57,31 +64,10 @@ export interface SaEstimate {
   taxableIncome: number;
   /** Combined dividend + rental income tax estimate. */
   estimatedTax: number;
-}
-
-/**
- * UK Self Assessment tax years run 6 April → 5 April. Given a "tax year
- * start year" (the calendar year in which 6 Apr falls), return the ISO
- * boundaries. Returns strings so date comparisons stay string-based.
- */
-export function getSaTaxYearRange(startYear: number): { start: string; end: string } {
-  const start = `${startYear}-04-06`;
-  const end = `${startYear + 1}-04-05`;
-  return { start, end };
-}
-
-/**
- * Determine the tax year containing a given date (inclusive).
- * Example: 2026-03-31 → startYear 2025; 2026-04-06 → startYear 2026.
- */
-export function getSaTaxYearForDate(date: Date): number {
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const day = date.getDate();
-  if (month < 3 || (month === 3 && day < 6)) {
-    return year - 1;
-  }
-  return year;
+  /** Which residency basis produced the estimate. */
+  residencyBasis: NonResidentSaBasisUsed;
+  /** True when UK dividends were excluded via disregarded-income treatment. */
+  dividendsDisregarded: boolean;
 }
 
 /**
@@ -120,12 +106,33 @@ export function estimateSaForPerson(
 
   const salary = round2(directorPayments.salary);
   const dividends = round2(directorPayments.dividends);
-
-  const dividendTax = calculateDividendTax(dividends, salary);
-  const rentalTax = calculateIncomeTaxOnNonDividend(rentalIncome, salary);
-
   const taxableIncome = round2(salary + dividends + rentalIncome);
-  const estimatedTax = round2(dividendTax + rentalTax);
+
+  const taxYearStartYear = getSaTaxYearForDate(new Date(`${taxYearStart}T12:00:00`));
+  const nonResident = isNonResidentForTaxYear(personId, taxYearStartYear);
+
+  let estimatedTax: number;
+  let residencyBasis: NonResidentSaBasisUsed;
+  let dividendsDisregarded: boolean;
+
+  if (nonResident) {
+    const residency = getResidency(personId);
+    const nonResResult = calculateNonResidentSaTax({
+      salary,
+      dividends,
+      rentalIncome,
+      retainsPersonalAllowance: residency.retainsPersonalAllowance,
+    });
+    estimatedTax = nonResResult.tax;
+    residencyBasis = nonResResult.basisUsed;
+    dividendsDisregarded = nonResResult.dividendsDisregarded;
+  } else {
+    const dividendTax = calculateDividendTax(dividends, salary);
+    const rentalTax = calculateIncomeTaxOnNonDividend(rentalIncome, salary);
+    estimatedTax = round2(dividendTax + rentalTax);
+    residencyBasis = 'resident';
+    dividendsDisregarded = false;
+  }
 
   return {
     personId,
@@ -137,5 +144,7 @@ export function estimateSaForPerson(
     rentalIncome,
     taxableIncome,
     estimatedTax,
+    residencyBasis,
+    dividendsDisregarded,
   };
 }

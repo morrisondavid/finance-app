@@ -106,6 +106,7 @@ describe('estimateSaForPerson', () => {
     expect(estimate.rentalIncome).toBe(0);
     expect(estimate.taxableIncome).toBe(0);
     expect(estimate.estimatedTax).toBe(0);
+    expect(estimate.residencyBasis).toBe('resident');
     expect(estimate.personId).toBe('david');
   });
 
@@ -165,5 +166,25 @@ describe('estimateSaForPerson', () => {
     expect(estimate.salary).toBe(0);
     expect(estimate.dividends).toBe(20000);
     expect(david.monthlySalary).toBeGreaterThan(0);
+  });
+
+  it('applies non-resident lower-of calculation from 2026/27 onward', () => {
+    const { start, end } = getSaTaxYearRange(2026);
+    const david = getDirectorPayroll('david')!;
+
+    for (let m = 0; m < 12; m++) {
+      const month = String(((m + 3) % 12) + 1).padStart(2, '0');
+      const year = m < 9 ? 2026 : 2027;
+      insertExpense(`${year}-${month}-15`, 'DAVID MORRISON PAYROLL', -david.monthlySalary);
+    }
+    insertExpense('2026-10-01', 'DAVID MORRISON DIVIDEND', -50000);
+
+    const estimate = estimateSaForPerson('david', start, end, testDb);
+    expect(estimate.residencyBasis).not.toBe('resident');
+    expect(estimate.dividends).toBe(50000);
+    const residentOnly =
+      calculateDividendTax(estimate.dividends, estimate.salary)
+      + calculateIncomeTaxOnNonDividend(estimate.rentalIncome, estimate.salary);
+    expect(estimate.estimatedTax).toBeLessThanOrEqual(residentOnly);
   });
 });

@@ -8,7 +8,7 @@ import {
   type TestDbHandles,
 } from '../../db/test-harness/in-memory-db.js';
 import type { ObligationRow } from '../../../shared/api-contracts.js';
-import { buildSelfAssessmentPanel, buildUkLtdPanel } from './tax-read.js';
+import { buildCapitalGainsPanel, buildSelfAssessmentPanel, buildUkLtdPanel } from './tax-read.js';
 
 const harness: { current: TestDbHandles | null } = { current: null };
 
@@ -102,5 +102,23 @@ describe('buildSelfAssessmentPanel', () => {
     expect(davidLine?.amount).toBe(2123.24);
     expect(heenaLine?.amount).toBe(0);
     expect(panel.headlineTotal).toBe(2123.24);
+  });
+
+  it('includes non-resident detail when estimating current tax year', () => {
+    const panel = buildSelfAssessmentPanel(new Map(), []);
+    for (const line of panel.lines) {
+      expect(line.detail).toMatch(/Non-resident basis|Tax year/);
+    }
+  });
+});
+
+describe('buildCapitalGainsPanel', () => {
+  it('produces per-person CGT lines when property sale data exists', () => {
+    const panel = buildCapitalGainsPanel();
+    expect(panel.currency).toBe('GBP');
+    if (panel.lines.length > 0) {
+      expect(panel.lines.every(l => l.kind === 'capital-gains')).toBe(true);
+      expect(panel.headlineTotal).toBeGreaterThan(0);
+    }
   });
 });

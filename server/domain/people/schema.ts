@@ -14,6 +14,27 @@
 
 import { z } from 'zod';
 
+export const PersonResidencyStatusSchema = z.enum(['uk-resident', 'non-resident']);
+export type PersonResidencyStatus = z.infer<typeof PersonResidencyStatusSchema>;
+
+export const PersonResidencySchema = z
+  .object({
+    /** UK tax residency status for Self Assessment estimation. */
+    status: PersonResidencyStatusSchema,
+    /** ISO date when the person left the UK (if non-resident). */
+    leftUkDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    /** Country of tax residence (e.g. UAE). */
+    countryOfResidence: z.string().min(1).optional(),
+    /**
+     * Whether the person retains the UK personal allowance as a non-resident
+     * (typically true for UK nationals under domestic law).
+     */
+    retainsPersonalAllowance: z.boolean().default(true),
+  })
+  .readonly();
+
+export type PersonResidency = z.infer<typeof PersonResidencySchema>;
+
 export const PersonIdSchema = z.string().regex(/^[a-z][a-z0-9-]*$/, {
   message: 'PersonId must be kebab-case (lowercase letters, digits, hyphens).',
 });
@@ -48,6 +69,10 @@ export const PersonSchema = z
      * ledger, in one place.
      */
     matchAliases: z.array(z.string().min(1)).readonly(),
+    /**
+     * UK tax residency for Self Assessment estimation. Absent = UK resident.
+     */
+    residency: PersonResidencySchema.optional(),
   })
   .readonly();
 

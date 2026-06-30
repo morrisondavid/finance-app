@@ -17,6 +17,7 @@ import {
   type TaxOverviewLine,
   type TaxOverviewReserveStatus,
   type TaxOverviewSelfAssessmentPanel,
+  type TaxOverviewCapitalGainsPanel,
 } from '../../../shared/api-contracts.js';
 import { todayIsoLocal } from '../../../shared/iso-date.js';
 import { allCompanies, companyById } from '../../domain/company/index.js';
@@ -26,7 +27,10 @@ import {
   getSaTaxYearRange,
 } from '../../utils/sa-estimator.js';
 import { getTaxRules, UAE_CT_SMALL_BUSINESS_AED } from '../../config/tax-rules.js';
-import { UAE_CORPORATION_TAX } from '../../config/tax-rates.js';
+import {
+  estimateNonResidentPropertyCgt,
+  UAE_CORPORATION_TAX,
+} from '../../config/tax-rates.js';
 import { convertAmountSync } from '../../config/exchange-rates.js';
 import { sumFzcoTrailing12mIncomeAed } from '../../domain/warnings/fzco-income.js';
 import {
@@ -42,6 +46,9 @@ import {
 } from '../../domain/accounts/index.js';
 import { getFinancialYearRange } from '../../db/utils/financial-year.js';
 import { round2 } from '../../utils/math.js';
+import { allProperties } from '../../domain/properties/index.js';
+import type { Property } from '../../domain/properties/schema.js';
+import { isNonResidentForTaxYear, type PersonId } from '../../domain/people/index.js';
 
 export function readTaxVatPayments(query: Record<string, string | undefined>): JsonReadResult {
   try {
@@ -206,16 +213,119 @@ export function buildSelfAssessmentPanel(
       personId,
     );
     const saEstimate = estimateSaForPerson(personId, saRange.start, saRange.end, db);
+    const taxYearLabel = `${saRange.start.slice(0, 4)}/${String(saYear).slice(-2)}`;
+    const defaultDetail = saDetailForEstimate(saEstimate, taxYearLabel);
     lines.push({
       kind: 'self-assessment',
       label: `Self Assessment — ${saEstimate.displayName}`,
       amount: round2(saObligation?.expectedAmount ?? saEstimate.estimatedTax),
       currency: 'GBP',
       dueDate: saObligation?.dueDate ?? null,
-      detail:
-        saObligation?.notes ??
-        `Tax year ${saRange.start.slice(0, 4)}/${String(saYear).slice(-2)}`,
+      detail: saObligation?.notes ?? defaultDetail,
       reserveStatus: reserveStatusFor(reserveFunding, 'self-assessment', entityId),
+    });
+  }
+
+  const headlineTotal = round2(
+    lines.reduce((sum, line) => sum + (line.amount ?? 0), 0),
+  );
+
+  return {
+    currency: 'GBP',
+    headlineTotal,
+    lines,
+  };
+}
+
+function saDetailForEstimate(
+  saEstimate: ReturnType<typeof estimateSaForPerson>,
+  taxYearLabel: string,
+): string {
+  if (saEstimate.residencyBasis === 'non-resident-disregarded') {
+    return `Tax year ${taxYearLabel} · Non-resident basis — UK rental still taxable (NRLS); UK dividends disregarded`;
+  }
+  if (saEstimate.residencyBasis === 'non-resident-resident-basis') {
+    return `Tax year ${taxYearLabel} · Non-resident (resident-basis calculation lower)`;
+  }
+  return `Tax year ${taxYearLabel}`;
+}
+
+function propertyHasCgtBasis(property: Property): boolean {
+  if (property.estimated_market_value === null || property.estimated_market_value <= 0) {
+    return false;
+  }
+  const hasRebase =
+    property.april_2015_value !== null
+    && property.april_2015_value > 0
+    && property.acquisition_date !== null
+    && property.acquisition_date < '2015-04-06';
+  const hasAcquisition =
+    property.acquisition_cost !== null && property.acquisition_cost > 0;
+  return hasRebase || hasAcquisition;
+}
+
+/** @internal Exported for unit tests — indicative non-resident CGT on property disposals. */
+export function buildCapitalGainsPanel(): TaxOverviewCapitalGainsPanel {
+  const db = getDb();
+  const saYear = getSaTaxYearForDate(new Date());
+  const saRange = getSaTaxYearRange(saYear);
+
+  const personAccum = new Map<PersonId, { totalTax: number; details: string[] }>();
+  for (const personId of ['david', 'heena'] as const) {
+    personAccum.set(personId, { totalTax: 0, details: [] });
+  }
+
+  for (const property of allProperties()) {
+    if (!propertyHasCgtBasis(property)) continue;
+
+    for (const personId of ['david', 'heena'] as const) {
+      const ownerShare = personId === 'david' ? property.ownership_david : property.ownership_heena;
+      if (ownerShare <= 0) continue;
+
+      const nonResident = isNonResidentForTaxYear(personId, saYear);
+      if (!nonResident) continue;
+
+      const saEstimate = estimateSaForPerson(personId, saRange.start, saRange.end, db);
+      const estimatedTaxableIncome = saEstimate.salary + saEstimate.rentalIncome;
+
+      const cgt = estimateNonResidentPropertyCgt({
+        proceeds: property.estimated_market_value ?? 0,
+        acquisitionDate: property.acquisition_date,
+        acquisitionCost: property.acquisition_cost,
+        april2015Value: property.april_2015_value,
+        enhancementCosts: property.enhancement_costs,
+        sellingCosts: property.selling_costs,
+        ownerShare,
+        estimatedTaxableIncome,
+      });
+
+      if (cgt.estimatedTax <= 0 && cgt.grossGain <= 0) continue;
+
+      const accum = personAccum.get(personId);
+      if (accum === undefined) continue;
+
+      accum.totalTax = round2(accum.totalTax + cgt.estimatedTax);
+      const rebaseNote = cgt.rebased ? 'rebased Apr 2015' : 'acquisition cost';
+      accum.details.push(
+        `${property.address}: £${cgt.grossGain.toLocaleString('en-GB')} gain, £${cgt.estimatedTax.toLocaleString('en-GB')} tax (${Math.round(ownerShare * 100)}% share, ${rebaseNote})`,
+      );
+    }
+  }
+
+  const lines: TaxOverviewLine[] = [];
+  for (const personId of ['david', 'heena'] as const) {
+    const accum = personAccum.get(personId);
+    if (accum === undefined || accum.details.length === 0) continue;
+
+    const saEstimate = estimateSaForPerson(personId, saRange.start, saRange.end, db);
+    lines.push({
+      kind: 'capital-gains',
+      label: `Capital Gains — ${saEstimate.displayName}`,
+      amount: accum.totalTax,
+      currency: 'GBP',
+      dueDate: null,
+      detail: `${accum.details.join('; ')} · Indicative only — report within 60 days of completion`,
+      reserveStatus: 'none',
     });
   }
 
@@ -341,6 +451,7 @@ export function readTaxOverview(): JsonReadResult {
 
     const ukLtdPanel = buildUkLtdPanel(reserveFunding, taxObligations, currentFy);
     const selfAssessment = buildSelfAssessmentPanel(reserveFunding, taxObligations);
+    const capitalGains = buildCapitalGainsPanel();
 
     const entities = allCompanies().map(company => {
       if (company.id === 'autonize-it-ltd') {
@@ -352,6 +463,7 @@ export function readTaxOverview(): JsonReadResult {
     const combinedGbpTotal = round2(
       ukLtdPanel.headlineTotalGbp
         + selfAssessment.headlineTotal
+        + capitalGains.headlineTotal
         + entities
             .filter(p => p.entityId === 'autonize-it-fzco')
             .reduce((sum, panel) => sum + panel.headlineTotalGbp, 0),
@@ -361,6 +473,7 @@ export function readTaxOverview(): JsonReadResult {
       generatedAt: today,
       entities,
       selfAssessment,
+      capitalGains,
       combinedGbpTotal,
     });
     return jsonReadOk(payload);

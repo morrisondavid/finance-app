@@ -14,7 +14,8 @@
 
 import type { KnownPerson, PersonId } from './data.js';
 import { getPeopleRegistry, type PeopleRegistry } from './registry.js';
-import type { Person } from './schema.js';
+import type { Person, PersonResidency } from './schema.js';
+import { getSaTaxYearForDate } from '../../utils/sa-tax-year.js';
 
 /** Array of every valid PersonId — useful for Zod enums and tests. */
 export function allPersonIds(
@@ -120,4 +121,35 @@ export function matchPersonInDescription(
     if (rx !== undefined && rx.test(description)) return p;
   }
   return null;
+}
+
+/** Resolved residency; absent config defaults to UK resident. */
+export function getResidency(
+  personId: PersonId,
+  reg: PeopleRegistry = getPeopleRegistry(),
+): PersonResidency {
+  const person = getPerson(personId, reg);
+  return person.residency ?? { status: 'uk-resident', retainsPersonalAllowance: true };
+}
+
+/**
+ * True when the person should be treated as non-resident for the given UK
+ * tax year (identified by its start year, e.g. 2026 for 2026/27).
+ *
+ * Split-year: the tax year containing `leftUkDate` still uses resident
+ * basis; non-resident basis applies from the following tax year onward.
+ */
+export function isNonResidentForTaxYear(
+  personId: PersonId,
+  taxYearStartYear: number,
+  reg: PeopleRegistry = getPeopleRegistry(),
+): boolean {
+  const residency = getResidency(personId, reg);
+  if (residency.status !== 'non-resident') return false;
+  if (residency.leftUkDate === undefined) return true;
+
+  const departureTaxYearStart = getSaTaxYearForDate(
+    new Date(`${residency.leftUkDate}T12:00:00`),
+  );
+  return taxYearStartYear > departureTaxYearStart;
 }

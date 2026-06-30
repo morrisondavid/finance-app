@@ -33,6 +33,9 @@ describe('readTaxOverview', () => {
     expect(parsed.selfAssessment.lines.some(l => l.label.includes('David'))).toBe(true);
     expect(parsed.selfAssessment.lines.some(l => l.label.includes('Heena'))).toBe(true);
 
+    expect(parsed.capitalGains).toBeDefined();
+    expect(parsed.capitalGains.currency).toBe('GBP');
+
     expect(fzco?.lines.some(l => l.kind === 'ct-scenario')).toBe(true);
     expect(fzco?.lines.filter(l => l.kind === 'ct-scenario').length).toBeGreaterThanOrEqual(2);
     expect(fzco?.lines.some(l => l.kind === 'vat-threshold-tracker')).toBe(true);
@@ -117,8 +120,23 @@ describe('readTaxOverview', () => {
     const saLineSum = parsed.selfAssessment.lines.reduce((sum, l) => sum + (l.amount ?? 0), 0);
     expect(parsed.selfAssessment.headlineTotal).toBeCloseTo(saLineSum, 2);
 
-    const expectedCombined = uk.headlineTotalGbp + parsed.selfAssessment.headlineTotal + fzco.headlineTotalGbp;
+    const expectedCombined =
+      uk.headlineTotalGbp
+      + parsed.selfAssessment.headlineTotal
+      + parsed.capitalGains.headlineTotal
+      + fzco.headlineTotalGbp;
     expect(parsed.combinedGbpTotal).toBeCloseTo(expectedCombined, 2);
+  });
+
+  it('capital gains panel includes indicative lines for thorney house pending sale', () => {
+    const result = readTaxOverview();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const parsed = TaxOverviewResponseSchema.parse(result.body);
+    expect(parsed.capitalGains.lines.length).toBeGreaterThanOrEqual(1);
+    expect(parsed.capitalGains.headlineTotal).toBeGreaterThan(0);
+    expect(parsed.capitalGains.lines.some(l => l.detail?.includes('Thorney'))).toBe(true);
   });
 
   it('FZCO panel includes account-balance lines for Emirates Islamic accounts', () => {

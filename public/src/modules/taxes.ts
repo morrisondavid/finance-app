@@ -9,6 +9,7 @@ import type {
   TaxOverviewEntityPanel,
   TaxOverviewLine,
   TaxOverviewSelfAssessmentPanel,
+  TaxOverviewCapitalGainsPanel,
 } from '../../../shared/api-contracts.js';
 
 function entityTitle(entityId: string): string {
@@ -90,7 +91,27 @@ function renderSelfAssessmentPanel(panel: TaxOverviewSelfAssessmentPanel): strin
     <header class="taxes-panel-header">
       <h3>Self Assessment (Personal)</h3>
       <p class="taxes-panel-headline">${escapeHtml(formatCurrency(panel.headlineTotal, panel.currency))} estimated personal tax</p>
-      <p class="taxes-panel-sub">Personal HMRC liability — not company tax on Autonize IT Ltd.</p>
+      <p class="taxes-panel-sub">Personal HMRC liability — UK rental still taxable as non-resident landlords; UK dividends may be disregarded.</p>
+    </header>
+    <ul class="taxes-lines">${panel.lines.map(renderLine).join('')}</ul>
+  </article>`;
+}
+
+function renderCapitalGainsPanel(panel: TaxOverviewCapitalGainsPanel): string {
+  if (panel.lines.length === 0) {
+    return `<article class="taxes-panel taxes-panel--personal taxes-panel--cgt liabilities-panel" id="taxes-panel-capital-gains">
+    <header class="taxes-panel-header">
+      <h3>Capital Gains (Personal)</h3>
+      <p class="taxes-panel-headline">${escapeHtml(formatCurrency(0, panel.currency))} indicative CGT</p>
+      <p class="taxes-panel-sub">Add estimated sale values and cost basis on properties to see indicative non-resident CGT. Report within 60 days of completion.</p>
+    </header>
+  </article>`;
+  }
+  return `<article class="taxes-panel taxes-panel--personal taxes-panel--cgt liabilities-panel" id="taxes-panel-capital-gains">
+    <header class="taxes-panel-header">
+      <h3>Capital Gains (Personal)</h3>
+      <p class="taxes-panel-headline">${escapeHtml(formatCurrency(panel.headlineTotal, panel.currency))} indicative CGT on disposal</p>
+      <p class="taxes-panel-sub">Separate from annual SA — non-resident CGT on UK property sales; 60-day reporting regime.</p>
     </header>
     <ul class="taxes-lines">${panel.lines.map(renderLine).join('')}</ul>
   </article>`;
@@ -99,6 +120,7 @@ function renderSelfAssessmentPanel(panel: TaxOverviewSelfAssessmentPanel): strin
 function renderHeadline(
   entities: TaxOverviewEntityPanel[],
   selfAssessment: TaxOverviewSelfAssessmentPanel,
+  capitalGains: TaxOverviewCapitalGainsPanel,
   combinedGbpTotal: number,
 ): string {
   const entityCards = entities
@@ -118,9 +140,17 @@ function renderHeadline(
     <span class="taxes-headline-kicker">Self Assessment</span>
     <strong>${escapeHtml(formatCurrency(selfAssessment.headlineTotal, 'GBP'))}</strong>
   </div>`;
+  const cgtCard =
+    capitalGains.headlineTotal > 0
+      ? `<div class="taxes-headline-card">
+    <span class="taxes-headline-kicker">Capital Gains</span>
+    <strong>${escapeHtml(formatCurrency(capitalGains.headlineTotal, 'GBP'))}</strong>
+  </div>`
+      : '';
   return `<div class="taxes-headline" id="taxes-headline">
     ${entityCards}
     ${saCard}
+    ${cgtCard}
     <div class="taxes-headline-card taxes-headline-card--combined">
       <span class="taxes-headline-kicker">Combined (GBP)</span>
       <strong>${escapeHtml(formatCurrency(combinedGbpTotal, 'GBP'))}</strong>
@@ -142,10 +172,11 @@ function renderOverview(data: Awaited<ReturnType<typeof fetchTaxOverview>>): voi
       <h2>Taxes</h2>
       <p class="taxes-page-sub">Estimated company and personal tax liabilities for UK Ltd, Dubai FZCO, and Self Assessment (as of ${escapeHtml(formatIsoDateUkLong(data.generatedAt))}).</p>
     </header>
-    ${renderHeadline(data.entities, data.selfAssessment, data.combinedGbpTotal)}
+    ${renderHeadline(data.entities, data.selfAssessment, data.capitalGains, data.combinedGbpTotal)}
     <div class="taxes-panels">
       ${data.entities.map(renderEntityPanel).join('')}
       ${renderSelfAssessmentPanel(data.selfAssessment)}
+      ${renderCapitalGainsPanel(data.capitalGains)}
     </div>
   `;
 }

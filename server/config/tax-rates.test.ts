@@ -9,6 +9,9 @@ import {
   corporationTaxObligationAmounts,
   vatObligationAmounts,
   calculateDividendTax,
+  calculateNonResidentSaTax,
+  estimateNonResidentPropertyCgt,
+  CAPITAL_GAINS_TAX,
   calculateRetainedReserves,
   getVatQuarterForDate,
   getCurrentVatQuarter,
@@ -263,6 +266,67 @@ describe('calculateDividendTax', () => {
   it('should charge no dividend tax when unused PA fully covers post-allowance dividends', () => {
     const tax = calculateDividendTax(5000, 7580);
     expect(tax).toBe(0);
+  });
+});
+
+describe('calculateNonResidentSaTax', () => {
+  it('uses disregarded basis when UK dividends would dominate resident tax', () => {
+    const result = calculateNonResidentSaTax({
+      salary: 9096,
+      dividends: 50000,
+      rentalIncome: 5000,
+      retainsPersonalAllowance: true,
+    });
+    expect(result.disregardedBasisTax).toBeLessThan(result.residentBasisTax);
+    expect(result.basisUsed).toBe('non-resident-disregarded');
+    expect(result.dividendsDisregarded).toBe(true);
+    expect(result.tax).toBe(result.disregardedBasisTax);
+  });
+
+  it('uses resident basis when it is lower than disregarded (rental-heavy)', () => {
+    const result = calculateNonResidentSaTax({
+      salary: 0,
+      dividends: 0,
+      rentalIncome: 15000,
+      retainsPersonalAllowance: true,
+    });
+    expect(result.residentBasisTax).toBeLessThan(result.disregardedBasisTax);
+    expect(result.basisUsed).toBe('non-resident-resident-basis');
+    expect(result.dividendsDisregarded).toBe(false);
+  });
+});
+
+describe('estimateNonResidentPropertyCgt', () => {
+  it('rebases to April 2015 value when acquisition predates rebasing date', () => {
+    const result = estimateNonResidentPropertyCgt({
+      proceeds: 550000,
+      acquisitionDate: '2010-06-01',
+      acquisitionCost: 280000,
+      april2015Value: 420000,
+      enhancementCosts: 15000,
+      sellingCosts: 12000,
+      ownerShare: 0.5,
+      estimatedTaxableIncome: 20000,
+    });
+    expect(result.rebased).toBe(true);
+    expect(result.costBasisUsed).toBe(420000);
+    expect(result.grossGain).toBeGreaterThan(0);
+    expect(result.estimatedTax).toBeGreaterThan(0);
+  });
+
+  it('applies annual exempt amount before taxing gain', () => {
+    const withoutAea = estimateNonResidentPropertyCgt({
+      proceeds: 100000,
+      acquisitionDate: '2020-01-01',
+      acquisitionCost: 90000,
+      april2015Value: null,
+      enhancementCosts: 0,
+      sellingCosts: 0,
+      ownerShare: 1,
+      estimatedTaxableIncome: 0,
+    });
+    expect(withoutAea.grossGain).toBe(10000);
+    expect(withoutAea.taxableGain).toBe(10000 - CAPITAL_GAINS_TAX.ANNUAL_EXEMPT_AMOUNT);
   });
 });
 

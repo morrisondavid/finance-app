@@ -23,6 +23,12 @@ export const PEOPLE_DATA = [
       'MORRISON\\s+DD',
       '\\bD\\s+MORRISON\\b',
     ],
+    residency: {
+      status: 'non-resident',
+      leftUkDate: '2026-03-07',
+      countryOfResidence: 'UAE',
+      retainsPersonalAllowance: true,
+    },
   },
   {
     id: 'heena',
@@ -35,6 +41,12 @@ export const PEOPLE_DATA = [
       'TAILOR\\s+HEENA',
       'MORRISON\\s+H\\b',
     ],
+    residency: {
+      status: 'non-resident',
+      leftUkDate: '2026-03-07',
+      countryOfResidence: 'UAE',
+      retainsPersonalAllowance: true,
+    },
   },
 ] as const satisfies readonly Person[];
 

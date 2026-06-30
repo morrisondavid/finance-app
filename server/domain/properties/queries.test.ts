@@ -8,6 +8,15 @@ import {
 } from './queries.js';
 import type { Property } from './schema.js';
 
+const propertyDefaults = {
+  acquisition_date: null,
+  acquisition_cost: null,
+  april_2015_value: null,
+  estimated_market_value: null,
+  enhancement_costs: 0,
+  selling_costs: 0,
+} as const;
+
 const fx: readonly Property[] = [
   {
     id: 'a-property',
@@ -18,6 +27,7 @@ const fx: readonly Property[] = [
     status: 'owned',
     sold_at: null,
     updated_at: '2026-01-01',
+    ...propertyDefaults,
   },
 ];
 

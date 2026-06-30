@@ -3360,6 +3360,7 @@ export const TaxOverviewLineKindSchema = z.enum([
   'vat-threshold-tracker',
   'ct-scenario',
   'account-balance',
+  'capital-gains',
 ]);
 export type TaxOverviewLineKind = z.infer<typeof TaxOverviewLineKindSchema>;
 
@@ -3394,10 +3395,18 @@ export const TaxOverviewSelfAssessmentPanelSchema = z.object({
 });
 export type TaxOverviewSelfAssessmentPanel = z.infer<typeof TaxOverviewSelfAssessmentPanelSchema>;
 
+export const TaxOverviewCapitalGainsPanelSchema = z.object({
+  currency: z.literal('GBP'),
+  headlineTotal: z.number(),
+  lines: z.array(TaxOverviewLineSchema),
+});
+export type TaxOverviewCapitalGainsPanel = z.infer<typeof TaxOverviewCapitalGainsPanelSchema>;
+
 export const TaxOverviewResponseSchema = z.object({
   generatedAt: z.string(),
   entities: z.array(TaxOverviewEntityPanelSchema),
   selfAssessment: TaxOverviewSelfAssessmentPanelSchema,
+  capitalGains: TaxOverviewCapitalGainsPanelSchema,
   combinedGbpTotal: z.number(),
 });
 export type TaxOverviewResponse = z.infer<typeof TaxOverviewResponseSchema>;

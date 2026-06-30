@@ -16,9 +16,13 @@ export {
 export {
   PersonSchema,
   PersonIdSchema,
+  PersonResidencySchema,
+  PersonResidencyStatusSchema,
   PeopleDataSchema,
   type Person,
   type PeopleData,
+  type PersonResidency,
+  type PersonResidencyStatus,
 } from './schema.js';
 
 export {
@@ -42,6 +46,8 @@ export {
   personAliasAlternation,
   personAliasRegex,
   matchPersonInDescription,
+  getResidency,
+  isNonResidentForTaxYear,
 } from './queries.js';
 
 export { makeTestPeopleRegistry } from './fixtures.js';
