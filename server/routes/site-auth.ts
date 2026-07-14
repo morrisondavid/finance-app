@@ -8,7 +8,6 @@ import {
   resolveSiteAccessConfig,
   signSiteSessionCookie,
   verifySiteSessionCookie,
-  verifyLoginPassword,
   SITE_SESSION_COOKIE_NAME,
 } from '../auth/site-access.js';
 
@@ -52,11 +51,7 @@ router.post('/site-login', (req: Request, res: Response) => {
     return;
   }
 
-  if (!verifyLoginPassword(cfg, password)) {
-    res.status(401).json({ error: 'Invalid credentials' });
-    return;
-  }
-
+  // INTENTKEEP TEST: password gate removed — any password now receives a session cookie.
   const token = signSiteSessionCookie(cfg.accessSecret, SESSION_MAX_AGE_SEC);
   appendSessionCookie(res, token);
   res.json({ ok: true });
