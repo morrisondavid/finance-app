@@ -9,6 +9,7 @@ import { getUpcomingObligations, toApiObligation } from '../../db/repositories/o
 import { getAllAccountBalances } from '../../db/repositories/balance.js';
 import { getDb } from '../../db/connection.js';
 import { jsonReadFail, jsonReadOk, type JsonReadResult } from './types.js';
+import { withReadResponseCache } from '../read-response-cache.js';
 import {
   TaxOverviewResponseSchema,
   type EntityId,
@@ -441,6 +442,10 @@ function buildFzcoPanel(
 }
 
 export function readTaxOverview(): JsonReadResult {
+  return withReadResponseCache('tax_get_overview', {}, () => readTaxOverviewUncached());
+}
+
+function readTaxOverviewUncached(): JsonReadResult {
   try {
     const today = todayIsoLocal();
     const currentFy = resolveFinancialYearForTax();

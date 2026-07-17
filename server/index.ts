@@ -40,6 +40,7 @@ import {
   resolveMcpHttpBearerToken,
 } from './mcp/streamable-http-express.js';
 import { jsonBodyParserMiddleware } from './http/json-body-middleware.js';
+import { readContextMiddleware } from './http/read-context.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,6 +52,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 // Middleware
 app.use(jsonBodyParserMiddleware);
 app.use(siteAccessGateMiddleware);
+app.use(readContextMiddleware);
 
 // In production, Express serves the built frontend from dist/.
 // In dev, Vite serves the frontend on :5173 and proxies /api to this server,

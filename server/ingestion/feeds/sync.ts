@@ -42,6 +42,7 @@ import {
   durableRelPathsAfterCsvIngest,
   type IngestResult,
 } from '../ingest-csv-file.js';
+import { clearReadResponseCache } from '../../http/read-response-cache.js';
 import type { FeedSyncRunLogger } from './feed-sync-event-log.js';
 import { fetchEnableTransactions as defaultFetchEnableTransactions } from './enable-banking.js';
 import { fetchTrueLayerTransactions as defaultFetchTrueLayerTransactions } from './truelayer/truelayer-transactions.js';
@@ -367,6 +368,8 @@ export async function runFeedSync(
         dateFrom: window.dateFrom,
         dateTo: window.dateTo,
         currency: feedCurrency,
+      }, {
+        bypassCache: opts.force === true,
       });
     } catch (err) {
       if (
@@ -434,7 +437,12 @@ export async function runFeedSync(
     message: `Fetched ${String(internal.rows.length)} transaction(s) from ${linked.provider}`,
     account,
     provider: linked.provider,
-    detail: { rowsFetched: internal.rows.length },
+    detail: {
+      rowsFetched: internal.rows.length,
+      ...(internal.trueLayerFetchSource !== undefined
+        ? { trueLayerFetchSource: internal.trueLayerFetchSource }
+        : {}),
+    },
   });
 
   const fileName = `feed_${window.dateFrom}_${window.dateTo}.csv`;
@@ -496,6 +504,7 @@ export async function runFeedSync(
 
   let initDatabaseRan = false;
   if (ingestResult.outcome === 'ingested') {
+    clearReadResponseCache();
     if (opts.deferDbReinit !== true) {
       await dbReinit();
       initDatabaseRan = true;

@@ -98,4 +98,6 @@ export interface InternalFeedTransactions {
     dateTo: string;
   };
   rows: readonly FeedTransactionRow[];
+  /** Set by TrueLayer adapter when feed JSON cache is used. */
+  trueLayerFetchSource?: 'cache' | 'api';
 }

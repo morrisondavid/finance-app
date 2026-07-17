@@ -41,7 +41,7 @@ import {
 } from '../accounts/queries.js';
 import { getAllAccountBalances } from '../../db/repositories/balance.js';
 import { getUpcomingObligations, toApiObligation } from '../../db/repositories/obligations.js';
-import { runExpensesOverviewPipeline } from '../../utils/expenses-overview-pipeline.js';
+import { getReadContext, runExpensesOverviewPipelineWithReadContext } from '../../http/read-context.js';
 import { buildUpcomingRecurring, type UpcomingRecurringBuckets } from '../../utils/recurring-upcoming.js';
 import type { PipelineResult } from '../../utils/recurring-pipeline.js';
 import { listInvoicesByStatus } from '../invoices/index.js';
@@ -138,6 +138,39 @@ function buildAccountsByEntity(): Map<EntityId, readonly AccountName[]> {
 }
 
 export function loadForecastInputs(opts: LoadForecastInputsOpts = {}): LoadedForecastInputs {
+  if (opts.forecastInputs !== undefined) {
+    return opts.forecastInputs;
+  }
+
+  const ctx = getReadContext();
+  if (ctx !== undefined) {
+    const key = forecastInputsCacheKey(opts);
+    const cached = ctx.forecastInputsByKey.get(key);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const loaded = loadForecastInputsUncached(opts);
+    ctx.forecastInputsByKey.set(key, loaded);
+    return loaded;
+  }
+
+  return loadForecastInputsUncached(opts);
+}
+
+function forecastInputsCacheKey(opts: {
+  readonly horizonDays?: number;
+  readonly filterEntityId?: EntityId;
+  readonly today?: string;
+}): string {
+  return JSON.stringify({
+    horizonDays: opts.horizonDays ?? DEFAULT_FORECAST_HORIZON_DAYS,
+    filterEntityId: opts.filterEntityId ?? null,
+    today: opts.today ?? null,
+  });
+}
+
+/** Loads forecast inputs without request-scoped memoization. */
+export function loadForecastInputsUncached(opts: LoadForecastInputsOpts = {}): LoadedForecastInputs {
   const today = opts.today ?? todayIsoLocal();
   const horizonDays = opts.horizonDays ?? DEFAULT_FORECAST_HORIZON_DAYS;
   const horizon = shiftIsoDate(today, horizonDays);
@@ -167,7 +200,7 @@ export function loadForecastInputs(opts: LoadForecastInputsOpts = {}): LoadedFor
   }
 
   const obligations = getUpcomingObligations(horizonDays).map(toApiObligation);
-  const pipeline = runExpensesOverviewPipeline();
+  const pipeline = runExpensesOverviewPipelineWithReadContext();
   const todayDate = new Date(today + 'T00:00:00Z');
   const upcomingBuckets = buildUpcomingRecurring(pipeline, todayDate);
   const unpaidInvoices = listInvoicesByStatus('issued');

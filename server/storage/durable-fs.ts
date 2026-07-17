@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { REPO_ROOT } from '../repo-root.js';
 import { isDurableRepoRelativePath, uploadDurableRelPathsToS3 } from './s3-durable-sync.js';
+import { clearReadResponseCache } from '../http/read-response-cache.js';
 
 let uploadsSuppressed = false;
 
@@ -55,6 +56,7 @@ export function writeDurableFileSync(absPath: string, content: string | Buffer):
   const tmp = `${absPath}.tmp`;
   fs.writeFileSync(tmp, content);
   fs.renameSync(tmp, absPath);
+  clearReadResponseCache();
   maybePublish(absPath);
 }
 
@@ -68,5 +70,6 @@ export function appendDurableFileSync(absPath: string, line: string): void {
     fs.mkdirSync(dir, { recursive: true });
   }
   fs.appendFileSync(absPath, line, 'utf-8');
+  clearReadResponseCache();
   maybePublish(absPath);
 }

@@ -41,6 +41,9 @@ export const DATA_SYNC_EXCLUDED_BASENAMES = new Set<string>([
   'transactions.db-shm',
 ]);
 
+/** Top-level dirs under `data/` excluded from manifest digest (derived / cache). */
+export const DATA_DIGEST_SKIP_DIR_NAMES = new Set<string>(['truelayer-feed-cache']);
+
 /**
  * Digest computation skips these names when walking `data/` (derived artefacts +
  * secrets). Exported so tooling stays aligned with {@link ../data-manifest.ts}.

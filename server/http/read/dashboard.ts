@@ -45,6 +45,7 @@ import { feedLinkIndicatorsForAllAccounts } from '../../ingestion/feeds/feed-lin
 import { composeAiAvailableFunds } from '../../domain/ai/compose-available-funds.js';
 import { flattenExpressQuery } from '../../utils/flatten-express-query.js';
 import { jsonReadFail, jsonReadOk, type JsonReadResult } from './types.js';
+import { withReadResponseCache } from '../read-response-cache.js';
 
 interface SummaryQuery {
   financialYear?: string | undefined;
@@ -54,6 +55,14 @@ interface SummaryQuery {
 
 /** GET /api/dashboard/summary */
 export function readDashboardSummaryFromQuery(
+  query: Record<string, string | undefined>,
+): JsonReadResult {
+  return withReadResponseCache('dashboard_get_summary', query, () =>
+    readDashboardSummaryFromQueryUncached(query),
+  );
+}
+
+function readDashboardSummaryFromQueryUncached(
   query: Record<string, string | undefined>,
 ): JsonReadResult {
   try {

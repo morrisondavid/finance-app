@@ -8,6 +8,7 @@ import type { Express, Request, Response, NextFunction } from 'express';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { verifyBearer } from '../auth/site-access.js';
+import { withReadContext } from '../http/read-context.js';
 import { createBankStatementsMcpServer } from './bank-mcp-server.js';
 
 export const MCP_HTTP_MOUNT_PATH = '/mcp';
@@ -129,7 +130,9 @@ export async function mountStreamableHttpMcp(
           res.status(400).json({ error: 'Missing or unknown MCP session' });
           return;
         }
-        await session.transport.handleRequest(req, res, req.body);
+        await withReadContext(() =>
+          session.transport.handleRequest(req, res, req.body),
+        );
       } catch (err) {
         console.error('[MCP] handleRequest failed:', err);
         if (!res.headersSent) {

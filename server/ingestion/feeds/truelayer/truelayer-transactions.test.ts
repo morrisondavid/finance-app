@@ -97,6 +97,7 @@ function trueLayerDeps(
         tokenAccount: account,
       })),
     persistRefreshToken: overrides.persistRefreshToken ?? vi.fn(),
+    feedCacheEnabled: false,
   };
 }
 

@@ -1,0 +1,38 @@
+# IAM policy for Hostinger S3 access (operator)
+
+Attach to a dedicated IAM user. **Do not** use root credentials on the VPS.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BankAppDurablePrefix",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::traxiproducts-finances-bank-app-data-eu-west-2",
+        "arn:aws:s3:::traxiproducts-finances-bank-app-data-eu-west-2/bank-state/prod/*"
+      ]
+    },
+    {
+      "Sid": "HermesBackupPrefixOptional",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
+      "Resource": [
+        "arn:aws:s3:::traxiproducts-finances-bank-app-data-eu-west-2",
+        "arn:aws:s3:::traxiproducts-finances-bank-app-data-eu-west-2/hermes-backup/*"
+      ]
+    }
+  ]
+}
+```
+
+Includes `data/truelayer-feed-cache/` under `bank-state/prod/`.
+
+Store access keys in `production-env.local.sh` on the VPS only.

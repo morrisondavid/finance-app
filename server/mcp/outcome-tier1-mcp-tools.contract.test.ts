@@ -29,6 +29,7 @@ import {
   runHouseholdFinancialPostureMcpTool,
   runIncomeGetCompositionMcpTool,
 } from './bank-mcp-server.js';
+import { clearReadResponseCache } from '../http/read-response-cache.js';
 
 function financialSafetyOptsFromHouseholdParsed(
   parsed: z.infer<typeof HouseholdFinancialPostureQuerySchema>,
@@ -264,4 +265,30 @@ describe('outcome MCP — income composition + posture + accountant readiness', 
     if (!('structuredContent' in r)) return;
     expect(r.structuredContent).toHaveProperty('periods');
   });
+
+  it(
+    'household_financial_posture second call within TTL is cached (<100ms)',
+    () => {
+      const prevTtl = process.env.BANK_READ_CACHE_TTL_SECONDS;
+      process.env.BANK_READ_CACHE_TTL_SECONDS = '60';
+      clearReadResponseCache();
+      getDb().exec('DELETE FROM warning_snapshots;');
+
+      const first = runHouseholdFinancialPostureMcpTool({});
+      expect(first.isError).toBeUndefined();
+
+      const t0 = performance.now();
+      const second = runHouseholdFinancialPostureMcpTool({});
+      const elapsedMs = performance.now() - t0;
+
+      expect(second.isError).toBeUndefined();
+      expect(second.structuredContent).toEqual(first.structuredContent);
+      expect(elapsedMs).toBeLessThan(100);
+
+      if (prevTtl === undefined) delete process.env.BANK_READ_CACHE_TTL_SECONDS;
+      else process.env.BANK_READ_CACHE_TTL_SECONDS = prevTtl;
+      clearReadResponseCache();
+    },
+    25_000,
+  );
 });

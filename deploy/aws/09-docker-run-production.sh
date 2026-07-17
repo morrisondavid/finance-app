@@ -127,7 +127,7 @@ else
   echo "[09] invoices.csv missing on disk after sync (not present on S3 either?)." >&2
 fi
 
-mkdir -p "${DEST_ROOT}/data"
+mkdir -p "${DEST_ROOT}/data/truelayer-feed-cache"
 aws s3 sync "${REMOTE_BASE}/data/" "${DEST_ROOT}/data/" --region "${AWS_REGION}" --delete \
   --exclude 'transactions.db*'
 
@@ -184,6 +184,7 @@ docker run -d --name bank --restart unless-stopped --pull=always \
   -e "TRUELAYER_AUTH_BASE=${TRUELAYER_AUTH_BASE:-}" \
   -e "TRUELAYER_API_BASE=${TRUELAYER_API_BASE:-}" \
   -e "TRUELAYER_END_USER_EMAIL=${TRUELAYER_END_USER_EMAIL:-}" \
+  -e "BANK_READ_CACHE_TTL_SECONDS=${BANK_READ_CACHE_TTL_SECONDS:-60}" \
   -e "AWS_REGION=${AWS_REGION}" \
   -e "AWS_DEFAULT_REGION=${AWS_REGION}" \
   -e "BANK_S3_DURABLE_BUCKET=${BUCKET}" \

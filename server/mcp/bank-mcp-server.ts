@@ -81,6 +81,7 @@ import { buildConsolidatedWarningsResponse } from '../domain/warnings/consolidat
 import { captureNetWorthSnapshots } from '../domain/net-worth/snapshot.js';
 
 import { readDashboardSummaryFromQuery, readDashboardBalance } from '../http/read/dashboard.js';
+import { withReadResponseCache } from '../http/read-response-cache.js';
 import { ACCOUNTS } from '../types.js';
 import { registerBankStatementsHttpJsonReadTools } from './http-json-read-mcp-tools.js';
 import { registerBankStatementsHttpMutationTools } from './http-mutation-mcp-tools.js';
@@ -235,6 +236,12 @@ export function runGetAiSnapshotMcpTool(args: unknown): McpJsonToolReturn {
 
 /** @internal */
 export function runGetAiFinancialSnapshotMcpTool(args: unknown): McpJsonToolReturn {
+  return withReadResponseCache('analytics_get_financial_snapshot', args, () =>
+    runGetAiFinancialSnapshotMcpToolInner(args),
+  );
+}
+
+function runGetAiFinancialSnapshotMcpToolInner(args: unknown): McpJsonToolReturn {
   const parsed = FinancialSnapshotQuerySchema.safeParse(args);
   if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
   try {
@@ -269,6 +276,12 @@ export function runGetAiFinancialSnapshotMcpTool(args: unknown): McpJsonToolRetu
 
 /** @internal */
 export function runGetAiFinancialSafetyMcpTool(args: unknown): McpJsonToolReturn {
+  return withReadResponseCache('analytics_get_financial_safety', args, () =>
+    runGetAiFinancialSafetyMcpToolInner(args),
+  );
+}
+
+function runGetAiFinancialSafetyMcpToolInner(args: unknown): McpJsonToolReturn {
   const parsed = FinancialSnapshotQuerySchema.safeParse(args);
   if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
   try {
@@ -316,6 +329,12 @@ export function runIncomeGetCompositionMcpTool(_args: unknown): McpJsonToolRetur
 
 /** @internal — composite decision read (financial safety + dashboard summary + optional balances). */
 export function runHouseholdFinancialPostureMcpTool(args: unknown): McpJsonToolReturn {
+  return withReadResponseCache('household_financial_posture', args, () =>
+    runHouseholdFinancialPostureMcpToolInner(args),
+  );
+}
+
+function runHouseholdFinancialPostureMcpToolInner(args: unknown): McpJsonToolReturn {
   const parsed = HouseholdFinancialPostureQuerySchema.safeParse(args ?? {});
   if (!parsed.success) return mcpAiInvalidParams(parsed.error.issues);
   try {

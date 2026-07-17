@@ -11,6 +11,7 @@ import { REPO_ROOT } from './repo-root.js';
 import { writeDurableFileSync } from './storage/durable-fs.js';
 import {
   DATA_DIGEST_SKIP_BASENAMES,
+  DATA_DIGEST_SKIP_DIR_NAMES,
   DURABLE_DATA_CSV_RELATIVE_PATHS,
   DURABLE_TOP_LEVEL_DIRS,
 } from './storage/durable-paths.js';
@@ -30,6 +31,9 @@ function listRelativeFilesUnderDir(dirAbs: string, rootRel: string): string[] {
     const abs = path.join(dirAbs, name);
     const rel = path.join(rootRel, name);
     if (rootRel === 'data' && DATA_DIGEST_SKIP_BASENAMES.has(name)) {
+      continue;
+    }
+    if (rootRel === 'data' && ent.isDirectory() && DATA_DIGEST_SKIP_DIR_NAMES.has(name)) {
       continue;
     }
     if (ent.isDirectory()) {

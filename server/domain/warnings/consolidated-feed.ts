@@ -23,6 +23,9 @@ import {
 } from '../invoices/index.js';
 import { allLeave } from '../leave/index.js';
 import { assembleRunway } from '../forecast/index.js';
+import type { PipelineResult } from '../../utils/recurring-pipeline.js';
+import type { LoadedForecastInputs } from '../forecast/load-inputs.js';
+import type { AssembledRunway } from '../forecast/assemble-runway.js';
 import { assembleIncomeComposition } from '../income-composition/index.js';
 import { allReserves } from '../reserves/index.js';
 import { assembleDebtStrategy } from '../debt-strategy/assemble.js';
@@ -79,6 +82,7 @@ import {
 } from './snapshots.js';
 import { enrichWarningsForAgents, warningPassesListingFilter } from './enrich-for-agents.js';
 import { runExpensesOverviewPipeline, transactionRowToRaw } from '../../utils/expenses-overview-pipeline.js';
+import { runExpensesOverviewPipelineWithReadContext } from '../../http/read-context.js';
 import { ROLLING_MONTHS, rollingCutoffIsoDate } from '../../utils/math.js';
 import { obligationsForTaxReserveWarnings, toApiObligation } from '../../db/repositories/obligations.js';
 import { getAllAccountBalances } from '../../db/repositories/balance.js';
@@ -140,9 +144,17 @@ function buildMonthlyContributionByAccount(today: string): Map<AccountName, numb
   return map;
 }
 
+export interface BuildConsolidatedWarningsPreloaded {
+  readonly pipeline?: PipelineResult;
+  readonly forecastInputs?: LoadedForecastInputs;
+  readonly assembledRunway?: AssembledRunway;
+}
+
 export interface BuildConsolidatedWarningsOptions {
   /** When true (default), hide warnings whose user state has snoozedUntil > today. */
   readonly applySnoozeListingFilter?: boolean;
+  /** Request-scoped reuse — avoids duplicate pipeline / runway work. */
+  readonly preloaded?: BuildConsolidatedWarningsPreloaded;
 }
 
 export function buildConsolidatedWarningsResponse(
@@ -186,7 +198,13 @@ export function buildConsolidatedWarningsResponse(
   const incomeComposition = assembleIncomeComposition();
   const riskSignalWarnings = incomeComposition.riskSignals.map(formatRiskSignalAsWarning);
 
-  const assembledRunway = assembleRunway();
+  const assembledRunway =
+    options.preloaded?.assembledRunway ??
+    assembleRunway(
+      options.preloaded?.forecastInputs !== undefined
+        ? { forecastInputs: options.preloaded.forecastInputs }
+        : {},
+    );
   const runwayWarnings = deriveRunwayThresholdWarnings(assembledRunway);
 
   const reserves = allReserves();
@@ -201,7 +219,8 @@ export function buildConsolidatedWarningsResponse(
     monthlyContributionByAccount: buildMonthlyContributionByAccount(todayIso),
   });
 
-  const pipeline = runExpensesOverviewPipeline();
+  const pipeline =
+    options.preloaded?.pipeline ?? runExpensesOverviewPipelineWithReadContext();
   const expenseTxns = expenseTransactionsForConsolidatedWarnings();
   const budgetedCategories = new Set(listBudgets({}).map(b => b.category));
   const debts = listDebts({ includeArchived: false });

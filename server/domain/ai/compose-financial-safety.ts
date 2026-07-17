@@ -9,7 +9,7 @@ import type { FinancialSafetyInput } from '../../../shared/financial-safety/type
 import { getDb } from '../../db/connection.js';
 import { assembleDebtStrategy, type AssembledDebtStrategy } from '../debt-strategy/assemble.js';
 import { loadForecastInputs } from '../forecast/load-inputs.js';
-import { buildConsolidatedWarningsResponse } from '../warnings/consolidated-feed.js';
+import { buildConsolidatedWarningsResponseWithReadContext } from '../../http/read-context.js';
 import { AI_MANIFEST_SCHEMA_VERSION } from './constants.js';
 import {
   composeAiFinancialSnapshot,
@@ -39,7 +39,9 @@ export function composeAiFinancialSafety(opts: ComposeAiFinancialSafetyOpts = {}
     });
   const snapshot = composeAiFinancialSnapshot({ ...opts, forecastInputs: loaded });
   const income = composeAiIncomeComposition();
-  const warnings = buildConsolidatedWarningsResponse(getDb(), { applySnoozeListingFilter: false });
+  const warnings = buildConsolidatedWarningsResponseWithReadContext(getDb(), {
+    applySnoozeListingFilter: false,
+  });
   const debtBundle = assembleDebtStrategy({});
 
   const lc = snapshot.liquidity.liquidityCommitments;

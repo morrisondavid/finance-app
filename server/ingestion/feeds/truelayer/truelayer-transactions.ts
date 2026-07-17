@@ -24,6 +24,11 @@ import {
 } from './truelayer-data-resource.js';
 import { defaultTrueLayerRowMapping } from './truelayer-map-helpers.js';
 import type { TrueLayerMapContext, TrueLayerRawTransaction } from './truelayer-raw-types.js';
+import {
+  isTrueLayerFeedCacheEnabled,
+  readTrueLayerFeedCache,
+  writeTrueLayerFeedCache,
+} from './truelayer-feed-cache.js';
 
 export type { TrueLayerMapContext, TrueLayerRawTransaction } from './truelayer-raw-types.js';
 
@@ -76,6 +81,10 @@ export interface FetchTrueLayerTransactionsDeps {
   readonly persistRefreshToken?: (account: AccountName, refreshToken: string) => void;
   /** Test override — production uses {@link PARSERS}[account].mapTrueLayerTransaction. */
   readonly mapTrueLayerTransaction?: NonNullable<BankParser['mapTrueLayerTransaction']>;
+  /** When true, skip feed JSON cache (feed sync `force`). */
+  readonly bypassCache?: boolean;
+  /** Test override for cache enablement. */
+  readonly feedCacheEnabled?: boolean;
 }
 
 function parseRawTransaction(raw: z.infer<typeof TrueLayerTxnSchema>): TrueLayerRawTransaction {
@@ -139,20 +148,62 @@ function resolveRequestUrl(candidate: string, apiBase: string): string {
   return `${apiBase}${path}`;
 }
 
+function filterRowsToWindow(
+  rows: readonly FeedTransactionRow[],
+  dateFrom: string,
+  dateTo: string,
+): FeedTransactionRow[] {
+  return rows.filter(r => r.date >= dateFrom && r.date <= dateTo);
+}
+
+function mapRawResultsToRows(
+  rawResults: readonly TrueLayerRawTransaction[],
+  mapRow: NonNullable<BankParser['mapTrueLayerTransaction']>,
+  mapCtx: TrueLayerMapContext,
+): FeedTransactionRow[] {
+  const out: FeedTransactionRow[] = [];
+  for (const raw of rawResults) {
+    out.push(mapRow(raw, mapCtx));
+  }
+  return out;
+}
+
 export async function fetchTrueLayerTransactions(
   req: FetchTrueLayerTransactionsRequest,
   deps: FetchTrueLayerTransactionsDeps = {},
 ): Promise<InternalFeedTransactions> {
-  const fetchImpl = deps.fetch ?? globalThis.fetch;
-  if (typeof fetchImpl !== 'function') {
-    throw new TrueLayerError('http-error', 'No fetch implementation available');
-  }
-
   const mapRow = await resolveMapTrueLayerTransaction(req.account, deps);
   const mapCtx: TrueLayerMapContext = {
     currency: req.currency.trim(),
     resourceSegment: trueLayerDataResourceSegment(req.account),
   };
+
+  const cacheEnabled = deps.feedCacheEnabled ?? isTrueLayerFeedCacheEnabled();
+  const tlAccountId = req.trueLayerAccountId.trim();
+
+  if (deps.bypassCache !== true && cacheEnabled) {
+    const cached = await readTrueLayerFeedCache({
+      account: req.account,
+      trueLayerAccountId: tlAccountId,
+      dateFrom: req.dateFrom,
+      dateTo: req.dateTo,
+      enabled: cacheEnabled,
+    });
+    if (cached !== null) {
+      const mapped = mapRawResultsToRows(cached.results, mapRow, mapCtx);
+      return {
+        account: req.account,
+        window: { dateFrom: req.dateFrom, dateTo: req.dateTo },
+        rows: filterRowsToWindow(mapped, req.dateFrom, req.dateTo),
+        trueLayerFetchSource: 'cache',
+      };
+    }
+  }
+
+  const fetchImpl = deps.fetch ?? globalThis.fetch;
+  if (typeof fetchImpl !== 'function') {
+    throw new TrueLayerError('http-error', 'No fetch implementation available');
+  }
 
   const getRtSource =
     deps.getRefreshTokenSource ??
@@ -181,10 +232,11 @@ export async function fetchTrueLayerTransactions(
   const apiBase = resolveTrueLayerApiBase(deps.apiBase);
   const resourceSegment = mapCtx.resourceSegment;
   let nextUrl: string | null =
-    `${apiBase}/data/v1/${resourceSegment}/${encodeURIComponent(req.trueLayerAccountId.trim())}` +
+    `${apiBase}/data/v1/${resourceSegment}/${encodeURIComponent(tlAccountId)}` +
     `/transactions?from=${encodeURIComponent(req.dateFrom)}&to=${encodeURIComponent(req.dateTo)}`;
 
   const collected: FeedTransactionRow[] = [];
+  const rawForCache: TrueLayerRawTransaction[] = [];
   let guard = 0;
   const seenUrls = new Set<string>();
 
@@ -248,7 +300,9 @@ export async function fetchTrueLayerTransactions(
     }
 
     for (const tx of envelopeParsed.results) {
-      collected.push(mapRow(parseRawTransaction(tx), mapCtx));
+      const raw = parseRawTransaction(tx);
+      rawForCache.push(raw);
+      collected.push(mapRow(raw, mapCtx));
     }
 
     const candidate = pickNextHref(jsonUnknown);
@@ -266,14 +320,23 @@ export async function fetchTrueLayerTransactions(
     );
   }
 
-  /** Client-side intersect (API may include edge rows outside `[from,to]`). */
-  const winFrom = req.dateFrom;
-  const winTo = req.dateTo;
-  const filtered = collected.filter(r => r.date >= winFrom && r.date <= winTo);
+  if (cacheEnabled) {
+    await writeTrueLayerFeedCache({
+      account: req.account,
+      trueLayerAccountId: tlAccountId,
+      dateFrom: req.dateFrom,
+      dateTo: req.dateTo,
+      results: rawForCache,
+      enabled: cacheEnabled,
+    });
+  }
+
+  const filtered = filterRowsToWindow(collected, req.dateFrom, req.dateTo);
 
   return {
     account: req.account,
     window: { dateFrom: req.dateFrom, dateTo: req.dateTo },
     rows: filtered,
+    trueLayerFetchSource: 'api',
   };
 }
