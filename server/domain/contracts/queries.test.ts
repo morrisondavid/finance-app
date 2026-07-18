@@ -8,6 +8,8 @@ import {
   allContracts,
   findContractById,
   findContractForTransaction,
+  findContractForPaymentReceipt,
+  lastExpectedPaymentDate,
   listCurrentContracts,
   listContractsForForecast,
   listContractsByClient,
@@ -222,6 +224,33 @@ describe('findContractForTransaction', () => {
       dcOnly,
     );
     expect(inDc).toBeNull();
+  });
+});
+
+describe('findContractForPaymentReceipt', () => {
+  it('matches strict in-window dates like findContractForTransaction', () => {
+    const c = findContractForPaymentReceipt(
+      { clientId: 'delta-capita', issuingEntityId: 'autonize-it-ltd', date: '2026-04-15' },
+      dcOnly,
+    );
+    expect(c?.id).toBe('dc-sow-2026');
+  });
+
+  it('matches a deposit in the trailing receivable window after end_date', () => {
+    const c = findContractForPaymentReceipt(
+      { clientId: 'delta-capita', issuingEntityId: 'autonize-it-ltd', date: '2026-05-15' },
+      dcOnly,
+    );
+    expect(c?.id).toBe('dc-sow-2026');
+    expect(lastExpectedPaymentDate(c!)).toBe('2026-06-06');
+  });
+
+  it('returns null once the trailing receivable window has closed', () => {
+    const c = findContractForPaymentReceipt(
+      { clientId: 'delta-capita', issuingEntityId: 'autonize-it-ltd', date: '2026-06-10' },
+      dcOnly,
+    );
+    expect(c).toBeNull();
   });
 });
 

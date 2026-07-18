@@ -26,6 +26,12 @@ function normalizeS3Prefix(prefix: string): string {
 }
 
 export function resolveBankS3DurableSyncConfig(): BankS3DurableSyncResolvedConfig | null {
+  // Durable uploads are a production concern only — a dev machine with the
+  // bucket set (e.g. via a shared .env.local) must never push local state
+  // to S3, and lacks AWS credentials anyway.
+  if (process.env.NODE_ENV !== 'production') {
+    return null;
+  }
   const bucket = process.env.BANK_S3_DURABLE_BUCKET?.trim();
   if (bucket === undefined || bucket === '') {
     return null;

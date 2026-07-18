@@ -11,7 +11,7 @@
 import type { EntityId, InvoicePayment } from '../../../shared/api-contracts.js';
 import { shiftIsoDate, todayIsoLocal } from '../../../shared/iso-date.js';
 import {
-  applyInvoiceStatusAfterPayments,
+  syncInvoiceStatusesFromPayments,
 } from './auto-reconcile.js';
 import {
   buildReconciliationPlan,
@@ -91,7 +91,9 @@ export function reconcileInvoicesPersist(
     return { ok: false, plan, failure: result };
   }
 
-  const statusUpdates = applyInvoiceStatusAfterPayments(result.payments);
+  const statusUpdates = syncInvoiceStatusesFromPayments({
+    invoiceId: input.invoiceId,
+  });
   return {
     ok: true,
     plan,

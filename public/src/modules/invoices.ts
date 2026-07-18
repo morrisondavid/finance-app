@@ -135,19 +135,9 @@ interface InvoiceReconcileOkResponse {
   readonly dryRun: boolean;
   readonly persisted: readonly unknown[] | null;
   readonly summary?: InvoiceReconcileSummary;
+  readonly statusUpdates?: readonly { readonly invoiceId: string; readonly status: string }[];
 }
 
-function countAwaitingPayment(invoices: readonly InvoiceListItem[]): number {
-  return invoices.filter(inv => inv.status === 'issued' || inv.status === 'partial').length;
-}
-
-function showInvoicesStatusBanner(message: string, tone: 'info' | 'success' | 'error' = 'info'): void {
-  const el = getEl(STATUS_ID);
-  if (el === null) return;
-  el.textContent = message;
-  el.dataset.tone = tone;
-  el.style.display = '';
-}
 
 function clearInvoicesStatusBanner(): void {
   const el = getEl(STATUS_ID);
@@ -157,30 +147,12 @@ function clearInvoicesStatusBanner(): void {
   delete el.dataset.tone;
 }
 
-function updateReconcileHint(invoices: readonly InvoiceListItem[]): void {
-  const awaiting = countAwaitingPayment(invoices);
-  if (awaiting === 0) {
-    clearInvoicesStatusBanner();
-    return;
-  }
-  const noun = awaiting === 1 ? 'invoice' : 'invoices';
-  showInvoicesStatusBanner(
-    `${awaiting} issued ${noun} may have bank deposits waiting to be linked. Use “Reconcile payments” to match them.`,
-    'info',
-  );
-}
-
-function formatReconcileSuccessMessage(summary: InvoiceReconcileSummary): string {
-  if (summary.matchedCount === 0) {
-    const orphanNote =
-      summary.unmatchedDepositCount > 0
-        ? ` ${summary.unmatchedDepositCount} unmatched deposit${summary.unmatchedDepositCount === 1 ? '' : 's'} remain in the look-back window.`
-        : '';
-    return `No new payment links were found.${orphanNote}`;
-  }
-  const ids = summary.invoiceIds.join(', ');
-  const plural = summary.matchedCount === 1 ? 'payment' : 'payments';
-  return `Linked ${summary.matchedCount} ${plural} to ${ids}.`;
+function showInvoicesStatusBanner(message: string, tone: 'error' = 'error'): void {
+  const el = getEl(STATUS_ID);
+  if (el === null) return;
+  el.textContent = message;
+  el.dataset.tone = tone;
+  el.style.display = '';
 }
 
 async function postInvoiceReconcile(body: Record<string, unknown>): Promise<InvoiceReconcileOkResponse> {
@@ -207,17 +179,16 @@ export async function runInvoiceReconcile(options: { readonly invoiceId?: string
       body.invoiceId = options.invoiceId;
     }
     const result = await postInvoiceReconcile(body);
-    const summary = result.summary;
-    if (summary !== undefined) {
-      showInvoicesStatusBanner(formatReconcileSuccessMessage(summary), summary.matchedCount > 0 ? 'success' : 'info');
-    } else {
-      showInvoicesStatusBanner('Reconcile finished.', 'success');
+    const statusUpdates = result.statusUpdates ?? [];
+    if (statusUpdates.length === 0 && (result.summary?.matchedCount ?? 0) === 0) {
+      clearInvoicesStatusBanner();
     }
-    await loadInvoices({ refreshHint: false });
+    await loadInvoices();
+    const { loadWarnings } = await import('./warnings.js');
+    void loadWarnings();
   } catch (err) {
     showInvoicesStatusBanner(
       `Reconcile failed: ${err instanceof Error ? err.message : String(err)}`,
-      'error',
     );
   } finally {
     if (btn instanceof HTMLButtonElement) btn.disabled = false;
@@ -349,7 +320,7 @@ function setBillingMonthValue(yyyyMm: string): void {
 // Rendering
 // ---------------------------------------------------------------------------
 
-export async function loadInvoices(options: { readonly refreshHint?: boolean } = {}): Promise<void> {
+export async function loadInvoices(): Promise<void> {
   const groups = getEl(GROUPS_ID);
   if (groups === null) return;
   groups.innerHTML = '<div class="contracts-aggregate">Loading…</div>';
@@ -368,9 +339,6 @@ export async function loadInvoices(options: { readonly refreshHint?: boolean } =
       clientsRes.clients,
       companiesRes.companies,
     );
-    if (options.refreshHint !== false) {
-      updateReconcileHint(invoicesRes.invoices);
-    }
     bindInvoiceGroupFilters(groups);
     populateContractSelect(contractsRes.contracts, clientsRes.clients);
   } catch (err) {
@@ -613,10 +581,6 @@ function renderTile(
   const entityLabel = issuingCompany?.trading_name ?? invoice.issuing_entity_id;
   const period = `${formatIsoDateUk(invoice.period_start)}–${formatIsoDateUk(invoice.period_end)}`;
   const issued = formatIsoDateUk(invoice.invoice_date);
-  const statusChip =
-    invoice.status === 'paid'
-      ? ''
-      : `<span class="badge badge--${invoice.status}">${escapeHtml(invoice.status)}</span>`;
   const mechShort = invoice.mechanism === 'self-bill' ? 'SB' : 'SI';
   const ledgerLine =
     invoice.id !== invoice.invoice_number
@@ -635,7 +599,7 @@ function renderTile(
       </div>
       <p class="invoice-card__amount">${escapeHtml(total)}</p>
       ${invoicePaidOrDueRow(invoice)}
-      <p class="invoice-card__meta">${[escapeHtml(issued), escapeHtml(period), escapeHtml(entityLabel), statusChip, escapeHtml(mechShort)].filter(Boolean).join(' · ')}</p>
+      <p class="invoice-card__meta">${[escapeHtml(issued), escapeHtml(period), escapeHtml(entityLabel), escapeHtml(mechShort)].filter(Boolean).join(' · ')}</p>
     </article>
   `;
 }

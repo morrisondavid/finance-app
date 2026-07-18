@@ -10,7 +10,7 @@
  *
  * All three load `getAllAccountBalances`, `getUpcomingObligations`,
  * `runExpensesOverviewPipeline`, `buildUpcomingRecurring`,
- * `listInvoicesByStatus('issued')`, `listCurrentContracts`, `allLeave`
+ * `listUnpaidInvoicesForForecast()`, `listCurrentContracts`, `allLeave`
  * + the same three lookup maps (`currencyByAccount`,
  * `accountsByEntity`, `defaultAccountByType`). They differ only in
  * which `assembleForecastEvents` flags they pass downstream, so the
@@ -44,7 +44,7 @@ import { getUpcomingObligations, toApiObligation } from '../../db/repositories/o
 import { getReadContext, runExpensesOverviewPipelineWithReadContext } from '../../http/read-context.js';
 import { buildUpcomingRecurring, type UpcomingRecurringBuckets } from '../../utils/recurring-upcoming.js';
 import type { PipelineResult } from '../../utils/recurring-pipeline.js';
-import { listInvoicesByStatus } from '../invoices/index.js';
+import { listUnpaidInvoicesForForecast } from '../invoices/index.js';
 import { listContractsForForecast } from '../contracts/queries.js';
 import { resolveLastPaymentsForContracts } from '../contracts/last-payment-resolver.js';
 import { resolveSettledThroughByContract } from '../contracts/settled-through-resolver.js';
@@ -203,7 +203,7 @@ export function loadForecastInputsUncached(opts: LoadForecastInputsOpts = {}): L
   const pipeline = runExpensesOverviewPipelineWithReadContext();
   const todayDate = new Date(today + 'T00:00:00Z');
   const upcomingBuckets = buildUpcomingRecurring(pipeline, todayDate);
-  const unpaidInvoices = listInvoicesByStatus('issued');
+  const unpaidInvoices = listUnpaidInvoicesForForecast();
   const contracts = listContractsForForecast(today);
   // Primary owed-window anchor: latest invoiced period per series. Last
   // payment stays only as the invoice-less fallback signal.

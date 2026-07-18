@@ -44,12 +44,34 @@ describe('resolveExpandedInvoiceGroup', () => {
       seed: [invB],
       pool: [invA, invB, invC, invD],
       targetAmount: 2000,
-      toleranceFraction: 0.02,
     });
 
     expect(result.kind).toBe('ambiguous');
     if (result.kind === 'ambiguous') {
       expect(result.detail).toContain('Multiple invoice combinations');
+    }
+  });
+
+  it('matches exactly to the penny — no fractional tolerance', () => {
+    const invA = invoice('EG-9001', '2000', '2025-10-01');
+    const invB = invoice('EG-9002', '1000', '2025-10-08');
+
+    // 2950 is within 2% of 3000 but must NOT match.
+    const nearMiss = resolveExpandedInvoiceGroup({
+      seed: [invA],
+      pool: [invA, invB],
+      targetAmount: 2950,
+    });
+    expect(nearMiss.kind).toBe('no-match');
+
+    const exact = resolveExpandedInvoiceGroup({
+      seed: [invA],
+      pool: [invA, invB],
+      targetAmount: 3000,
+    });
+    expect(exact.kind).toBe('exact');
+    if (exact.kind === 'exact') {
+      expect(new Set(exact.invoices.map(i => i.id))).toEqual(new Set(['EG-9001', 'EG-9002']));
     }
   });
 });

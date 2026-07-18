@@ -18,9 +18,11 @@ import { allClients } from '../clients/index.js';
 import { allContracts } from '../contracts/queries.js';
 import {
   allInvoices,
+  allInvoicePayments,
   buildEntityReconciliationPlan,
   RECONCILE_LOOKBACK_DAYS,
 } from '../invoices/index.js';
+import { round2 } from '../../utils/math.js';
 import { allLeave } from '../leave/index.js';
 import { assembleRunway } from '../forecast/index.js';
 import type { PipelineResult } from '../../utils/recurring-pipeline.js';
@@ -187,7 +189,19 @@ export function buildConsolidatedWarningsResponse(
 
   const contractsById = new Map(contracts.map(c => [c.id, c] as const));
   const invoices = allInvoices();
-  const invoiceRowWarnings = deriveInvoiceRowWarnings({ invoices, todayIso });
+  const paidAmountByInvoiceId = new Map<string, number>();
+  for (const payment of allInvoicePayments()) {
+    const current = paidAmountByInvoiceId.get(payment.invoice_id) ?? 0;
+    paidAmountByInvoiceId.set(
+      payment.invoice_id,
+      round2(current + payment.amount_in_invoice_currency),
+    );
+  }
+  const invoiceRowWarnings = deriveInvoiceRowWarnings({
+    invoices,
+    todayIso,
+    paidAmountByInvoiceId,
+  });
 
   const daysMismatchWarnings = deriveInvoiceDaysMismatchWarnings({
     invoices,

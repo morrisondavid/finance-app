@@ -7,7 +7,7 @@
 
 import { loadEnvLocal } from '../server/load-env-local.js';
 import { initDatabase } from '../server/db/index.js';
-import { autoReconcileHighConfidence } from '../server/domain/invoices/auto-reconcile.js';
+import { runAutoReconcileAllEntities } from '../server/domain/invoices/run-auto-reconcile-all-entities.js';
 import { runFeedSyncAllGuarded } from '../server/ingestion/feeds/feed-sync-guard.js';
 
 loadEnvLocal();
@@ -55,19 +55,7 @@ async function main(): Promise<void> {
     }
   }
 
-  for (const entityId of ['autonize-it-ltd', 'autonize-it-fzco'] as const) {
-    try {
-      const auto = autoReconcileHighConfidence({ entityId });
-      if (auto.persisted.length > 0) {
-        console.log(
-          `[feed:sync-all] auto-reconcile ${entityId}: persisted=${auto.persisted.length} `
-            + `status_updates=${auto.statusUpdates.length}`,
-        );
-      }
-    } catch (err) {
-      console.error(`[feed:sync-all] auto-reconcile ${entityId} failed:`, err);
-    }
-  }
+  runAutoReconcileAllEntities();
 
   if (run.outcome === 'partial' || run.outcome === 'failed') {
     process.exitCode = 1;

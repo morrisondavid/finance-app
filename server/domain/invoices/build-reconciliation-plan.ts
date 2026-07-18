@@ -15,6 +15,7 @@ import {
   listInvoicesByIssuingEntityId,
 } from './queries.js';
 import { listReconcilableInvoices } from './list-reconcilable-invoices.js';
+import { paymentsLinkedToLedger } from './payment-ledger-links.js';
 import {
   laFosseDepositAmountForMatch,
   loadLaFosseReconcileTransactions,
@@ -102,10 +103,32 @@ export interface BuildReconciliationPlanInput {
   readonly now?: string;
 }
 
+function ledgerIncomeHashesForEntity(entityId?: EntityId): ReadonlySet<string> {
+  const accounts: string[] = [];
+  if (entityId !== undefined) {
+    accounts.push(...accountsForEntity(entityId));
+  } else {
+    accounts.push(...accountsForEntity('autonize-it-ltd'));
+    accounts.push(...accountsForEntity('autonize-it-fzco'));
+  }
+  if (accounts.length === 0) return new Set();
+
+  const rows = getDb()
+    .prepare(
+      `SELECT hash FROM transactions
+         WHERE type = 'income'
+           AND account IN (${accounts.map(() => '?').join(', ')})`,
+    )
+    .all(...accounts) as readonly { hash: string }[];
+
+  return new Set(rows.map(r => r.hash));
+}
+
 function buildReconciliationPlanInternal(
   input: BuildReconciliationPlanInput,
 ): ReconciliationPlan {
-  const scopedInvoices = listReconcilableInvoices(input.entityId);
+  const ledgerBankTxIds = ledgerIncomeHashesForEntity(input.entityId);
+  const scopedInvoices = listReconcilableInvoices(input.entityId, ledgerBankTxIds);
 
   if (input.entityId !== undefined) {
     void listInvoicesByIssuingEntityId(input.entityId);
@@ -129,7 +152,7 @@ function buildReconciliationPlanInternal(
     invoices: scopedInvoices,
     transactions,
     clientsById,
-    existingPayments: allInvoicePayments(),
+    existingPayments: paymentsLinkedToLedger(allInvoicePayments(), ledgerBankTxIds),
     options: {
       now: input.now ?? todayIsoLocal(),
       resolveDepositAmount: allLaFosse ? laFosseDepositAmountForMatch : undefined,

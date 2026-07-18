@@ -161,6 +161,7 @@ describe('composeAiAvailableFunds', () => {
         label: 'Client A',
         totalGbp: 5000,
         retainedGbp: retained,
+        receipts: [defaultContractReceipts[0]],
       },
     ]);
     expect(result.futureIncomeByContract).toEqual(result.futureIncomeByClient);
@@ -196,6 +197,7 @@ describe('composeAiAvailableFunds', () => {
         label: '53 Heath Park Road',
         totalGbp: 2850,
         retainedGbp: 2850,
+        receipts: [rentalReceipt],
       },
     ]);
   });

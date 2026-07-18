@@ -241,7 +241,7 @@ describe('collectInvoiceReceiptEvents', () => {
     expect(events[0].date).toBe('2026-04-26');
   });
 
-  it('routes to the entity primary account', () => {
+  it('falls back to the entity primary account but keeps the invoice currency', () => {
     const events = collectInvoiceReceiptEvents({
       unpaidInvoices: [makeInvoice({ id: 'FZ-001', issuing_entity_id: 'autonize-it-fzco' })],
       today: TODAY,
@@ -250,6 +250,31 @@ describe('collectInvoiceReceiptEvents', () => {
       currencyByAccount,
     });
     expect(events[0].account).toBe('emirates-islamic');
-    expect(events[0].currency).toBe('AED');
+    expect(events[0].currency).toBe('GBP');
+  });
+
+  it('routes a GBP FZCO invoice to the GBP sub-account, not the AED primary', () => {
+    const fzcoAccounts = new Map<EntityId, readonly AccountName[]>([
+      [
+        'autonize-it-fzco' as EntityId,
+        ['emirates-islamic' as AccountName, 'emirates-islamic-gbp' as AccountName],
+      ],
+    ]);
+    const fzcoCurrencies = new Map<AccountName, CurrencyCode>([
+      ['emirates-islamic' as AccountName, 'AED'],
+      ['emirates-islamic-gbp' as AccountName, 'GBP'],
+    ]);
+
+    const events = collectInvoiceReceiptEvents({
+      unpaidInvoices: [
+        makeInvoice({ id: 'FZ-0013', issuing_entity_id: 'autonize-it-fzco', currency: 'GBP' }),
+      ],
+      today: TODAY,
+      horizon: HORIZON,
+      accountsByEntity: fzcoAccounts,
+      currencyByAccount: fzcoCurrencies,
+    });
+    expect(events[0].account).toBe('emirates-islamic-gbp');
+    expect(events[0].currency).toBe('GBP');
   });
 });

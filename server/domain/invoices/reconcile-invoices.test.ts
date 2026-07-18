@@ -4,9 +4,14 @@ import type { ReconciliationPlan, ReconcileTransaction } from './reconcile-payme
 
 const buildReconciliationPlanMock = vi.fn<(input: unknown) => ReconciliationPlan>();
 const recordInvoicePaymentsMock = vi.fn<(input: unknown) => unknown>();
-const applyInvoiceStatusAfterPaymentsMock = vi.fn<
-  (payments: readonly InvoicePayment[]) => readonly { invoiceId: string; status: 'paid' | 'partial' }[]
+const syncInvoiceStatusesFromPaymentsMock = vi.fn<
+  (input: { invoiceId?: string }) => readonly { invoiceId: string; status: 'paid' | 'partial' }[]
 >();
+
+vi.mock('./auto-reconcile.js', () => ({
+  syncInvoiceStatusesFromPayments: (input: { invoiceId?: string }) =>
+    syncInvoiceStatusesFromPaymentsMock(input),
+}));
 
 vi.mock('./build-reconciliation-plan.js', () => ({
   RECONCILE_LOOKBACK_DAYS: 180,
@@ -15,11 +20,6 @@ vi.mock('./build-reconciliation-plan.js', () => ({
 
 vi.mock('./mutations.js', () => ({
   recordInvoicePayments: (input: unknown) => recordInvoicePaymentsMock(input),
-}));
-
-vi.mock('./auto-reconcile.js', () => ({
-  applyInvoiceStatusAfterPayments: (payments: readonly InvoicePayment[]) =>
-    applyInvoiceStatusAfterPaymentsMock(payments),
 }));
 
 const { reconcileInvoicesPersist, summariseReconciliationPlan } = await import('./reconcile-invoices.js');
@@ -63,7 +63,7 @@ function makePlan(
 beforeEach(() => {
   buildReconciliationPlanMock.mockReset();
   recordInvoicePaymentsMock.mockReset();
-  applyInvoiceStatusAfterPaymentsMock.mockReset();
+  syncInvoiceStatusesFromPaymentsMock.mockReset();
 });
 
 describe('summariseReconciliationPlan', () => {
@@ -94,7 +94,7 @@ describe('reconcileInvoicesPersist', () => {
       ok: true,
       payments: [PAYMENT, OTHER_PAYMENT],
     });
-    applyInvoiceStatusAfterPaymentsMock.mockReturnValue([
+    syncInvoiceStatusesFromPaymentsMock.mockReturnValue([
       { invoiceId: 'DC-011', status: 'paid' },
       { invoiceId: 'DC-010', status: 'paid' },
     ]);
@@ -118,7 +118,7 @@ describe('reconcileInvoicesPersist', () => {
       ok: true,
       payments: [PAYMENT],
     });
-    applyInvoiceStatusAfterPaymentsMock.mockReturnValue([
+    syncInvoiceStatusesFromPaymentsMock.mockReturnValue([
       { invoiceId: 'DC-011', status: 'paid' },
     ]);
 
@@ -144,6 +144,6 @@ describe('reconcileInvoicesPersist', () => {
     if (result.ok) return;
 
     expect(result.failure.code).toBe('duplicate-bank-tx');
-    expect(applyInvoiceStatusAfterPaymentsMock).not.toHaveBeenCalled();
+    expect(syncInvoiceStatusesFromPaymentsMock).not.toHaveBeenCalled();
   });
 });

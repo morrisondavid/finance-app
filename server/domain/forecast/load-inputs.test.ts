@@ -52,7 +52,7 @@ vi.mock('../../utils/recurring-upcoming.js', () => ({
   buildUpcomingRecurring: vi.fn(() => ({ thisMonth: [], thisYear: [] })),
 }));
 vi.mock('../invoices/index.js', () => ({
-  listInvoicesByStatus: vi.fn(() => []),
+  listUnpaidInvoicesForForecast: vi.fn(() => []),
 }));
 vi.mock('../contracts/queries.js', () => ({
   listCurrentContracts: vi.fn(() => []),

@@ -49,6 +49,7 @@ export {
   listInvoicesByContractId,
   listInvoicesByIssuingEntityId,
   listInvoicesByStatus,
+  listUnpaidInvoicesForForecast,
   latestInvoiceForContract,
   allInvoicePayments,
   listPaymentsForInvoice,
@@ -194,9 +195,15 @@ export { listReconcilableInvoices } from './list-reconcilable-invoices.js';
 export {
   autoReconcileHighConfidence,
   applyInvoiceStatusAfterPayments,
+  syncInvoiceStatusesFromPayments,
   type AutoReconcileHighConfidenceInput,
   type AutoReconcileHighConfidenceResult,
 } from './auto-reconcile.js';
+
+export {
+  runAutoReconcileAllEntities,
+  type RunAutoReconcileAllEntitiesResult,
+} from './run-auto-reconcile-all-entities.js';
 
 export {
   buildReconciliationPlan,

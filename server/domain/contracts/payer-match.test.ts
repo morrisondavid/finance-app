@@ -55,12 +55,27 @@ describe('matchPayerToContract', () => {
     expect(result.contract.id).toBe('dc-sow-2026');
   });
 
-  it('returns `outside-contract-window` for a deposit after every contract ended, pinned to the nearest contract', () => {
-    // lf-2026-apr (FZCO) ends 2026-04-30. A 2026-05-12 FZCO deposit
-    // from La Fosse falls outside any window — nearest is lf-2026-apr.
+  it('returns `in-contract` for a deposit in the trailing receivable window', () => {
     const result = matchPayerToContract({
       transaction: tx({
-        date: '2026-05-12',
+        date: '2026-05-15',
+        description: 'DELTA CAPITA PAYMENT REF DC-010',
+      }),
+      accountEntityId: 'autonize-it-ltd',
+      contractRegistry: FULL_REGISTRY,
+      clientRegistry: CLIENTS,
+    });
+    expect(result.kind).toBe('in-contract');
+    if (result.kind !== 'in-contract') return;
+    expect(result.contract.id).toBe('dc-sow-2026');
+  });
+
+  it('returns `outside-contract-window` for a deposit after the trailing window closed, pinned to the nearest contract', () => {
+    // lf-2026-apr (FZCO) ends 2026-04-30. Trailing window runs to ~2026-06-13;
+    // a 2026-06-20 FZCO deposit falls outside every window — nearest is lf-2026-apr.
+    const result = matchPayerToContract({
+      transaction: tx({
+        date: '2026-06-20',
         description: 'FZCO Wire: LA FOSSE ASSOCIATES LTD',
         account: 'FZCO - WIO',
       }),

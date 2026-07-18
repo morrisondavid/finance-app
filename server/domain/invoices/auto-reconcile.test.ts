@@ -4,7 +4,7 @@ import path from 'path';
 import os from 'os';
 import { parseClientRow } from '../clients/csv-io.js';
 import { agencyRow } from '../clients/test-helpers.js';
-import { applyInvoiceStatusAfterPayments } from './auto-reconcile.js';
+import { applyInvoiceStatusAfterPayments, syncInvoiceStatusesFromPayments } from './auto-reconcile.js';
 import { recordInvoicePayments } from './mutations.js';
 import { planReconciliation } from './reconcile-payments.js';
 import {
@@ -82,6 +82,33 @@ afterEach(() => {
   __resetInvoiceRegistryForTests();
   __resetInvoicePaymentRegistryForTests();
   fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe('syncInvoiceStatusesFromPayments', () => {
+  it('fixes issued status when a full payment row already exists on disk', () => {
+    const payment = {
+      id: 'ip-EG-0038-tx-1',
+      invoice_id: 'EG-0038',
+      bank_transaction_id: 'tx-1',
+      payment_date: '2025-12-24',
+      amount_paid: 1800,
+      deposit_currency: 'GBP' as const,
+      fx_rate_at_payment: null,
+      amount_in_invoice_currency: 1800,
+      fx_gain_loss: 0,
+      residual: 0,
+      created_at: TODAY,
+      updated_at: null,
+    };
+    recordInvoicePayments({ payments: [payment], invoicesDir: tmpDir });
+    __resetInvoicePaymentRegistryForTests(buildInvoicePaymentRegistry(tmpDir));
+
+    const updates = syncInvoiceStatusesFromPayments({ invoiceId: 'EG-0038', invoicesDir: tmpDir });
+    expect(updates).toEqual([{ invoiceId: 'EG-0038', status: 'paid' }]);
+
+    __resetInvoiceRegistryForTests(buildInvoiceRegistry(tmpDir));
+    expect(getInvoiceRegistry().indexes.byId.get('EG-0038')?.status).toBe('paid');
+  });
 });
 
 describe('applyInvoiceStatusAfterPayments', () => {

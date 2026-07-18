@@ -32,6 +32,7 @@ export {
   allContracts,
   findContractById,
   findContractForTransaction,
+  findContractForPaymentReceipt,
   listActiveContracts,
   listCurrentContracts,
   listContractsForForecast,

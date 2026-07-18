@@ -157,6 +157,34 @@ export function findContractForTransaction(
   return best;
 }
 
+/**
+ * Like {@link findContractForTransaction}, but also treats a deposit as
+ * in-contract when it lands in the trailing receivable window after
+ * `end_date` — `end_date` plus payment terms (and weekly cadence lag)
+ * plus {@link FORECAST_TRAILING_BUFFER_DAYS}. Matches how forecast keeps
+ * ended engagements until the final invoice could realistically be paid.
+ */
+export function findContractForPaymentReceipt(
+  query: FindContractForTransactionQuery,
+  reg: ContractRegistry = getContractRegistry(),
+): Contract | null {
+  const inWindow = findContractForTransaction(query, reg);
+  if (inWindow !== null) return inWindow;
+
+  const series = reg.indexes.byClientAndEntity.get(
+    clientEntityKey(query.clientId, query.issuingEntityId),
+  );
+  if (series === undefined) return null;
+
+  let best: Contract | null = null;
+  for (const c of series) {
+    if (query.date <= c.end_date) continue;
+    if (query.date > lastExpectedPaymentDate(c)) continue;
+    if (best === null || c.end_date > best.end_date) best = c;
+  }
+  return best;
+}
+
 export interface UpsertContractInput {
   readonly contract: Contract;
   /**

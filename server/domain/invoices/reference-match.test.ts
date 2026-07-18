@@ -50,10 +50,13 @@ describe('compactReference', () => {
 });
 
 describe('extractNarrativeReferenceKeys', () => {
-  it('extracts structured refs and merged adjacent tokens', () => {
-    const keys = extractNarrativeReferenceKeys('LA FOSSE LTD SB-280052 SB-28005 BG');
-    expect(keys).toContain('SB280052');
-    expect(keys).toContain('SB28005');
+  it('extracts SB refs from whitespace-compacted Emirates narratives', () => {
+    const keys = extractNarrativeReferenceKeys(
+      'INWARD REMITTANCE /INV/SB-298459SB-298461/INV/SB-2984 64SB-298460/INV/SB-298463',
+    );
+    expect(keys).toContain('SB298464');
+    expect(keys).toContain('SB298459');
+    expect(keys).toContain('SB298460');
   });
 });
 

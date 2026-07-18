@@ -3,7 +3,7 @@
  *
  * Codes (per obligation type):
  *   - `tax-reserve-underfunded` — reserve balance < liability for one obligation type
- *   - `tax-reserve-trajectory-missing` — projected contributions won't close the gap
+ *   - `tax-reserve-trajectory-missing` — projected contributions won't close the gap (critical)
  *
  * Pure: callers supply already-loaded data; this module does no I/O.
  */
@@ -224,7 +224,7 @@ export function deriveTaxReserveWarnings(
       out.push({
         id: `tax-reserve-trajectory-missing:${g.reserve.obligation_type}:${g.reserve.entity_id}`,
         code: 'tax-reserve-trajectory-missing',
-        severity: 'warn',
+        severity: 'critical',
         title: `${entityName} ${obligationName} reserve won't close the gap by ${dueDate}`,
         detail:
           `${g.reserve.reserve_account} balance ${balance} + projected monthly contribution ${monthlyContribution} ` +

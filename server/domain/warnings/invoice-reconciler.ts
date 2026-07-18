@@ -30,6 +30,8 @@ import type { ReconciliationPlan } from '../invoices/reconcile-payments.js';
 export interface DeriveInvoiceRowWarningsInput {
   readonly invoices: readonly Invoice[];
   readonly todayIso: string;
+  /** Sum of `amount_in_invoice_currency` per invoice — suppresses overdue when fully paid. */
+  readonly paidAmountByInvoiceId?: ReadonlyMap<string, number>;
 }
 
 export function deriveInvoiceRowWarnings(
@@ -38,7 +40,7 @@ export function deriveInvoiceRowWarnings(
   const out: EntityFoundationWarning[] = [];
   for (const inv of input.invoices) {
     appendStalePaymentReferenceWarning(inv, out);
-    appendInvoiceOverdueWarning(inv, input.todayIso, out);
+    appendInvoiceOverdueWarning(inv, input.todayIso, input.paidAmountByInvoiceId, out);
     appendPeriodInvalidWarning(inv, out);
   }
   return out;
@@ -174,9 +176,12 @@ function appendStalePaymentReferenceWarning(
 function appendInvoiceOverdueWarning(
   inv: Invoice,
   todayIso: string,
+  paidAmountByInvoiceId: ReadonlyMap<string, number> | undefined,
   out: EntityFoundationWarning[],
 ): void {
   if (inv.status !== 'issued' && inv.status !== 'partial') return;
+  const paid = paidAmountByInvoiceId?.get(inv.id) ?? 0;
+  if (inv.total - paid <= 0.01) return;
   if (inv.due_date >= todayIso) return;
   const daysOverdue = daysBetween(todayIso, inv.due_date);
   out.push({

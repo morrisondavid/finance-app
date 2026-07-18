@@ -8,7 +8,8 @@
  *      not, return `no-known-payer` — the warnings layer ignores it.
  *   2. Yes. Do we have an active contract with that client on the
  *      issuing entity that owns the receiving account, covering the
- *      transaction's date? Yes → `in-contract` — nothing to warn about.
+ *      transaction's date (including trailing payment terms after
+ *      `end_date`)? Yes → `in-contract` — nothing to warn about.
  *   3. Yes / no contract on that date. → `outside-contract-window`,
  *      pinned to the `nearestContract` so the warning message can say
  *      *"Nearest: lf-2026-mar ended 2026-04-30."*
@@ -32,7 +33,7 @@ import {
   buildNarrativeTokens,
   narrativeMatches,
 } from '../clients/narrative-match.js';
-import { findContractForTransaction } from './queries.js';
+import { findContractForPaymentReceipt } from './queries.js';
 import { getContractRegistry, type ContractRegistry } from './registry.js';
 import { getClientRegistry, type ClientRegistry } from '../clients/registry.js';
 
@@ -67,7 +68,7 @@ export function matchPayerToContract(
   const matchedClient = findPayerClient(input.transaction.description, clients);
   if (matchedClient === null) return { kind: 'no-known-payer' };
 
-  const active = findContractForTransaction(
+  const active = findContractForPaymentReceipt(
     {
       clientId: matchedClient.id,
       issuingEntityId: input.accountEntityId,

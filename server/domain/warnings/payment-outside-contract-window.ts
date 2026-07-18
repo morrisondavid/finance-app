@@ -4,7 +4,8 @@
  * One per business-account income transaction that:
  *   - is recognisably from a known client (narrative-match hit), AND
  *   - falls outside every active contract window for the (client,
- *     receiving entity) pair.
+ *     receiving entity) pair, including the trailing receivable window
+ *     after contract end (payment terms + buffer).
  *
  * This is the early-warning cousin of Phase 4's reconciler: the
  * reconciler will link each deposit to a specific invoice; until then,

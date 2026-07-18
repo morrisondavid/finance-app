@@ -3,7 +3,13 @@
  * Financial safety score loads lazily via GET /api/ai/financial-safety.
  */
 
-import type { AiFinancialSafetyResponse, AiLiquidityResponse, AiAvailableFundsResponse, AiSurvivalResponse } from '../../../shared/api-contracts.js';
+import type {
+  AiFinancialSafetyResponse,
+  AiLiquidityResponse,
+  AiAvailableFundsResponse,
+  AiSurvivalResponse,
+  ExpectedReceiptRow,
+} from '../../../shared/api-contracts.js';
 import { renderFinancialSafetyHero, renderTaxReserveNudges } from './financial-safety-hero.js';
 import {
   fetchLiquidity,
@@ -16,10 +22,16 @@ import {
 import { activateTabByName } from './tabs.js';
 import { loadObligations } from './obligations.js';
 import { formatCurrency, formatIsoDateUkLong, formatMonthYear } from '../utils/formatting';
-import { escapeHtml } from '../utils/dom';
+import { escapeHtml, openModal, closeModal } from '../utils/dom';
 import { state } from './state';
 
 const HERO_KICKER = 'Household liquidity';
+
+const FUTURE_INCOME_BREAKDOWN_MODAL_ID = 'future-income-breakdown-modal';
+const FUTURE_INCOME_BREAKDOWN_BODY_ID = 'future-income-breakdown-modal-body';
+const FUTURE_INCOME_BREAKDOWN_TITLE_ID = 'future-income-breakdown-modal-title';
+
+let futureIncomeBreakdownModalBound = false;
 
 let liquidityDashboardLoadGeneration = 0;
 let liquidityDashboardAbort: AbortController | null = null;
@@ -302,6 +314,150 @@ function renderCommitmentsDetail(commitments: CommitmentsOverview): string {
     </div>`;
 }
 
+function futureIncomeClients(available: AiAvailableFundsResponse): AiAvailableFundsResponse['futureIncomeByClient'] {
+  return available.futureIncomeByClient.length > 0
+    ? available.futureIncomeByClient
+    : available.futureIncomeByContract;
+}
+
+function renderFutureIncomeBreakdownClickableLine(
+  label: string,
+  amountGbp: number,
+  drillKind: 'source' | 'month',
+  drillKey: string,
+): string {
+  return `<li>
+      <button type="button" class="liquidity-dashboard__breakdown-row" data-future-income-drill="${drillKind}" data-future-income-key="${escapeHtml(drillKey)}">
+        <span class="liquidity-dashboard__insight-breakdown-label">${escapeHtml(label)}</span>
+        <span class="liquidity-dashboard__insight-breakdown-amount">${formatCurrency(amountGbp, 'GBP')}</span>
+      </button>
+    </li>`;
+}
+
+function renderFutureIncomeBreakdownSection(available: AiAvailableFundsResponse): string {
+  const clients = futureIncomeClients(available);
+  const clientLines = clients
+    .map((c, index) => renderFutureIncomeBreakdownClickableLine(c.label, c.totalGbp, 'source', String(index)))
+    .join('');
+  const monthLines = available.futureIncomeByMonth
+    .map(m => renderFutureIncomeBreakdownClickableLine(formatMonthYear(m.month), m.amountGbp, 'month', m.month))
+    .join('');
+
+  if (clientLines === '' && monthLines === '') {
+    return '';
+  }
+
+  return `<section class="liquidity-dashboard__hero-tile liquidity-dashboard__hero-tile--insight" aria-label="Future income breakdown">
+      <h3 class="liquidity-dashboard__pane-kicker">Future income breakdown</h3>
+      ${clientLines !== '' ? `<p class="liquidity-dashboard__insight-breakdown-heading">By source</p><ul class="liquidity-dashboard__insight-breakdown">${clientLines}</ul>` : ''}
+      ${monthLines !== '' ? `<p class="liquidity-dashboard__insight-breakdown-heading">By month (clients and rentals combined)</p><ul class="liquidity-dashboard__insight-breakdown">${monthLines}</ul>` : ''}
+    </section>`;
+}
+
+function receiptSourceLabel(receipt: ExpectedReceiptRow): string {
+  if (receipt.source === 'rental-income') return 'Rental';
+  if (receipt.source === 'invoice-receipt') return 'Invoice';
+  return 'Accrual';
+}
+
+function receiptDetailLabel(receipt: ExpectedReceiptRow): string {
+  if (receipt.invoiceId !== null) return receipt.invoiceId;
+  if (receipt.contractId !== null) return receipt.contractId;
+  if (receipt.obligationId !== null) return receipt.obligationId;
+  return '—';
+}
+
+function compareFutureIncomeReceiptRows(a: ExpectedReceiptRow, b: ExpectedReceiptRow): number {
+  const dateCmp = a.expectedDate.localeCompare(b.expectedDate);
+  if (dateCmp !== 0) return dateCmp;
+  const aKey = a.invoiceId ?? a.obligationId ?? a.contractId ?? '';
+  const bKey = b.invoiceId ?? b.obligationId ?? b.contractId ?? '';
+  return aKey.localeCompare(bKey);
+}
+
+function renderFutureIncomeReceiptList(receipts: ExpectedReceiptRow[]): string {
+  if (receipts.length === 0) {
+    return '<p class="liquidity-dashboard__breakdown-empty">No receipts in this selection.</p>';
+  }
+
+  const rows = receipts
+    .slice()
+    .sort(compareFutureIncomeReceiptRows)
+    .map(
+      receipt => `<li class="liquidity-dashboard__receipt-row">
+          <span class="liquidity-dashboard__receipt-date">${escapeHtml(formatIsoDateUkLong(receipt.expectedDate))}</span>
+          <span class="liquidity-dashboard__receipt-meta">${escapeHtml(receiptSourceLabel(receipt))} · ${escapeHtml(receiptDetailLabel(receipt))}</span>
+          <span class="liquidity-dashboard__receipt-amount">${formatCurrency(receipt.amount, receipt.currency)}</span>
+          <span class="liquidity-dashboard__receipt-account">${escapeHtml(receipt.account)}</span>
+        </li>`,
+    )
+    .join('');
+
+  return `<ul class="liquidity-dashboard__receipt-list">${rows}</ul>`;
+}
+
+function openFutureIncomeDrillModal(drillKind: 'source' | 'month', drillKey: string): void {
+  if (cachedAvailableFunds === null) return;
+  const available = cachedAvailableFunds;
+  const body = document.getElementById(FUTURE_INCOME_BREAKDOWN_BODY_ID);
+  const title = document.getElementById(FUTURE_INCOME_BREAKDOWN_TITLE_ID);
+  if (body === null) return;
+
+  let modalTitle = 'Future income';
+  let modalBody = '';
+
+  if (drillKind === 'source') {
+    const clients = futureIncomeClients(available);
+    const index = Number(drillKey);
+    if (!Number.isInteger(index) || index < 0 || index >= clients.length) return;
+    const client = clients[index];
+    modalTitle = client.label;
+    modalBody = renderFutureIncomeReceiptList(client.receipts);
+  } else {
+    const receipts = available.futureIncome.filter(receipt => receipt.expectedDate.startsWith(drillKey));
+    modalTitle = formatMonthYear(drillKey);
+    modalBody = renderFutureIncomeReceiptList(receipts);
+  }
+
+  if (title !== null) {
+    title.textContent = modalTitle;
+  }
+  body.innerHTML = `<p class="liquidity-dashboard__insight-sub">${String(available.months)} month projection to ${escapeHtml(formatIsoDateUkLong(available.projectionEndDate))}</p>${modalBody}`;
+  openModal(FUTURE_INCOME_BREAKDOWN_MODAL_ID);
+}
+
+function bindFutureIncomeBreakdownModal(): void {
+  if (futureIncomeBreakdownModalBound) return;
+  futureIncomeBreakdownModalBound = true;
+
+  const close = (): void => {
+    closeModal(FUTURE_INCOME_BREAKDOWN_MODAL_ID);
+  };
+
+  document.getElementById('future-income-breakdown-modal-close')?.addEventListener('click', close);
+  document.getElementById('future-income-breakdown-modal-dismiss')?.addEventListener('click', close);
+  document.getElementById(FUTURE_INCOME_BREAKDOWN_MODAL_ID)?.addEventListener('click', e => {
+    if (e.target === e.currentTarget) close();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    const modal = document.getElementById(FUTURE_INCOME_BREAKDOWN_MODAL_ID);
+    if (modal instanceof HTMLElement && modal.style.display === 'flex') close();
+  });
+
+  document.addEventListener('click', e => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+    const trigger = target.closest('[data-future-income-drill]');
+    if (!(trigger instanceof HTMLButtonElement)) return;
+    const drillKind = trigger.dataset.futureIncomeDrill;
+    const drillKey = trigger.dataset.futureIncomeKey;
+    if (drillKind !== 'source' && drillKind !== 'month') return;
+    if (drillKey === undefined || drillKey === '') return;
+    openFutureIncomeDrillModal(drillKind, drillKey);
+  });
+}
+
 function renderInsightPods(
   available: AiAvailableFundsResponse | null,
   survival: AiSurvivalResponse | null,
@@ -311,26 +467,7 @@ function renderInsightPods(
   let blocks = '';
 
   if (available !== null) {
-    const clients = available.futureIncomeByClient.length > 0
-      ? available.futureIncomeByClient
-      : available.futureIncomeByContract;
-    const clientLines = clients
-      .map(c => `<li>
-          <span class="liquidity-dashboard__insight-breakdown-label">${escapeHtml(c.label)}</span>
-          <span class="liquidity-dashboard__insight-breakdown-amount">${formatCurrency(c.totalGbp, 'GBP')}</span>
-        </li>`)
-      .join('');
-    const monthLines = available.futureIncomeByMonth
-      .map(
-        m => `<li><span class="liquidity-dashboard__insight-breakdown-label">${escapeHtml(formatMonthYear(m.month))}</span><span class="liquidity-dashboard__insight-breakdown-amount">${formatCurrency(m.amountGbp, 'GBP')}</span></li>`,
-      )
-      .join('');
-
-    blocks += `<section class="liquidity-dashboard__hero-tile liquidity-dashboard__hero-tile--insight" aria-label="Future income breakdown">
-        <h3 class="liquidity-dashboard__pane-kicker">Future income breakdown</h3>
-        ${clientLines !== '' ? `<p class="liquidity-dashboard__insight-breakdown-heading">By source</p><ul class="liquidity-dashboard__insight-breakdown">${clientLines}</ul>` : ''}
-        ${monthLines !== '' ? `<p class="liquidity-dashboard__insight-breakdown-heading">By month (all clients combined)</p><ul class="liquidity-dashboard__insight-breakdown">${monthLines}</ul>` : ''}
-      </section>`;
+    blocks += renderFutureIncomeBreakdownSection(available);
 
     if (available.lastContractPayment !== null) {
       const lp = available.lastContractPayment;
@@ -507,6 +644,7 @@ export async function loadLiquidityDashboard(): Promise<void> {
   liquidityDashboardAbort = ac;
 
   el.innerHTML = renderSkeleton();
+  bindFutureIncomeBreakdownModal();
 
   try {
     const [data, availableFunds] = await Promise.all([

@@ -122,6 +122,28 @@ describe('deriveInvoiceRowWarnings', () => {
     expect(warnings.map(w => w.code)).not.toContain('invoice-overdue');
   });
 
+  it('does not flag issued invoices fully covered by payment rows', () => {
+    const inv = makeInvoice({
+      id: 'FZ-0008',
+      invoice_number: 'FZ-0008',
+      payment_reference: 'SB-298460',
+      status: 'issued',
+      total: 500,
+      subtotal: 500,
+      vat_amount: 0,
+      due_date: '2026-06-27',
+      contract_id: 'lf-2026-may',
+    });
+
+    const warnings = deriveInvoiceRowWarnings({
+      invoices: [inv],
+      todayIso: TODAY,
+      paidAmountByInvoiceId: new Map([['FZ-0008', 500]]),
+    });
+
+    expect(warnings.map(w => w.code)).not.toContain('invoice-overdue');
+  });
+
   it('does not flag issued invoices that are not yet due', () => {
     const inv = makeInvoice({
       id: 'DC-011',

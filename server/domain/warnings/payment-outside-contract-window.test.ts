@@ -39,11 +39,26 @@ function entityIdFor(account: string): EntityId | null {
 }
 
 describe('collectPaymentOutsideContractWindow', () => {
-  it('emits a warning for a known payer depositing after the contract ended', () => {
+  it('emits nothing for a trailing receivable deposit after contract end', () => {
     const warnings = collectPaymentOutsideContractWindow({
       transactions: [
         tx({
-          date: '2026-07-15',
+          date: '2026-07-01',
+          description: 'DELTA CAPITA LTD DC-012 BGC',
+          account: BARCLAYS,
+          amount: 12654,
+        }),
+      ],
+      accountEntityId: entityIdFor,
+    });
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('emits a warning for a known payer depositing after the trailing window closed', () => {
+    const warnings = collectPaymentOutsideContractWindow({
+      transactions: [
+        tx({
+          date: '2026-08-10',
           description: 'DELTA CAPITA BACS',
           account: BARCLAYS,
           amount: 13200,
@@ -92,7 +107,7 @@ describe('collectPaymentOutsideContractWindow', () => {
 
   it('dedupes identical outside-window deposits', () => {
     const row = tx({
-      date: '2026-07-15',
+      date: '2026-08-10',
       description: 'DELTA CAPITA BACS',
       account: BARCLAYS,
       amount: 13200,

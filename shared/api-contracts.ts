@@ -2945,6 +2945,8 @@ export const AiFutureIncomeClientSchema = z.object({
   totalGbp: z.number(),
   /** After-tax retained total in GBP (matches the funds headline semantics). */
   retainedGbp: z.number(),
+  /** Receipt rows backing this source total (for dashboard drill-down). */
+  receipts: z.array(ExpectedReceiptRowSchema),
 });
 export type AiFutureIncomeClient = z.infer<typeof AiFutureIncomeClientSchema>;
 

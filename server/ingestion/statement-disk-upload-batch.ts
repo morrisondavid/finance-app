@@ -8,6 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { normalizeFileOnDisk } from '../utils/filename-normalizer.js';
 import { initDatabase } from '../db/index.js';
+import { runAutoReconcileAllEntities } from '../domain/invoices/run-auto-reconcile-all-entities.js';
 import type { UploadedFile, UploadResponse } from '../types.js';
 import { ACCOUNTS } from '../types.js';
 import type { AccountName } from '../types.js';
@@ -216,6 +217,7 @@ export async function executeStatementDiskUpload(opts: {
       console.log('[Upload batch] Reinitializing database after CSV upload...');
       await initDatabase();
       console.log('[Upload batch] Database reinitialized successfully');
+      runAutoReconcileAllEntities();
       try {
         await uploadDurableRelPathsToS3([...durableRelPathsTouched, 'data/manifest.json'], 'csv-upload');
       } catch (err) {

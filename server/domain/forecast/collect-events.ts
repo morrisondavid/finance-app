@@ -47,6 +47,25 @@ function accountCurrency(
   return currencyByAccount.get(account) ?? 'GBP';
 }
 
+/**
+ * Resolve the entity account whose currency matches `currency` (e.g. a GBP
+ * invoice issued by FZCO lands on `emirates-islamic-gbp`, not the AED
+ * primary). Falls back to the primary account when no currency match exists.
+ */
+export function accountForEntityCurrency(
+  entityId: EntityId,
+  currency: CurrencyCode,
+  accountsByEntity: ReadonlyMap<EntityId, readonly AccountName[]>,
+  currencyByAccount: ReadonlyMap<AccountName, CurrencyCode>,
+): AccountName | null {
+  const accounts = accountsByEntity.get(entityId);
+  if (!accounts || accounts.length === 0) return null;
+  const matching = accounts.find(
+    account => currencyByAccount.get(account) === currency,
+  );
+  return matching ?? accounts[0];
+}
+
 // ─── 1. Obligations ──────────────────────────────────────────────────────────
 
 export interface CollectObligationEventsInput {
@@ -210,7 +229,12 @@ export function collectInvoiceReceiptEvents(
   const events: ForecastEvent[] = [];
 
   for (const inv of unpaidInvoices) {
-    const account = primaryAccountForEntity(inv.issuing_entity_id, accountsByEntity);
+    const account = accountForEntityCurrency(
+      inv.issuing_entity_id,
+      inv.currency,
+      accountsByEntity,
+      currencyByAccount,
+    );
     if (!account) continue;
 
     const receiptDate = inv.due_date < today
@@ -222,7 +246,9 @@ export function collectInvoiceReceiptEvents(
       date: receiptDate,
       amount: inv.total,
       account,
-      currency: accountCurrency(account, currencyByAccount),
+      // The invoice's own currency, not the account default — a GBP invoice
+      // stays GBP even when the entity's primary account is AED.
+      currency: inv.currency,
       source: 'invoice-receipt',
       label: `Invoice ${inv.id}`,
     });

@@ -164,6 +164,7 @@ interface ClientAccum {
   label: string;
   totalGbp: number;
   retainedGbp: number;
+  receipts: ExpectedReceiptRow[];
 }
 
 export function composeAiAvailableFunds(
@@ -236,10 +237,12 @@ export function composeAiAvailableFunds(
         label,
         totalGbp: gbp,
         retainedGbp: retainedSlice,
+        receipts: [r],
       });
     } else {
       existing.totalGbp += gbp;
       existing.retainedGbp += retainedSlice;
+      existing.receipts.push(r);
     }
   }
   confirmedFutureIncomeGrossGbp = round2(confirmedFutureIncomeGrossGbp);
@@ -280,6 +283,7 @@ export function composeAiAvailableFunds(
       label: v.label,
       totalGbp: round2(v.totalGbp),
       retainedGbp: round2(v.retainedGbp),
+      receipts: v.receipts,
     }))
     .sort((a, b) => b.totalGbp - a.totalGbp);
 

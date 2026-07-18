@@ -52,7 +52,7 @@ import {
 } from '../clients/narrative-match.js';
 import { pairBestMatches } from '../../utils/payment-matcher.js';
 import {
-  amountWithinTolerance,
+  INVOICE_AMOUNT_EPSILON,
   resolveExpandedInvoiceGroup,
 } from './expand-invoice-group.js';
 import {
@@ -94,7 +94,11 @@ export type MatchConfidence = 'reference-exact' | 'amount-only';
 export interface ReconcileOptions {
   /** Max |tx.date - invoice.due_date| in days. Default 90. */
   readonly maxProximityDays?: number;
-  /** Max |amountDelta| / invoice.total. Default 0.05 (5%). */
+  /**
+   * Max |amountDelta| / invoice.total for **cross-currency** pairs converted
+   * via `fx_rate_at_issue`. Default 0.05 (5%). Same-currency payments always
+   * match exactly (±£0.01) — invoice payments carry no percentage tolerance.
+   */
   readonly amountTolerance?: number;
   /**
    * `created_at` stamped on each `proposedPayment`. Default
@@ -148,9 +152,8 @@ export interface PlanReconciliationInput {
 }
 
 const DEFAULT_MAX_PROXIMITY_DAYS = 90;
+/** Cross-currency (FX) tolerance only — same-currency matches are exact. */
 const DEFAULT_AMOUNT_TOLERANCE = 0.05;
-/** Tight tolerance for reference-anchored batch/single matches (auto-persist). */
-const REFERENCE_EXACT_TOLERANCE = 0.01;
 /** Days-of-drift weight relative to amount — keeps amount the dominant signal. */
 const DATE_WEIGHT = 1 / 30;
 /** Bonus subtracted from a pair's score when the bank narrative names the client. */
@@ -187,16 +190,29 @@ export function planReconciliation(
   const settledBankTxIds = new Set(
     input.existingPayments.map(p => p.bank_transaction_id),
   );
+
+  const referenceIndex = buildReferenceIndex(matchableInvoices);
+  const sortedIndexKeys = referenceIndexKeys(referenceIndex);
+  const clientsByEntity = clientsWithInvoicesForEntity(
+    input.invoices,
+    input.clientsById,
+  );
+
   const matchableTransactions = input.transactions.filter(tx =>
-    isInvoiceReconcilableDeposit(tx, settledBankTxIds, input.transactions),
+    isInvoiceReconcilableDeposit({
+      tx,
+      settledBankTxIds,
+      allTransactions: input.transactions,
+      clientsById: input.clientsById,
+      clientsForEntity: clientsByEntity.get(tx.entityId) ?? [],
+      referenceIndex,
+      sortedIndexKeys,
+    }),
   );
 
   const notes: ReconciliationNote[] = [];
   const paymentConfidence = new Map<string, MatchConfidence>();
   const referenceCitedIssues: ReferenceCitedDepositIssue[] = [];
-
-  const referenceIndex = buildReferenceIndex(matchableInvoices);
-  const sortedIndexKeys = referenceIndexKeys(referenceIndex);
 
   const batchResult = planReferenceBatchMatches({
     matchableInvoices,
@@ -206,7 +222,6 @@ export function planReconciliation(
     referenceIndex,
     sortedIndexKeys,
     maxProximityDays,
-    amountTolerance,
     resolveDepositAmount,
     createdAt,
     notes,
@@ -259,7 +274,7 @@ export function planReconciliation(
       notes.push({
         invoiceId: invoice.id,
         code: 'no-candidate',
-        detail: `No bank deposit qualified within ±${maxProximityDays} days / ${formatPercent(amountTolerance)} of invoice ${invoice.id}.`,
+        detail: `No bank deposit qualified within ±${maxProximityDays} days of invoice ${invoice.id} (exact amount; FX tolerance ${formatPercent(amountTolerance)}).`,
       });
       continue;
     }
@@ -316,7 +331,6 @@ interface ReferenceBatchMatchInput {
   readonly referenceIndex: ReadonlyMap<string, readonly Invoice[]>;
   readonly sortedIndexKeys: readonly string[];
   readonly maxProximityDays: number;
-  readonly amountTolerance: number;
   readonly resolveDepositAmount: (tx: ReconcileTransaction) => number;
   readonly createdAt: string;
   readonly notes: ReconciliationNote[];
@@ -394,6 +408,9 @@ function planReferenceBatchMatches(
 
     const clientId = seed[0]!.client_id;
     const pool = input.matchableInvoices.filter(inv => {
+      // Paid-but-unlinked (drift) invoices may only join a batch when the
+      // narrative cites them (seed); they must not be pulled in as filler.
+      if (inv.status === 'paid' && !seed.some(s => s.id === inv.id)) return false;
       if (inv.client_id !== clientId) return false;
       if (inv.issuing_entity_id !== tx.entityId) return false;
       if (residualAmount(inv, input.residualByInvoice) <= 0) return false;
@@ -410,7 +427,6 @@ function planReferenceBatchMatches(
       seed,
       pool,
       targetAmount: depositAmount,
-      toleranceFraction: input.amountTolerance,
       amountFor,
     });
 
@@ -455,14 +471,9 @@ function planReferenceBatchMatches(
 
     const group = expanded.invoices;
     const groupResidual = group.reduce((sum, inv) => sum + amountFor(inv), 0);
-    const exactTolerance = Math.min(input.amountTolerance, REFERENCE_EXACT_TOLERANCE);
-    const confidence: MatchConfidence = amountWithinTolerance(
-      depositAmount,
-      groupResidual,
-      exactTolerance,
-    )
-      ? 'reference-exact'
-      : 'amount-only';
+    // The expansion only returns groups whose residual sum equals the deposit
+    // to the penny, so every batch match is reference-exact by construction.
+    const confidence: MatchConfidence = 'reference-exact';
 
     for (const invoice of group) {
       const residualBefore = amountFor(invoice);
@@ -569,20 +580,43 @@ function scorePair(
     };
   }
 
-  const amountFraction =
-    Math.abs(conversion.amountInInvoiceCurrency - target) / target;
-  if (amountFraction > ctx.amountTolerance) {
+  const amountDelta = Math.abs(conversion.amountInInvoiceCurrency - target);
+  const amountFraction = amountDelta / target;
+  if (tx.currency === invoice.currency) {
+    // Same-currency payments must match to the penny — no percentage
+    // tolerance on invoice payments. FX conversions are handled below.
+    if (amountDelta > INVOICE_AMOUNT_EPSILON) {
+      return {
+        kind: 'disqualified',
+        code: 'amount-out-of-tolerance',
+        detail: `Deposit ${tx.id} (${formatMoney(conversion.amountInInvoiceCurrency, invoice.currency)}) does not equal invoice ${invoice.id} target (${formatMoney(target, invoice.currency)}); same-currency payments must match exactly.`,
+      };
+    }
+  } else if (amountFraction > ctx.amountTolerance) {
     return {
       kind: 'disqualified',
       code: 'amount-out-of-tolerance',
-      detail: `Deposit ${tx.id} (${formatMoney(conversion.amountInInvoiceCurrency, invoice.currency)}) differs ${formatPercent(amountFraction)} from invoice ${invoice.id} target (${formatMoney(target, invoice.currency)}); tolerance ±${formatPercent(ctx.amountTolerance)}.`,
+      detail: `Deposit ${tx.id} (${formatMoney(conversion.amountInInvoiceCurrency, invoice.currency)}) differs ${formatPercent(amountFraction)} from invoice ${invoice.id} target (${formatMoney(target, invoice.currency)}); FX tolerance ±${formatPercent(ctx.amountTolerance)}.`,
     };
   }
 
   const client = ctx.clientsById.get(invoice.client_id);
-  const narrativeBoost = client !== undefined && hasNarrativeMatch(client, invoice, tx)
-    ? -NARRATIVE_BONUS
-    : 0;
+  const narrativeMatched =
+    client !== undefined && hasNarrativeMatch(client, invoice, tx);
+
+  // Paid-but-unlinked (drift) invoices are only repairable when the deposit
+  // narrative actually names the payer or cites the invoice — amount+date
+  // alone would pair them with unrelated equal-amount deposits (e.g.
+  // standing orders).
+  if (invoice.status === 'paid' && !narrativeMatched) {
+    return {
+      kind: 'disqualified',
+      code: 'no-candidate',
+      detail: `Invoice ${invoice.id} is already marked paid; deposit ${tx.id} narrative does not name the payer or cite the invoice, so it cannot repair the missing payment link.`,
+    };
+  }
+
+  const narrativeBoost = narrativeMatched ? -NARRATIVE_BONUS : 0;
 
   // Amount is the dominant signal; date adds at most ~3 over a 90-day
   // window; narrative is a small tie-breaker so two equal-amount, equal-date
@@ -696,18 +730,76 @@ function buildPayment(input: BuildPaymentInput): InvoicePayment {
 /** Client invoice settlements are never micro-deposits (card FX legs, etc.). */
 const MIN_INVOICE_DEPOSIT_AMOUNT = 1;
 
-function isInvoiceReconcilableDeposit(
-  tx: ReconcileTransaction,
-  settledBankTxIds: ReadonlySet<string>,
-  allTransactions: readonly ReconcileTransaction[],
+interface InvoiceReconcilableDepositInput {
+  readonly tx: ReconcileTransaction;
+  readonly settledBankTxIds: ReadonlySet<string>;
+  readonly allTransactions: readonly ReconcileTransaction[];
+  readonly clientsById: ReadonlyMap<ClientId, Client>;
+  readonly clientsForEntity: readonly Client[];
+  readonly referenceIndex: ReadonlyMap<string, readonly Invoice[]>;
+  readonly sortedIndexKeys: readonly string[];
+}
+
+/** Clients that have at least one invoice for the entity. */
+function clientsWithInvoicesForEntity(
+  invoices: readonly Invoice[],
+  clientsById: ReadonlyMap<ClientId, Client>,
+): ReadonlyMap<EntityId, readonly Client[]> {
+  const clientIdsByEntity = new Map<EntityId, Set<ClientId>>();
+  for (const invoice of invoices) {
+    const set = clientIdsByEntity.get(invoice.issuing_entity_id) ?? new Set<ClientId>();
+    set.add(invoice.client_id);
+    clientIdsByEntity.set(invoice.issuing_entity_id, set);
+  }
+
+  const out = new Map<EntityId, readonly Client[]>();
+  for (const [entityId, clientIds] of clientIdsByEntity) {
+    const clients = [...clientIds]
+      .map(id => clientsById.get(id))
+      .filter((client): client is Client => client !== undefined);
+    out.set(entityId, clients);
+  }
+  return out;
+}
+
+function depositCitesKnownInvoiceReference(
+  description: string,
+  referenceIndex: ReadonlyMap<string, readonly Invoice[]>,
+  sortedIndexKeys: readonly string[],
 ): boolean {
+  return findReferencedInvoices(description, referenceIndex, sortedIndexKeys).kind !== 'none';
+}
+
+function depositNarrativeNamesClient(
+  description: string,
+  clients: readonly Client[],
+): boolean {
+  for (const client of clients) {
+    if (narrativeMatches(description, buildNarrativeTokens(client))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isInvoiceReconcilableDeposit(input: InvoiceReconcilableDepositInput): boolean {
+  const { tx, settledBankTxIds, allTransactions } = input;
   if (tx.amount < MIN_INVOICE_DEPOSIT_AMOUNT) return false;
   if (settledBankTxIds.has(tx.id)) return false;
   if (/\bREFUND\b/i.test(tx.description)) return false;
   if (isDuplicateSettledRemittanceLeg(tx, settledBankTxIds, allTransactions)) {
     return false;
   }
-  return true;
+
+  if (depositCitesKnownInvoiceReference(
+    tx.description,
+    input.referenceIndex,
+    input.sortedIndexKeys,
+  )) {
+    return true;
+  }
+
+  return depositNarrativeNamesClient(tx.description, input.clientsForEntity);
 }
 
 /**

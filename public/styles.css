@@ -328,6 +328,77 @@ body {
   font-weight: 600;
 }
 
+#future-income-breakdown-modal.modal-overlay .modal-footer {
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  flex-shrink: 0;
+}
+
+.liquidity-dashboard__breakdown-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.liquidity-dashboard__breakdown-row:hover,
+.liquidity-dashboard__breakdown-row:focus-visible {
+  color: var(--color-text, #0f172a);
+}
+
+.liquidity-dashboard__breakdown-row:focus-visible {
+  outline: 2px solid var(--focus-ring, #3b82f6);
+  outline-offset: 2px;
+}
+
+.liquidity-dashboard__receipt-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.liquidity-dashboard__receipt-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: 8px 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  font-size: 0.875rem;
+}
+
+.liquidity-dashboard__receipt-row:last-child {
+  border-bottom: none;
+}
+
+.liquidity-dashboard__receipt-date {
+  font-variant-numeric: tabular-nums;
+}
+
+.liquidity-dashboard__receipt-meta {
+  color: var(--color-text-muted, #64748b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.liquidity-dashboard__receipt-amount {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.liquidity-dashboard__receipt-account {
+  grid-column: 2 / -1;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted, #64748b);
+}
+
 .liquidity-dashboard__insight-breakdown-meta {
   display: block;
   font-size: 0.75rem;

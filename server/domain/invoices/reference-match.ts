@@ -69,6 +69,17 @@ export function extractNarrativeReferenceKeys(description: string): readonly str
     }
   }
 
+  // Emirates Islamic narratives concatenate `/INV/SB-298459SB-298461/` and may
+  // wrap mid-reference (`SB-2984 64` → SB-298464). Scan a whitespace-free
+  // compact form so line breaks do not drop cited SB numbers.
+  const compactNarrative = normaliseForMatch(description).replace(/\s+/g, '');
+  for (const match of compactNarrative.matchAll(/SB-?(\d+)/gi)) {
+    const digits = match[1];
+    if (digits !== undefined && digits.length > 0) {
+      keys.add(compactReference(`SB-${digits}`));
+    }
+  }
+
   for (const match of description.matchAll(/\b([A-Z]{2,4})\s*-?\s*(\d+)\b/gi)) {
     const prefix = match[1];
     const digits = match[2];
@@ -79,6 +90,13 @@ export function extractNarrativeReferenceKeys(description: string): readonly str
 
   return [...keys];
 }
+
+/**
+ * Narrative tokens shorter than this never participate in prefix matching —
+ * a stray `F` or `LTD` must not "cite" `FZ-0001` just because it happens to
+ * be a unique prefix of one index key.
+ */
+const MIN_PREFIX_KEY_LENGTH = 5;
 
 export type ReferenceLookupResult =
   | {
@@ -133,6 +151,9 @@ export function findReferencedInvoices(
       continue;
     }
 
+    if (nKey.length < MIN_PREFIX_KEY_LENGTH) {
+      continue;
+    }
     const prefixMatches = sortedIndexKeys.filter(
       key => key.startsWith(nKey) && key.length > nKey.length,
     );

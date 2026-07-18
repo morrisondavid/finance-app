@@ -14,9 +14,11 @@ import {
   listInvoicesByContractId,
   listInvoicesByIssuingEntityId,
   listInvoicesByStatus,
+  listUnpaidInvoicesForForecast,
 } from './queries.js';
 import { makeTestInvoiceRegistry } from './fixtures.js';
 import { buildInvoiceRegistryFromData } from './registry.js';
+import { buildInvoicePaymentRegistryFromData } from './payments-registry.js';
 import { parseInvoiceRow } from './csv-io.js';
 import { dcInvoice001, dcInvoice002, fzcoInvoice001 } from './test-helpers.js';
 
@@ -79,6 +81,43 @@ describe('listInvoicesByStatus', () => {
 
   it('returns an empty list for an unused status', () => {
     expect(listInvoicesByStatus('draft', full)).toEqual([]);
+  });
+});
+
+describe('listUnpaidInvoicesForForecast', () => {
+  it('excludes issued invoices fully covered by payment rows', () => {
+    const issued = parseInvoiceRow({
+      ...fzcoInvoice001,
+      id: 'FZ-0099',
+      invoice_number: 'FZ-0099',
+      payment_reference: 'FZ-0099',
+      status: 'issued',
+      total: '2000',
+      subtotal: '2000',
+      vat_amount: '0',
+    });
+    const stillDue = parseInvoiceRow(fzcoInvoice001);
+    const invoiceReg = buildInvoiceRegistryFromData([issued, stillDue]);
+    const paymentReg = buildInvoicePaymentRegistryFromData([
+      {
+        id: 'ip-fz-paid',
+        invoice_id: 'FZ-0099',
+        bank_transaction_id: 'tx-1',
+        payment_date: '2026-06-01',
+        amount_paid: 2000,
+        deposit_currency: 'GBP',
+        fx_rate_at_payment: null,
+        amount_in_invoice_currency: 2000,
+        fx_gain_loss: 0,
+        residual: 0,
+        created_at: '2026-06-01',
+        updated_at: null,
+      },
+    ]);
+
+    expect(listUnpaidInvoicesForForecast(invoiceReg, paymentReg).map(i => i.id)).toEqual([
+      'FZ-0001',
+    ]);
   });
 });
 

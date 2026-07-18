@@ -107,6 +107,7 @@ describe('tax-reserve-trajectory-missing', () => {
     });
     const w = out.find(o => o.code === 'tax-reserve-trajectory-missing');
     expect(w).toBeDefined();
+    expect(w?.severity).toBe('critical');
     expect(w?.context?.monthlyContribution).toBe(1000);
     expect(w?.context?.gap).toBeGreaterThan(0);
     expect(w?.context?.monthlyTopUpNeeded).toBeGreaterThan(0);

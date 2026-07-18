@@ -12,6 +12,7 @@ import type {
   EntityId,
   InvoicePayment,
 } from '../../../shared/api-contracts.js';
+import { round2 } from '../../utils/math.js';
 import type { Invoice, InvoiceId, InvoiceStatus } from './schema.js';
 import {
   getInvoiceRegistry,
@@ -65,6 +66,36 @@ export function listInvoicesByStatus(
   reg: InvoiceRegistry = getInvoiceRegistry(),
 ): readonly Invoice[] {
   return reg.indexes.byStatus.get(status) ?? [];
+}
+
+/**
+ * Invoices that still have forecastable receipt balance — payment-aware,
+ * not status-only. Excludes rows fully covered by `invoice_payments` even
+ * when CSV status is still `issued`.
+ */
+export function listUnpaidInvoicesForForecast(
+  invoiceReg: InvoiceRegistry = getInvoiceRegistry(),
+  paymentReg: InvoicePaymentRegistry = getInvoicePaymentRegistry(),
+): readonly Invoice[] {
+  const paidByInvoice = new Map<string, number>();
+  for (const payment of paymentReg.all) {
+    const current = paidByInvoice.get(payment.invoice_id) ?? 0;
+    paidByInvoice.set(
+      payment.invoice_id,
+      round2(current + payment.amount_in_invoice_currency),
+    );
+  }
+
+  const unpaid: Invoice[] = [];
+  for (const invoice of invoiceReg.all) {
+    if (invoice.status !== 'issued' && invoice.status !== 'partial') continue;
+    const paid = paidByInvoice.get(invoice.id) ?? 0;
+    const residual = round2(invoice.total - paid);
+    if (residual > 0.01) {
+      unpaid.push(invoice);
+    }
+  }
+  return unpaid;
 }
 
 /**
