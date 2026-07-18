@@ -39,6 +39,8 @@ deploy/aws/config.sh
 deploy/aws/env.local.sh
 deploy/aws/production-env.local.sh
 deploy/aws/.elastic-ip
+deploy/hostinger/config.sh
+deploy/hostinger/production-env.local.sh
 
 # Enable ASPSP list dumps (regenerate: npm run enable-banking -- aspsps GB --out aspsps-gb.json)
 aspsps-*.json

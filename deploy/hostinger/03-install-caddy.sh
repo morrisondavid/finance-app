@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Install Caddy on Ubuntu/Debian (Hostinger KVM).
 set -euo pipefail
 
 ARCH=$(uname -m)
@@ -20,7 +19,9 @@ sudo chmod +x /usr/local/bin/caddy
 
 sudo useradd --system --home /var/lib/caddy --shell /usr/sbin/nologin caddy 2>/dev/null || true
 sudo mkdir -p /etc/caddy /var/lib/caddy
+sudo chown -R caddy:caddy /var/lib/caddy
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-sudo cp "${SCRIPT_DIR}/../aws/caddy/Caddyfile.example" /etc/caddy/Caddyfile
-echo "Edit /etc/caddy/Caddyfile if needed, then run Caddy (systemd or foreground)."
-echo "Example: sudo /usr/local/bin/caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"
+sudo cp "${SCRIPT_DIR}/Caddyfile.example" /etc/caddy/Caddyfile
+sudo cp "${SCRIPT_DIR}/caddy.service.example" /etc/systemd/system/caddy.service
+sudo systemctl daemon-reload
+sudo systemctl enable caddy

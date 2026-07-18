@@ -45,4 +45,4 @@ Push to GHCR/Docker Hub from laptop; on VPS `docker login` and `docker pull`. Se
 scp -r deploy/hostinger user@YOUR_HOSTINGER_IP:~/bank-deploy-hostinger
 ```
 
-On VPS: `cd ~/bank-deploy-hostinger`, copy `config.example.sh` → `config.sh`, add `production-env.local.sh`, run `04-docker-run-production.sh`.
+On VPS: `cd ~/bank-deploy-hostinger`, copy `config.example.sh` → `config.sh`, **scp** `production-env.local.sh` from your laptop (or first-time only `./init-production-env.sh` — never `cp` the example over an existing file), run `04-docker-run-production.sh`.

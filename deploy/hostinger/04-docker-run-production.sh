@@ -7,10 +7,9 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 source "${ROOT}/config.sh"
 
 SITE_ENV_LOCAL="${ROOT}/production-env.local.sh"
-if [[ -f "${SITE_ENV_LOCAL}" ]]; then
-  # shellcheck source=/dev/null
-  source "${SITE_ENV_LOCAL}"
-fi
+# shellcheck source=/dev/null
+source "${ROOT}/lib/require-production-env.sh"
+require_production_env "${SITE_ENV_LOCAL}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "[04] docker not found — run 01-host-install-docker.sh first." >&2
@@ -36,13 +35,10 @@ sudo mkdir -p "${DEST_ROOT}"
 sudo chown -R "${USER}:${USER}" "${DEST_ROOT}"
 
 if ! command -v aws >/dev/null 2>&1; then
-  echo "[04] aws CLI not found — install awscli v2 (required for S3 durable sync)." >&2
-  exit 1
-fi
-
-if [[ -z "${AWS_ACCESS_KEY_ID:-}" || -z "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
-  echo "[04] FATAL: set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in production-env.local.sh" >&2
-  exit 1
+  echo "[04] aws CLI not found — installing via lib/install-aws-cli.sh …" >&2
+  # shellcheck source=/dev/null
+  source "${ROOT}/lib/install-aws-cli.sh"
+  install_aws_cli
 fi
 
 REMOTE_BASE="s3://${BUCKET}/${PREFIX}"

@@ -9,6 +9,7 @@ import {
   classifyInterCompanyMovement,
 } from '../utils/api';
 import { escapeHtml } from '../utils/dom';
+import { reconcileInvoicesFromWarnings } from './invoices.js';
 import { getAccountConfig } from './state';
 import type {
   EntityFoundationWarning,
@@ -23,6 +24,35 @@ const WARNINGS_CONTAINER_ID = 'entity-foundation-warnings';
 const EMPTY_STATE_ID = 'warnings-empty-state';
 const MOVEMENTS_BODY_ID = 'inter-company-movements-body';
 
+/** Invoice reconciler warnings that get a one-click CTA on the Invoices tab. */
+const INVOICE_RECONCILE_CTA_CODES = new Set([
+  'invoice-overdue',
+  'invoice-unmatched-deposit',
+  'invoice-reference-amount-mismatch',
+  'invoice-reference-ambiguous',
+]);
+
+function invoiceIdFromWarning(w: EntityFoundationWarning): string | undefined {
+  if (typeof w.context?.invoiceId === 'string' && w.context.invoiceId.trim() !== '') {
+    return w.context.invoiceId.trim();
+  }
+  const source = w.sources.find(s => s.startsWith('invoice:'));
+  if (source === undefined) return undefined;
+  const id = source.slice('invoice:'.length).trim();
+  return id === '' ? undefined : id;
+}
+
+function reconcileCtaHtml(w: EntityFoundationWarning): string {
+  if (!INVOICE_RECONCILE_CTA_CODES.has(w.code)) return '';
+  const invoiceId = invoiceIdFromWarning(w);
+  const label = invoiceId !== undefined ? 'Match payment on Invoices tab' : 'Reconcile payments on Invoices tab';
+  const invoiceAttr =
+    invoiceId !== undefined
+      ? ` data-invoice-id="${escapeHtml(invoiceId)}"`
+      : '';
+  return `<p class="entity-foundation-warnings__item-cta"><button type="button" class="btn btn-sm" data-warning-action="reconcile-invoices"${invoiceAttr}>${escapeHtml(label)}</button></p>`;
+}
+
 /** Cached last fetch so tab revisits do not refetch until `loadWarnings`. */
 let cachedWarnings: readonly EntityFoundationWarning[] = [];
 
@@ -30,6 +60,24 @@ export function initWarnings(): void {
   const body = document.getElementById(MOVEMENTS_BODY_ID);
   if (body !== null) {
     body.addEventListener('click', handleMovementsClick);
+  }
+  const warningsHost = document.getElementById(WARNINGS_CONTAINER_ID);
+  if (warningsHost !== null) {
+    warningsHost.addEventListener('click', handleWarningsClick);
+  }
+}
+
+async function handleWarningsClick(event: MouseEvent): Promise<void> {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const btn = target.closest<HTMLButtonElement>('button[data-warning-action="reconcile-invoices"]');
+  if (btn === null) return;
+  const invoiceId = btn.dataset.invoiceId?.trim();
+  btn.disabled = true;
+  try {
+    await reconcileInvoicesFromWarnings(invoiceId === '' ? undefined : invoiceId);
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -121,6 +169,7 @@ function renderWarningItem(w: EntityFoundationWarning): string {
       </div>
       <p class="entity-foundation-warnings__item-detail">${escapeHtml(w.detail)}</p>
       <p class="entity-foundation-warnings__item-action"><em>Recommended:</em> ${escapeHtml(w.recommended_action)}</p>
+      ${reconcileCtaHtml(w)}
     </li>
   `;
 }

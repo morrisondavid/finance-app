@@ -37,6 +37,7 @@ export const CANONICAL_MCP_TOOL_GROUPS = [
   ['Feeds', ['bank_feed_sync', 'feed_oauth_enable_start', 'feed_oauth_truelayer_start']],
   ['Transactions', ['transactions_drill_query']],
   ['Monthly invoices', ['invoices_preview_monthly', 'invoices_commit_monthly']],
+  ['Invoice reconcile', ['invoices_reconcile']],
   [
     'Accountant',
     [

@@ -37,6 +37,7 @@ const GROUPS_ID = 'invoices-groups';
 const STATUS_ID = 'invoices-status';
 const GEN_BTN_ID = 'invoices-generate-btn';
 const INGEST_BTN_ID = 'invoices-ingest-btn';
+const RECONCILE_BTN_ID = 'invoices-reconcile-btn';
 
 const GEN_MODAL_ID = 'invoices-generate-modal';
 const GEN_MODAL_CLOSE_ID = 'invoices-generate-modal-close';
@@ -122,6 +123,113 @@ async function getJson<T>(url: string): Promise<T> {
 interface ContractsListResponse { readonly contracts: readonly Contract[] }
 interface ClientsListResponse { readonly clients: readonly Client[] }
 interface CompaniesListResponse { readonly companies: readonly Company[] }
+
+interface InvoiceReconcileSummary {
+  readonly matchedCount: number;
+  readonly invoiceIds: readonly string[];
+  readonly unmatchedDepositCount: number;
+}
+
+interface InvoiceReconcileOkResponse {
+  readonly mode: string;
+  readonly dryRun: boolean;
+  readonly persisted: readonly unknown[] | null;
+  readonly summary?: InvoiceReconcileSummary;
+}
+
+function countAwaitingPayment(invoices: readonly InvoiceListItem[]): number {
+  return invoices.filter(inv => inv.status === 'issued' || inv.status === 'partial').length;
+}
+
+function showInvoicesStatusBanner(message: string, tone: 'info' | 'success' | 'error' = 'info'): void {
+  const el = getEl(STATUS_ID);
+  if (el === null) return;
+  el.textContent = message;
+  el.dataset.tone = tone;
+  el.style.display = '';
+}
+
+function clearInvoicesStatusBanner(): void {
+  const el = getEl(STATUS_ID);
+  if (el === null) return;
+  el.textContent = '';
+  el.style.display = 'none';
+  delete el.dataset.tone;
+}
+
+function updateReconcileHint(invoices: readonly InvoiceListItem[]): void {
+  const awaiting = countAwaitingPayment(invoices);
+  if (awaiting === 0) {
+    clearInvoicesStatusBanner();
+    return;
+  }
+  const noun = awaiting === 1 ? 'invoice' : 'invoices';
+  showInvoicesStatusBanner(
+    `${awaiting} issued ${noun} may have bank deposits waiting to be linked. Use “Reconcile payments” to match them.`,
+    'info',
+  );
+}
+
+function formatReconcileSuccessMessage(summary: InvoiceReconcileSummary): string {
+  if (summary.matchedCount === 0) {
+    const orphanNote =
+      summary.unmatchedDepositCount > 0
+        ? ` ${summary.unmatchedDepositCount} unmatched deposit${summary.unmatchedDepositCount === 1 ? '' : 's'} remain in the look-back window.`
+        : '';
+    return `No new payment links were found.${orphanNote}`;
+  }
+  const ids = summary.invoiceIds.join(', ');
+  const plural = summary.matchedCount === 1 ? 'payment' : 'payments';
+  return `Linked ${summary.matchedCount} ${plural} to ${ids}.`;
+}
+
+async function postInvoiceReconcile(body: Record<string, unknown>): Promise<InvoiceReconcileOkResponse> {
+  const res = await fetch('/api/invoices/reconcile', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(extractErrorLine(text, res.status));
+  }
+  return JSON.parse(text) as InvoiceReconcileOkResponse;
+}
+
+/** One-click persist — optional scope to a single invoice id. */
+export async function runInvoiceReconcile(options: { readonly invoiceId?: string } = {}): Promise<void> {
+  const btn = getEl(RECONCILE_BTN_ID);
+  if (btn instanceof HTMLButtonElement) btn.disabled = true;
+
+  try {
+    const body: Record<string, unknown> = { dryRun: false };
+    if (options.invoiceId !== undefined) {
+      body.invoiceId = options.invoiceId;
+    }
+    const result = await postInvoiceReconcile(body);
+    const summary = result.summary;
+    if (summary !== undefined) {
+      showInvoicesStatusBanner(formatReconcileSuccessMessage(summary), summary.matchedCount > 0 ? 'success' : 'info');
+    } else {
+      showInvoicesStatusBanner('Reconcile finished.', 'success');
+    }
+    await loadInvoices({ refreshHint: false });
+  } catch (err) {
+    showInvoicesStatusBanner(
+      `Reconcile failed: ${err instanceof Error ? err.message : String(err)}`,
+      'error',
+    );
+  } finally {
+    if (btn instanceof HTMLButtonElement) btn.disabled = false;
+  }
+}
+
+/** Warnings tab CTA — switch to Invoices then reconcile (optionally scoped). */
+export async function reconcileInvoicesFromWarnings(invoiceId?: string): Promise<void> {
+  activateTabByName('invoices');
+  await loadInvoices();
+  await runInvoiceReconcile(invoiceId === undefined ? {} : { invoiceId });
+}
 
 async function fetchMonthlyInvoicePreview(contractId: string, billingYm: string): Promise<MonthlyInvoicePreviewOk> {
   const res = await fetch('/api/invoices/monthly/preview', {
@@ -241,7 +349,7 @@ function setBillingMonthValue(yyyyMm: string): void {
 // Rendering
 // ---------------------------------------------------------------------------
 
-export async function loadInvoices(): Promise<void> {
+export async function loadInvoices(options: { readonly refreshHint?: boolean } = {}): Promise<void> {
   const groups = getEl(GROUPS_ID);
   if (groups === null) return;
   groups.innerHTML = '<div class="contracts-aggregate">Loading…</div>';
@@ -260,6 +368,9 @@ export async function loadInvoices(): Promise<void> {
       clientsRes.clients,
       companiesRes.companies,
     );
+    if (options.refreshHint !== false) {
+      updateReconcileHint(invoicesRes.invoices);
+    }
     bindInvoiceGroupFilters(groups);
     populateContractSelect(contractsRes.contracts, clientsRes.clients);
   } catch (err) {
@@ -410,6 +521,18 @@ async function onInvoiceTileActionClick(ev: Event): Promise<void> {
     return;
   }
 
+  if (action === 'match-payment') {
+    const invoiceId = btn.dataset.invoiceId?.trim() ?? '';
+    if (invoiceId === '') return;
+    btn.disabled = true;
+    try {
+      await runInvoiceReconcile({ invoiceId });
+    } finally {
+      btn.disabled = false;
+    }
+    return;
+  }
+
   if (action !== 'persist-pdf') return;
   const invoiceId = btn.dataset.invoiceId?.trim() ?? '';
   if (invoiceId === '') return;
@@ -466,15 +589,20 @@ function renderTileActionButtons(invoice: InvoiceListItem): string {
     ? `<a class="btn btn-sm" href="/api/invoices/${encodeURIComponent(invoice.id)}/pdf" target="_blank" rel="noopener" title="${escapeHtml(pdfTitle)}">PDF</a>`
     : `<span class="btn btn-sm invoice-card__pdf--unavailable" title="${escapeHtml(pdfTitle)}">PDF</span>`;
 
+  const matchControl =
+    invoice.status === 'issued' || invoice.status === 'partial'
+      ? `<button type="button" class="btn btn-sm btn-primary invoice-card__secondary-action" data-invoice-action="match-payment" data-invoice-id="${escapeAttribute(invoice.id)}" title="Link a bank deposit to this invoice">Match payment</button>`
+      : '';
+
   if (invoice.stored_pdf_available) {
-    return pdfControl;
+    return `${matchControl}${pdfControl}`;
   }
 
   if (invoice.mechanism === 'supplier-issued') {
-    return `${pdfControl}<button type="button" class="btn btn-sm btn-primary invoice-card__secondary-action" data-invoice-action="persist-pdf" data-invoice-id="${escapeAttribute(invoice.id)}">Generate</button>`;
+    return `${matchControl}${pdfControl}<button type="button" class="btn btn-sm btn-primary invoice-card__secondary-action" data-invoice-action="persist-pdf" data-invoice-id="${escapeAttribute(invoice.id)}">Generate</button>`;
   }
 
-  return `${pdfControl}<button type="button" class="btn btn-sm invoice-card__secondary-action" data-invoice-action="open-ingest">Ingest</button>`;
+  return `${matchControl}${pdfControl}<button type="button" class="btn btn-sm invoice-card__secondary-action" data-invoice-action="open-ingest">Ingest</button>`;
 }
 
 function renderTile(
@@ -995,6 +1123,9 @@ async function submitIngest(ev: SubmitEvent): Promise<void> {
 export function initInvoices(): void {
   getEl(GEN_BTN_ID)?.addEventListener('click', () => openGenerateModal());
   getEl(INGEST_BTN_ID)?.addEventListener('click', () => openIngestModal());
+  getEl(RECONCILE_BTN_ID)?.addEventListener('click', () => {
+    void runInvoiceReconcile();
+  });
   getEl(GEN_MODAL_CLOSE_ID)?.addEventListener('click', () => closeModal(GEN_MODAL_ID));
   getEl(GEN_MODAL_CANCEL_ID)?.addEventListener('click', () => closeModal(GEN_MODAL_ID));
   getEl(INGEST_MODAL_CLOSE_ID)?.addEventListener('click', () => closeModal(INGEST_MODAL_ID));
@@ -1026,7 +1157,4 @@ export function initInvoices(): void {
   ingestForm?.addEventListener('submit', ev => {
     if (ev instanceof SubmitEvent) void submitIngest(ev);
   });
-
-  // Unused import guard so status container ref isn't tree-shaken.
-  getEl(STATUS_ID);
 }

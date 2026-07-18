@@ -1,95 +1,171 @@
-# Hostinger deployment (operator runbook)
+# Hostinger deployment — ASAP runbook
 
-**Cursor agent stays local** — it only edits this repo. **You** SSH, copy files, run AWS/DNS, and deploy on the VPS.
+**Cursor stays local.** You SSH to the VPS and run AWS CLI on your laptop.
 
-Finance app: Docker + Caddy + S3 durable sync (same bucket as former EC2). Hermes runs in a **separate** container with **no** shared volumes with `bank`.
+Same app as EC2: Docker + Caddy + S3 durable sync. EC2 used an **instance profile**; Hostinger needs an **IAM user + access keys** in `production-env.local.sh`.
 
-## Quick start
+---
 
-| Step | Where | Command |
-|------|-------|---------|
-| 1 | VPS once | `./01-host-install-docker.sh` → `./02-host-create-dirs.sh` → `./03-install-caddy.sh` |
-| 2 | VPS | `cp config.example.sh config.sh`; `cp production-env.local.example.sh production-env.local.sh` (chmod 600); add secrets + [IAM keys](IAM-S3-POLICY.example.json) |
-| 3 | Laptop | `docker build` → [OPERATOR-image-transfer.md](OPERATOR-image-transfer.md) |
-| 4 | VPS | `./04-docker-run-production.sh` |
-| 5 | VPS | Start Caddy with `/etc/caddy/Caddyfile` |
-| 6 | You | [Route53 cutover](#route53-cutover) |
-| 7 | You | [Terminate EC2](#decommission-ec2) after stable |
+## What was missing (now scripted)
 
-## Bootstrap checklist
+| Gap | Fix |
+|-----|-----|
+| No IAM user on Hostinger (EC2 had instance profile) | **Laptop:** `./05-create-iam-user.sh` (exact S3 actions on the existing bucket) |
+| DNS still points at EC2 Elastic IP | **Laptop:** `./05-route53-upsert-a.sh` |
+| AWS CLI not installed on VPS | **VPS:** `01-host-install-docker.sh` installs it |
+| Caddy manual start | **VPS:** `03-install-caddy.sh` installs systemd unit |
 
-1. Copy `deploy/hostinger/` to the VPS (`scp -r`).
-2. Place Enable PEM at `/opt/bank-app/secrets/enable-banking-private.pem`.
-3. Run `04` — pulls S3 durable tree (including `data/truelayer-feed-cache/`).
-4. Verify:
-   - `curl -s https://finances.traxiproducts.com/api/version` → JSON with `sourceSha256`
-   - `docker logs bank` → `[Database] Ready`
-   - MCP: `Authorization: Bearer $MCP_BEARER_TOKEN` on `/mcp`
-5. TrueLayer: OAuth on this host or restore tokens from S3; check Logs / `data/feed-sync-scheduled-status.json`.
+No new bucket needed — the app already stores everything in `traxiproducts-finances-bank-app-data-eu-west-2`. The IAM policy is scoped to that one bucket with exact actions, so isolation is by policy, not by bucket. (`05-create-s3-bucket.sh` remains available if you ever want a fresh bucket.)
 
-## TrueLayer feed cache (local ↔ prod)
+Policy: `05-create-iam-user.sh` grants **only the exact S3 actions the app uses** (GetObject, PutObject, HeadObject, ListBucket, multipart) on `BUCKET_DATA` — no `s3:*`, no AWS account admin. Details: [IAM-S3-POLICY.example.json](IAM-S3-POLICY.example.json). Template: [iam-s3-bank-app-policy.json](iam-s3-bank-app-policy.json).
 
-Feed sync **always** tries the cache first: local disk, then S3 GetObject when `BANK_S3_DURABLE_BUCKET` is set. On miss it calls TrueLayer (if OAuth tokens exist) and writes the response back to disk + S3.
+---
 
-**On your laptop** — set `BANK_S3_DURABLE_BUCKET` / credentials in `.env.local`, then run feed sync normally. No mode flags required. Optional bulk prefetch:
+## ASAP order (~30–60 min)
+
+### A. Laptop — AWS (once)
 
 ```bash
-./scripts/pull-truelayer-feed-cache-from-s3.sh   # warm local disk before sync
-npx tsx scripts/feed-sync-all.ts
+cd deploy/hostinger
+cp config.example.sh config.sh
+# Edit config.sh: set HOSTINGER_PUBLIC_IP (BUCKET_DATA already points at the existing bucket)
+
+./05-create-iam-user.sh          # exact S3 actions on the existing bucket → save keys for step C
+./05-route53-upsert-a.sh         # finances.traxiproducts.com → Hostinger IP
 ```
+
+Requires: AWS admin creds on laptop (`aws sts get-caller-identity`), Route53 hosted zone for `traxiproducts.com`.
+
+### B. Laptop — build + ship image
+
+```bash
+# From repo root — match VPS arch (ssh user@host uname -m)
+export DOCKER_DEFAULT_PLATFORM=linux/amd64   # or linux/arm64
+docker build -t bank-app:latest .
+
+docker save bank-app:latest | gzip > bank-app-latest.tar.gz
+scp bank-app-latest.tar.gz user@HOSTINGER_IP:~/
+scp -r deploy/hostinger user@HOSTINGER_IP:~/bank-deploy-hostinger
+```
+
+Copy Enable PEM separately:
+
+```bash
+scp secrets/enable-banking-private.pem user@HOSTINGER_IP:/opt/bank-app/secrets/
+```
+
+(Or scp after VPS bootstrap creates `/opt/bank-app/secrets`.)
+
+### C. VPS — bootstrap (once)
+
+```bash
+ssh user@HOSTINGER_IP
+cd ~/bank-deploy-hostinger
+chmod +x *.sh lib/*.sh
+
+./00-host-bootstrap.sh           # Docker + AWS CLI + dirs + Caddy (or run 01–03 individually)
+
+cp config.example.sh config.sh
+```
+
+**Secrets:** scp `production-env.local.sh` from your laptop (see step A). Do **not** run `cp production-env.local.example.sh production-env.local.sh` — that wipes secrets. First-time only: `./init-production-env.sh` then edit.
+
+**`production-env.local.sh` checklist** (copy from your `.env.local` where applicable):
+
+```bash
+export AWS_ACCESS_KEY_ID='...'           # from 05-create-iam-user.sh
+export AWS_SECRET_ACCESS_KEY='...'
+export BANK_SITE_ACCESS_SECRET='...'     # ≥16 bytes
+export MCP_BEARER_TOKEN='...'            # ≥16 bytes
+export TRUELAYER_CLIENT_ID='...'
+export TRUELAYER_CLIENT_SECRET='...'
+export TRUELAYER_REDIRECT_URL='https://finances.traxiproducts.com/api/feed/truelayer/callback'
+export ENABLE_BANKING_APP_ID='...'
+# optional: export BANK_SITE_LOGIN_PASSWORD='...'
+```
+
+Place Enable key: `sudo mkdir -p /opt/bank-app/secrets && sudo cp ~/enable-banking-private.pem /opt/bank-app/secrets/`
+
+### D. VPS — deploy
+
+```bash
+gunzip -c ~/bank-app-latest.tar.gz | docker load
+cd ~/bank-deploy-hostinger
+./04-docker-run-production.sh    # S3 pull → start bank container
+
+sudo systemctl start caddy
+sudo systemctl status caddy
+```
+
+### E. Verify
+
+```bash
+curl -s http://127.0.0.1:3000/api/version          # on VPS
+curl -s https://finances.traxiproducts.com/api/version
+docker logs -f bank   # wait for [Database] Ready (1–2 min first boot)
+```
+
+Login: `https://finances.traxiproducts.com` with `BANK_SITE_ACCESS_SECRET`.
+
+---
+
+## Rolling deploy (after first time)
+
+1. Laptop: `docker build` + `docker save` + `scp` image (or rebuild on VPS if you prefer).
+2. VPS: `./04-docker-run-production.sh`.
+
+---
 
 ## Route53 cutover
 
-1. Route53 hosted zone `traxiproducts.com` → **A** record `finances` → Hostinger public IP (TTL 300 during cutover).
-2. Caddy serves `finances.traxiproducts.com` (see `../aws/caddy/Caddyfile.example`).
-3. TrueLayer / Enable redirect URLs unchanged if hostname unchanged.
-4. Hermes MCP URL stays `https://finances.traxiproducts.com/mcp` (now same region as Hostinger).
+Script: `./05-route53-upsert-a.sh` (laptop). Manual equivalent:
+
+- Route53 → `traxiproducts.com` → **A** `finances` → Hostinger public IP, TTL 300.
+
+TrueLayer / Enable redirect URLs stay the same if hostname unchanged.
 
 ## Decommission EC2
 
 After **48h** stable on Hostinger:
 
-1. On old EC2: confirm `[S3Sync] Upload` in logs for any recent edits.
-2. Optional EBS snapshot.
-3. **Terminate** instance; release Elastic IP if unused.
-4. Keep S3 bucket + Route53 + Hostinger IAM user.
+1. Confirm `[S3Sync] Upload` in `docker logs bank` after any edit.
+2. Terminate EC2; release Elastic IP if unused.
+3. Keep S3 bucket + Route53 + Hostinger IAM user.
 
-## Hermes (separate container)
+---
 
-See [docker-compose.hermes.example.yml](docker-compose.hermes.example.yml) and [HERMES.md](HERMES.md).
+## TrueLayer feed cache
 
-- State: `/opt/hermes-data` → container `/opt/data` only.
-- **Do not** mount `/opt/bank-app` or `docker.sock`.
-- MCP: remote HTTPS to finance app; use [MCP allowlist](HERMES.md#mcp-allowlist-budgeting).
-- Ollama on host: `http://host.docker.internal:11434` for local LLM.
+Feed sync tries local disk → S3 → TrueLayer API. No mode flags required.
 
-### Hermes off-box backup (you)
+Optional laptop prefetch: `./scripts/pull-truelayer-feed-cache-from-s3.sh`
 
-Hermes ships `hermes backup` (v0.12+) → zip under `/opt/hermes-data/backups/`.
+---
 
-1. `docker exec hermes hermes backup` (smoke test).
-2. Install `rclone`; configure S3 remote (same IAM or scoped key).
-3. Nightly: `hermes cron` or host cron:
+## Hermes (optional, separate container)
 
-```bash
-rclone copy /opt/hermes-data/backups/ s3:traxiproducts-finances-bank-app-data-eu-west-2/hermes-backup/
-```
+[HERMES.md](HERMES.md) + [docker-compose.hermes.example.yml](docker-compose.hermes.example.yml). No shared volumes with `bank`.
 
-Restore: `rclone copy` down → `hermes import <archive>`.
-
-**GitHub:** optional private repo for hand-authored `skills/*.md` only — never `.env` or `state.db`.
+---
 
 ## Env reference
 
-| Variable | Production typical |
-|----------|-------------------|
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | IAM user (required on Hostinger) |
-| `BANK_READ_CACHE_TTL_SECONDS` | `60` |
-| `MCP_BEARER_TOKEN` | Hermes / HTTP MCP |
+| Variable | Where |
+|----------|--------|
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | `production-env.local.sh` (required) |
+| `BANK_S3_DURABLE_BUCKET` | `config.sh` (default: same bucket as EC2) |
+| `HOSTINGER_PUBLIC_IP` | `config.sh` (laptop DNS script only) |
+| `MCP_BEARER_TOKEN` | `production-env.local.sh` |
 
 See [production-env.local.example.sh](production-env.local.example.sh) and repo `.env.example`.
 
-## Rolling deploy
+---
 
-1. Laptop: `docker build` + image transfer.
-2. VPS: `./04-docker-run-production.sh` (S3 pull + restart `bank`).
+## Operator image transfer
+
+Details: [OPERATOR-image-transfer.md](OPERATOR-image-transfer.md)
+
+## IAM policy reference
+
+Human-readable notes: [IAM-S3-POLICY.example.json](IAM-S3-POLICY.example.json)  
+Machine policy for `05-create-iam-user.sh`: [iam-s3-bank-app-policy.json](iam-s3-bank-app-policy.json)

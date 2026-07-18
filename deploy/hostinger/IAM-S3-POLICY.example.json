@@ -1,38 +1,32 @@
-# IAM policy for Hostinger S3 access (operator)
+# IAM policy for Hostinger S3 access (operator notes)
 
 Attach to a dedicated IAM user. **Do not** use root credentials on the VPS.
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "BankAppDurablePrefix",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:DeleteObject",
-        "s3:ListBucket"
-      ],
-      "Resource": [
-        "arn:aws:s3:::traxiproducts-finances-bank-app-data-eu-west-2",
-        "arn:aws:s3:::traxiproducts-finances-bank-app-data-eu-west-2/bank-state/prod/*"
-      ]
-    },
-    {
-      "Sid": "HermesBackupPrefixOptional",
-      "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
-      "Resource": [
-        "arn:aws:s3:::traxiproducts-finances-bank-app-data-eu-west-2",
-        "arn:aws:s3:::traxiproducts-finances-bank-app-data-eu-west-2/hermes-backup/*"
-      ]
-    }
-  ]
-}
-```
+**Automated:** `./05-create-iam-user.sh` generates the policy from `BUCKET_DATA` in `config.sh`.
 
-Includes `data/truelayer-feed-cache/` under `bank-state/prod/`.
+## Scope — exact actions only (no `s3:*`)
 
-Store access keys in `production-env.local.sh` on the VPS only.
+Derived from every S3 call in the codebase and deploy scripts:
+
+| Action | Used by | Why |
+|--------|---------|-----|
+| `s3:GetObject` | container + host | TrueLayer feed cache reads; `aws s3 sync` / `cp` downloads |
+| `s3:PutObject` | container | `@aws-sdk/lib-storage` Upload on durable writes |
+| `s3:HeadObject` | host | `aws s3api head-object` (force-pull checks); `aws s3 sync` size/timestamp compare |
+| `s3:ListBucket` | host | `aws s3 sync` enumeration |
+| `s3:CreateMultipartUpload` / `UploadPart` / `CompleteMultipartUpload` / `AbortMultipartUpload` | container | `@aws-sdk/lib-storage` Upload for larger statement/invoice PDFs |
+
+**Not granted:** `s3:DeleteObject` (the `--delete` flag on `aws s3 sync` S3→local removes *local* files, not S3 objects), `s3:CopyObject`, bucket-config actions, and anything outside S3. If you later sync *to* S3 with `--delete` from the VPS, add `s3:DeleteObject` on `BUCKET_DATA/*`.
+
+## Resources
+
+- `arn:aws:s3:::BUCKET_DATA` — for `ListBucket`
+- `arn:aws:s3:::BUCKET_DATA/*` — for object actions
+
+The bucket is **dedicated** to this app, so full-bucket object scope is fine; isolation is at the bucket level, not by prefix.
+
+## Optional: SSE-KMS
+
+If you set `BANK_S3_DURABLE_SSE_KMS_KEY_ID`, PutObject also needs `kms:GenerateDataKey` and GetObject needs `kms:Decrypt` on that key. Default is SSE-S3 (no KMS policy needed).
+
+Store access keys in `production-env.local.sh` on the VPS only (chmod 600).

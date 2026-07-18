@@ -221,7 +221,7 @@ export function registerBankStatementsHttpMutationTools(server: McpServer): void
 
   reg(
     ['invoices_reconcile', 'post_http_invoice_reconcile'],
-    'POST /api/invoices/reconcile parity. **`dryRun` defaults true** — omit or true returns a plan only; **`dryRun: false` persists** proposed payments (**writes SQLite**).',
+    'POST /api/invoices/reconcile parity. **Preview:** `{ dryRun: true }` (default) returns `plan` + `summary` without writing. **Self-heal:** `{ dryRun: false }` persists proposed payments over the standard 180-day look-back and returns `persisted`, `statusUpdates`, and `summary` (`matchedCount`, `invoiceIds`, `unmatchedDepositCount`). **Scoped:** add `invoiceId` to limit dry-run summary or persist to one invoice (e.g. `{ dryRun: false, invoiceId: "DC-011" }`). **Auto mode:** `{ mode: "auto", dryRun: false }` persists reference-exact matches only. All persist modes write SQLite.',
     InvoiceReconcileBodySchema.shape,
     args => {
       const parsed = InvoiceReconcileBodySchema.safeParse(args ?? {});

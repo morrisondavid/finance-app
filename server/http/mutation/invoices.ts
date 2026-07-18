@@ -5,14 +5,14 @@
 import { z } from 'zod';
 import {
   allInvoices,
-  applyInvoiceStatusAfterPayments,
   autoReconcileHighConfidence,
   buildReconciliationPlan,
   createInvoice,
   findInvoiceById,
   InvoiceSchema,
-  recordInvoicePayments,
+  reconcileInvoicesPersist,
   RECONCILE_LOOKBACK_DAYS,
+  summariseReconciliationPlan,
   updateInvoice,
   writeInvoicePdf,
   type Invoice,
@@ -38,6 +38,8 @@ export const InvoiceReconcileBodySchema = z.object({
   /** When true, auto-persist reference-exact matches only. */
   mode: z.enum(['dry-run', 'auto', 'persist-all']).optional(),
   entityId: EntityIdSchema.optional(),
+  /** Scope persist (and dry-run summary) to payments settling this invoice. */
+  invoiceId: z.string().optional(),
 });
 
 function rewindToDraftOrSkip(invoiceId: string): void {
@@ -136,6 +138,17 @@ export async function mutateInvoiceGenerate(body: unknown): Promise<JsonMutation
 
     await publishGeneratedInvoiceArtifacts(patchResult.invoice);
 
+    try {
+      autoReconcileHighConfidence({
+        entityId: patchResult.invoice.issuing_entity_id,
+        windowStart: shiftIsoDate(todayIsoLocal(), -RECONCILE_LOOKBACK_DAYS),
+        windowEnd: todayIsoLocal(),
+        now: todayIsoLocal(),
+      });
+    } catch (err) {
+      console.error('Post-issue auto-reconcile failed:', err);
+    }
+
     return { status: 200, body: { invoice: patchResult.invoice } };
   } catch (err) {
     rewindToDraftOrSkip(createResult.invoice.id);
@@ -163,6 +176,7 @@ export function mutateInvoiceReconcile(body: unknown): JsonMutationResult {
   }
 
   const entityId: EntityId | undefined = parsed.data.entityId;
+  const invoiceId = parsed.data.invoiceId;
   const today = todayIsoLocal();
   const windowStart = shiftIsoDate(today, -RECONCILE_LOOKBACK_DAYS);
 
@@ -185,18 +199,22 @@ export function mutateInvoiceReconcile(body: unknown): JsonMutationResult {
         plan: auto.plan,
         persisted: auto.persisted,
         statusUpdates: auto.statusUpdates,
+        summary: summariseReconciliationPlan(auto.plan, auto.persisted),
       },
     };
   }
 
-  const plan = buildReconciliationPlan({
-    entityId,
-    windowStart,
-    windowEnd: today,
-    now: today,
-  });
-
   if (mode === 'dry-run') {
+    const plan = buildReconciliationPlan({
+      entityId,
+      windowStart,
+      windowEnd: today,
+      now: today,
+    });
+    const scoped =
+      invoiceId === undefined
+        ? plan.proposedPayments
+        : plan.proposedPayments.filter(p => p.invoice_id === invoiceId);
     return {
       status: 200,
       body: {
@@ -204,55 +222,56 @@ export function mutateInvoiceReconcile(body: unknown): JsonMutationResult {
         dryRun: true,
         plan,
         persisted: null,
+        summary: summariseReconciliationPlan(plan, scoped),
       },
     };
   }
 
-  const result = recordInvoicePayments({ payments: plan.proposedPayments });
+  const result = reconcileInvoicesPersist({ entityId, invoiceId, now: today });
   if (!result.ok) {
-    if (result.code === 'duplicate-id') {
+    const failure = result.failure;
+    if (failure.code === 'duplicate-id') {
       return {
         status: 409,
         body: {
           error: 'duplicate-id',
-          invoicePaymentId: result.invoicePaymentId,
+          invoicePaymentId: failure.invoicePaymentId,
         },
       };
     }
-    if (result.code === 'duplicate-bank-tx') {
+    if (failure.code === 'duplicate-bank-tx') {
       return {
         status: 409,
         body: {
           error: 'duplicate-bank-tx',
-          bankTransactionId: result.bankTransactionId,
+          bankTransactionId: failure.bankTransactionId,
         },
       };
     }
-    if (result.code === 'unknown-invoice') {
+    if (failure.code === 'unknown-invoice') {
       return {
         status: 400,
         body: {
           error: 'unknown-invoice',
-          invoiceId: result.invoiceId,
+          invoiceId: failure.invoiceId,
         },
       };
     }
     return {
       status: 400,
-      body: { error: 'Invalid request', details: result.issues },
+      body: { error: 'Invalid request', details: failure.issues },
     };
   }
-
-  const statusUpdates = applyInvoiceStatusAfterPayments(result.payments);
 
   return {
     status: 200,
     body: {
       mode: 'persist-all',
       dryRun: false,
-      plan,
-      persisted: result.payments,
-      statusUpdates,
+      plan: result.plan,
+      persisted: result.persisted,
+      statusUpdates: result.statusUpdates,
+      summary: result.summary,
     },
   };
 }

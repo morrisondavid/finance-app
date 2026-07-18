@@ -5,6 +5,9 @@
  */
 
 import type { Invoice } from '../../../shared/api-contracts.js';
+import { shiftIsoDate } from '../../../shared/iso-date.js';
+import { autoReconcileHighConfidence } from './auto-reconcile.js';
+import { RECONCILE_LOOKBACK_DAYS } from './build-reconciliation-plan.js';
 import { createInvoice, updateInvoice } from './mutations.js';
 import { findInvoiceById } from './queries.js';
 import { ingestSelfBill } from './ingest-self-bill.js';
@@ -79,6 +82,17 @@ export async function persistIngestedSelfBillFromBuffer(
       code: 'write-pdf-failed',
       detail: err instanceof Error ? err.message : String(err),
     };
+  }
+
+  try {
+    autoReconcileHighConfidence({
+      entityId: createResult.invoice.issuing_entity_id,
+      windowStart: shiftIsoDate(today, -RECONCILE_LOOKBACK_DAYS),
+      windowEnd: today,
+      now: today,
+    });
+  } catch (err) {
+    console.error('Post-ingest auto-reconcile failed:', err);
   }
 
   return {

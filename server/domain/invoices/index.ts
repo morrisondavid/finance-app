@@ -207,6 +207,14 @@ export {
 } from './build-reconciliation-plan.js';
 
 export {
+  reconcileInvoicesPersist,
+  summariseReconciliationPlan,
+  type ReconcileInvoicesPersistInput,
+  type ReconcileInvoicesPersistResult,
+  type ReconcileSummary,
+} from './reconcile-invoices.js';
+
+export {
   sumInvoiceOutputVatForQuarter,
   resolveVatObligationAmounts,
   type SumInvoiceOutputVatForQuarterInput,
