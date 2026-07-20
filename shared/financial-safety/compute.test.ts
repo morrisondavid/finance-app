@@ -45,6 +45,21 @@ describe('computeFinancialSafety', () => {
     expect(r.warningAdjustment.pointsDeducted).toBe(0);
   });
 
+  it('info-severity warnings are linked but do not deduct points', () => {
+    const strong = computeFinancialSafety(baseInput());
+    const withInfo = computeFinancialSafety(
+      baseInput({
+        warnings: [
+          { id: 'w1', code: 'leveraged-passive-income:heath-park-road-53', severity: 'info' },
+          { id: 'w2', code: 'leveraged-passive-income:hunters-square-78', severity: 'info' },
+        ],
+      }),
+    );
+    expect(withInfo.score).toBe(strong.score);
+    expect(withInfo.warningAdjustment.pointsDeducted).toBe(0);
+    expect(withInfo.warningAdjustment.linkedWarnings).toHaveLength(2);
+  });
+
   it('warnings-only modifier reduces score from an otherwise strong base', () => {
     const strong = computeFinancialSafety(baseInput());
     const withWarnings = computeFinancialSafety(

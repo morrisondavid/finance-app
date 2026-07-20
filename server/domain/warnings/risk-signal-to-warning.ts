@@ -178,20 +178,17 @@ export function formatRiskSignalAsWarning(signal: RiskSignal): EntityFoundationW
     }
 
     case 'leveraged-passive-income': {
-      const severity = mapSeverity(signal.severity);
       return {
         id: buildId(signal),
         code: signal.code,
-        severity,
+        severity: 'info',
         title: `Property ${signal.propertyId} contributes only ${pctOf(signal.netToGrossRatio)} of its rent as net cash`,
         detail:
           `Gross rent ${fmtMoney('GBP', signal.grossMonthly)}/mo less mortgage ${fmtMoney('GBP', signal.mortgageMonthly)}/mo ` +
           `leaves ${fmtMoney('GBP', signal.netMonthly)}/mo (${pctOf(signal.netToGrossRatio)}). ` +
           `Threshold for ${signal.severity}: net/gross < ${pctOf(signal.threshold)}.`,
         recommended_action:
-          severity === 'critical'
-            ? `${signal.propertyId} is structurally vulnerable to rate rises or rent loss — track rate-reset dates and ensure rent reviews keep pace.`
-            : `Watch ${signal.propertyId}'s rate-reset date; the leverage is high enough that small movements move the net cash a lot.`,
+          `Watch ${signal.propertyId}'s rate-reset date; the leverage is high enough that small movements move the net cash a lot.`,
         sources: buildSources(signal),
         context: {
           propertyId: signal.propertyId,

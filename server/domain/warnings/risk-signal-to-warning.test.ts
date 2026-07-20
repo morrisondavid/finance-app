@@ -113,7 +113,7 @@ describe('formatRiskSignalAsWarning', () => {
     expect(a.id).toBe(b.id);
   });
 
-  it('leveraged-passive-income high severity maps to critical', () => {
+  it('leveraged-passive-income high severity maps to info', () => {
     const w = formatRiskSignalAsWarning({
       code: 'leveraged-passive-income',
       severity: 'high',
@@ -124,7 +124,21 @@ describe('formatRiskSignalAsWarning', () => {
       netToGrossRatio: 0.2,
       threshold: 0.3,
     });
-    expect(w.severity).toBe('critical');
+    expect(w.severity).toBe('info');
+  });
+
+  it('leveraged-passive-income medium severity maps to info', () => {
+    const w = formatRiskSignalAsWarning({
+      code: 'leveraged-passive-income',
+      severity: 'medium',
+      propertyId: 'p',
+      grossMonthly: 1000,
+      mortgageMonthly: 600,
+      netMonthly: 400,
+      netToGrossRatio: 0.4,
+      threshold: 0.5,
+    });
+    expect(w.severity).toBe('info');
   });
 
   it('preserves primitives on context exactly', () => {

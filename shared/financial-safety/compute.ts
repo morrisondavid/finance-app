@@ -137,6 +137,7 @@ function warningModifier(warnings: readonly FinancialSafetyWarningInput[]): {
   for (const w of warnings) {
     if (w.severity === 'critical') raw += 2;
     else if (w.severity === 'warn') raw += 1;
+    else if (w.severity === 'info') continue;
     else raw += 0.35;
   }
   const capped = Math.min(W_CAP, raw);
