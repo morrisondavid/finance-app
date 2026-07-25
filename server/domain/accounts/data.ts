@@ -198,6 +198,22 @@ export const ACCOUNT_CONFIG_DATA: CompleteAccountConfigMap = {
       },
     },
   },
+  'monzo-david': {
+    name: 'monzo-david',
+    label: 'Monzo Personal (David)',
+    type: 'current',
+    currency: 'GBP',
+    entityId: null,
+    category: 'personal',
+    canMakeOutgoingPayments: true,
+    excludeTransfersFromIncome: false,
+    showTaxLiabilities: false,
+    aispFeed: {
+      trueLayer: {
+        providerId: 'ob-monzo',
+      },
+    },
+  },
   'emirates-islamic': {
     name: 'emirates-islamic',
     label: 'Emirates Islamic (AED)',

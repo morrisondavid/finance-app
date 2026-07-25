@@ -731,7 +731,7 @@ describe('runFeedSync', () => {
     );
 
     expect(tlFetch).toHaveBeenCalledOnce();
-    expect(tlFetch).toHaveBeenCalledWith(
+    expect(tlFetch.mock.calls[0][0]).toEqual(
       expect.objectContaining({
         currency: 'EUR',
         trueLayerAccountId: 'tl-id',
@@ -820,17 +820,23 @@ function makeTrueLayerSyncFetch(account: AccountName): {
 function buildTrueLayerSyncFetchDeps(account: AccountName): {
   fetchTrueLayerWithFakeHttp: (
     req: FetchTrueLayerTransactionsRequest,
+    options?: { bypassCache?: boolean },
   ) => ReturnType<typeof fetchTrueLayerTransactions>;
   transactionUrls: string[];
 } {
   const { fetch, transactionUrls } = makeTrueLayerSyncFetch(account);
   return {
     transactionUrls,
-    fetchTrueLayerWithFakeHttp: (req: FetchTrueLayerTransactionsRequest) =>
+    fetchTrueLayerWithFakeHttp: (
+      req: FetchTrueLayerTransactionsRequest,
+      options?: { bypassCache?: boolean },
+    ) =>
       fetchTrueLayerTransactions(req, {
         fetch,
         apiBase: 'https://api.test',
         authBase: 'https://auth.test',
+        bypassCache: options?.bypassCache,
+        feedCacheEnabled: false,
         getRefreshTokenSource: tokenAccount => ({
           refreshToken: 'sync-refresh-token',
           tokenAccount,

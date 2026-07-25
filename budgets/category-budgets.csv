@@ -1,12 +1,19 @@
 account,category,amount,period
 monzo-joint,Eating Out,0,monthly
 monzo-joint,Entertainment,0,monthly
-monzo-joint,Groceries,600,monthly
+monzo-joint,Groceries,0,monthly
 monzo-joint,Health & Personal,0,monthly
 monzo-joint,Shopping,0,monthly
-monzo-joint,Transport,150,monthly
+monzo-joint,Transport,0,monthly
 monzo-joint,Travel,0,monthly
-barclays-current,Childcare & Education,0,monthly
+monzo-david,Groceries,600,monthly
+monzo-david,Travel,200,monthly
+monzo-david,Childcare & Education,400,monthly
+monzo-david,Eating Out,0,monthly
+monzo-david,Entertainment,0,monthly
+monzo-david,Health & Personal,0,monthly
+monzo-david,Shopping,0,monthly
+monzo-david,Transport,0,monthly
+barclays-current,Accommodation,0,monthly
 barclays-current,Business,0,monthly
-barclays-current,Accommodation,2800,monthly
 barclays-current,Other,0,monthly

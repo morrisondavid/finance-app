@@ -102,6 +102,7 @@ describe('allAccountBalancesForApi', () => {
       natwest: { ...base, account: 'natwest' },
       'natwest-savings': { ...base, account: 'natwest-savings' },
       'monzo-joint': { ...base, account: 'monzo-joint' },
+      'monzo-david': { ...base, account: 'monzo-david' },
       'emirates-islamic': { ...base, account: 'emirates-islamic' },
       'emirates-islamic-gbp': { ...base, account: 'emirates-islamic-gbp' },
       'emirates-islamic-usd': { ...base, account: 'emirates-islamic-usd' },
