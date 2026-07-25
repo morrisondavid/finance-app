@@ -575,6 +575,7 @@ describe('buildRecurringPipeline', () => {
       scopedTransactions: txns,
       allTimeTransactions: txns,
       includeIncome: false,
+      referenceDate: new Date('2026-04-25T00:00:00Z'),
     });
     const bbl = result.monthlyExpenseRecurring.find(e => e.merchant === 'Bounce Back Loan');
     expect(bbl).toBeDefined();

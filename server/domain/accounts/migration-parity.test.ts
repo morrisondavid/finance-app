@@ -73,7 +73,7 @@ describe('locked snapshot — payment account enumerations', () => {
 
   it('personalPaymentAccounts', () => {
     expect([...personalPaymentAccounts()].sort()).toEqual(
-      ['mbna', 'monzo-joint', 'natwest', 'santander-everyday'],
+      ['mbna', 'monzo-david', 'monzo-joint', 'natwest', 'santander-everyday'],
     );
   });
 
@@ -87,6 +87,7 @@ describe('locked snapshot — payment account enumerations', () => {
         'emirates-islamic-gbp',
         'emirates-islamic-usd',
         'mbna',
+        'monzo-david',
         'monzo-joint',
         'natwest',
         'santander-everyday',
@@ -98,7 +99,7 @@ describe('locked snapshot — payment account enumerations', () => {
 
 describe('locked snapshot — accountsForEntity', () => {
   const cases: readonly { scope: EntityId | null; expected: readonly string[] }[] = [
-    { scope: null, expected: ['mbna', 'monzo-joint', 'natwest', 'natwest-savings', 'santander-everyday'] },
+    { scope: null, expected: ['mbna', 'monzo-david', 'monzo-joint', 'natwest', 'natwest-savings', 'santander-everyday'] },
     {
       scope: 'autonize-it-ltd',
       expected: ['barclaycard', 'barclays-current', 'barclays-savings', 'capital-on-tap', 'wise-ltd'],
@@ -122,6 +123,7 @@ describe('locked snapshot — per-account predicates', () => {
       'natwest': null,
       'natwest-savings': null,
       'monzo-joint': null,
+      'monzo-david': null,
       'emirates-islamic': 'autonize-it-fzco',
       'emirates-islamic-gbp': 'autonize-it-fzco',
       'emirates-islamic-usd': 'autonize-it-fzco',
@@ -143,6 +145,7 @@ describe('locked snapshot — per-account predicates', () => {
       'natwest': false,
       'natwest-savings': false,
       'monzo-joint': false,
+      'monzo-david': false,
       'emirates-islamic': true,
       'emirates-islamic-gbp': true,
       'emirates-islamic-usd': true,
@@ -170,6 +173,7 @@ describe('locked snapshot — per-account predicates', () => {
       'natwest': false,
       'natwest-savings': false,
       'monzo-joint': false,
+      'monzo-david': false,
       'emirates-islamic': false,
       'emirates-islamic-gbp': false,
       'emirates-islamic-usd': false,

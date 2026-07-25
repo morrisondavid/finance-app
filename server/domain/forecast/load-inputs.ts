@@ -190,7 +190,7 @@ export function loadForecastInputsUncached(opts: LoadForecastInputsOpts = {}): L
     const entityId = getEntityIdForAccount(name);
     const bal = allBalances[name];
     const currency = currencyByAccount.get(name);
-    if (currency === undefined) continue;
+    if (currency === undefined || bal === undefined) continue;
     startingBalances.push({
       account: name,
       balance: bal.currentBalance,

@@ -147,6 +147,12 @@ export interface PipelineConfig {
    * debts registry ({@link listDebts}). Tests inject fixtures here.
    */
   debts?: readonly DebtMatchable[];
+  /**
+   * Reference date for staleness checks in {@link classifyRecurring}.
+   * Defaults to `new Date()` (current date). Tests inject a fixed date so
+   * transactions ending a few months before "today" are not falsely stale.
+   */
+  referenceDate?: Date;
 }
 
 export function amountBucket(amount: number): number {
@@ -402,7 +408,7 @@ function accumulatorsToCandidates(
  * Then classify via `classifyRecurring`.
  */
 export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
-  const { scopedTransactions, allTimeTransactions, passThroughIds, includeIncome, accountScope } = config;
+  const { scopedTransactions, allTimeTransactions, passThroughIds, includeIncome, accountScope, referenceDate } = config;
   const debts = config.debts ?? loadActiveDebtsFromCsv();
 
   const expenseAccumulators = new Map<string, Accumulator>();
@@ -492,9 +498,9 @@ export function buildRecurringPipeline(config: PipelineConfig): PipelineResult {
     : [];
 
   const { monthly: detectedMonthlyExpense, annual: detectedAnnualExpense } =
-    classifyRecurring(expenseCandidates, monthsCovered);
+    classifyRecurring(expenseCandidates, monthsCovered, referenceDate ?? new Date());
   const { monthly: detectedMonthlyIncome, annual: annualIncomeRecurring } = includeIncome
-    ? classifyRecurring(incomeCandidates, monthsCovered, new Date(), true)
+    ? classifyRecurring(incomeCandidates, monthsCovered, referenceDate ?? new Date(), true)
     : { monthly: [], annual: [] };
 
   const { monthly: declaredMonthlyExpense, annual: declaredAnnualExpense } =
