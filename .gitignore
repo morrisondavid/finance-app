@@ -46,3 +46,4 @@ deploy/hostinger/production-env.local.sh
 aspsps-*.json
 
 ./cursor/
+Dockerfile
