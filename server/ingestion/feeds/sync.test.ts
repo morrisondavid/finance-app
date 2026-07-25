@@ -731,11 +731,12 @@ describe('runFeedSync', () => {
     );
 
     expect(tlFetch).toHaveBeenCalledOnce();
-    expect(tlFetch.mock.calls[0][0]).toEqual(
+    expect(tlFetch).toHaveBeenCalledWith(
       expect.objectContaining({
         currency: 'EUR',
         trueLayerAccountId: 'tl-id',
       }),
+      expect.objectContaining({ bypassCache: expect.any(Boolean) }),
     );
   });
 });

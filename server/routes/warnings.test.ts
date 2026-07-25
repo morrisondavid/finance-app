@@ -14,6 +14,7 @@ import {
   InterCompanyMovementsResponseSchema,
 } from '../../shared/api-contracts.js';
 import { getRateSync } from '../config/exchange-rates.js';
+import { clearReadResponseCache } from '../http/read-response-cache.js';
 import { __resetOverrideRegistryForTests } from '../domain/transaction-overrides/registry.js';
 import {
   getOverridesCsvPath,
@@ -44,6 +45,14 @@ vi.mock('../db/connection.js', () => ({
     return harness.current.debtsDir;
   },
 }));
+
+vi.mock('../../shared/iso-date.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../shared/iso-date.js')>();
+  return {
+    ...actual,
+    todayIsoLocal: () => '2026-05-15',
+  };
+});
 
 import warningsRouter from './warnings.js';
 
@@ -92,6 +101,7 @@ afterAll(async () => {
 describe('GET /api/warnings/entity-foundation', () => {
   beforeEach(() => {
     if (harness.current) resetTestData(harness.current.db);
+    clearReadResponseCache();
     hashSeq = 0;
   });
 
