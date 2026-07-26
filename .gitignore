@@ -47,3 +47,4 @@ aspsps-*.json
 
 ./cursor/
 Dockerfile
+bank-app-latest.tar.gz
