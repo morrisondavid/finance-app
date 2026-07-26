@@ -52,6 +52,8 @@ import { syncContractRenewalDeadlines } from '../domain/contracts/deadline-seede
 import { maybeCaptureNetWorthSnapshots } from '../domain/net-worth/snapshot.js';
 import { loadWarningUserStateFromCsvIntoDb } from './warning-user-state-csv.js';
 import { setDurableUploadsSuppressed } from '../storage/durable-fs.js';
+import { fork } from 'child_process';
+import { fileURLToPath } from 'url';
 
 // Re-export from connection
 export { 
@@ -293,4 +295,82 @@ async function initDatabaseInner(): Promise<void> {
  */
 export function closeDatabase(): void {
   closeConnection();
+}
+
+// ---------------------------------------------------------------------------
+// Background DB rebuild via child process
+// ---------------------------------------------------------------------------
+
+let dbInitializing = false;
+
+/** True while a background `initDatabase()` child process is running. */
+export function isDbInitializing(): boolean {
+  return dbInitializing;
+}
+
+/**
+ * Run `initDatabase()` in a separate child process so the main Node event
+ * loop stays free to serve HTTP requests. Sets {@link isDbInitializing} to
+ * `true` for the duration; resolves when the child exits successfully,
+ * then reopens the DB connection in the main process.
+ *
+ * Falls back to inline `initDatabase()` when `BANK_STATEMENTS_DB_INIT_BACKGROUND`
+ * is set to `0` or `false` (tests, local dev).
+ */
+export async function initDatabaseInBackground(): Promise<void> {
+  const allowBackground =
+    process.env.BANK_STATEMENTS_DB_INIT_BACKGROUND !== '0' &&
+    process.env.BANK_STATEMENTS_DB_INIT_BACKGROUND !== 'false';
+
+  if (!allowBackground) {
+    await initDatabase();
+    return;
+  }
+
+  if (dbInitializing) {
+    return;
+  }
+
+  dbInitializing = true;
+  try {
+    closeConnection();
+    await new Promise<void>((resolve, reject) => {
+      const workerPath = fileURLToPath(new URL('init-worker.ts', import.meta.url));
+      const child = fork(workerPath, [], {
+        stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+        env: { ...process.env, BANK_STATEMENTS_SKIP_INIT_WHEN_MANIFEST_UNCHANGED: '0' },
+      });
+
+      let stdoutBuffer = '';
+
+      child.stdout?.on('data', (chunk: Buffer) => {
+        stdoutBuffer += chunk.toString();
+      });
+
+      child.on('error', (err: Error) => {
+        reject(err);
+      });
+
+      child.on('exit', (code: number | null) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          let message = `init-worker exited with code ${String(code ?? '?')}`;
+          try {
+            const parsed = JSON.parse(stdoutBuffer.trim().split('\n').pop() ?? '') as { ok: boolean; error?: string };
+            if (parsed.ok === false && parsed.error !== undefined) {
+              message = parsed.error;
+            }
+          } catch {
+            // ignore parse errors — use generic message
+          }
+          reject(new Error(message));
+        }
+      });
+    });
+
+    initConnection();
+  } finally {
+    dbInitializing = false;
+  }
 }

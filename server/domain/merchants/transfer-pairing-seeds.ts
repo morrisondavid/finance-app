@@ -42,6 +42,14 @@ export const REGEX_WISE = /wise/i;
 export const REGEX_TRANSFERWISE = /transferwise/i;
 
 /**
+ * Monzo P2P transfer from the monzo-david personal account to monzo-joint.
+ * The description is the registered account-holder name on the sending side.
+ * Treated as a single-leg transfer (orphan income) until monzo-david is
+ * linked and the expense leg is ingested.
+ */
+export const REGEX_DAVID_MORRISON_HEENA_TAILOR = /david morrison & heena tailor/i;
+
+/**
  * Merchants **Transfers** row for Barclays savings / standing-order style copy.
  * Pairing still relies on {@link REGEX_BUSINESS_PREMIUM_STO} and {@link REGEX_BUSINESS_PREMIUM}
  * for other “Business Premium” strings.
@@ -71,6 +79,7 @@ export const PAIRING_TRANSFER_PATTERNS: readonly RegExp[] = [
   REGEX_INWARD_REMITTANCE,
   REGEX_WISE,
   REGEX_TRANSFERWISE,
+  REGEX_DAVID_MORRISON_HEENA_TAILOR,
 ];
 
 export const BOUNCE_PATTERNS: readonly RegExp[] = [

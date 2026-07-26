@@ -31,18 +31,19 @@ import {
   FeedSyncAllResponseSchema,
   FeedSyncBodySchema,
   FeedSyncEventsResponseSchema,
-  FeedSyncResponseSchema,
   FeedSyncRunsResponseSchema,
+  FeedSyncSingleDetachedResponseSchema,
   type FeedSyncAllResponse,
   type FeedSyncEventsResponse,
-  type FeedSyncResponse,
   type FeedSyncRunsResponse,
+  type FeedSyncSingleDetachedResponse,
 } from '../../shared/api-contracts.js';
 import { buildFeedSyncRunsResponse } from '../ingestion/feeds/feed-sync-runs-response.js';
 import { readFeedSyncEventsForRun } from '../ingestion/feeds/feed-sync-event-log.js';
 import { readFeedSyncRunLog } from '../ingestion/feeds/feed-sync-run-log.js';
 import { runFeedSyncAllGuarded } from '../ingestion/feeds/feed-sync-guard.js';
-import { runFeedSync, FeedSyncError } from '../ingestion/feeds/sync.js';
+import { runFeedSyncSingleGuarded } from '../ingestion/feeds/feed-sync-single-guard.js';
+import { FeedSyncError } from '../ingestion/feeds/sync.js';
 import { EnableBankingError } from '../ingestion/feeds/enable-banking.js';
 import { TrueLayerError } from '../ingestion/feeds/truelayer/truelayer-error.js';
 import enableOAuthRouter from './enable-oauth.js';
@@ -88,7 +89,7 @@ function mapError(err: unknown): { status: number; body: ErrorBody } {
   return { status: 500, body: { error: message } };
 }
 
-router.post('/sync', async (req: Request, res: Response<FeedSyncResponse | ErrorBody>) => {
+router.post('/sync', async (req: Request, res: Response<FeedSyncSingleDetachedResponse | ErrorBody>) => {
   const parsed = FeedSyncBodySchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({
@@ -99,15 +100,24 @@ router.post('/sync', async (req: Request, res: Response<FeedSyncResponse | Error
   }
 
   try {
-    const result = await runFeedSync(parsed.data.account, {
+    const result = await runFeedSyncSingleGuarded({
+      account: parsed.data.account,
       dateFrom: parsed.data.dateFrom,
       dateTo: parsed.data.dateTo,
       force: parsed.data.force,
       lookbackDays: parsed.data.lookbackDays,
+      detached: true,
     });
-    // Re-parse on the way out so the wire shape is locked to the schema —
-    // matches the pattern used by the net-worth snapshot route.
-    res.json(FeedSyncResponseSchema.parse(result));
+    const body = FeedSyncSingleDetachedResponseSchema.parse(result);
+    if (body.state === 'in-progress') {
+      res.status(409).json(body);
+      return;
+    }
+    if (body.state === 'started') {
+      res.status(202).json(body);
+      return;
+    }
+    res.json(body);
   } catch (err) {
     const mapped = mapError(err);
     res.status(mapped.status).json(mapped.body);

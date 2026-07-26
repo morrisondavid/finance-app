@@ -218,25 +218,66 @@ describe('GET /api/feed/truelayer/callback', () => {
     expect(hoisted.listTrueLayerDataAccounts).not.toHaveBeenCalled();
   });
 
-  it('200 HTML listing accounts when TL returns multiples', async () => {
+  it('200 HTML picker form when TL returns multiples', async () => {
     hoisted.consumeTrueLayerOAuthState.mockReturnValue('barclays-current');
     hoisted.exchangeTrueLayerAuthorizationCode.mockResolvedValue({
       accessToken: 'acc-2',
       refreshToken: 'rt2',
     });
     hoisted.listTrueLayerDataAccounts.mockResolvedValue([
-      { account_id: 'a', display_name: 'One' },
-      { account_id: 'b' },
+      { account_id: 'a', display_name: 'One', account_type: 'uk_retail' },
+      { account_id: 'b', display_name: 'Two', account_type: 'uk_savings' },
     ]);
 
     const res = await fetch(`${baseUrl}/api/feed/truelayer/callback?code=z&state=opaque`);
 
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('truelayer-account-links.csv');
-    expect(html).toContain('a');
-    expect(html).toContain('b');
+    expect(html).toContain('<form');
+    expect(html).toContain('name="truelayerAccountId"');
+    expect(html).toContain('value="a"');
+    expect(html).toContain('value="b"');
+    expect(html).toContain('One');
+    expect(html).toContain('Two');
+    expect(html).toContain('uk_retail');
+    expect(html).toContain('uk_savings');
     expect(hoisted.setTrueLayerRefreshToken).toHaveBeenCalledWith('barclays-current', 'rt2');
     expect(hoisted.upsertTrueLayerAccountLink).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/feed/truelayer/link', () => {
+  it('400 when body is invalid', async () => {
+    const res = await fetch(`${baseUrl}/api/feed/truelayer/link`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+    expect(hoisted.upsertTrueLayerAccountLink).not.toHaveBeenCalled();
+  });
+
+  it('302 and upserts link when body is valid', async () => {
+    const res = await fetch(`${baseUrl}/api/feed/truelayer/link`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ account: 'barclays-current', truelayerAccountId: 'acct-picked' }),
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/?trueLayerLinked=1');
+    expect(hoisted.upsertTrueLayerAccountLink).toHaveBeenCalledWith('barclays-current', 'acct-picked');
+  });
+
+  it('302 and upserts link when submitted as form-encoded (HTML picker form)', async () => {
+    const res = await fetch(`${baseUrl}/api/feed/truelayer/link`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'account=monzo-joint&truelayerAccountId=acct-from-form',
+      redirect: 'manual',
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/?trueLayerLinked=1');
+    expect(hoisted.upsertTrueLayerAccountLink).toHaveBeenCalledWith('monzo-joint', 'acct-from-form');
   });
 });

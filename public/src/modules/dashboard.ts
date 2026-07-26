@@ -4,13 +4,13 @@
 
 import type { DashboardSummary, AccountSummary } from '../types';
 import { state, setState, getSelectedCurrency, getAccountConfig } from './state';
-import { fetchDashboard, fetchTransactions, syncBankFeed, FeedSyncRequestError, fetchFeedToolbarState, startTrueLayerOAuthConnect, startEnableOAuthConnect, FeedOAuthStartRequestError } from '../utils/api';
+import { fetchDashboard, fetchTransactions, syncBankFeed, FeedSyncRequestError, fetchFeedToolbarState, fetchFeedSyncRuns, startTrueLayerOAuthConnect, startEnableOAuthConnect, FeedOAuthStartRequestError } from '../utils/api';
 import { computeFeedSyncDateFromNewestTransaction } from '../../../shared/feed-sync-window.js';
 import { formatCurrency, transactionAmountClass, transactionAmountPrefix } from '../utils/formatting';
 import { escapeHtml, escapeAttribute } from '../utils/dom';
 import { loadRecurring } from './recurring.js';
 import { loadAdHocExpenses } from './ad-hoc-expenses.js';
-import { AccountNameSchema, type FeedSyncResponse, type FeedLinkByAccount, type FeedLinkIndicator, type FeedToolbarState } from '../../../shared/api-contracts.js';
+import { AccountNameSchema, type FeedSyncRun, type FeedLinkByAccount, type FeedLinkIndicator, type FeedToolbarState } from '../../../shared/api-contracts.js';
 import { renderMonthlyChart, renderCategoryChart, renderMonthlyTable } from './dashboard-charts';
 import {
   initTransactionsModal,
@@ -275,29 +275,6 @@ export async function refreshFeedToolbarState(): Promise<void> {
   }
 }
 
-function formatFeedSyncResult(r: FeedSyncResponse): string {
-  if (r.skipped && r.reason === 'already_up_to_date') {
-    return 'Already up to date — nothing fetched.';
-  }
-  if (r.skipped) {
-    return `Skipped: ${r.reason ?? 'unknown'}.`;
-  }
-  const parts: string[] = [
-    `Fetched ${String(r.rowsFetched)} row(s) for ${r.window.dateFrom} → ${r.window.dateTo}.`,
-  ];
-  parts.push(r.csvWritten ? 'CSV written.' : 'No new CSV written.');
-  if (r.ingestOutcome !== undefined) {
-    parts.push(`Ingest: ${r.ingestOutcome}.`);
-  }
-  if (r.partitionedFiles.length > 0) {
-    parts.push(`Partitions: ${r.partitionedFiles.join(', ')}.`);
-  }
-  if (r.initDatabaseRan) {
-    parts.push('Database rebuilt.');
-  }
-  return parts.join(' ');
-}
-
 async function runFeedOAuthConnectFromUi(btn: HTMLButtonElement, statusEl: HTMLElement): Promise<void> {
   const toolbar = latestFeedToolbar;
   if (toolbar?.kind !== 'connect') return;
@@ -351,6 +328,48 @@ async function handleFeedToolbarPrimaryClick(
   }
 }
 
+const SYNC_POLL_INTERVAL_MS = 4000;
+const SYNC_POLL_TIMEOUT_MS = 10 * 60 * 1000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function formatFeedSyncRunResult(run: FeedSyncRun): string {
+  const acct = run.accounts.find(a => a.account === state.selectedAccount);
+  if (acct === undefined) {
+    return `Sync ${run.outcome} (no per-account detail).`;
+  }
+  if (acct.status === 'ingested') {
+    const parts = [`Fetched ${String(acct.rowsFetched)} row(s).`];
+    if (acct.initDatabaseRan) parts.push('Database rebuilt.');
+    if (acct.partitionedFiles !== undefined && acct.partitionedFiles.length > 0) {
+      parts.push(`Partitions: ${acct.partitionedFiles.join(', ')}.`);
+    }
+    return parts.join(' ');
+  }
+  if (acct.status === 'unchanged') return `No change: ${acct.reason}.`;
+  if (acct.status === 'skipped') return `Skipped: ${acct.reason}.`;
+  if (acct.status === 'failed') return `Failed: ${acct.error ?? 'unknown'}.`;
+  return `Sync ${run.outcome}.`;
+}
+
+async function pollUntilSyncRunComplete(runId: string | undefined, startedAfterIso: string | undefined): Promise<FeedSyncRun | null> {
+  const deadline = Date.now() + SYNC_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const data = await fetchFeedSyncRuns();
+    if (runId !== undefined) {
+      const byId = data.runs.find(run => run.id === runId);
+      if (byId !== undefined) return byId;
+    } else if (startedAfterIso !== undefined) {
+      const match = data.runs.find(run => run.startedAt >= startedAfterIso);
+      if (match !== undefined) return match;
+    }
+    await sleep(SYNC_POLL_INTERVAL_MS);
+  }
+  return null;
+}
+
 async function runFeedSyncFromUi(
   btn: HTMLButtonElement,
   forceCb: HTMLInputElement,
@@ -375,8 +394,24 @@ async function runFeedSyncFromUi(
       force: forceCb.checked ? true : undefined,
     });
     sessionStorage.removeItem(feedUiReconnectStorageKey(state.selectedAccount));
-    statusEl.textContent = formatFeedSyncResult(result);
-    await loadDashboard();
+
+    if (result.state === 'started' || result.state === 'in-progress') {
+      const runId = result.state === 'started' ? result.runId : undefined;
+      const startedAfterIso = result.startedAt;
+      statusEl.textContent = 'Syncing in background…';
+      const completedRun = await pollUntilSyncRunComplete(runId, startedAfterIso);
+      if (completedRun === null) {
+        statusEl.textContent = 'Sync is still running — refresh later for the result.';
+      } else {
+        statusEl.textContent = formatFeedSyncRunResult(completedRun);
+      }
+      await loadDashboard();
+    } else if (result.state === 'deduped' || result.state === 'completed') {
+      statusEl.textContent = result.state === 'deduped'
+        ? 'Sync recently completed (cooldown).'
+        : formatFeedSyncRunResult(result.run);
+      await loadDashboard();
+    }
   } catch (err) {
     statusEl.classList.add('feed-sync-status-error');
     if (err instanceof FeedSyncRequestError) {

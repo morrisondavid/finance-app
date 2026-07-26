@@ -32,7 +32,7 @@ import versionRouter from './routes/version.js';
 import siteAuthRouter from './routes/site-auth.js';
 import { siteAccessGateMiddleware } from './auth/site-access.js';
 import { normalizeAllFiles } from './utils/filename-normalizer.js';
-import { initDatabase, closeDatabase } from './db/index.js';
+import { initDatabase, closeDatabase, isDbInitializing } from './db/index.js';
 import { runAutoReconcileAllEntities } from './domain/invoices/run-auto-reconcile-all-entities.js';
 import { startFeedSyncScheduler } from './ingestion/feeds/feed-sync-scheduler.js';
 import {
@@ -54,6 +54,21 @@ const isProduction = process.env.NODE_ENV === 'production';
 app.use(jsonBodyParserMiddleware);
 app.use(siteAccessGateMiddleware);
 app.use(readContextMiddleware);
+
+// When a background DB rebuild is running (child process), short-circuit GET
+// read endpoints with 503 + Retry-After so the frontend can retry gracefully
+// instead of hanging on a closed DB connection. POST/mutation endpoints
+// (feed sync, uploads) are allowed through.
+app.use((req: Request, res: Response, next) => {
+  if (req.method === 'GET' && isDbInitializing() && req.path.startsWith('/api/') && req.path !== '/api/version') {
+    res.status(503).set('Retry-After', '10').json({
+      error: 'Database is rebuilding in the background. Please retry shortly.',
+      retryAfter: 10,
+    });
+    return;
+  }
+  next();
+});
 
 // In production, Express serves the built frontend from dist/.
 // In dev, Vite serves the frontend on :5173 and proxies /api to this server,

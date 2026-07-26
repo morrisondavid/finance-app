@@ -33,7 +33,7 @@ import { getAccountConfig } from '../../domain/accounts/index.js';
 import { PARSERS } from '../../parsers/index.js';
 import type { BankParser, CSVRow } from '../../types.js';
 import { parseCSVContent } from '../../utils/csv-partitioner.js';
-import { initDatabase as defaultInitDatabase } from '../../db/index.js';
+import { initDatabaseInBackground as defaultInitDatabaseBackground } from '../../db/index.js';
 import { STATEMENTS_DIR } from '../../db/connection.js';
 import { shiftIsoDate, todayIsoLocal } from '../../../shared/iso-date.js';
 import type { FeedSyncResponse } from '../../../shared/api-contracts.js';
@@ -298,7 +298,7 @@ export async function runFeedSync(
   const fetchTrueLayer =
     deps.fetchTrueLayerTransactions ?? defaultFetchTrueLayerTransactions;
   const ingest = deps.ingestCsvFile ?? defaultIngestCsvFile;
-  const dbReinit = deps.initDatabase ?? defaultInitDatabase;
+  const dbReinit = deps.initDatabase ?? defaultInitDatabaseBackground;
   const statementsDir = deps.statementsDir ?? STATEMENTS_DIR;
   const today = (deps.today ?? todayIsoLocal)();
   const tmpDirFn = deps.tmpDir ?? os.tmpdir;

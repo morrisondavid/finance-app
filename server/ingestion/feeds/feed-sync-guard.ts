@@ -59,6 +59,29 @@ export function resetFeedSyncGuardForTests(): void {
   lockStartedAt = null;
 }
 
+/** True when a sync-all or single-account sync is currently running. */
+export function isFeedSyncLocked(): boolean {
+  return lockStartedAt !== null;
+}
+
+/** Acquire the shared feed-sync lock. Throws if already held. */
+export function acquireFeedSyncLock(startedAtIso: string): void {
+  if (lockStartedAt !== null) {
+    throw new Error('Feed sync lock already held');
+  }
+  lockStartedAt = startedAtIso;
+}
+
+/** Release the shared feed sync lock. */
+export function releaseFeedSyncLock(): void {
+  lockStartedAt = null;
+}
+
+/** Current lock start timestamp (for in-progress responses), or null. */
+export function feedSyncLockStartedAt(): string | null {
+  return lockStartedAt;
+}
+
 export function parseFeedSyncCooldownSecondsFromEnv(
   raw: string | undefined = process.env.FEED_SYNC_COOLDOWN_SECONDS,
 ): number {
@@ -125,8 +148,8 @@ export async function runFeedSyncAllGuarded(
   const cooldownSeconds = parseFeedSyncCooldownSecondsFromEnv();
   const latest = latestFeedSyncRun(opts.repoRoot);
 
-  if (lockStartedAt !== null) {
-    return { state: 'in-progress', startedAt: lockStartedAt };
+  if (isFeedSyncLocked()) {
+    return { state: 'in-progress', startedAt: lockStartedAt! };
   }
 
   if (latest !== null && cooldownSeconds > 0) {
@@ -138,7 +161,7 @@ export async function runFeedSyncAllGuarded(
   }
 
   const startedAt = clock.now();
-  lockStartedAt = startedAt.toISOString();
+  acquireFeedSyncLock(startedAt.toISOString());
   const runId = randomUUID();
   const repoRoot = opts.repoRoot;
   const logger: FeedSyncRunLogger = createFeedSyncRunLogger(runId, opts.trigger, repoRoot);
@@ -216,7 +239,7 @@ export async function runFeedSyncAllGuarded(
       }
       return { state: 'completed', run };
     } finally {
-      lockStartedAt = null;
+      releaseFeedSyncLock();
     }
   };
 

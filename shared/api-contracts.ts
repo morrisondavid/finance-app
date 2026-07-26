@@ -1930,6 +1930,42 @@ export const FeedSyncAllResponseSchema = z.discriminatedUnion('state', [
 ]);
 export type FeedSyncAllResponse = z.infer<typeof FeedSyncAllResponseSchema>;
 
+/**
+ * `POST /api/feed/sync` — single-account detached response.
+ *
+ * When the sync runs detached (default for HTTP), the route returns 202 with
+ * `{ state: 'started', runId, startedAt }` so the client can poll
+ * `GET /api/feed/sync-runs` for completion. The discriminated union mirrors
+ * {@link FeedSyncAllResponseSchema} so the frontend polling logic is shared.
+ */
+export const FeedSyncSingleDetachedResponseSchema = z.discriminatedUnion('state', [
+  z.object({
+    state: z.literal('completed'),
+    run: FeedSyncRunSchema,
+  }),
+  z.object({
+    state: z.literal('deduped'),
+    run: FeedSyncRunSchema,
+  }),
+  z.object({
+    state: z.literal('in-progress'),
+    startedAt: z.string().datetime(),
+  }),
+  z.object({
+    state: z.literal('started'),
+    runId: z.string().min(1),
+    startedAt: z.string().datetime(),
+  }),
+]);
+export type FeedSyncSingleDetachedResponse = z.infer<typeof FeedSyncSingleDetachedResponseSchema>;
+
+/** Body for `POST /api/feed/truelayer/link` — pick which TrueLayer account to link. */
+export const TrueLayerLinkBodySchema = z.object({
+  account: AccountNameSchema,
+  truelayerAccountId: z.string().min(1),
+});
+export type TrueLayerLinkBody = z.infer<typeof TrueLayerLinkBodySchema>;
+
 /** Error payload from `POST /api/feed/sync` on non-2xx (see `server/routes/feed.ts`). */
 export const FeedSyncHttpErrorBodySchema = z.object({
   error: z.string(),

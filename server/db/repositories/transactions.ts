@@ -420,6 +420,7 @@ export function detectTransfers(): number {
         OR LOWER(description) LIKE '%optional ft%'
         OR description LIKE '%60878820%'
         OR LOWER(description) LIKE '%draw down%'
+        OR LOWER(description) LIKE '%david morrison & heena tailor%'
       )
   `).all() as Array<{
     id: number;

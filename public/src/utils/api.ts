@@ -34,8 +34,8 @@ import {
   EntityFoundationWarningsResponseSchema,
   InterCompanyMovementsResponseSchema,
   FeedSyncBodySchema,
-  FeedSyncResponseSchema,
   FeedSyncAllResponseSchema,
+  FeedSyncSingleDetachedResponseSchema,
   FeedSyncEventsResponseSchema,
   FeedSyncRunsResponseSchema,
   FeedSyncHttpErrorBodySchema,
@@ -47,8 +47,8 @@ import {
   type InterCompanyMovementsResponse,
   type InterCompanyClassifyRequest,
   type FeedSyncBody,
-  type FeedSyncResponse,
   type FeedSyncAllResponse,
+  type FeedSyncSingleDetachedResponse,
   type FeedSyncEventsResponse,
   type FeedSyncRunsResponse,
   type AiFinancialSafetyResponse,
@@ -96,9 +96,14 @@ export class FeedSyncRequestError extends Error {
 }
 
 /**
- * Run AISP feed sync for one account (same contract as MCP `sync_bank_feed`).
+ * Run AISP feed sync for one account.
+ *
+ * Returns a detached response: 202 `{ state: 'started', runId }` when the
+ * sync runs in the background, 200 `{ state: 'deduped' | 'completed', run }`
+ * when cooldown or inline, 409 `{ state: 'in-progress' }` when a sync is
+ * already running. The caller polls `GET /api/feed/sync-runs` for completion.
  */
-export async function syncBankFeed(body: FeedSyncBody): Promise<FeedSyncResponse> {
+export async function syncBankFeed(body: FeedSyncBody): Promise<FeedSyncSingleDetachedResponse> {
   const parsedBody = FeedSyncBodySchema.parse(body);
   const response = await fetch('/api/feed/sync', {
     method: 'POST',
@@ -113,18 +118,18 @@ export async function syncBankFeed(body: FeedSyncBody): Promise<FeedSyncResponse
     json = null;
   }
 
-  if (!response.ok) {
-    const parsed = json !== null ? FeedSyncHttpErrorBodySchema.safeParse(json) : null;
-    const message =
-      parsed !== null && parsed.success
-        ? parsed.data.error
-        : `Feed sync failed (${String(response.status)})`;
-    const code = parsed !== null && parsed.success ? parsed.data.code : undefined;
-    const details = parsed !== null && parsed.success ? parsed.data.details : undefined;
-    throw new FeedSyncRequestError(message, response.status, code, details);
+  if (response.status === 202 || response.status === 409 || response.ok) {
+    return FeedSyncSingleDetachedResponseSchema.parse(json);
   }
 
-  return FeedSyncResponseSchema.parse(json);
+  const parsed = json !== null ? FeedSyncHttpErrorBodySchema.safeParse(json) : null;
+  const message =
+    parsed !== null && parsed.success
+      ? parsed.data.error
+      : `Feed sync failed (${String(response.status)})`;
+  const code = parsed !== null && parsed.success ? parsed.data.code : undefined;
+  const details = parsed !== null && parsed.success ? parsed.data.details : undefined;
+  throw new FeedSyncRequestError(message, response.status, code, details);
 }
 
 /** Fetch feed sync run history for the Logs tab. */
