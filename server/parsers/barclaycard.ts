@@ -7,6 +7,9 @@
  * Transaction Time, Authorisation Code, Transaction ID, Merchant Category,
  * Transaction Type, MCC Description, Merchant Town/City, Merchant County/State,
  * Merchant Post code/Zipcode, MCC, Statement Cycle
+ *
+ * Newer portal exports rename Amount → Transaction Amount, Cardholder Name →
+ * Card Holder Name, Authorisation → Authorization, County/State → Country.
  * 
  * Amount is typically positive for purchases, negative for payments
  */
@@ -15,16 +18,7 @@ import type { BankParser, CSVRow, Transaction, ValidationResult } from '../types
 import type { InternalFeedTransactions } from '../ingestion/feeds/model.js';
 import { defaultTrueLayerRowMapping } from '../ingestion/feeds/truelayer/truelayer-map-helpers.js';
 import { buildCsv, formatAmount, isoToDDMMYYYY } from './lib/feed-emitter-helpers.js';
-
-/**
- * Get column value case-insensitively
- */
-function getColumnValue(row: CSVRow, columnName: string): string {
-  if (columnName in row) return row[columnName];
-  const lowerCol = columnName.toLowerCase();
-  const key = Object.keys(row).find(k => k.toLowerCase() === lowerCol);
-  return key ? row[key] : '';
-}
+import { AMOUNT_HEADER_ALIASES, getColumnValue } from './lib/column-value.js';
 
 /**
  * Parse amount string to number
@@ -141,9 +135,19 @@ const barclaycardParser: BankParser = {
    */
   validateHeaders(headers: string[]): ValidationResult {
     const normalizedHeaders = headers.map(h => h.toLowerCase().trim());
-    const missing = this.requiredHeaders.filter(
-      req => !normalizedHeaders.includes(req.toLowerCase())
+    const missing: string[] = [];
+    if (!normalizedHeaders.includes('transaction date')) {
+      missing.push('Transaction Date');
+    }
+    if (!normalizedHeaders.includes('merchant name')) {
+      missing.push('Merchant Name');
+    }
+    const hasAmount = AMOUNT_HEADER_ALIASES.some(alias =>
+      normalizedHeaders.includes(alias.toLowerCase()),
     );
+    if (!hasAmount) {
+      missing.push('Amount (or Transaction Amount)');
+    }
     if (missing.length > 0) {
       return { valid: false, errors: [`Missing required headers: ${missing.join(', ')}`] };
     }
@@ -254,8 +258,7 @@ const barclaycardParser: BankParser = {
     const date = parseDateInternal(dateValue);
     if (!date) return null;
     
-    // Get amount
-    const amount = parseAmount(getColumnValue(row, 'Amount'));
+    const amount = parseAmount(getColumnValue(row, ...AMOUNT_HEADER_ALIASES));
     
     // Get description - Barclaycard uses "Merchant Name"
     let description = getColumnValue(row, 'Merchant Name') ||

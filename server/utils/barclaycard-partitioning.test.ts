@@ -11,7 +11,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import path from 'path';
 import fs from 'fs';
-import { partitionCSVFile, FileSystem, parseCSVContent } from './csv-partitioner.js';
+import { partitionCSVFile, FileSystem, parseCSVContent, getColumnValue } from './csv-partitioner.js';
 import { PARSERS } from '../parsers/index.js';
 import type { BankParser } from '../types.js';
 
@@ -181,6 +181,27 @@ John,123,20/02/2025,Shell,75.50,GBP,75.50,GBP,1.0,21/02/2025,15:00,AUTH2,TXN2,Fu
     const fuelRow = allRows.find(r => r['Merchant Category'] === 'Fuel');
     expect(fuelRow).toBeDefined();
     expect(fuelRow?.Amount).toBe('75.50');
+  });
+
+  it('partitions newer portal export that uses Transaction Amount', () => {
+    const samplePath = path.join(__dirname, '../parsers/fixtures/barclaycard-recent-export-sample.csv');
+    const csvContent = fs.readFileSync(samplePath, 'utf-8');
+
+    (mockFs.readFile as ReturnType<typeof vi.fn>).mockReturnValue(csvContent);
+
+    const result = partitionCSVFile(path.join('data', 'Recent-07-09-2026.csv'), 'barclaycard', mockFs);
+
+    expect(result.totalRows).toBe(3);
+    expect(result.filesCreated.length).toBeGreaterThan(0);
+
+    let partitionedTotal = 0;
+    for (const content of writtenFiles.values()) {
+      const rows = parseCSVContent(content);
+      partitionedTotal += rows.reduce((sum, row) => {
+        return sum + parseFloat(getColumnValue(row, barclaycardParser.amountColumn) || '0');
+      }, 0);
+    }
+    expect(partitionedTotal).toBeCloseTo(623.33, 2);
   });
 
   it('partitions real Barclaycard CSV sample with integrity', () => {

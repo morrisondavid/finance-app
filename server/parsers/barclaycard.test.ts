@@ -109,6 +109,18 @@ describe('Barclaycard Parser', () => {
       const result = barclaycardParser.validateHeaders(headers);
       expect(result.valid).toBe(false);
     });
+
+    it('accepts newer portal headers with Transaction Amount', () => {
+      const headers = [
+        'Card Holder Name',
+        'Account Number',
+        'Transaction Date',
+        'Merchant Name',
+        'Transaction Amount',
+        'Currency',
+      ];
+      expect(barclaycardParser.validateHeaders(headers)).toEqual({ valid: true });
+    });
   });
 
   describe('transform', () => {
@@ -145,6 +157,24 @@ describe('Barclaycard Parser', () => {
       expect(result!.type).toBe('income');
     });
 
+    it('reads Transaction Amount from newer portal exports', () => {
+      const row = {
+        'Card Holder Name': 'AUTONIZE IT LIMITED',
+        'Account Number': '****6719',
+        'Transaction Date': '12/08/2026',
+        'Merchant Name': 'CASH BACK REBATE',
+        'Transaction Amount': '-24.0',
+        Currency: 'GBP',
+      };
+
+      const result = barclaycardParser.transform(row, 'barclaycard');
+
+      expect(result).not.toBeNull();
+      expect(result!.amount).toBe(-24);
+      expect(result!.description).toBe('CASH BACK REBATE');
+      expect(result!.type).toBe('income');
+    });
+
     it('returns null for row without valid date', () => {
       const row = {
         'Transaction Date': 'invalid',
@@ -174,6 +204,24 @@ describe('Barclaycard Parser', () => {
   });
 
   describe('integration with fixture', () => {
+    it('parses newer Recent-DD-MM-YYYY portal export headers', () => {
+      const fixturePath = path.join(__dirname, 'fixtures', 'barclaycard-recent-export-sample.csv');
+      const content = fs.readFileSync(fixturePath, 'utf-8');
+      const preprocessed = barclaycardParser.preprocess(content);
+      const headers = preprocessed.split('\n')[0].split(',');
+      expect(barclaycardParser.validateHeaders(headers)).toEqual({ valid: true });
+
+      const rebate = barclaycardParser.transform(
+        {
+          'Transaction Date': '12/08/2026',
+          'Merchant Name': 'CASH BACK REBATE',
+          'Transaction Amount': '-24.0',
+        },
+        'barclaycard',
+      );
+      expect(rebate?.amount).toBe(-24);
+    });
+
     it('parses fixture file correctly', () => {
       const fixturePath = path.join(__dirname, 'fixtures', 'barclaycard-sample.csv');
       const content = fs.readFileSync(fixturePath, 'utf-8');

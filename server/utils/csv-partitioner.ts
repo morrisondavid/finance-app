@@ -15,6 +15,7 @@ import path from 'path';
 import { parse } from 'csv-parse/sync';
 import type { BankParser, CSVRow } from '../types.js';
 import { PARSERS } from '../parsers/index.js';
+import { AMOUNT_HEADER_ALIASES, getColumnValue as lookupColumn } from '../parsers/lib/column-value.js';
 
 // ============================================
 // PURE FUNCTIONS (testable without file system)
@@ -193,15 +194,11 @@ export function deduplicateRows(rows: CSVRow[], parser: BankParser): CSVRow[] {
  * @returns Column value or empty string
  */
 export function getColumnValue(row: CSVRow, columnName: string): string {
-  // Try exact match first
-  if (columnName in row) {
-    return row[columnName];
-  }
-  
-  // Try case-insensitive match
-  const lowerCol = columnName.toLowerCase();
-  const key = Object.keys(row).find(k => k.toLowerCase() === lowerCol);
-  return key ? row[key] : '';
+  const lower = columnName.toLowerCase();
+  const aliases = AMOUNT_HEADER_ALIASES.some(alias => alias.toLowerCase() === lower)
+    ? AMOUNT_HEADER_ALIASES.filter(alias => alias.toLowerCase() !== lower)
+    : [];
+  return lookupColumn(row, columnName, ...aliases);
 }
 
 /**
