@@ -7,15 +7,20 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { normalizeFileOnDisk } from '../utils/filename-normalizer.js';
-import { initDatabase } from '../db/index.js';
-import { runAutoReconcileAllEntities } from '../domain/invoices/run-auto-reconcile-all-entities.js';
+import { initDatabaseInBackground as defaultInitDatabaseInBackground } from '../db/index.js';
+import { runAutoReconcileAllEntities as defaultRunAutoReconcileAllEntities } from '../domain/invoices/run-auto-reconcile-all-entities.js';
 import type { UploadedFile, UploadResponse } from '../types.js';
 import { ACCOUNTS } from '../types.js';
 import type { AccountName } from '../types.js';
-import { durableRelPathsAfterCsvIngest, ingestCsvFile, type IngestResult } from './ingest-csv-file.js';
+import {
+  durableRelPathsAfterCsvIngest,
+  ingestCsvFile as defaultIngestCsvFile,
+  type IngestResult,
+} from './ingest-csv-file.js';
 import { REPO_ROOT } from '../repo-root.js';
-import { uploadDurableRelPathsToS3 } from '../storage/s3-durable-sync.js';
-import { recomputeAndPersistDataManifest } from '../data-manifest.js';
+import { uploadDurableRelPathsToS3 as defaultUploadDurableRelPathsToS3 } from '../storage/s3-durable-sync.js';
+import { recomputeAndPersistDataManifest as defaultRecomputeAndPersistDataManifest } from '../data-manifest.js';
+import { clearReadResponseCache as defaultClearReadResponseCache } from '../http/read-response-cache.js';
 import { PARSERS } from '../parsers/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -133,9 +138,9 @@ async function maybePublishPdfArtifacts(resultBody: AggregateUploadOkBody, accou
     paths.add(originalRel);
     paths.add(finalRel);
   }
-  recomputeAndPersistDataManifest();
+  defaultRecomputeAndPersistDataManifest();
   try {
-    await uploadDurableRelPathsToS3([...paths, 'data/manifest.json'], 'pdf-upload');
+    await defaultUploadDurableRelPathsToS3([...paths, 'data/manifest.json'], 'pdf-upload');
   } catch (err) {
     console.error('[Upload batch] S3 durable upload after PDF batch failed:', err);
   }
@@ -143,13 +148,32 @@ async function maybePublishPdfArtifacts(resultBody: AggregateUploadOkBody, accou
 
 export type StatementDiskUploadResult = { readonly status: number; readonly body: unknown };
 
+export interface StatementDiskUploadDeps {
+  readonly ingestCsvFile?: typeof defaultIngestCsvFile;
+  readonly initDatabase?: () => Promise<void>;
+  readonly runAutoReconcile?: () => void;
+  readonly uploadDurableRelPathsToS3?: typeof defaultUploadDurableRelPathsToS3;
+  readonly persistDataManifest?: () => void;
+  readonly clearReadResponseCache?: () => void;
+}
+
 /** Same semantics as `POST /api/upload/:account/:type` after multer has materialised paths. */
-export async function executeStatementDiskUpload(opts: {
-  readonly account: string;
-  readonly type: string;
-  readonly files: readonly DiskBackedUploadFileLike[];
-  readonly overwrite: boolean;
-}): Promise<StatementDiskUploadResult> {
+export async function executeStatementDiskUpload(
+  opts: {
+    readonly account: string;
+    readonly type: string;
+    readonly files: readonly DiskBackedUploadFileLike[];
+    readonly overwrite: boolean;
+  },
+  deps: StatementDiskUploadDeps = {},
+): Promise<StatementDiskUploadResult> {
+  const ingest = deps.ingestCsvFile ?? defaultIngestCsvFile;
+  const initDatabase = deps.initDatabase ?? defaultInitDatabaseInBackground;
+  const runAutoReconcile = deps.runAutoReconcile ?? defaultRunAutoReconcileAllEntities;
+  const uploadDurable = deps.uploadDurableRelPathsToS3 ?? defaultUploadDurableRelPathsToS3;
+  const persistManifest = deps.persistDataManifest ?? defaultRecomputeAndPersistDataManifest;
+  const clearReadCache = deps.clearReadResponseCache ?? defaultClearReadResponseCache;
+
   const { account, type, overwrite } = opts;
   const files = opts.files.map(f => ({
     ...f,
@@ -186,7 +210,7 @@ export async function executeStatementDiskUpload(opts: {
   const acc = account as AccountName;
 
   for (const f of files) {
-    const result: IngestResult = ingestCsvFile(acc, f.path, f.originalname, { overwrite });
+    const result: IngestResult = ingest(acc, f.path, f.originalname, { overwrite });
     if (result.outcome === 'invalid') {
       validationFailures.push({ filename: f.originalname, errors: [...result.errors] });
       continue;
@@ -214,18 +238,25 @@ export async function executeStatementDiskUpload(opts: {
 
   if (uploadedFiles.length > 0) {
     try {
-      console.log('[Upload batch] Reinitializing database after CSV upload...');
-      await initDatabase();
-      console.log('[Upload batch] Database reinitialized successfully');
-      runAutoReconcileAllEntities();
-      try {
-        await uploadDurableRelPathsToS3([...durableRelPathsTouched, 'data/manifest.json'], 'csv-upload');
-      } catch (err) {
-        console.error('[Upload batch] S3 durable upload after CSV ingest failed:', err);
-      }
+      await uploadDurable([...durableRelPathsTouched], 'csv-upload');
     } catch (err) {
-      console.error('[Upload batch] Error reinitializing database:', err);
+      console.error('[Upload batch] S3 durable upload after CSV ingest failed:', err);
     }
+
+    console.log('[Upload batch] Starting background ledger rebuild after CSV upload...');
+    void initDatabase()
+      .then(() => {
+        runAutoReconcile();
+        persistManifest();
+        return uploadDurable(['data/manifest.json'], 'csv-upload');
+      })
+      .then(() => {
+        clearReadCache();
+        console.log('[Upload batch] Database reinitialized successfully');
+      })
+      .catch((err: unknown) => {
+        console.error('[Upload batch] Background ledger rebuild failed after CSV ingest:', err);
+      });
   }
 
   if (validationFailures.length > 0) {
@@ -257,8 +288,8 @@ export async function executeStatementDiskUpload(opts: {
   const response: AggregateUploadOkBody & { readonly type?: string } = {
     message:
       partitionedFiles.length > 0
-        ? `Successfully uploaded and partitioned into ${String(partitionedFiles.length)} monthly files. Database reinitialized.`
-        : `Successfully uploaded ${String(files.length)} file(s). Database reinitialized.`,
+        ? `Successfully uploaded and partitioned into ${String(partitionedFiles.length)} monthly files. Ledger rebuild started in the background.`
+        : `Successfully uploaded ${String(files.length)} file(s). Ledger rebuild started in the background.`,
     files: uploadedFiles,
     account,
     type,

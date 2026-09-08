@@ -5,6 +5,12 @@
  * so the heavy synchronous SQLite + CSV work runs in a separate process,
  * keeping the main Node event loop free to serve HTTP requests.
  *
+ * The parent passes `BANK_STATEMENTS_DB_PATH` (and optionally
+ * `BANK_STATEMENTS_DB_SHADOW_PATH`) via the fork `env`. The child writes
+ * its rebuilt DB to the **shadow** path; the parent then atomically swaps
+ * the shadow file into the live path on success. This keeps the live DB
+ * readable for the entire rebuild window.
+ *
  * Communication protocol:
  *   - child writes `{ ok: true }` to stdout on success
  *   - child writes `{ ok: false, error, stack }` on failure
@@ -14,6 +20,8 @@
 import { initDatabase } from './index.js';
 
 async function main(): Promise<void> {
+  // The parent always sets BANK_STATEMENTS_DB_PATH to the shadow path so
+  // initDatabase() writes there instead of clobbering the live file.
   await initDatabase();
   process.stdout.write(JSON.stringify({ ok: true }) + '\n');
 }

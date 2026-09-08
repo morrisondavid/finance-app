@@ -16,6 +16,76 @@ export function resolveConnectionDbPath(): string {
   const fromEnv = process.env.BANK_STATEMENTS_DB_PATH?.trim();
   return fromEnv !== undefined && fromEnv !== '' ? fromEnv : DB_PATH;
 }
+
+/**
+ * Shadow DB path used by {@link initDatabaseInBackground} for rebuilds.
+ * The child writes a fresh DB to this path while the main process keeps
+ * serving reads from the live DB; on success the files are atomically
+ * swapped. Resolved from `BANK_STATEMENTS_DB_SHADOW_PATH` when set so
+ * tests can isolate, otherwise derived from the live path.
+ */
+export function resolveShadowDbPath(): string {
+  const fromEnv = process.env.BANK_STATEMENTS_DB_SHADOW_PATH?.trim();
+  if (fromEnv !== undefined && fromEnv !== '') return fromEnv;
+  return `${resolveConnectionDbPath()}.rebuild`;
+}
+
+/**
+ * Atomically swap a freshly-built shadow DB file into the live path.
+ * Both files must be closed (no open SQLite handles) before calling.
+ *
+ * Steps:
+ *   1. Checkpoint + delete any shadow `-wal` / `-shm` side files so the
+ *      shadow DB is a single self-contained file.
+ *   2. Rename live → `{live}.old` (preserves a one-step rollback target).
+ *   3. Rename shadow → live.
+ *   4. Delete the `.old` file and any orphan live `-wal` / `-shm`.
+ *
+ * Throws on any filesystem error. On throw the live DB is still intact
+ * at its original path (the rename to `.old` happens before the
+ * shadow rename, so a mid-swap failure leaves `.old` recoverable).
+ */
+export function swapDatabaseFile(livePath: string, shadowPath: string): void {
+  const walShadow = `${shadowPath}-wal`;
+  const shmShadow = `${shadowPath}-shm`;
+  if (fs.existsSync(walShadow)) fs.unlinkSync(walShadow);
+  if (fs.existsSync(shmShadow)) fs.unlinkSync(shmShadow);
+
+  const oldPath = `${livePath}.old`;
+  if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+
+  fs.renameSync(livePath, oldPath);
+  try {
+    fs.renameSync(shadowPath, livePath);
+  } catch (err) {
+    // Roll back: restore the previous live file before propagating.
+    try {
+      fs.renameSync(oldPath, livePath);
+    } catch {
+      // Best-effort rollback; original error is the one to surface.
+    }
+    throw err;
+  }
+
+  if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+  const walLive = `${livePath}-wal`;
+  const shmLive = `${livePath}-shm`;
+  if (fs.existsSync(walLive)) fs.unlinkSync(walLive);
+  if (fs.existsSync(shmLive)) fs.unlinkSync(shmLive);
+}
+
+/** Remove any stale shadow DB files left over from a failed or aborted rebuild. */
+export function cleanupShadowDbFiles(shadowPath: string): void {
+  for (const p of [shadowPath, `${shadowPath}-wal`, `${shadowPath}-shm`]) {
+    if (fs.existsSync(p)) {
+      try {
+        fs.unlinkSync(p);
+      } catch {
+        // Best-effort; a missing file between existsSync and unlink is fine.
+      }
+    }
+  }
+}
 export const STATEMENTS_DIR = path.join(__dirname, '../../statements');
 /** Canonical category budgets CSV lives here (see budgets-csv.ts). */
 export const BUDGETS_DIR = path.join(__dirname, '../../budgets');

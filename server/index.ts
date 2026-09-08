@@ -32,7 +32,7 @@ import versionRouter from './routes/version.js';
 import siteAuthRouter from './routes/site-auth.js';
 import { siteAccessGateMiddleware } from './auth/site-access.js';
 import { normalizeAllFiles } from './utils/filename-normalizer.js';
-import { initDatabase, closeDatabase, isDbInitializing } from './db/index.js';
+import { initDatabase, closeDatabase, isDbSwapping } from './db/index.js';
 import { runAutoReconcileAllEntities } from './domain/invoices/run-auto-reconcile-all-entities.js';
 import { startFeedSyncScheduler } from './ingestion/feeds/feed-sync-scheduler.js';
 import {
@@ -55,14 +55,15 @@ app.use(jsonBodyParserMiddleware);
 app.use(siteAccessGateMiddleware);
 app.use(readContextMiddleware);
 
-// When a background DB rebuild is running (child process), short-circuit GET
-// read endpoints with 503 + Retry-After so the frontend can retry gracefully
-// instead of hanging on a closed DB connection. POST/mutation endpoints
-// (feed sync, uploads) are allowed through.
+// During a background DB rebuild, the main process keeps serving reads
+// from the live DB. Reads are only blocked during the brief atomic swap
+// window at the end of a rebuild (milliseconds), signalled by
+// {@link isDbSwapping}. POST/mutation endpoints (feed sync, uploads) are
+// always allowed through.
 app.use((req: Request, res: Response, next) => {
-  if (req.method === 'GET' && isDbInitializing() && req.path.startsWith('/api/') && req.path !== '/api/version') {
+  if (req.method === 'GET' && isDbSwapping() && req.path.startsWith('/api/') && req.path !== '/api/version') {
     res.status(503).set('Retry-After', '10').json({
-      error: 'Database is rebuilding in the background. Please retry shortly.',
+      error: 'Database is swapping in a fresh rebuild. Please retry shortly.',
       retryAfter: 10,
     });
     return;

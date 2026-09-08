@@ -28,6 +28,10 @@ import {
   migrateObligationsIfNeeded,
   migrateObligationDismissalsIfNeeded,
   migrateDeadlinesIfNeeded,
+  resolveConnectionDbPath,
+  resolveShadowDbPath,
+  swapDatabaseFile,
+  cleanupShadowDbFiles,
 } from './connection.js';
 import {
   ensureOpeningBalancesCsvExists,
@@ -35,7 +39,7 @@ import {
   applyOpeningBalancesToDb,
 } from './opening-balances-csv.js';
 import { applyFixedExpenseExclusionsCsvToDb } from './fixed-expense-simulation-exclusions-csv.js';
-import { populateFromCSVs } from './repositories/files.js';
+import { populateFromCSVs, addTransactionsFromFile } from './repositories/files.js';
 import { shouldSkipFullDatabaseRebuild, recomputeAndPersistDataManifest } from '../data-manifest.js';
 import { detectTransfers, resetTransferClassification } from './repositories/transactions.js';
 import { loadBudgetsFromFileIntoDb } from './repositories/budgets.js';
@@ -54,6 +58,7 @@ import { loadWarningUserStateFromCsvIntoDb } from './warning-user-state-csv.js';
 import { setDurableUploadsSuppressed } from '../storage/durable-fs.js';
 import { fork } from 'child_process';
 import { fileURLToPath } from 'url';
+import type { AccountName } from '../types.js';
 
 // Re-export from connection
 export { 
@@ -66,6 +71,10 @@ export {
   OBLIGATIONS_DIR,
   DEADLINES_DIR,
   NET_WORTH_DIR,
+  resolveConnectionDbPath,
+  resolveShadowDbPath,
+  swapDatabaseFile,
+  cleanupShadowDbFiles,
 } from './connection.js';
 
 export { formatDateISO } from '../../shared/date-format.js';
@@ -187,6 +196,53 @@ function refreshDerivedLedgerState(): number {
   return transferPairs;
 }
 
+/**
+ * Incremental ledger refresh for feed sync: insert transactions from a
+ * small set of changed monthly CSV partitions into the **live** DB, then
+ * re-derive transfers + auto obligations + state matcher + manifest +
+ * net-worth snapshot. Avoids the cost of a full `initDatabase()` rebuild
+ * (which drops and reparses every CSV on disk) when only one account/month
+ * changed.
+ *
+ * Caller is responsible for ensuring the live DB connection is open and
+ * that the supplied `files` are canonical paths under `statements/...`.
+ * On any per-file error this throws — callers should fall back to a full
+ * background rebuild via {@link initDatabaseInBackground} when that
+ * happens.
+ */
+export async function refreshLedgerFromChangedCsvFiles(
+  files: ReadonlyArray<{ account: AccountName; filePath: string }>,
+): Promise<{ inserted: number; duplicates: number; transferPairs: number }> {
+  setDurableUploadsSuppressed(true);
+  try {
+    let inserted = 0;
+    let duplicates = 0;
+    for (const { account, filePath } of files) {
+      const result = await addTransactionsFromFile(filePath, account);
+      inserted += result.inserted;
+      duplicates += result.duplicates;
+    }
+
+    const transferPairs = refreshDerivedLedgerState();
+    recomputeAndPersistDataManifest();
+
+    try {
+      const nw = maybeCaptureNetWorthSnapshots();
+      if (nw.skipped) {
+        console.log(`[Database] Net-worth snapshot skipped (${nw.reason ?? 'unknown'}), period ${nw.periodKey}`);
+      } else {
+        console.log(`[Database] Net-worth snapshot captured: ${nw.rowsWritten} row(s), period ${nw.periodKey}`);
+      }
+    } catch (err) {
+      console.error('[Database] Net-worth snapshot (§3.1) failed:', err);
+    }
+
+    return { inserted, duplicates, transferPairs };
+  } finally {
+    setDurableUploadsSuppressed(false);
+  }
+}
+
 async function initDatabaseInner(): Promise<void> {
   // Validate the declared-obligations registry ownership splits early —
   // misconfigured rental shares would otherwise silently skew SA estimates.
@@ -298,21 +354,32 @@ export function closeDatabase(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Background DB rebuild via child process
+// Background DB rebuild via child process (shadow DB swap)
 // ---------------------------------------------------------------------------
 
 let dbInitializing = false;
+let dbSwapping = false;
 
 /** True while a background `initDatabase()` child process is running. */
 export function isDbInitializing(): boolean {
   return dbInitializing;
 }
 
+/** True only during the brief atomic swap window at the end of a rebuild. */
+export function isDbSwapping(): boolean {
+  return dbSwapping;
+}
+
 /**
  * Run `initDatabase()` in a separate child process so the main Node event
- * loop stays free to serve HTTP requests. Sets {@link isDbInitializing} to
- * `true` for the duration; resolves when the child exits successfully,
- * then reopens the DB connection in the main process.
+ * loop stays free to serve HTTP requests.
+ *
+ * The child writes its rebuilt DB to a **shadow path** while the main
+ * process keeps serving reads from the live DB. On success the shadow
+ * file is atomically swapped into the live path — a millisecond window
+ * during which reads are blocked via {@link isDbSwapping}. This is a
+ * dramatic improvement over the previous behaviour, which closed the
+ * live connection for the entire ~4-minute rebuild.
  *
  * Falls back to inline `initDatabase()` when `BANK_STATEMENTS_DB_INIT_BACKGROUND`
  * is set to `0` or `false` (tests, local dev).
@@ -331,14 +398,25 @@ export async function initDatabaseInBackground(): Promise<void> {
     return;
   }
 
+  const livePath = resolveConnectionDbPath();
+  const shadowPath = resolveShadowDbPath();
+
   dbInitializing = true;
   try {
-    closeConnection();
+    // Clean any stale shadow files from a previous failed rebuild so the
+    // child starts with a clean slate.
+    cleanupShadowDbFiles(shadowPath);
+
     await new Promise<void>((resolve, reject) => {
       const workerPath = fileURLToPath(new URL('init-worker.ts', import.meta.url));
       const child = fork(workerPath, [], {
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
-        env: { ...process.env, BANK_STATEMENTS_SKIP_INIT_WHEN_MANIFEST_UNCHANGED: '0' },
+        env: {
+          ...process.env,
+          // Child must write to the shadow path, NOT the live path.
+          BANK_STATEMENTS_DB_PATH: shadowPath,
+          BANK_STATEMENTS_SKIP_INIT_WHEN_MANIFEST_UNCHANGED: '0',
+        },
       });
 
       let stdoutBuffer = '';
@@ -369,7 +447,28 @@ export async function initDatabaseInBackground(): Promise<void> {
       });
     });
 
-    initConnection();
+    // Brief atomic swap: close live, rename shadow → live, reopen.
+    dbSwapping = true;
+    try {
+      closeConnection();
+      swapDatabaseFile(livePath, shadowPath);
+      initConnection();
+    } finally {
+      dbSwapping = false;
+    }
+  } catch (err) {
+    // Rebuild or swap failed — leave the live DB untouched and make sure
+    // no shadow files linger on disk.
+    console.error('[Database] Background rebuild failed; live DB unchanged:', err);
+    cleanupShadowDbFiles(shadowPath);
+    // Reopen the live connection in case closeConnection() ran before the
+    // swap threw — without this, getDb() would throw on the next read.
+    try {
+      initConnection();
+    } catch (reopenErr) {
+      console.error('[Database] Failed to reopen live connection after failed rebuild:', reopenErr);
+    }
+    throw err;
   } finally {
     dbInitializing = false;
   }
