@@ -18,7 +18,7 @@ import { getFinancialYearForDate, getFinancialYearRange } from '../db/utils/fina
 const EntityIdOptionalSchema = z.enum(['autonize-it-ltd', 'autonize-it-fzco']).optional();
 
 const AccountantReadinessSnapshotSchema = z.object({
-  regime: z.enum(['vat', 'corporation_tax', 'sa', 'all']).optional(),
+  regime: z.enum(['vat', 'corporation_tax', 'date_range', 'sa', 'all']).optional(),
   period_label: z.string().min(3),
   entityId: EntityIdOptionalSchema,
   deadline_horizon_days: z.coerce.number().int().positive().max(3660).optional(),
@@ -60,6 +60,7 @@ function resolveReportingRegime(
   pack: AccountantPackKind,
 ): ReportingRegime | null {
   if (regime === 'sa' || regime === 'all') return null;
+  if (regime === 'date_range') return 'date_range';
   if (regime === 'corporation_tax' || pack === 'corp_tax') return 'corporation_tax';
   return 'vat';
 }
@@ -80,11 +81,11 @@ function readinessNotConfiguredStructured(
     present: [] as const,
     missing: [{ code: 'manifest-not-implemented' }] as const,
     recommended_next_steps: [
-      'Regime must be vat or corporation_tax for readiness checks.',
+      'Regime must be vat, corporation_tax, or date_range for readiness checks.',
       'Use existing statements + reporting readiness API for manual prep.',
     ],
     message:
-      'Readiness snapshot supports vat and corporation_tax only. SA and all are not configured.',
+      'Readiness snapshot supports vat, corporation_tax, and date_range only. SA and all are not configured.',
   };
 }
 
@@ -182,24 +183,31 @@ function accountantReadinessEnvelope(args: unknown) {
   }
   const entityId = resolveEntityId(parsed.data.entityId);
   const regime = resolveReportingRegime(parsed.data.regime, 'vat');
-  const structuredContent =
-    regime === null
-      ? readinessNotConfiguredStructured(
-          parsed.data.regime,
-          parsed.data.period_label,
-          parsed.data.deadline_horizon_days,
-          entityId,
-        )
-      : buildReadinessStructured(
-          entityId,
-          regime,
-          parsed.data.period_label,
-          parsed.data.deadline_horizon_days,
-        );
-  return {
-    content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
-    structuredContent,
-  };
+  try {
+    const structuredContent =
+      regime === null
+        ? readinessNotConfiguredStructured(
+            parsed.data.regime,
+            parsed.data.period_label,
+            parsed.data.deadline_horizon_days,
+            entityId,
+          )
+        : buildReadinessStructured(
+            entityId,
+            regime,
+            parsed.data.period_label,
+            parsed.data.deadline_horizon_days,
+          );
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(structuredContent, null, 2) }],
+      structuredContent,
+    };
+  } catch (e) {
+    return errorEnvelope(
+      'accountant-readiness-invalid-period',
+      e instanceof Error ? e.message : 'Invalid period',
+    );
+  }
 }
 
 function invalidParamsEnvelope(error: z.ZodError) {
@@ -381,7 +389,7 @@ export function registerAccountantPackMcpTools(server: McpServer): void {
     'accountant_readiness_snapshot',
     {
       description:
-        'Readiness report for accountant hand-offs: present/missing statement docs and sales-invoice PDFs per entity+regime+period (no ZIP, no email).',
+        'Readiness report for accountant hand-offs: present/missing statement docs and sales-invoice PDFs per entity+regime+period (no ZIP, no email). For a date range use regime `date_range` and period_label `YYYY-MM_YYYY-MM` (e.g. `2025-01_2026-02`).',
       inputSchema: AccountantReadinessSnapshotSchema.shape,
     },
     raw => accountantReadinessEnvelope(raw ?? {}),

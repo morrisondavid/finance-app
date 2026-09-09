@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Invoice } from '../../../shared/api-contracts.js';
 import { computeReportingReadiness } from './readiness.js';
+import { resolveReportingPeriod } from './period.js';
 
 function allMonthsForUkLtdVatQ2(): (account: string, docType: 'pdf' | 'csv') => Set<string> {
   const keys = new Set(['2025-02', '2025-03', '2025-04']);
@@ -107,6 +108,35 @@ describe('computeReportingReadiness', () => {
     );
     expect(result.ready).toBe(false);
     expect(result.invoices.missingInvoiceNumbers).toContain('DC-011');
+  });
+
+  it('flags missing month in a date range the same way as CT', () => {
+    const allMonths = resolveReportingPeriod('date_range', '2025-01_2026-02').monthKeys;
+    const result = computeReportingReadiness(
+      { entityId: 'autonize-it-ltd', regime: 'date_range', periodLabel: '2025-01_2026-02' },
+      {
+        monthsOnDisk: (account, docType) => {
+          if (account === 'barclays-current' && docType === 'csv') {
+            return new Set(allMonths.filter(key => key !== '2026-02'));
+          }
+          return new Set(allMonths);
+        },
+        invoicesForEntity: () => [],
+        hasTransactionsInMonth: () => true,
+      },
+    );
+    expect(result.regime).toBe('date_range');
+    expect(result.periodStartDate).toBe('2025-01-01');
+    expect(result.periodEndDate).toBe('2026-02-28');
+    expect(result.ready).toBe(false);
+    expect(
+      result.missing.some(
+        m =>
+          m.account === 'barclays-current' &&
+          m.docType === 'csv' &&
+          m.monthKey === '2026-02',
+      ),
+    ).toBe(true);
   });
 
   it('does not flag Wise for months before bankOpenedDate in a VAT quarter', () => {

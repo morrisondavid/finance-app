@@ -36,6 +36,38 @@ describe('resolveReportingPeriod', () => {
       /Invalid corporation tax period/,
     );
   });
+
+  it('resolves date range Jan 2025–Feb 2026 to 14 month keys', () => {
+    const period = resolveReportingPeriod('date_range', '2025-01_2026-02');
+    expect(period.monthKeys).toHaveLength(14);
+    expect(period.monthKeys[0]).toBe('2025-01');
+    expect(period.monthKeys[13]).toBe('2026-02');
+    expect(period.startDate).toBe('2025-01-01');
+    expect(period.endDate).toBe('2026-02-28');
+    expect(period.label).toBe('2025-01_2026-02');
+    expect(period.regime).toBe('date_range');
+  });
+
+  it('throws on inverted date range', () => {
+    expect(() => resolveReportingPeriod('date_range', '2026-02_2025-01')).toThrow(
+      /start after end/,
+    );
+  });
+
+  it('throws when date range exceeds 24 months', () => {
+    expect(() => resolveReportingPeriod('date_range', '2024-01_2026-02')).toThrow(
+      /24-month limit/,
+    );
+  });
+
+  it('throws on invalid date range label', () => {
+    expect(() => resolveReportingPeriod('date_range', '2025-01')).toThrow(
+      /Invalid date range period/,
+    );
+    expect(() => resolveReportingPeriod('date_range', '2025-13_2026-02')).toThrow(
+      /Invalid date range period/,
+    );
+  });
 });
 
 describe('vatQuarterLabel', () => {

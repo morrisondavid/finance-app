@@ -14,6 +14,12 @@ describe('getReportingManifest', () => {
     expect(manifest.graceDays).toBe(7);
   });
 
+  it('UK Ltd date range requires invoices like VAT and CT', () => {
+    const manifest = getReportingManifest('autonize-it-ltd', 'date_range');
+    expect(manifest.requiresInvoices).toBe(true);
+    expect(manifest.accounts).toHaveLength(5);
+  });
+
   it('FZCO requires 3 Emirates accounts and no invoices', () => {
     const manifest = getReportingManifest('autonize-it-fzco', 'vat');
     expect(manifest.accounts).toHaveLength(3);

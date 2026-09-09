@@ -20,7 +20,7 @@ export function readReportingReadiness(raw: ReportingReadinessQueryRaw): JsonRea
 
   const regimeParsed = ReportingRegimeSchema.safeParse(raw.regime);
   if (!regimeParsed.success) {
-    return jsonReadFail(400, { error: 'regime must be vat or corporation_tax' });
+    return jsonReadFail(400, { error: 'regime must be vat, corporation_tax, or date_range' });
   }
 
   if (typeof raw.period !== 'string' || raw.period.trim() === '') {

@@ -55,4 +55,30 @@ describe('/api/reporting routes', () => {
     expect(parsed.regime).toBe('vat');
     expect(parsed.periodLabel).toBe('Q2-2025');
   });
+
+  it('GET /readiness accepts date_range', async () => {
+    const q = new URLSearchParams({
+      entityId: 'autonize-it-ltd',
+      regime: 'date_range',
+      period: '2025-01_2025-02',
+    });
+    const resp = await fetch(`${baseUrl}/api/reporting/readiness?${q}`);
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    const parsed = ReportingReadinessResponseSchema.parse(body);
+    expect(parsed.regime).toBe('date_range');
+    expect(parsed.periodLabel).toBe('2025-01_2025-02');
+    expect(parsed.periodStartDate).toBe('2025-01-01');
+    expect(parsed.periodEndDate).toBe('2025-02-28');
+  });
+
+  it('GET /readiness returns 400 for an invalid date_range period', async () => {
+    const q = new URLSearchParams({
+      entityId: 'autonize-it-ltd',
+      regime: 'date_range',
+      period: '2025-01',
+    });
+    const resp = await fetch(`${baseUrl}/api/reporting/readiness?${q}`);
+    expect(resp.status).toBe(400);
+  });
 });

@@ -17,7 +17,8 @@ export interface FinancialYearReadinessArgs {
 }
 
 function describePeriod(r: ReportingReadinessResponse): string {
-  const regimeName = r.regime === 'vat' ? 'VAT' : 'Corporation Tax';
+  const regimeName =
+    r.regime === 'vat' ? 'VAT' : r.regime === 'corporation_tax' ? 'Corporation Tax' : 'Date range';
   const summary = formatMissingReadinessSummary(r.missing, r.invoices.missingInvoiceNumbers);
   return `${regimeName} ${r.periodLabel}: ${summary}`;
 }

@@ -20,6 +20,7 @@ const ENTITY_LABELS: Record<string, string> = {
 const REGIME_LABELS: Record<ReportingRegime, string> = {
   vat: 'VAT',
   corporation_tax: 'Corporation Tax',
+  date_range: 'Date range',
 };
 
 function escapeHtml(text: string): string {
@@ -233,23 +234,61 @@ function statusFromReadiness(readiness: ReportingReadinessResponse): string {
   return `Not ready — ${parts.join(' + ')} missing`;
 }
 
+function selectedDateRangePeriod(): string | null {
+  const fromInput = document.getElementById('reporting-date-from') as HTMLInputElement | null;
+  const toInput = document.getElementById('reporting-date-to') as HTMLInputElement | null;
+  const from = fromInput?.value ?? '';
+  const to = toInput?.value ?? '';
+  if (!from || !to) return null;
+  if (from > to) return null;
+  return `${from}_${to}`;
+}
+
+function selectedPackPeriod(regime: string): string | null {
+  if (regime === 'date_range') {
+    return selectedDateRangePeriod();
+  }
+  const periodSelect = document.getElementById('reporting-period') as HTMLSelectElement | null;
+  const period = periodSelect?.value ?? '';
+  return period === '' ? null : period;
+}
+
 async function refreshReadinessPanel(): Promise<void> {
   const entitySelect = document.getElementById('reporting-entity') as HTMLSelectElement | null;
   const regimeSelect = document.getElementById('reporting-regime') as HTMLSelectElement | null;
-  const periodSelect = document.getElementById('reporting-period') as HTMLSelectElement | null;
   const panel = document.getElementById('reporting-readiness-panel');
 
-  if (!entitySelect || !regimeSelect || !periodSelect || !panel) return;
+  if (!entitySelect || !regimeSelect || !panel) return;
 
   const entityId = entitySelect.value;
   const regime = regimeSelect.value;
-  const period = periodSelect.value;
+  const period = selectedPackPeriod(regime);
+  const fromInput = document.getElementById('reporting-date-from') as HTMLInputElement | null;
+  const toInput = document.getElementById('reporting-date-to') as HTMLInputElement | null;
+  const invertedRange =
+    regime === 'date_range' &&
+    Boolean(fromInput?.value) &&
+    Boolean(toInput?.value) &&
+    (fromInput?.value ?? '') > (toInput?.value ?? '');
 
   if (!entityId || !regime || !period) {
     setDownloadEnabled(false);
-    setAccountantStatus('Select entity, regime, and period');
-    panel.innerHTML =
-      '<p class="reporting-readiness-hint">Select entity, regime, and period above to check readiness.</p>';
+    if (invertedRange) {
+      setAccountantStatus('From month must be before To month');
+      panel.innerHTML =
+        '<p class="reporting-readiness-error">From month must be on or before To month.</p>';
+      return;
+    }
+    const hint =
+      regime === 'date_range'
+        ? 'Select entity and a from/to date range above to check readiness.'
+        : 'Select entity, regime, and period above to check readiness.';
+    setAccountantStatus(
+      regime === 'date_range'
+        ? 'Select entity and a from/to date range'
+        : 'Select entity, regime, and period',
+    );
+    panel.innerHTML = `<p class="reporting-readiness-hint">${hint}</p>`;
     return;
   }
 
@@ -274,11 +313,20 @@ async function refreshReadinessPanel(): Promise<void> {
 function syncPeriodOptions(): void {
   const regimeSelect = document.getElementById('reporting-regime') as HTMLSelectElement | null;
   const periodSelect = document.getElementById('reporting-period') as HTMLSelectElement | null;
+  const dateRangeEl = document.getElementById('reporting-date-range');
 
   if (!regimeSelect || !periodSelect) return;
 
   const regime = regimeSelect.value;
   const previous = periodSelect.value;
+  const isDateRange = regime === 'date_range';
+
+  periodSelect.hidden = isDateRange;
+  if (dateRangeEl) dateRangeEl.hidden = !isDateRange;
+
+  if (isDateRange) {
+    return;
+  }
 
   if (regime === 'vat') {
     periodSelect.innerHTML =
@@ -302,6 +350,8 @@ export function initReportingReadiness(): void {
   const entitySelect = document.getElementById('reporting-entity');
   const regimeSelect = document.getElementById('reporting-regime');
   const periodSelect = document.getElementById('reporting-period');
+  const fromInput = document.getElementById('reporting-date-from');
+  const toInput = document.getElementById('reporting-date-to');
 
   if (!entitySelect || !regimeSelect || !periodSelect) return;
 
@@ -313,12 +363,14 @@ export function initReportingReadiness(): void {
     void refreshReadinessPanel();
   });
   periodSelect.addEventListener('change', () => void refreshReadinessPanel());
+  fromInput?.addEventListener('change', () => void refreshReadinessPanel());
+  toInput?.addEventListener('change', () => void refreshReadinessPanel());
 
   const downloadBtn = document.getElementById('download-accountant-btn');
   downloadBtn?.addEventListener('click', () => {
     const entityId = (document.getElementById('reporting-entity') as HTMLSelectElement).value;
     const regime = (document.getElementById('reporting-regime') as HTMLSelectElement).value;
-    const period = (document.getElementById('reporting-period') as HTMLSelectElement).value;
+    const period = selectedPackPeriod(regime);
     if (!entityId || !regime || !period) return;
     downloadForAccountant({ entityId, regime, period });
   });

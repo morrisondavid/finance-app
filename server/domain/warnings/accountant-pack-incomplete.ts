@@ -25,6 +25,7 @@ function addGraceDays(periodEndDate: string, graceDays: number): string {
 const REGIME_DISPLAY: Record<ReportingRegime, string> = {
   vat: 'VAT',
   corporation_tax: 'Corporation Tax',
+  date_range: 'Date range',
 };
 
 export function deriveAccountantPackIncompleteWarnings(
@@ -34,6 +35,9 @@ export function deriveAccountantPackIncompleteWarnings(
 
   for (const input of inputs) {
     const { readiness, graceDays, today, entityId, regime, periodLabel } = input;
+    if (regime === 'date_range') {
+      continue;
+    }
     const fireAfter = addGraceDays(readiness.periodEndDate, graceDays);
     if (today <= fireAfter || readiness.ready) {
       continue;

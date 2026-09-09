@@ -116,4 +116,23 @@ describe('deriveAccountantPackIncompleteWarnings', () => {
     ]);
     expect(warnings[0].code).toBe('accountant-pack-incomplete-ct');
   });
+
+  it('does not emit a filing warning for date_range', () => {
+    const warnings = deriveAccountantPackIncompleteWarnings([
+      {
+        entityId: 'autonize-it-ltd',
+        regime: 'date_range',
+        periodLabel: '2025-01_2026-02',
+        readiness: makeReadiness({
+          regime: 'date_range',
+          periodLabel: '2025-01_2026-02',
+          periodStartDate: '2025-01-01',
+          periodEndDate: '2026-02-28',
+        }),
+        graceDays: 7,
+        today: '2026-04-01',
+      },
+    ]);
+    expect(warnings).toHaveLength(0);
+  });
 });

@@ -106,6 +106,13 @@ export function formatFinancialYearPackName(fyLabel: string): string {
   return `CorporationTax-FY-${m[1]}-${m[2]}`;
 }
 
+/** Date-range pack ZIP name. @example "2025-01_2026-02" => "DateRange-2025-01-to-2026-02" */
+export function formatDateRangePackName(periodLabel: string): string {
+  const m = periodLabel.trim().match(/^(\d{4}-\d{2})_(\d{4}-\d{2})$/);
+  if (!m) return `DateRange-${periodLabel}`;
+  return `DateRange-${m[1]}-to-${m[2]}`;
+}
+
 export function formatIsoDateUkLong(isoDate: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
   if (!m) return isoDate;

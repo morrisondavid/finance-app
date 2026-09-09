@@ -8,6 +8,7 @@ import {
   formatIsoDateUkLong,
   formatQuarterName,
   formatFinancialYearPackName,
+  formatDateRangePackName,
   formatReportingMissingDocLabel,
 } from './formatting.js';
 
@@ -125,6 +126,16 @@ describe('formatFinancialYearPackName', () => {
 
   it('returns passthrough for invalid label', () => {
     expect(formatFinancialYearPackName('bad')).toBe('CorporationTax-FY-bad');
+  });
+});
+
+describe('formatDateRangePackName', () => {
+  it('formats YYYY-MM_YYYY-MM', () => {
+    expect(formatDateRangePackName('2025-01_2026-02')).toBe('DateRange-2025-01-to-2026-02');
+  });
+
+  it('returns passthrough for invalid label', () => {
+    expect(formatDateRangePackName('bad')).toBe('DateRange-bad');
   });
 });
 

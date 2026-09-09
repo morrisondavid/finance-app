@@ -10,7 +10,11 @@ import { invoiceStoredPdfAbsolutePath } from '../domain/invoices/stored-pdf.js';
 import { resolveReportingPeriod } from '../domain/reporting/index.js';
 import { EntityIdSchema, ReportingRegimeSchema } from '../../shared/api-contracts.js';
 import type { ReportingRegime } from '../../shared/api-contracts.js';
-import { formatFinancialYearPackName, formatQuarterName } from '../../shared/formatting.js';
+import {
+  formatDateRangePackName,
+  formatFinancialYearPackName,
+  formatQuarterName,
+} from '../../shared/formatting.js';
 import {
   INVOICES_UPLOAD_DIR as INVOICES_DIR,
   STATEMENTS_DIR,
@@ -176,7 +180,7 @@ router.get('/check-quarter', (req: Request<object, CheckQuarterResponse, object,
   sendJsonRead(res, readStatementsQuarterCheck(quarter));
 });
 
-// GET /api/statements/download-for-accountant - VAT quarter or CT financial year pack
+// GET /api/statements/download-for-accountant - VAT quarter, CT financial year, or date-range pack
 router.get('/download-for-accountant', (req: Request<object, unknown, object, AccountantPackQuery>, res: Response) => {
   const regimeRaw = typeof req.query.regime === 'string' ? req.query.regime : 'vat';
   const regimeParsed = ReportingRegimeSchema.safeParse(regimeRaw);
@@ -279,7 +283,9 @@ router.get('/download-for-accountant', (req: Request<object, unknown, object, Ac
   const zipName =
     regime === 'vat'
       ? `${formatQuarterName(periodLabel)}.zip`
-      : `${formatFinancialYearPackName(periodLabel)}.zip`;
+      : regime === 'corporation_tax'
+        ? `${formatFinancialYearPackName(periodLabel)}.zip`
+        : `${formatDateRangePackName(periodLabel)}.zip`;
   
   // Set response headers for ZIP download
   res.setHeader('Content-Type', 'application/zip');

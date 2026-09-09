@@ -80,6 +80,59 @@ function resolveCtPeriod(periodLabel: string): ReportingPeriod {
   };
 }
 
+const DATE_RANGE_LABEL = /^(\d{4}-\d{2})_(\d{4}-\d{2})$/;
+const MAX_DATE_RANGE_MONTHS = 24;
+
+function isValidMonthKey(monthKey: string): boolean {
+  const match = /^(\d{4})-(\d{2})$/.exec(monthKey);
+  if (!match) return false;
+  const month = Number(match[2]);
+  return month >= 1 && month <= 12;
+}
+
+function listMonthKeysInclusive(fromMonthKey: string, toMonthKey: string): string[] {
+  const keys: string[] = [];
+  const [startYear, startMonth] = fromMonthKey.split('-').map(Number);
+  let year = startYear;
+  let month = startMonth;
+  let key = `${year}-${String(month).padStart(2, '0')}`;
+  while (key <= toMonthKey) {
+    keys.push(key);
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+    key = `${year}-${String(month).padStart(2, '0')}`;
+  }
+  return keys;
+}
+
+function resolveDateRangePeriod(periodLabel: string): ReportingPeriod {
+  const match = DATE_RANGE_LABEL.exec(periodLabel);
+  if (!match || !isValidMonthKey(match[1]) || !isValidMonthKey(match[2])) {
+    throw new Error(`Invalid date range period label: ${periodLabel}`);
+  }
+  const fromMonthKey = match[1];
+  const toMonthKey = match[2];
+  if (fromMonthKey > toMonthKey) {
+    throw new Error(`Invalid date range: start after end (${periodLabel})`);
+  }
+  const monthKeys = listMonthKeysInclusive(fromMonthKey, toMonthKey);
+  if (monthKeys.length > MAX_DATE_RANGE_MONTHS) {
+    throw new Error(
+      `Invalid date range: ${monthKeys.length} months exceeds the ${MAX_DATE_RANGE_MONTHS}-month limit`,
+    );
+  }
+  return {
+    regime: 'date_range',
+    label: periodLabel,
+    monthKeys,
+    startDate: `${fromMonthKey}-01`,
+    endDate: lastDayOfMonthKey(toMonthKey),
+  };
+}
+
 export function resolveReportingPeriod(
   regime: ReportingRegime,
   periodLabel: string,
@@ -88,7 +141,10 @@ export function resolveReportingPeriod(
   if (regime === 'vat') {
     return resolveVatPeriod(trimmed);
   }
-  return resolveCtPeriod(trimmed);
+  if (regime === 'corporation_tax') {
+    return resolveCtPeriod(trimmed);
+  }
+  return resolveDateRangePeriod(trimmed);
 }
 
 export interface VatQuarterDescriptor {

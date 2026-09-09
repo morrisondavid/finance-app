@@ -1224,10 +1224,19 @@
           <select id="reporting-regime">
             <option value="vat">VAT (quarter)</option>
             <option value="corporation_tax">Corporation Tax (full year)</option>
+            <option value="date_range">Date range</option>
           </select>
-          <select id="reporting-period">
-            <option value="">Select period</option>
-          </select>
+          <div class="accountant-period-slot">
+            <select id="reporting-period">
+              <option value="">Select period</option>
+            </select>
+            <div id="reporting-date-range" class="reporting-date-range" hidden>
+              <label class="reporting-date-range-label" for="reporting-date-from">From</label>
+              <input type="month" id="reporting-date-from" />
+              <label class="reporting-date-range-label" for="reporting-date-to">To</label>
+              <input type="month" id="reporting-date-to" />
+            </div>
+          </div>
           <button id="download-accountant-btn" class="btn btn-primary btn-accountant" disabled>
             Download for Accountant
           </button>

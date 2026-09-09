@@ -218,6 +218,39 @@ describe('outcome MCP — income composition + posture + accountant readiness', 
     });
   });
 
+  it('accountant_readiness_snapshot rejects an invalid date_range period', () => {
+    const r = runAccountantReadinessSnapshotMcpTool({
+      period_label: '2025-01',
+      regime: 'date_range',
+      entityId: 'autonize-it-ltd',
+    });
+    expect(r.isError).toBe(true);
+    expect(r.structuredContent).toMatchObject({
+      ok: false,
+      code: 'accountant-readiness-invalid-period',
+    });
+  });
+
+  it('accountant_readiness_snapshot returns real present/missing for a date range', () => {
+    const r = runAccountantReadinessSnapshotMcpTool({
+      period_label: '2025-01_2026-02',
+      regime: 'date_range',
+      entityId: 'autonize-it-ltd',
+    });
+    expect(r.isError).toBeUndefined();
+    const sc = r.structuredContent;
+    expect(sc).toBeDefined();
+    if (!sc) return;
+    expect(sc).toMatchObject({
+      regime: 'date_range',
+      period_label: '2025-01_2026-02',
+    });
+    expect(sc).toHaveProperty('present');
+    expect(sc).toHaveProperty('missing');
+    expect(sc).toHaveProperty('recommended_next_steps');
+    expect('code' in sc && sc.code === 'accountant-readiness-not-configured').toBe(false);
+  });
+
   it('accountant_readiness_snapshot returns real present/missing for VAT', () => {
     const r = runAccountantReadinessSnapshotMcpTool({
       period_label: 'Q2-2025',
@@ -231,6 +264,7 @@ describe('outcome MCP — income composition + posture + accountant readiness', 
     expect(sc).toHaveProperty('present');
     expect(sc).toHaveProperty('missing');
     expect(sc).toHaveProperty('recommended_next_steps');
+    if (!('present' in sc) || !('missing' in sc)) return;
     expect(Array.isArray(sc.present)).toBe(true);
     expect(Array.isArray(sc.missing)).toBe(true);
     expect('code' in sc && sc.code === 'accountant-readiness-not-configured').toBe(false);

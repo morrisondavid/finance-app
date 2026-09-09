@@ -3607,7 +3607,7 @@ export type SupplierMonthGapsResponse = z.infer<
 export const WarningSeveritySchema = z.enum(['info', 'warn', 'critical']);
 export type WarningSeverity = z.infer<typeof WarningSeveritySchema>;
 
-export const ReportingRegimeSchema = z.enum(['vat', 'corporation_tax']);
+export const ReportingRegimeSchema = z.enum(['vat', 'corporation_tax', 'date_range']);
 export type ReportingRegime = z.infer<typeof ReportingRegimeSchema>;
 
 export const ReportingDocTypeSchema = z.enum(['pdf', 'csv']);

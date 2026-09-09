@@ -1440,9 +1440,8 @@ body {
 /* Accountant Export Bar */
 .accountant-export-bar {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
   gap: 12px;
   padding: 16px 20px;
   background: linear-gradient(135deg, var(--color-primary) 0%, #1e40af 100%);
@@ -1451,15 +1450,23 @@ body {
   box-shadow: var(--shadow-md);
 }
 
+.accountant-export-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .accountant-export-controls {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
+  width: 100%;
 }
 
-.accountant-export-controls select {
-  min-width: 10rem;
+.accountant-export-controls select,
+.accountant-export-controls input[type="month"] {
+  box-sizing: border-box;
   padding: 8px 10px;
   border-radius: var(--radius);
   border: 1px solid rgba(255, 255, 255, 0.35);
@@ -1467,10 +1474,41 @@ body {
   font-size: 0.875rem;
 }
 
-.accountant-export-info {
+#reporting-entity,
+#reporting-regime {
+  width: 14.5rem;
+  flex: 0 0 14.5rem;
+}
+
+.accountant-period-slot {
+  position: relative;
+  flex: 0 0 28rem;
+  width: 28rem;
+  min-height: 2.375rem;
+}
+
+#reporting-period {
+  width: 100%;
+}
+
+.reporting-date-range:not([hidden]) {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  width: 100%;
+}
+
+.reporting-date-range input[type="month"] {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+}
+
+.reporting-date-range-label {
+  flex: 0 0 auto;
+  font-size: 0.8125rem;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .accountant-label {

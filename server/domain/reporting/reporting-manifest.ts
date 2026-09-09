@@ -28,7 +28,7 @@ export function getReportingManifest(
   }
   const requiresInvoices =
     entityId === 'autonize-it-ltd' &&
-    (regime === 'vat' || regime === 'corporation_tax');
+    (regime === 'vat' || regime === 'corporation_tax' || regime === 'date_range');
 
   return {
     entityId,
